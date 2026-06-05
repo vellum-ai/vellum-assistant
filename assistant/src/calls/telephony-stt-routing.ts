@@ -1,59 +1,28 @@
 /**
  * Telephony STT routing resolver.
  *
- * Maps the `services.stt.provider` value to a discriminated telephony
- * setup strategy that downstream TwiML generation and media-stream
- * adapters can consume without re-deriving provider semantics.
+ * Maps the `services.stt.provider` value to a telephony setup strategy that
+ * downstream TwiML generation and media-stream adapters can consume without
+ * re-deriving provider semantics.
  *
- * Two strategy variants exist:
+ * A single strategy variant exists:
  *
- * - **`conversation-relay-native`** — the STT provider is natively
- *   supported by Twilio ConversationRelay. TwiML includes
- *   `transcriptionProvider` / `speechModel` attributes and Twilio
- *   handles audio ingestion. Used for `deepgram` and `google-gemini`.
+ * - **`media-stream-custom`** — a `<Stream>` media-stream is opened and the
+ *   daemon transcribes audio server-side via the provider's STT pipeline.
+ *   Every STT provider routes through this path.
  *
- * - **`media-stream-custom`** — the STT provider is not natively
- *   supported by Twilio. A `<Stream>` media-stream is opened instead
- *   and the daemon transcribes audio server-side via the provider's
- *   batch API. Used for `openai-whisper` and `xai`.
- *
- * Strategy selection and model normalization are driven entirely by
- * the provider catalog's `telephonyRouting` metadata — this module
- * contains no hardcoded provider-to-Twilio maps.
+ * Strategy selection is driven entirely by the provider catalog's
+ * `telephonyRouting` metadata — this module contains no hardcoded
+ * provider-to-Twilio maps.
  */
 
 import { getConfig } from "../config/loader.js";
-import {
-  getProviderEntry,
-  type TwilioNativeProvider,
-} from "../providers/speech-to-text/provider-catalog.js";
+import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import type { SttProviderId } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Strategy types
 // ---------------------------------------------------------------------------
-
-/**
- * Twilio-native ConversationRelay transcription provider name.
- *
- * Re-exported from the provider catalog for downstream consumers that
- * reference the strategy types without importing the catalog directly.
- */
-export type TwilioNativeTranscriptionProvider = TwilioNativeProvider;
-
-/**
- * The configured STT provider maps to a Twilio-native
- * ConversationRelay transcription path.
- */
-export interface ConversationRelayNativeStrategy {
-  readonly strategy: "conversation-relay-native";
-  /** Provider ID from `services.stt.provider`. */
-  readonly providerId: SttProviderId;
-  /** Twilio-native provider name for the TwiML attribute. */
-  readonly transcriptionProvider: TwilioNativeTranscriptionProvider;
-  /** ASR model identifier, or undefined to use the provider default. */
-  readonly speechModel: string | undefined;
-}
 
 /**
  * The configured STT provider requires a media-stream for custom
@@ -66,11 +35,10 @@ export interface MediaStreamCustomStrategy {
 }
 
 /**
- * Discriminated union of telephony setup strategies.
+ * Telephony setup strategy. A single variant, expressed as a named type so
+ * additional strategies can extend it into a discriminated union.
  */
-export type TelephonySttStrategy =
-  | ConversationRelayNativeStrategy
-  | MediaStreamCustomStrategy;
+export type TelephonySttStrategy = MediaStreamCustomStrategy;
 
 /**
  * Result of resolving a telephony STT routing decision.
@@ -117,33 +85,7 @@ export function resolveTelephonySttRouting(): TelephonySttRoutingResult {
     };
   }
 
-  const { telephonyRouting } = entry;
-
-  // Derive strategy from catalog routing metadata.
-  if (telephonyRouting.strategyKind === "conversation-relay-native") {
-    const mapping = telephonyRouting.twilioNativeMapping;
-
-    // Defensive: conversation-relay-native entries must have a mapping.
-    if (!mapping) {
-      return {
-        status: "unknown-provider",
-        providerId: entry.id,
-        reason: `Provider "${entry.id}" declares conversation-relay-native strategy but has no twilioNativeMapping`,
-      };
-    }
-
-    return {
-      status: "resolved",
-      strategy: {
-        strategy: "conversation-relay-native",
-        providerId: entry.id,
-        transcriptionProvider: mapping.provider,
-        speechModel: mapping.defaultSpeechModel,
-      },
-    };
-  }
-
-  // media-stream-custom path.
+  // Every provider routes through the media-stream custom path.
   return {
     status: "resolved",
     strategy: {

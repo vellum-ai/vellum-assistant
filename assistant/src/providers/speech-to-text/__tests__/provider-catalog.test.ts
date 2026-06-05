@@ -140,64 +140,34 @@ describe("STT provider catalog", () => {
   // Telephony routing metadata
   // -----------------------------------------------------------------------
 
-  test("every entry has telephonyRouting metadata", () => {
+  test("every entry has media-stream-custom telephonyRouting metadata", () => {
     for (const entry of listProviderEntries()) {
       expect(entry.telephonyRouting).toBeDefined();
-      expect(["conversation-relay-native", "media-stream-custom"]).toContain(
-        entry.telephonyRouting.strategyKind,
+      expect(entry.telephonyRouting.strategyKind).toBe("media-stream-custom");
+    }
+  });
+
+  test("no entry declares conversation-relay-native routing", () => {
+    for (const entry of listProviderEntries()) {
+      expect(entry.telephonyRouting.strategyKind).not.toBe(
+        "conversation-relay-native",
       );
     }
   });
 
-  test("conversation-relay-native entries have twilioNativeMapping", () => {
-    for (const entry of listProviderEntries()) {
-      if (entry.telephonyRouting.strategyKind === "conversation-relay-native") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeDefined();
-        expect(
-          entry.telephonyRouting.twilioNativeMapping!.provider.length,
-        ).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  test("media-stream-custom entries do not have twilioNativeMapping", () => {
-    for (const entry of listProviderEntries()) {
-      if (entry.telephonyRouting.strategyKind === "media-stream-custom") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
-      }
-    }
-  });
-
-  test("deepgram has conversation-relay-native strategy with Deepgram Twilio mapping", () => {
+  test("deepgram has media-stream-custom strategy", () => {
     const entry = getProviderEntry("deepgram");
-    expect(entry?.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry?.telephonyRouting.twilioNativeMapping?.provider).toBe(
-      "Deepgram",
-    );
-    expect(
-      entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-    ).toBe("nova-3");
+    expect(entry?.telephonyRouting.strategyKind).toBe("media-stream-custom");
   });
 
-  test("google-gemini has conversation-relay-native strategy with Google Twilio mapping", () => {
+  test("google-gemini has media-stream-custom strategy", () => {
     const entry = getProviderEntry("google-gemini");
-    expect(entry?.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry?.telephonyRouting.twilioNativeMapping?.provider).toBe(
-      "Google",
-    );
-    expect(
-      entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-    ).toBeUndefined();
+    expect(entry?.telephonyRouting.strategyKind).toBe("media-stream-custom");
   });
 
-  test("openai-whisper has media-stream-custom strategy without Twilio mapping", () => {
+  test("openai-whisper has media-stream-custom strategy", () => {
     const entry = getProviderEntry("openai-whisper");
     expect(entry?.telephonyRouting.strategyKind).toBe("media-stream-custom");
-    expect(entry?.telephonyRouting.twilioNativeMapping).toBeUndefined();
   });
 
   // -----------------------------------------------------------------------
