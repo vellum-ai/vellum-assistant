@@ -371,8 +371,6 @@ export interface TurnInjectionInputs {
   readonly workspaceTopLevelContext?: string | null;
   /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
   readonly unifiedTurnContext?: string | null;
-  /** PKB auto-injected content (`<knowledge_base>...`) or null to skip. */
-  readonly pkbContext?: string | null;
   /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped) or null to skip. The agent loop only

@@ -13,9 +13,9 @@
  * The hook also owns the retrieval's side effects — persisting the injected
  * block onto the user message's metadata, writing the recall log, and emitting
  * the `memory_recalled` event — so the loop only consumes the turn-scoped
- * outputs written back onto the context (`pkbContent`, `nowContent`,
- * `latestMessages`). The PKB query-vector pair is recorded on the
- * conversation's graph handle for the PKB-reminder injector to read back.
+ * outputs written back onto the context (`nowContent`, `latestMessages`). The
+ * PKB query-vector pair is recorded on the conversation's graph handle for the
+ * PKB-reminder injector to read back.
  *
  * This fires at the early "prompt submitted, before context assembly" moment,
  * distinct from the canonical late `user-prompt-submit` hook (history repair,
@@ -29,10 +29,7 @@ import type { PluginHookFn } from "@vellumai/plugin-api";
 import type { Logger } from "pino";
 
 import type { AssistantConfig } from "../../../../config/schema.js";
-import {
-  readNowScratchpad,
-  readPkbContext,
-} from "../../../../daemon/conversation-runtime-assembly.js";
+import { readNowScratchpad } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
@@ -69,11 +66,6 @@ export interface MemoryRetrievalHookContext {
    * aborts the underlying retrieval instead of letting it run to completion.
    */
   readonly signal: AbortSignal;
-  /**
-   * Trimmed PKB file contents ready for injection, or `null` when the file is
-   * missing/empty. Written by the hook.
-   */
-  pkbContent: string | null;
   /**
    * Trimmed NOW.md contents ready for injection, or `null` when the file is
    * missing/empty. Written by the hook.
@@ -177,9 +169,9 @@ function recordRecallSideEffects(
 }
 
 /**
- * Run the default retrieval, writing `pkbContent` / `nowContent` /
- * `latestMessages` back onto the context and recording the PKB query-vector
- * pair on the graph handle. Skips the memory-graph call entirely (leaving
+ * Run the default retrieval, writing `nowContent` / `latestMessages` back onto
+ * the context and recording the PKB query-vector pair on the graph handle.
+ * Skips the memory-graph call entirely (leaving
  * `latestMessages` as the seeded input messages and no query pair recorded)
  * when the actor is not trusted.
  *
@@ -191,9 +183,9 @@ function recordRecallSideEffects(
 const userPromptSubmitMemoryRetrieval: PluginHookFn<
   MemoryRetrievalHookContext
 > = async (ctx) => {
-  // NOW.md and PKB are read unconditionally — the agent loop decides whether
-  // to inject them based on first-turn / post-compaction gating.
-  ctx.pkbContent = readPkbContext();
+  // NOW.md is read unconditionally — the agent loop decides whether to inject
+  // it based on first-turn / post-compaction gating. PKB content is sourced
+  // directly by the pkb-context injector, which self-gates the same way.
   ctx.nowContent = readNowScratchpad();
 
   if (!ctx.isTrustedActor) {

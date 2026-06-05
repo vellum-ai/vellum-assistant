@@ -1961,7 +1961,6 @@ export interface RuntimeInjectionOptions {
   channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
   voiceCallControlPrompt?: string | null;
-  pkbContext?: string | null;
   /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped). When non-null on full-mode turns the
@@ -2063,7 +2062,6 @@ function buildTurnInjectionInputs(
     diskPressureContext: options.diskPressureContext,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
-    pkbContext: options.pkbContext,
     memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
