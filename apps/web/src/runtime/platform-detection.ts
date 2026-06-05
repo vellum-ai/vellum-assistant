@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
@@ -98,10 +99,18 @@ export function useIsIOSWeb(): boolean {
   );
 }
 
+/**
+ * macOS web user who should see custom nudge surfaces.
+ *
+ * Excludes Electron because the user is already inside the macOS desktop
+ * app — showing a "download the macOS app" nudge would be nonsensical.
+ * Also excludes Capacitor (via `isNativePlatform()`) for symmetry with
+ * the iOS hook above.
+ */
 export function useIsMacOSWeb(): boolean {
   return useSyncExternalStore(
     noop,
-    () => isMacOSBrowser() && !isNativePlatform(),
+    () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
 }
