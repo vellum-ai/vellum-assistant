@@ -30,12 +30,13 @@ interface FlagDefinitionResponse {
 
 async function fetchFlagDefinitions(): Promise<FlagDefinitionResponse[]> {
   const { data, response } = await client.get<
-    FlagDefinitionResponse[],
+    { flags: FlagDefinitionResponse[] },
     Record<string, unknown>,
     false
   >({ url: "/v1/feature-flags/", throwOnError: false });
   if (!response?.ok) return [];
-  return (data as FlagDefinitionResponse[]) ?? [];
+  const parsed = data as { flags?: FlagDefinitionResponse[] } | undefined;
+  return parsed?.flags ?? [];
 }
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
