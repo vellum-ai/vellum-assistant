@@ -539,14 +539,29 @@ export class MediaStreamCallSession {
     if (result.kind === "ended") {
       // Terminal setup outcome (deny / unverified / verification failure /
       // guardian denial or timeout). The flow has already spoken the copy and
-      // scheduled the transport teardown; mark the session failed (mirroring
-      // relay-server's deny/failure paths) and run finalization inline because
-      // `handleTransportClosed` exits early once status is terminal.
+      // scheduled the transport teardown.
       //
-      // Idempotent for outcomes that already finalized via `finalizeFailedCall`
-      // (the `isTerminalState` guard skips the redundant status write).
+      // Some terminal outcomes (unverified_caller, invite-code failure,
+      // guardian denial / timeout, name-capture timeout) finalize THEMSELVES
+      // from inside `CallSetupFlow` via the injected `finalizeFailedCall` dep
+      // (→ `finalizeFailedSetup` → `runFinalizationAndGrantCleanup` →
+      // `finalizeCall`). Those drive the session to a terminal status before
+      // the flow resolves `ended`. If we unconditionally finalized again here
+      // we'd persist a second completion message and fire a second completion
+      // notifier (duplicate side effects).
+      //
+      // So make finalization exactly-once: only the outcomes that have NOT
+      // already finalized (currently just the `deny` path, which resolves
+      // `ended` without calling `finalizeFailedCall`) fall through to the
+      // inline finalize. A session that is already terminal here has already
+      // been finalized by the flow, so we skip — preserving a single
+      // completion message + single notifier for every terminal path.
       const session = getCallSession(this.callSessionId);
-      if (session && !isTerminalState(session.status)) {
+      if (session && isTerminalState(session.status)) {
+        // Already finalized by the flow's `finalizeFailedCall` — nothing to do.
+        return;
+      }
+      if (session) {
         updateCallSession(this.callSessionId, {
           status: "failed",
           endedAt: Date.now(),
@@ -588,6 +603,21 @@ export class MediaStreamCallSession {
         // A handoff/greeting was already spoken by the flow; the next caller
         // turn should be treated as an opening acknowledgment rather than
         // re-greeting.
+        //
+        // Restore `in_progress` when the session is parked in
+        // `waiting_on_user`. Name-capture enters the guardian wait via
+        // `markWaitingOnUser` (session → `waiting_on_user`); on approval the
+        // flow resolves `proceed-handoff-spoken` and we create the live
+        // controller above, but without this the session would stay
+        // `waiting_on_user` for the rest of an actively-connected call until
+        // hangup. Relay-server restores `in_progress` in
+        // `continueCallAfterTrustedContactActivation`; this matches that
+        // behavior. Guard on `waiting_on_user` so we never clobber a terminal
+        // status (validateTransition would reject it anyway) and only act when
+        // a wait actually happened.
+        if (sessionRow?.status === "waiting_on_user") {
+          updateCallSession(this.callSessionId, { status: "in_progress" });
+        }
         this.controller.markNextCallerTurnAsOpeningAck();
         return;
     }

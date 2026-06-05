@@ -1336,6 +1336,139 @@ describe("media-stream setup outcome scenarios", () => {
       expect(finalizeCall).toHaveBeenCalledWith("call-unver-1", "conv-unver-1");
     });
 
+    test("flow-finalized ended outcome (unverified) finalizes EXACTLY ONCE", async () => {
+      // The unverified-caller path finalizes itself from inside CallSetupFlow
+      // (finalizeFailedAccessRequest → injected finalizeFailedCall →
+      // finalizeFailedSetup → runFinalizationAndGrantCleanup → finalizeCall).
+      // It then resolves `ended`, and the ended branch of handleSetupComplete
+      // must NOT finalize again — otherwise a second completion message would
+      // be persisted and a second completion notifier fired. finalizeCall does
+      // both, so a single invocation proves a single message + single notifier.
+      mockRouteSetupResult = {
+        outcome: {
+          action: "unverified_caller",
+          displayName: "Jordan",
+          isGuardian: false,
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15555550142",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      startSessionWithOutcome("call-once-1", {
+        conversationId: "conv-once-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550142",
+        toNumber: "+15555550143",
+      });
+      await flushMicrotasks();
+
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(finalizeCall).toHaveBeenCalledWith("call-once-1", "conv-once-1");
+    });
+
+    test("guardian denial ended outcome finalizes EXACTLY ONCE", async () => {
+      // Guardian denial finalizes itself inside the flow
+      // (handleAccessRequestDenied → finalizeFailedAccessRequest →
+      // finalizeFailedCall) before resolving `ended`; the ended branch must
+      // skip re-finalizing the already-terminal session.
+      mockRouteSetupResult = {
+        outcome: {
+          action: "name_capture",
+          assistantId: "self",
+          fromNumber: "+15555550142",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15555550142",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+      mockNotifyResult = { notified: true, requestId: "access-req-1" };
+      mockCanonicalRequestStatus = "denied";
+
+      startSessionWithOutcome("call-deny-once-1", {
+        conversationId: "conv-deny-once-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550142",
+        toNumber: "+15555550143",
+      });
+
+      // Caller speaks name → access request opened → guardian wait → first poll
+      // resolves "denied".
+      lastSttCallbacks.onTranscriptFinal?.("Sam Rivera", 1200);
+      jest.advanceTimersByTime(60_000);
+      await flushMicrotasks();
+
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(finalizeCall).toHaveBeenCalledTimes(1);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-deny-once-1",
+        "conv-deny-once-1",
+      );
+    });
+
+    test("guardian approval restores session status to in_progress", async () => {
+      // Name-capture enters the guardian wait via markWaitingOnUser
+      // (session → waiting_on_user). On approval the flow resolves
+      // proceed-handoff-spoken and the controller is created; the session must
+      // be restored to in_progress (matching relay-server) rather than left
+      // parked in waiting_on_user for the rest of the connected call.
+      mockRouteSetupResult = {
+        outcome: {
+          action: "name_capture",
+          assistantId: "self",
+          fromNumber: "+15555550142",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15555550142",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+      mockNotifyResult = { notified: true, requestId: "access-req-1" };
+      mockCanonicalRequestStatus = "approved";
+
+      startSessionWithOutcome("call-approve-1", {
+        conversationId: "conv-approve-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550142",
+        toNumber: "+15555550143",
+      });
+
+      // Caller speaks name → access request → guardian wait → markWaitingOnUser
+      // drives the session to waiting_on_user.
+      lastSttCallbacks.onTranscriptFinal?.("Sam Rivera", 1200);
+      expect(mockSessions.get("call-approve-1")?.status).toBe(
+        "waiting_on_user",
+      );
+
+      // First poll resolves "approved" → proceed-handoff-spoken → controller.
+      jest.advanceTimersByTime(60_000);
+      await flushMicrotasks();
+
+      expect(registerCallController).toHaveBeenCalledWith(
+        "call-approve-1",
+        expect.anything(),
+      );
+      // The fix: restored to in_progress when the controller is created.
+      expect(updateCallSession).toHaveBeenCalledWith("call-approve-1", {
+        status: "in_progress",
+      });
+      expect(mockSessions.get("call-approve-1")?.status).toBe("in_progress");
+    });
+
     test("dispose() on transport close tears down an in-flight setup flow", () => {
       mockRouteSetupResult = {
         outcome: {
