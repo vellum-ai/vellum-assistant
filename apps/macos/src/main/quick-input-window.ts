@@ -24,7 +24,7 @@ import { createWindow } from "./windows";
  * (no auth middleware, no RootLayout) so it loads fast.
  */
 
-const QUICK_INPUT_PATH = "/assistant/quick-input";
+const QUICK_INPUT_PATH = "/quick-input";
 
 const PANEL_WIDTH = 720;
 const PANEL_HEIGHT = 72;
