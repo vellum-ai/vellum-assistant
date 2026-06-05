@@ -486,11 +486,10 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
-    // Orchestrator pipelines (`overflowReduce`, `persistence`, …) run through
-    // the plugin registry; re-register every default so each pipeline has a
-    // middleware to dispatch to. The `context-overflow-reducer` module itself
-    // (and other collaborators) are mocked above, so the default plugins'
-    // delegates go through the mocked implementations.
+    // The compaction pipeline runs through the plugin registry; re-register
+    // every default so it has a middleware to dispatch to. Collaborators are
+    // mocked above, so the default plugins' delegates go through the mocked
+    // implementations.
     resetPluginRegistryAndRegisterDefaults();
   });
 

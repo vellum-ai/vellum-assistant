@@ -29,7 +29,6 @@ import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
 import { memoryV3ShadowPlugin } from "./memory-v3-shadow/register.js";
-import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
 import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
@@ -49,7 +48,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
-    defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
@@ -85,7 +83,7 @@ export function registerDefaultPlugins(): void {
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
- * plugin handles every op (e.g. overflowReduce).
+ * plugin handles every op (e.g. compaction).
  *
  * Tests that specifically need an empty registry (pipeline-unit tests, the
  * plugin-registry tests themselves) should continue to call

@@ -433,11 +433,9 @@ first.
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline         | Purpose                                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `compaction`     | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                           |
-| `overflowReduce` | The reducer tier loop invoked when a turn blows the context budget.                                    |
-| `circuitBreaker` | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit. |
+| Pipeline     | Purpose                                                                      |
+| ------------ | ---------------------------------------------------------------------------- |
+| `compaction` | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`. |
 
 ## Timeouts
 
@@ -448,11 +446,9 @@ duration. See
 [`assistant/src/plugins/pipeline.ts`](../src/plugins/pipeline.ts) for the
 current values.
 
-| Pipeline         | Timeout  | Rationale                                                                                            |
-| ---------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `compaction`     | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations. |
-| `overflowReduce` | 30000 ms | Iterative compaction; matches the `compaction` budget since each tier step may invoke it.            |
-| `circuitBreaker` | 500 ms   | Numeric state update — must be near-instant.                                                         |
+| Pipeline     | Timeout  | Rationale                                                                                            |
+| ------------ | -------- | ---------------------------------------------------------------------------------------------------- |
+| `compaction` | 30000 ms | Summarization involves a provider call; mirrors the pipeline-level budget for LLM-backed operations. |
 
 `null` timeouts skip the timer entirely. Finite timeouts arm a
 `setTimeout` that races the pipeline via `Promise.race`.
@@ -789,7 +785,7 @@ Every pipeline invocation emits one structured line tagged
 
 | Field                                      | Meaning                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`compaction`, `overflowReduce`, …).                      |
+| `pipeline`                                 | Pipeline name (`compaction`).                                           |
 | `chain`                                    | Ordered list of middleware function names, outermost first.             |
 | `durationMs`                               | Total time spent in the composed chain.                                 |
 | `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |

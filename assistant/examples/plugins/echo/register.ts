@@ -44,8 +44,6 @@ import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  OverflowReduceArgs,
-  OverflowReduceResult,
   Plugin,
 } from "../../../src/plugins/types.js";
 
@@ -127,9 +125,6 @@ const echoPlugin: Plugin = {
   },
   middleware: {
     compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
-    overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
-      "overflowReduce",
-    ),
   },
 };
 

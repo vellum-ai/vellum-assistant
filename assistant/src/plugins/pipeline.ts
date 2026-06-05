@@ -51,7 +51,6 @@ const moduleLogger = getLogger("plugin-pipeline");
  */
 export const DEFAULT_TIMEOUTS: Record<PipelineName, number | null> = {
   compaction: null,
-  overflowReduce: null,
 };
 
 // ─── Composition ────────────────────────────────────────────────────────────
@@ -227,9 +226,8 @@ export async function runPipeline<A, R>(
       // `Promise.race` rejects; or (b) the caller's own signal, so external
       // cancellation still reaches the inner call transparently. Any
       // `AbortSignal`-typed property on `args` (e.g. `signal` on
-      // `CompactionArgs`, `abortSignal` on `OverflowReduceArgs`) is swapped
-      // for this linked signal on a shallow-cloned args object — we never
-      // mutate the caller's args.
+      // `CompactionArgs`) is swapped for this linked signal on a
+      // shallow-cloned args object — we never mutate the caller's args.
       const internalController = new AbortController();
       const { args: effectiveArgs, cleanup } = linkAbortSignal(
         args,
