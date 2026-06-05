@@ -124,6 +124,16 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   "deeplink.unknown": { url: string };
+  /**
+   * Connectivity state change from the Electron host. Main fuses
+   * device-level online/offline with backend health-probe results into
+   * three states: `"online"`, `"device-offline"`, `"backend-unreachable"`.
+   *
+   * Off Electron this never fires.
+   */
+  "connectivity.state": {
+    state: "online" | "device-offline" | "backend-unreachable";
+  };
 }
 
 export type BusEventName = keyof BusEventMap;
