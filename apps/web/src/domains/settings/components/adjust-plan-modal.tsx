@@ -808,11 +808,12 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             features={plan.included_features}
                             variant="checklist"
                           />
-                          {isProCard && (
+                          {isProCard && !creditTiersEnabled && (
                             <Typography
                               as="p"
                               variant="body-small-default"
                               className="text-[var(--content-tertiary)]"
+                              data-testid="modal-credits-not-included"
                             >
                               *Credits not included
                             </Typography>
