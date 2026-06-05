@@ -146,10 +146,7 @@ function PushToTalkCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (
-        fnPushToTalkSupported &&
-        (event.key === "Fn" || event.getModifierState("Fn"))
-      ) {
+      if (fnPushToTalkSupported && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
       if (event.ctrlKey) modifiers.push("control");
