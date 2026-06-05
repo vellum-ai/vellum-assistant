@@ -66,6 +66,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "system-schedule-toggles",
+      "scope": "assistant",
+      "key": "system-schedule-toggles",
+      "label": "System Schedule Toggles",
+      "description": "Show Heartbeat and Consolidation pause toggles on the schedules settings page. The toggles only pause automatic runs; manual Run now remains available.",
+      "defaultEnabled": false
+    },
+    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",

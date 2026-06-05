@@ -27,6 +27,8 @@ import {
     runHeartbeatNow,
     runScheduleNow,
     toggleSchedule,
+    updateConsolidationConfig,
+    updateHeartbeatConfig,
     updateSchedule,
 } from "@/domains/settings/api/schedules";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
@@ -36,6 +38,7 @@ import {
     assistantScheduleUsageSummaryQueryKey,
     assistantSchedulesQueryKey,
 } from "@/lib/sync/query-tags";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
@@ -169,6 +172,13 @@ const SYSTEM_TASK_URL_IDS = {
   consolidation: "system-consolidation",
 } as const satisfies Record<SystemTaskKind, string>;
 const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
+
+export function shouldShowSystemTaskToggles(
+  hasHydrated: boolean,
+  flagEnabled: boolean,
+): boolean {
+  return hasHydrated && flagEnabled;
+}
 
 function systemTaskKindFromUrlId(
   scheduleId: string | undefined,
@@ -1025,11 +1035,13 @@ interface SystemTaskRowProps {
   lastRunAt: number | null;
   usage: ScheduleRowUsage;
   isRunning: boolean;
+  showToggle: boolean;
   onClick: () => void;
   onRunNow: () => void;
+  onToggle: (enabled: boolean) => void;
 }
 
-function SystemTaskRow({
+export function SystemTaskRow({
   name,
   subtitle,
   enabled,
@@ -1037,8 +1049,10 @@ function SystemTaskRow({
   lastRunAt,
   usage,
   isRunning,
+  showToggle,
   onClick,
   onRunNow,
+  onToggle,
 }: SystemTaskRowProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
@@ -1081,15 +1095,23 @@ function SystemTaskRow({
         >
           {isRunning ? "Running…" : "Run now"}
         </Button>
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{
-            backgroundColor: enabled
-              ? "var(--system-positive-strong)"
-              : "var(--content-disabled)",
-          }}
-          aria-label={enabled ? "enabled" : "disabled"}
-        />
+        {showToggle ? (
+          <Toggle
+            checked={enabled}
+            onChange={onToggle}
+            aria-label={`Toggle ${name}`}
+          />
+        ) : (
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{
+              backgroundColor: enabled
+                ? "var(--system-positive-strong)"
+                : "var(--content-disabled)",
+            }}
+            aria-label={enabled ? "enabled" : "disabled"}
+          />
+        )}
         <ChevronRight
           className="h-4 w-4 text-[var(--content-tertiary)] cursor-pointer"
           onClick={onClick}
@@ -1111,6 +1133,9 @@ interface SystemTasksSectionProps {
   onRunConsolidationNow: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
+  showSystemTaskToggles: boolean;
+  onToggleHeartbeat: (enabled: boolean) => void;
+  onToggleConsolidation: (enabled: boolean) => void;
   isHeartbeatRunning: boolean;
   isConsolidationRunning: boolean;
 }
@@ -1127,6 +1152,9 @@ function SystemTasksSection({
   onRunConsolidationNow,
   onSelectHeartbeat,
   onSelectConsolidation,
+  showSystemTaskToggles,
+  onToggleHeartbeat,
+  onToggleConsolidation,
   isHeartbeatRunning,
   isConsolidationRunning,
 }: SystemTasksSectionProps) {
@@ -1168,8 +1196,10 @@ function SystemTasksSection({
               lastRunAt={heartbeatConfig.lastRunAt}
               usage={heartbeatUsage}
               isRunning={isHeartbeatRunning}
+              showToggle={showSystemTaskToggles}
               onClick={onSelectHeartbeat}
               onRunNow={onRunHeartbeatNow}
+              onToggle={onToggleHeartbeat}
             />
           ) : null}
           {showConsolidation ? (
@@ -1181,8 +1211,10 @@ function SystemTasksSection({
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
               isRunning={isConsolidationRunning}
+              showToggle={showSystemTaskToggles}
               onClick={onSelectConsolidation}
               onRunNow={onRunConsolidationNow}
+              onToggle={onToggleConsolidation}
             />
           ) : null}
           {hasError ? (
@@ -1214,6 +1246,14 @@ export function SchedulesPage() {
   const queryClient = useQueryClient();
   const { scheduleId } = useParams<{ scheduleId?: string }>();
   const tz = useEffectiveTimezone();
+  const assistantFlagsHydrated =
+    useAssistantFeatureFlagStore.use.hasHydrated();
+  const systemScheduleToggles =
+    useAssistantFeatureFlagStore.use.systemScheduleToggles();
+  const showSystemTaskToggles = shouldShowSystemTaskToggles(
+    assistantFlagsHydrated,
+    systemScheduleToggles,
+  );
   const {
     data: assistantList,
     isLoading: isAssistantLoading,
@@ -1480,6 +1520,21 @@ export function SchedulesPage() {
     refreshSystemTaskRuns,
   ]);
 
+  const handleToggleHeartbeat = useCallback(
+    async (enabled: boolean) => {
+      if (!assistantId) return;
+      try {
+        const updated = await updateHeartbeatConfig(assistantId, { enabled });
+        queryClient.setQueryData(["heartbeat-config", assistantId], updated);
+        toast.success(enabled ? "Heartbeat enabled." : "Heartbeat disabled.");
+      } catch (error) {
+        captureError(error, { context: "heartbeat_toggle" });
+        toast.error("Failed to toggle heartbeat.");
+      }
+    },
+    [assistantId, queryClient],
+  );
+
   const handleRunConsolidationNow = useCallback(async () => {
     if (!assistantId) return;
     setIsConsolidationRunning(true);
@@ -1505,6 +1560,28 @@ export function SchedulesPage() {
     refetchConsolidationStats,
     refreshSystemTaskRuns,
   ]);
+
+  const handleToggleConsolidation = useCallback(
+    async (enabled: boolean) => {
+      if (!assistantId) return;
+      try {
+        const updated = await updateConsolidationConfig(assistantId, {
+          enabled,
+        });
+        queryClient.setQueryData(
+          ["consolidation-config", assistantId],
+          updated,
+        );
+        toast.success(
+          enabled ? "Consolidation enabled." : "Consolidation disabled.",
+        );
+      } catch (error) {
+        captureError(error, { context: "consolidation_toggle" });
+        toast.error("Failed to toggle consolidation.");
+      }
+    },
+    [assistantId, queryClient],
+  );
 
   const isLoading = isAssistantLoading || isSchedulesLoading;
   const isSelectedSystemTaskLoading =
@@ -1713,6 +1790,9 @@ export function SchedulesPage() {
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
         }
+        showSystemTaskToggles={showSystemTaskToggles}
+        onToggleHeartbeat={handleToggleHeartbeat}
+        onToggleConsolidation={handleToggleConsolidation}
         isHeartbeatRunning={isHeartbeatRunning}
         isConsolidationRunning={isConsolidationRunning}
       />

@@ -26,6 +26,12 @@ interface HeartbeatRunsCall {
   throwOnError: false;
 }
 
+interface ConfigUpdateCall {
+  path: { assistant_id: string };
+  body: { enabled: boolean };
+  throwOnError: false;
+}
+
 const summaryRows: SchedulesUsagesummaryGetResponse["summaries"] = [
   {
     scheduleId: "schedule-123",
@@ -74,6 +80,8 @@ const heartbeatRows: HeartbeatRunsGetResponse["runs"] = [
 let usageSummaryCalls: UsageSummaryCall[] = [];
 let consolidationRunsCalls: ConsolidationRunsCall[] = [];
 let heartbeatRunsCalls: HeartbeatRunsCall[] = [];
+let consolidationConfigPutCalls: ConfigUpdateCall[] = [];
+let heartbeatConfigPutCalls: ConfigUpdateCall[] = [];
 let responseOk = true;
 let responseStatus = 200;
 
@@ -95,6 +103,43 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       response: { ok: responseOk, status: responseStatus },
     });
   },
+  consolidationConfigPut: (opts: ConfigUpdateCall) => {
+    consolidationConfigPutCalls.push(opts);
+    return Promise.resolve({
+      data: responseOk
+        ? {
+            available: true,
+            enabled: opts.body.enabled,
+            intervalMs: 4 * 60 * 60_000,
+            nextRunAt: opts.body.enabled ? 1_761_792_000_000 : null,
+            lastRunAt: null,
+            success: true,
+          }
+        : undefined,
+      error: undefined,
+      response: { ok: responseOk, status: responseStatus },
+    });
+  },
+  heartbeatConfigPut: (opts: ConfigUpdateCall) => {
+    heartbeatConfigPutCalls.push(opts);
+    return Promise.resolve({
+      data: responseOk
+        ? {
+            enabled: opts.body.enabled,
+            intervalMs: 60 * 60_000,
+            activeHoursStart: 8,
+            activeHoursEnd: 22,
+            cronExpression: null,
+            timezone: null,
+            nextRunAt: opts.body.enabled ? 1_761_792_000_000 : null,
+            lastRunAt: null,
+            success: true,
+          }
+        : undefined,
+      error: undefined,
+      response: { ok: responseOk, status: responseStatus },
+    });
+  },
   schedulesUsagesummaryGet: (opts: UsageSummaryCall) => {
     usageSummaryCalls.push(opts);
     return Promise.resolve({
@@ -105,13 +150,20 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { fetchConsolidationRuns, fetchHeartbeatRuns, fetchScheduleUsageSummary } =
-  await import("./schedules");
+const {
+  fetchConsolidationRuns,
+  fetchHeartbeatRuns,
+  fetchScheduleUsageSummary,
+  updateConsolidationConfig,
+  updateHeartbeatConfig,
+} = await import("./schedules");
 
 afterEach(() => {
   usageSummaryCalls = [];
   consolidationRunsCalls = [];
   heartbeatRunsCalls = [];
+  consolidationConfigPutCalls = [];
+  heartbeatConfigPutCalls = [];
   responseOk = true;
   responseStatus = 200;
 });
@@ -202,5 +254,38 @@ describe("fetchScheduleUsageSummary", () => {
     });
 
     expect(usageSummaryCalls[0]?.query).toEqual({ from: 0, to: 200 });
+  });
+});
+
+describe("system task config updates", () => {
+  test("updates heartbeat enabled through the daemon config endpoint", async () => {
+    const result = await updateHeartbeatConfig("assistant-1", {
+      enabled: false,
+    });
+
+    expect(result.enabled).toBe(false);
+    expect(heartbeatConfigPutCalls).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        body: { enabled: false },
+        throwOnError: false,
+      },
+    ]);
+  });
+
+  test("updates consolidation enabled through the daemon config endpoint", async () => {
+    const result = await updateConsolidationConfig("assistant-1", {
+      enabled: false,
+    });
+
+    expect(result.enabled).toBe(false);
+    expect(result.available).toBe(true);
+    expect(consolidationConfigPutCalls).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        body: { enabled: false },
+        throwOnError: false,
+      },
+    ]);
   });
 });
