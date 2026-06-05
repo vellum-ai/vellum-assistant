@@ -21,21 +21,23 @@ const log = getLogger("stt-resolver");
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the configured `services.stt` provider's streaming is *genuinely
- * realtime* — i.e. it emits partial/final transcript events continuously while
- * audio is flowing, rather than only producing a final transcript when the
- * stream is stopped.
+ * Whether the configured `services.stt` provider drives a *genuinely realtime*
+ * streaming path over telephony — i.e. it emits partial/final transcript
+ * events continuously while call audio is flowing, rather than relying on the
+ * batch turn-detector to segment utterances.
  *
- * This gates the media-stream realtime streaming path. Providers whose
- * `conversationStreamingMode` is `"realtime-ws"` (e.g. Deepgram, Google
- * Gemini Live, xAI) can drive mid-call responses through the streaming path.
- * Providers whose mode is `"incremental-batch"` (e.g. OpenAI Whisper) only
- * emit a `final` on `stop()`, so the streaming path would never fire
- * `onTranscriptFinal` until hangup — those must use the batch turn-segmenting
- * path instead.
+ * This gates the media-stream realtime streaming path on phone calls. The
+ * correct signal here is the provider's **telephony** capability, not its
+ * conversation (chat) streaming capability: a provider may stream over a chat
+ * WebSocket (`conversationStreamingMode: "realtime-ws"`) yet still be
+ * `telephonyMode: "batch-only"` for phone audio (e.g. Google Gemini Live,
+ * xAI). Only providers whose `telephonyMode` is `"realtime-ws"` (e.g.
+ * Deepgram) can drive mid-call responses through the streaming path; everyone
+ * else — including `batch-only` providers and OpenAI Whisper — must use the
+ * batch turn-segmenting path in `media-stream-stt-session.ts`.
  *
- * Returns `false` for unknown providers or any non-`realtime-ws` mode,
- * defaulting safely to the batch path.
+ * Returns `false` for unknown providers or any non-`realtime-ws` telephony
+ * mode, defaulting safely to the batch path.
  */
 export function isRealtimeStreamingProvider(): boolean {
   let provider: string;
@@ -46,7 +48,7 @@ export function isRealtimeStreamingProvider(): boolean {
     return false;
   }
   const entry = getProviderEntry(provider as SttProviderId);
-  return entry?.conversationStreamingMode === "realtime-ws";
+  return entry?.telephonyMode === "realtime-ws";
 }
 
 // ---------------------------------------------------------------------------

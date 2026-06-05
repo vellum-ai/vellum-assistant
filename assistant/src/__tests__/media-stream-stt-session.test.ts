@@ -21,27 +21,26 @@ import type {
 
 // Controllable streaming flag + configured STT provider, read by the session
 // via getConfig(). The provider drives isRealtimeStreamingProvider(), which
-// gates the realtime streaming path against the (real, unmocked) catalog:
-// "deepgram"/"google-gemini"/"xai" are realtime-ws; "openai-whisper" is
-// incremental-batch and must use the batch path even when the flag is on.
+// gates the realtime telephony streaming path against the catalog's
+// `telephonyMode`: only "deepgram" is telephonyMode "realtime-ws". The other
+// providers — "google-gemini"/"xai" (telephonyMode "batch-only") and
+// "openai-whisper" (telephonyMode "batch-only") — must use the batch
+// turn-detector path even when the telephonyStreaming flag is on.
 // Declared before the resolve.js mock factory so its
 // isRealtimeStreamingProvider stub can read the current provider.
 let telephonyStreamingFlag = false;
 let sttProvider = "deepgram";
 
-// Realtime-streaming providers per the catalog's conversationStreamingMode.
-// Mirrors provider-catalog.ts: deepgram/google-gemini/xai are "realtime-ws";
-// openai-whisper is "incremental-batch". Kept in sync with the catalog so the
-// streaming-gating behaviour under test matches production semantics.
-const REALTIME_STREAMING_PROVIDERS = new Set([
-  "deepgram",
-  "google-gemini",
-  "xai",
-]);
+// Realtime-telephony streaming providers per the catalog's `telephonyMode`.
+// Mirrors provider-catalog.ts: only "deepgram" is telephonyMode "realtime-ws";
+// "google-gemini"/"xai"/"openai-whisper" are "batch-only" for telephony and so
+// must take the batch turn-detector path. Kept in sync with the catalog so the
+// streaming-gating behaviour under test matches production telephony semantics.
+const REALTIME_STREAMING_PROVIDERS = new Set(["deepgram"]);
 
 // Mock the STT resolve module. isRealtimeStreamingProvider reflects the
-// configured `sttProvider` against the realtime-provider set above, so the
-// streaming-gating behaviour under test is exercised faithfully.
+// configured `sttProvider` against the realtime-telephony provider set above,
+// so the streaming-gating behaviour under test is exercised faithfully.
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
@@ -1167,7 +1166,7 @@ describe("MediaStreamSttSession", () => {
 
     test("provider without a boundary signal emits one onTranscriptFinal per final (no regression)", async () => {
       telephonyStreamingFlag = true;
-      sttProvider = "xai"; // realtime-ws, no separate utterance boundary signal
+      sttProvider = "deepgram"; // realtime-ws telephony → streaming path
       const fake = makeFakeStreamingTranscriber();
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
 
@@ -1285,15 +1284,17 @@ describe("MediaStreamSttSession", () => {
 
   // ── Realtime-provider gating (Finding 1) ─────────────────────────
   //
-  // The realtime streaming path emits mid-call finals only for providers
-  // whose streaming is genuinely realtime (conversationStreamingMode
-  // "realtime-ws"). incremental-batch providers (OpenAI Whisper) only emit a
-  // final on stop(), so they MUST use the batch turn-segmenting path even when
-  // the telephonyStreaming flag is on.
+  // The realtime telephony streaming path emits mid-call finals only for
+  // providers whose telephony capability is genuinely realtime
+  // (catalog `telephonyMode: "realtime-ws"`). Only Deepgram qualifies. Every
+  // other provider — google-gemini/xai (telephonyMode "batch-only", even
+  // though their conversationStreamingMode is "realtime-ws") and openai-whisper
+  // (telephonyMode "batch-only") — MUST use the batch turn-segmenting path even
+  // when the telephonyStreaming flag is on.
   describe("realtime-provider gating", () => {
     test("incremental-batch provider (whisper) uses the BATCH path even when telephonyStreaming is on", async () => {
       telephonyStreamingFlag = true;
-      sttProvider = "openai-whisper"; // conversationStreamingMode: incremental-batch
+      sttProvider = "openai-whisper"; // telephonyMode: batch-only
       // If the session wrongly took the streaming path, this fake would be used.
       const fake = makeFakeStreamingTranscriber();
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
@@ -1342,9 +1343,65 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
-    test("realtime-ws provider (deepgram) still uses the streaming path", async () => {
+    test.each(["google-gemini", "xai"])(
+      "batch-only telephony provider (%s) uses the BATCH path even though conversationStreamingMode is realtime-ws and telephonyStreaming is on",
+      async (provider) => {
+        telephonyStreamingFlag = true;
+        sttProvider = provider; // telephonyMode: batch-only (conversation realtime-ws)
+        // If the session wrongly took the streaming path, this fake would be used.
+        const fake = makeFakeStreamingTranscriber();
+        (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+        const mockTranscriber = makeMockTranscriber(`${provider} mid-call`);
+        (resolveBatchTranscriber as jest.Mock).mockResolvedValue(
+          mockTranscriber,
+        );
+
+        const onTranscriptFinal = jest.fn();
+        const onSpeechStart = jest.fn();
+        const session = new MediaStreamSttSession(
+          { turnDetector: { silenceThresholdMs: 300 } },
+          { onTranscriptFinal, onSpeechStart },
+        );
+
+        session.handleMessage(makeStartMessage());
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+
+        // Streaming resolver must never be consulted for a batch-only provider.
+        expect(resolveStreamingTranscriber as jest.Mock).not.toHaveBeenCalled();
+        expect(fake.start).not.toHaveBeenCalled();
+
+        // Speech then silence segments a turn mid-"call" via the batch path.
+        const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+        for (let i = 0; i < 5; i++) {
+          session.handleMessage(makeMediaMessage(speechPayload));
+          jest.advanceTimersByTime(20);
+        }
+        expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+        const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+        for (let i = 0; i < 5; i++) {
+          session.handleMessage(makeMediaMessage(silencePayload));
+          jest.advanceTimersByTime(20);
+        }
+        jest.advanceTimersByTime(400);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        // Turn-detector final fired mid-call (before any stop), via batch STT.
+        expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+        expect(onTranscriptFinal).toHaveBeenCalledWith(
+          `${provider} mid-call`,
+          expect.any(Number),
+        );
+        expect(fake.start).not.toHaveBeenCalled();
+
+        session.dispose();
+      },
+    );
+
+    test("realtime-ws telephony provider (deepgram) still uses the streaming path", async () => {
       telephonyStreamingFlag = true;
-      sttProvider = "deepgram"; // conversationStreamingMode: realtime-ws
+      sttProvider = "deepgram"; // telephonyMode: realtime-ws
       const fake = makeFakeStreamingTranscriber();
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
 

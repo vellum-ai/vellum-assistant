@@ -77,6 +77,15 @@ mock.module("../calls/voice-ingress-preflight.js", () => ({
   preflightVoiceIngress: async () => mockPreflightResult,
 }));
 
+// The outbound credential preflight runs on every outbound call (verification
+// included). This test exercises voice-binding behavior, not credential setup,
+// so stub the preflight to "ready" — the real preflight is covered by
+// telephony-credential-preflight.test.ts.
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: async () => ({ status: "ready" }),
+  describeCredentialGaps: () => "",
+}));
+
 mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
