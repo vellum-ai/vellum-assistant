@@ -34,9 +34,10 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installConnectivityProbe } from "./connectivity-probe";
 import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
-import { installStatusIpc } from "./status";
+import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -326,6 +327,9 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    const lockfilePaths = resolveLockfilePaths(process.env);
+    const runProbe = installConnectivityProbe(lockfilePaths);
+    installConnectivityIpc(runProbe);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,

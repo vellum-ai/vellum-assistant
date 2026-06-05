@@ -2,6 +2,22 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { z } from "zod";
 
+const sentMessages: Array<{ channel: string; payload: unknown }> = [];
+mock.module("electron", () => ({
+  BrowserWindow: {
+    getAllWindows: () => [
+      {
+        isDestroyed: () => false,
+        webContents: {
+          send: (channel: string, payload: unknown) => {
+            sentMessages.push({ channel, payload });
+          },
+        },
+      },
+    ],
+  },
+}));
+
 // Capture the channel + schema + handler that `installStatusIpc` registers,
 // without dragging in the real `ipcMain` / sender-origin guard (that guard is
 // covered by `ipc.test.ts`). The captured schema is exercised directly so we
@@ -21,13 +37,20 @@ mock.module("./ipc", () => ({ on: onMock }));
 
 const {
   ASSISTANT_STATUSES,
+  CONNECTIVITY_STATES,
   PULSE_FRAME_COUNT,
   PULSE_MAX_OPACITY,
   PULSE_MIN_OPACITY,
+  getConnectivity,
   getStatus,
+  installConnectivityIpc,
   installStatusIpc,
+  onConnectivityChange,
   onStatusChange,
   pulseOpacityFrames,
+  setBackendReachable,
+  setConnectivity,
+  setDeviceOnline,
   setStatus,
   shouldPulse,
   statusMenuTitle,
@@ -37,6 +60,7 @@ const {
 beforeEach(() => {
   __resetForTesting();
   registrations.length = 0;
+  sentMessages.length = 0;
   onMock.mockClear();
 });
 
@@ -152,5 +176,109 @@ describe("installStatusIpc", () => {
     registrations[0]!.fn(["thinking"]);
     expect(getStatus()).toBe("thinking");
     expect(seen).toEqual(["thinking"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connectivity state machine
+// ---------------------------------------------------------------------------
+
+describe("connectivity state machine", () => {
+  test("starts online", () => {
+    expect(getConnectivity()).toBe("online");
+  });
+
+  test("device-offline wins over backend-unreachable", () => {
+    setBackendReachable(false);
+    expect(getConnectivity()).toBe("backend-unreachable");
+    setDeviceOnline(false);
+    expect(getConnectivity()).toBe("device-offline");
+  });
+
+  test("recovering device online falls through to backend state", () => {
+    setDeviceOnline(false);
+    setBackendReachable(false);
+    expect(getConnectivity()).toBe("device-offline");
+    setDeviceOnline(true);
+    expect(getConnectivity()).toBe("backend-unreachable");
+    setBackendReachable(true);
+    expect(getConnectivity()).toBe("online");
+  });
+
+  test("deduplicates — same state does not re-broadcast", () => {
+    const seen: string[] = [];
+    onConnectivityChange((s) => seen.push(s));
+    setDeviceOnline(false);
+    setDeviceOnline(false);
+    expect(seen).toEqual(["device-offline"]);
+  });
+
+  test("broadcasts to all BrowserWindows on change", () => {
+    setDeviceOnline(false);
+    const msg = sentMessages.find(
+      (m) => m.channel === "vellum:connectivity:state",
+    );
+    expect(msg).toBeDefined();
+    expect(msg!.payload).toBe("device-offline");
+  });
+
+  test("setConnectivity directly updates state and notifies listeners", () => {
+    const seen: string[] = [];
+    onConnectivityChange((s) => seen.push(s));
+    setConnectivity("backend-unreachable");
+    expect(getConnectivity()).toBe("backend-unreachable");
+    expect(seen).toEqual(["backend-unreachable"]);
+  });
+
+  test("unsubscribe stops further notifications", () => {
+    const seen: string[] = [];
+    const unsub = onConnectivityChange((s) => seen.push(s));
+    setDeviceOnline(false);
+    unsub();
+    setDeviceOnline(true);
+    expect(seen).toEqual(["device-offline"]);
+  });
+});
+
+describe("installConnectivityIpc", () => {
+  test("registers device and retry channels once", () => {
+    installConnectivityIpc();
+    installConnectivityIpc();
+    const channels = registrations.map((r) => r.channel);
+    expect(
+      channels.filter((c) => c === "vellum:connectivity:device"),
+    ).toHaveLength(1);
+    expect(
+      channels.filter((c) => c === "vellum:connectivity:retry"),
+    ).toHaveLength(1);
+  });
+
+  test("device channel drives deviceOnline signal", () => {
+    installConnectivityIpc();
+    const deviceReg = registrations.find(
+      (r) => r.channel === "vellum:connectivity:device",
+    )!;
+    deviceReg.fn([false]);
+    expect(getConnectivity()).toBe("device-offline");
+    deviceReg.fn([true]);
+    expect(getConnectivity()).toBe("online");
+  });
+
+  test("retry channel calls the onRetry callback", () => {
+    const onRetry = mock(() => {});
+    installConnectivityIpc(onRetry);
+    const retryReg = registrations.find(
+      (r) => r.channel === "vellum:connectivity:retry",
+    )!;
+    retryReg.fn([]);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test("CONNECTIVITY_STATES contains the three expected values", () => {
+    expect([...CONNECTIVITY_STATES]).toEqual([
+      "online",
+      "device-offline",
+      "backend-unreachable",
+    ]);
   });
 });

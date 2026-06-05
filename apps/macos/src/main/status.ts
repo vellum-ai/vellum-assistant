@@ -1,3 +1,4 @@
+import { BrowserWindow } from "electron";
 import { z } from "zod";
 
 import { on } from "./ipc";
@@ -150,10 +151,102 @@ export const installStatusIpc = (): void => {
   });
 };
 
+// ---------------------------------------------------------------------------
+// Connectivity state machine
+// ---------------------------------------------------------------------------
+// Orthogonal to AssistantStatus — you can be "thinking" AND "device-offline".
+// Assistant status drives the tray icon (renderer is source of truth);
+// connectivity drives in-app banners (main is source of truth).
+
+export const CONNECTIVITY_STATES = [
+  "online",
+  "device-offline",
+  "backend-unreachable",
+] as const;
+
+export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
+
+type ConnectivityListener = (state: ConnectivityState) => void;
+
+let currentConnectivity: ConnectivityState = "online";
+let deviceOnline = true;
+let backendReachable = true;
+const connectivityListeners = new Set<ConnectivityListener>();
+
+export const getConnectivity = (): ConnectivityState => currentConnectivity;
+
+const broadcastConnectivity = (): void => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send("vellum:connectivity:state", currentConnectivity);
+  }
+};
+
+export const setConnectivity = (state: ConnectivityState): void => {
+  if (state === currentConnectivity) return;
+  currentConnectivity = state;
+  broadcastConnectivity();
+  for (const listener of connectivityListeners) listener(state);
+};
+
+const recomputeConnectivity = (): void => {
+  if (!deviceOnline) {
+    setConnectivity("device-offline");
+  } else if (!backendReachable) {
+    setConnectivity("backend-unreachable");
+  } else {
+    setConnectivity("online");
+  }
+};
+
+export const setDeviceOnline = (online: boolean): void => {
+  deviceOnline = online;
+  recomputeConnectivity();
+};
+
+export const setBackendReachable = (reachable: boolean): void => {
+  backendReachable = reachable;
+  recomputeConnectivity();
+};
+
+export const onConnectivityChange = (
+  listener: ConnectivityListener,
+): (() => void) => {
+  connectivityListeners.add(listener);
+  return () => {
+    connectivityListeners.delete(listener);
+  };
+};
+
+let connectivityInstalled = false;
+export const installConnectivityIpc = (
+  onRetry?: () => void,
+): void => {
+  if (connectivityInstalled) return;
+  connectivityInstalled = true;
+
+  on(
+    "vellum:connectivity:device",
+    z.tuple([z.boolean()]),
+    ([online]) => {
+      setDeviceOnline(online);
+    },
+  );
+
+  on("vellum:connectivity:retry", z.tuple([]), () => {
+    onRetry?.();
+  });
+};
+
 // Test seam — exported only for unit-test setup so each test starts from a
 // known state. Production code never calls this.
 export const __resetForTesting = (): void => {
   installed = false;
   currentStatus = "idle";
   listeners.clear();
+  connectivityInstalled = false;
+  currentConnectivity = "online";
+  deviceOnline = true;
+  backendReachable = true;
+  connectivityListeners.clear();
 };
