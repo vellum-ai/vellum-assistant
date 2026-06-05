@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useAnimationControls } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
-import { REACTIONS } from "@/cast/cast-reactions";
+import {
+  EDGES,
+  RATHERS,
+  type Edge,
+  type JobKey,
+  type RatherKey,
+} from "@/cast/cast-content";
+import { HeroCharacter, type MimeState, type Rect } from "@/cast/cast-hero";
+import { CastJob } from "@/cast/cast-job";
+import { CastRather } from "@/cast/cast-rather";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
 import "@/cast/cast.css";
 
-type Phase = "grid" | "flying" | "focus";
-interface Rect {
-  left: number;
-  top: number;
-  size: number;
-}
+type Phase = "grid" | "flying" | "focus" | "job" | "rather";
 
-/** Columns and rows derive from the window so the crowd packs tight and fills
- * the whole window — receding up to the high horizon — at any size. */
+/** Columns and rows derive from the window so the crowd fills it at any size. */
 function colsFor(width: number): number {
   return Math.max(4, Math.min(16, Math.round(width / 134)));
 }
@@ -23,50 +26,73 @@ function rowsFor(height: number): number {
   return Math.max(10, Math.min(20, Math.round(height / 74)));
 }
 
-/** Where the picked character lands, sized to the actual window. */
-function targetFor(panelW: number, panelH: number): Rect {
-  const size = Math.max(220, Math.min(360, Math.min(panelW, panelH) * 0.34));
-  return { left: panelW / 2 - size / 2, top: panelH * 0.26, size };
+/** Beat 2 hero box: centered, large. */
+function focusBoxFor(w: number, h: number): Rect {
+  const size = Math.max(220, Math.min(360, Math.min(w, h) * 0.34));
+  return { left: w / 2 - size / 2, top: h * 0.26, size };
+}
+/** Beats 3/4 hero box: smaller, near the top. */
+function topBoxFor(w: number, h: number): Rect {
+  const size = Math.max(120, Math.min(176, Math.min(w, h) * 0.2));
+  return { left: w / 2 - size / 2, top: h * 0.05, size };
 }
 
-/**
- * Cast — a two-beat activation prototype.
- *
- * Beat 1: a packed crowd of characters standing on a ground plane viewed from
- *         ~35° (CSS perspective). Each idles, previews personality on hover,
- *         and on tap zooms out of the crowd to center.
- * Beat 2: the picked character, named, performing an autonomous reaction tied
- *         to its eyes. Name is editable inline; Continue logs to console.
- *
- * Pure front-end. No backend, no Vellum surfaces wired in.
- */
+const win = () => ({
+  w: typeof window === "undefined" ? 1280 : window.innerWidth,
+  h: typeof window === "undefined" ? 900 : window.innerHeight,
+});
+
 export function CastPage() {
   const panelRef = useRef<HTMLDivElement>(null);
   const spotlightRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef(0);
-  const [selected, setSelected] = useState<CastCharacter | null>(null);
+
   const [phase, setPhase] = useState<Phase>("grid");
-  const [flyFrom, setFlyFrom] = useState<Rect | null>(null);
-  const [target, setTarget] = useState<Rect>({ left: 0, top: 0, size: 260 });
-  const initW = typeof window === "undefined" ? 1280 : window.innerWidth;
-  const initH = typeof window === "undefined" ? 900 : window.innerHeight;
-  const [grid, setGrid] = useState(() => ({ cols: colsFor(initW), rows: rowsFor(initH) }));
-  const [buildOpen, setBuildOpen] = useState(false);
+  const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [flyFrom, setFlyFrom] = useState<Rect | null>(null);
+  const [buildOpen, setBuildOpen] = useState(false);
+
+  const [boxes, setBoxes] = useState(() => {
+    const { w, h } = win();
+    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h) };
+  });
+  const [grid, setGrid] = useState(() => {
+    const { w, h } = win();
+    return { cols: colsFor(w), rows: rowsFor(h) };
+  });
+
+  // Picks (persisted in component state for later beats).
+  const [job, setJob] = useState<JobKey | null>(null);
+  const [jobEdge, setJobEdge] = useState<Edge | null>(null);
+  const [rather, setRather] = useState<RatherKey | null>(null);
+  const [mime, setMime] = useState<MimeState | null>(null);
+  const [showCard, setShowCard] = useState(false);
+  const tapRef = useRef(0);
+  const timers = useRef<number[]>([]);
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
 
   useEffect(() => {
-    const onResize = () =>
-      setGrid({ cols: colsFor(window.innerWidth), rows: rowsFor(window.innerHeight) });
+    const onResize = () => {
+      const { w, h } = win();
+      setGrid({ cols: colsFor(w), rows: rowsFor(h) });
+      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h) });
+    };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      clearTimers();
+    };
   }, []);
 
   const { cols, rows } = grid;
-  // Cap the live count so very large windows stay responsive.
   const visible = CAST.slice(0, Math.min(cols * rows, 260));
+  const inGrid = phase === "grid";
+  const name = selected ? (names[selected.id] ?? selected.name) : "";
 
-  // Move the spotlight to the cursor. rAF-throttled and written straight to CSS
-  // vars so dragging the light never triggers a React re-render.
   function moveSpotlight(e: React.PointerEvent) {
     const panel = panelRef.current;
     const spot = spotlightRef.current;
@@ -92,18 +118,56 @@ export function CastPage() {
       top: r.top - p.top + (r.height - size) / 2,
       size,
     });
-    setTarget(targetFor(p.width, p.height));
     setSelected(char);
     setPhase("flying");
   }
 
-  function reset() {
+  function backToGrid() {
+    clearTimers();
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
+    setJob(null);
+    setJobEdge(null);
+    setRather(null);
+    setMime(null);
+    setShowCard(false);
   }
 
-  const inGrid = phase === "grid";
+  function goToRather() {
+    clearTimers();
+    setPhase("rather");
+  }
+
+  function pickJob(key: JobKey) {
+    clearTimers();
+    setJob(key);
+    setJobEdge(EDGES[tapRef.current % EDGES.length]);
+    tapRef.current += 1;
+    // Auto-advance ~1.2s after a pick (Continue advances immediately).
+    timers.current.push(window.setTimeout(goToRather, 1200));
+  }
+
+  function pickRather(key: RatherKey) {
+    clearTimers();
+    setRather(key);
+    const choice = RATHERS.find((r) => r.key === key)!;
+    const nonce = (tapRef.current += 1);
+    setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
+    // Mime is temporary (~1.5s); a beat later the card slides up.
+    timers.current.push(window.setTimeout(() => setMime(null), 1500));
+    timers.current.push(window.setTimeout(() => setShowCard(true), 2500));
+  }
+
+  function answer(a: "yeah" | "not-yet") {
+    console.log("[Cast] answer", {
+      character: selected?.id,
+      name,
+      job,
+      rather,
+      answer: a,
+    });
+  }
 
   return (
     <div className="cast-stage">
@@ -137,9 +201,6 @@ export function CastPage() {
             ))}
           </motion.div>
 
-          {/* Spotlight: a pool of light that follows the cursor, lifting the
-              characters underneath while the rest of the crowd sits in shadow
-              so the full field isn't overwhelming. */}
           <div className="cast-spotlight" ref={spotlightRef} />
         </div>
 
@@ -149,7 +210,7 @@ export function CastPage() {
             <motion.div
               className="cast-fly"
               initial={{ left: flyFrom.left, top: flyFrom.top, width: flyFrom.size, height: flyFrom.size }}
-              animate={{ left: target.left, top: target.top, width: target.size, height: target.size }}
+              animate={{ left: boxes.focus.left, top: boxes.focus.top, width: boxes.focus.size, height: boxes.focus.size }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               onAnimationComplete={() => setPhase("focus")}
             >
@@ -158,19 +219,53 @@ export function CastPage() {
           )}
         </AnimatePresence>
 
-        {/* Beat 2 — named + reaction */}
-        <AnimatePresence>
-          {phase === "focus" && selected && (
-            <CastFocus
-              key={selected.id}
-              character={selected}
-              name={names[selected.id] ?? selected.name}
-              target={target}
-              onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
-              onBack={reset}
-            />
-          )}
-        </AnimatePresence>
+        {/* Beat 2 — named */}
+        {phase === "focus" && selected && (
+          <CastFocus
+            character={selected}
+            name={name}
+            box={boxes.focus}
+            onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
+            onContinue={() => setPhase("job")}
+            onBack={backToGrid}
+          />
+        )}
+
+        {/* Beat 3 — what will I be doing for you? */}
+        {phase === "job" && selected && (
+          <CastJob
+            character={selected}
+            heroBox={boxes.top}
+            job={job}
+            jobEdge={jobEdge}
+            onPick={pickJob}
+            onContinue={goToRather}
+            onBack={() => {
+              clearTimers();
+              setPhase("focus");
+            }}
+          />
+        )}
+
+        {/* Beat 4 — rather */}
+        {phase === "rather" && selected && (
+          <CastRather
+            character={selected}
+            heroBox={boxes.top}
+            job={job}
+            rather={rather}
+            mime={mime}
+            showCard={showCard}
+            onPick={pickRather}
+            onAnswer={answer}
+            onBack={() => {
+              clearTimers();
+              setMime(null);
+              setShowCard(false);
+              setPhase("job");
+            }}
+          />
+        )}
 
         {inGrid && (
           <button className="cast-build-link" onClick={() => setBuildOpen(true)}>
@@ -197,15 +292,16 @@ function Billboard({
   dimmed: boolean;
   onPick: (c: CastCharacter, el: HTMLElement) => void;
 }) {
+  if (dimmed) {
+    return <div className="cast-cell" style={{ visibility: "hidden" }} aria-hidden />;
+  }
   return (
     <button
       type="button"
       className="cast-cell"
-      style={{ visibility: dimmed ? "hidden" : "visible" }}
       aria-label={`Choose ${character.name}`}
       onClick={(e) => onPick(character, e.currentTarget)}
     >
-      {/* counter-rotate so the character stands upright facing us */}
       <span className="cast-cell__stand">
         <span className="cast-idle">
           <span className="cast-hover" data-anim={character.hover}>
@@ -217,115 +313,36 @@ function Billboard({
   );
 }
 
-/* ---------------- Beat 2: focus ---------------- */
-
-/** Rest between autonomous reaction replays, seconds. */
-const REACTION_REST = 2.2;
+/* ---------------- Beat 2: focus / named ---------------- */
 
 function CastFocus({
   character,
   name,
-  target,
+  box,
   onRename,
+  onContinue,
   onBack,
 }: {
   character: CastCharacter;
   name: string;
-  target: Rect;
+  box: Rect;
   onRename: (next: string) => void;
+  onContinue: () => void;
   onBack: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [burst, setBurst] = useState(0);
-  const controls = useAnimationControls();
-  const reaction = REACTIONS[character.reaction];
-  const introDur =
-    typeof reaction.intro.transition.duration === "number"
-      ? reaction.intro.transition.duration
-      : 1.5;
-
-  // One play() drives both the autonomous loop and click-to-react. `burst`
-  // bumps so the yawn's Zzz replays in sync with each reaction. (CastFocus is
-  // keyed by character id, so `reaction` is stable for its lifetime.)
-  const play = useCallback(() => {
-    setBurst((b) => b + 1);
-    return controls.start(reaction.intro.animate, reaction.intro.transition);
-  }, [controls, reaction]);
-
-  // Autonomous: the character keeps doing its "one small thing" on a loop with
-  // a rest gap (constant drift underneath keeps it alive between reps).
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      await new Promise((r) => setTimeout(r, 320));
-      while (alive) {
-        await play();
-        if (!alive) break;
-        await new Promise((r) => setTimeout(r, REACTION_REST * 1000));
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [play]);
 
   return (
-    <motion.div
-      className="cast-focus"
-      initial={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-    >
+    <motion.div className="cast-focus">
       <button className="cast-back" onClick={onBack} aria-label="Back to grid">
         ‹
       </button>
 
-      {/* avatar pinned to the clone's landing box for a seamless hand-off.
-          Layered motion so it's never static:
-          - .cast-focus-alive: a constant gentle drift (CSS), always running
-          - .cast-hover: replays the character's grid move on hover (CSS)
-          - motion.div: the eyes-tied reaction, looped with a rest gap so the
-            character keeps doing its "one small thing" on its own */}
-      <div
-        className="cast-focus__avatar"
-        role="button"
-        tabIndex={0}
-        aria-label={`Make ${name} react`}
-        onClick={() => void play()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            void play();
-          }
-        }}
-        style={{ left: target.left, top: target.top, width: target.size, height: target.size }}
-      >
-        <div className="cast-focus-alive">
-          <div className="cast-hover" data-anim={character.hover}>
-            <motion.div style={{ width: "100%", height: "100%" }} animate={controls}>
-              <CastAvatar character={character} />
-            </motion.div>
-          </div>
-        </div>
-
-        {character.reaction === "yawn" && (
-          <AnimatePresence>
-            <motion.div
-              key={burst}
-              className="cast-zzz"
-              initial={{ opacity: 0, y: -4, scale: 0.6 }}
-              animate={{ opacity: [0, 1, 1, 0], y: -42, scale: 1 }}
-              transition={{ duration: introDur, ease: "easeOut" }}
-            >
-              z z Z
-            </motion.div>
-          </AnimatePresence>
-        )}
-      </div>
+      <HeroCharacter character={character} box={box} interactive autoReact />
 
       <motion.div
         className="cast-name"
-        style={{ top: target.top + target.size + 28 }}
+        style={{ top: box.top + box.size + 28 }}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3, duration: 0.4, ease: "easeOut" }}
@@ -352,13 +369,7 @@ function CastFocus({
             aria-label={`Rename ${name}`}
           >
             <span className="cast-name__text">{name}</span>
-            <svg
-              className="cast-name__pencil"
-              width="17"
-              height="17"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
+            <svg className="cast-name__pencil" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 fill="currentColor"
                 d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
@@ -368,12 +379,7 @@ function CastFocus({
         )}
       </motion.div>
 
-      <button
-        className="cast-continue"
-        onClick={() => {
-          console.log("[Cast] Continue", { id: character.id, name });
-        }}
-      >
+      <button className="cast-continue" onClick={onContinue}>
         Continue
       </button>
     </motion.div>

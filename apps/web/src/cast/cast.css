@@ -154,19 +154,19 @@
 /* grid tiles replay their signature move on hover; the detail view reuses the
    same moves on hover too */
 .cast-cell:hover .cast-hover[data-anim="jump"],
-.cast-focus__avatar:hover .cast-hover[data-anim="jump"] {
+.cast-hero__body:hover .cast-hover[data-anim="jump"] {
   animation: cast-jump 0.6s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="flip"],
-.cast-focus__avatar:hover .cast-hover[data-anim="flip"] {
+.cast-hero__body:hover .cast-hover[data-anim="flip"] {
   animation: cast-flip 0.7s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="wiggle"],
-.cast-focus__avatar:hover .cast-hover[data-anim="wiggle"] {
+.cast-hero__body:hover .cast-hover[data-anim="wiggle"] {
   animation: cast-wiggle 0.6s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="spin"],
-.cast-focus__avatar:hover .cast-hover[data-anim="spin"] {
+.cast-hero__body:hover .cast-hover[data-anim="spin"] {
   animation: cast-spin 0.7s ease;
 }
 
@@ -189,24 +189,50 @@
   filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
 }
 
-/* ---- Beat 2: focus ---- */
+/* ---- Beats 2–4: focus / hero ---- */
 
-.cast-focus {
+.cast-focus,
+.cast-beat {
   position: absolute;
   inset: 0;
   z-index: 4;
 }
 
-.cast-focus__avatar {
+/* the persistent character across beats — positioned + sized inline; props are
+   placed as absolute children relative to this box */
+.cast-hero {
   position: absolute;
-  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+}
+.cast-hero__body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
   cursor: pointer;
   outline: none;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
 }
-.cast-focus__avatar:focus-visible {
+.cast-hero__body:focus-visible {
   border-radius: 18px;
   outline: 2px solid rgba(255, 255, 255, 0.28);
   outline-offset: 10px;
+}
+
+/* props placed relative to the hero box */
+.cast-prop,
+.cast-buddy {
+  position: absolute;
+  aspect-ratio: 1;
+}
+.cast-prop__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
 }
 
 /* constant gentle drift so the focused character is never frozen between
@@ -285,6 +311,144 @@
   font-weight: 700;
   color: rgba(244, 244, 246, 0.7);
   pointer-events: none;
+}
+.cast-zzz--hero {
+  font-size: 18px;
+}
+
+/* ---- Beats 3 & 4: prompt + choice tiles + card ---- */
+
+.cast-beat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cast-beat__prompt {
+  margin: 0 0 18px;
+  padding: 0 24px;
+  text-align: center;
+  font-size: 21px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: #f4f4f6;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+.cast-tiles {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 20px 120px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cast-tiles::-webkit-scrollbar {
+  display: none;
+}
+
+.cast-tile2 {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 18px;
+  padding: 14px 8px 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.cast-tile2:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.cast-tile2.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.cast-tile2__icon {
+  width: 46px;
+  height: 46px;
+}
+.cast-tile2__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.cast-tile2__label {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: rgba(244, 244, 246, 0.82);
+  text-align: center;
+  line-height: 1.1;
+}
+
+@media (max-width: 560px) {
+  .cast-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* closing card (Beat 4) */
+.cast-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* centered via margin (not translateX) so framer's y-transform can't clobber it */
+  width: min(520px, calc(100% - 32px));
+  margin: 0 auto 24px;
+  background: #1c1e26;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  padding: 22px 22px 20px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 8;
+}
+.cast-card__copy {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 620;
+  line-height: 1.35;
+  color: #f4f4f6;
+  text-align: center;
+}
+.cast-card__actions {
+  display: flex;
+  gap: 10px;
+}
+.cast-card__primary,
+.cast-card__secondary {
+  flex: 1;
+  appearance: none;
+  border: none;
+  border-radius: 14px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-card__primary {
+  background: #f4f4f6;
+  color: #15161c;
+}
+.cast-card__primary:hover {
+  background: #fff;
+}
+.cast-card__secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 244, 246, 0.8);
+}
+.cast-card__secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* ---- bottom controls ---- */
