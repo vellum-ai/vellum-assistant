@@ -30,6 +30,7 @@ export const routes = {
    * the web build, where the runtime wrapper degrades to a "—" fallback.
    */
   about: r("/assistant/about"),
+  quickInput: r("/assistant/quick-input"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id

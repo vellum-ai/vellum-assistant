@@ -10,6 +10,29 @@ public enum FeatureFlagScope: String, Decodable {
     case both
 }
 
+/// The `defaultEnabled` value in the registry is either a `Bool` (for boolean
+/// flags) or a `String` (for string/experiment flags).
+public enum FlagDefault: Decodable, Equatable {
+    case bool(Bool)
+    case string(String)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let b = try? container.decode(Bool.self) {
+            self = .bool(b)
+        } else {
+            self = .string(try container.decode(String.self))
+        }
+    }
+
+    public var boolValue: Bool? {
+        if case .bool(let v) = self { return v }
+        return nil
+    }
+
+    public var isBoolean: Bool { boolValue != nil }
+}
+
 /// A single entry in the unified feature flag registry.
 public struct FeatureFlagDefinition: Decodable {
     public let id: String
@@ -17,7 +40,7 @@ public struct FeatureFlagDefinition: Decodable {
     public let key: String
     public let label: String
     public let description: String
-    public let defaultEnabled: Bool
+    public let defaultEnabled: FlagDefault
 }
 
 /// Top-level schema for `feature-flag-registry.json`.
@@ -30,6 +53,12 @@ public struct FeatureFlagRegistry: Decodable {
     /// Return flags consumed by clients (`scope == .client` or `.both`).
     public func clientScopeFlags() -> [FeatureFlagDefinition] {
         flags.filter { $0.scope == .client || $0.scope == .both }
+    }
+
+    /// Boolean-only client flags — excludes string/experiment flags that the
+    /// macOS toggle UI cannot represent.
+    public func clientBooleanFlags() -> [FeatureFlagDefinition] {
+        clientScopeFlags().filter { $0.defaultEnabled.isBoolean }
     }
 
     /// Return flags consumed by the assistant backend (`scope == .assistant` or `.both`).

@@ -89,8 +89,6 @@ describe("Transcript", () => {
       <Transcript
         items={[]}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -105,8 +103,6 @@ describe("Transcript", () => {
       <Transcript
         items={[]}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -129,8 +125,6 @@ describe("Transcript", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -159,8 +153,6 @@ describe("Transcript", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -183,8 +175,6 @@ describe("Transcript", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -212,8 +202,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -236,8 +224,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -269,8 +255,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -286,8 +270,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={[]}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -314,8 +296,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -338,8 +318,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -365,8 +343,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -397,8 +373,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
@@ -419,8 +393,6 @@ describe("Transcript avatar slot", () => {
       <Transcript
         items={items}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -474,8 +446,6 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
       <Transcript
         items={historyOnly}
         conversationId="conv-1"
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
         renderAvatar={renderAvatar}
@@ -495,8 +465,6 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
         <Transcript
           items={withAnchor}
           conversationId="conv-1"
-          onSecretSubmit={noop}
-          onConfirmationDecision={noop}
           onSurfaceAction={noop}
           onRetryError={noop}
           renderAvatar={renderAvatar}
@@ -517,8 +485,6 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
         <Transcript
           items={historyOnly}
           conversationId="conv-1"
-          onSecretSubmit={noop}
-          onConfirmationDecision={noop}
           onSurfaceAction={noop}
           onRetryError={noop}
           renderAvatar={renderAvatar}

@@ -64,9 +64,10 @@ enum AssistantFeatureFlagResolver {
 
     static func registryDefaults(from registry: FeatureFlagRegistry?) -> [String: Bool] {
         Dictionary(
-            uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map {
-                ($0.key, $0.defaultEnabled)
-            }
+            uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? [])
+                .compactMap { def in
+                    def.defaultEnabled.boolValue.map { (def.key, $0) }
+                }
         )
     }
 

@@ -1,8 +1,11 @@
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
+import { resolveEnvironmentName } from "@vellumai/local-mode";
+
 import { handle, on } from "./ipc";
 import { ensureVisible as ensureMainWindowVisible } from "./main-window";
+import { handleAuthCallback } from "./native-auth";
 
 /**
  * Inbound deep links — `vellum://` and `vellum-assistant://` URL
@@ -49,9 +52,30 @@ import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
+  | { kind: "authCallback"; state: string; code?: string; error?: string }
   | { kind: "unknown"; url: string };
 
-const ACCEPTED_SCHEMES = ["vellum:", "vellum-assistant:"] as const;
+const BASE_SCHEMES = ["vellum:", "vellum-assistant:"] as const;
+
+const SCHEME_BY_ENV: Record<string, string> = {
+  production: "vellum-assistant",
+  staging: "vellum-assistant-staging",
+  dev: "vellum-assistant-dev",
+  local: "vellum-assistant-local",
+};
+
+function resolveAcceptedSchemes(): string[] {
+  const schemes = [...BASE_SCHEMES] as string[];
+  const env = resolveEnvironmentName(process.env);
+  const envScheme = SCHEME_BY_ENV[env];
+  if (envScheme) {
+    const withColon = `${envScheme}:`;
+    if (!schemes.includes(withColon)) schemes.push(withColon);
+  }
+  return schemes;
+}
+
+const ACCEPTED_SCHEMES = resolveAcceptedSchemes();
 
 /**
  * Pure parser: URL string → typed `DeepLink`. Exported for unit tests.
@@ -78,7 +102,7 @@ export const parseVellumUrl = (input: string): DeepLink => {
   } catch {
     return { kind: "unknown", url: input };
   }
-  if (!ACCEPTED_SCHEMES.includes(url.protocol as (typeof ACCEPTED_SCHEMES)[number])) {
+  if (!ACCEPTED_SCHEMES.includes(url.protocol)) {
     return { kind: "unknown", url: input };
   }
   if (url.host === "send") {
@@ -88,6 +112,13 @@ export const parseVellumUrl = (input: string): DeepLink => {
     const threadId = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
     if (threadId) return { kind: "openThread", threadId };
     return { kind: "unknown", url: input };
+  }
+  if (url.host === "auth" && url.pathname.startsWith("/callback")) {
+    const state = url.searchParams.get("state");
+    if (!state) return { kind: "unknown", url: input };
+    const code = url.searchParams.get("code") ?? undefined;
+    const error = url.searchParams.get("error") ?? undefined;
+    return { kind: "authCallback", state, code, error };
   }
   return { kind: "unknown", url: input };
 };
@@ -99,7 +130,7 @@ export const parseVellumUrl = (input: string): DeepLink => {
  */
 export const extractDeepLinkFromArgv = (argv: readonly string[]): string | null => {
   for (const arg of argv) {
-    if (ACCEPTED_SCHEMES.some((scheme) => arg.startsWith(scheme))) return arg;
+    if (ACCEPTED_SCHEMES.some((s) => arg.startsWith(s))) return arg;
   }
   return null;
 };
@@ -158,6 +189,16 @@ const broadcast = (link: DeepLink): void => {
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
+
+  // Auth callbacks are a main-process concern — the renderer doesn't
+  // need to see them. Route directly to the native-auth module and
+  // bring the window forward so the user sees the result.
+  if (link.kind === "authCallback") {
+    void handleAuthCallback(link.state, link.code, link.error);
+    if (app.isReady()) void ensureMainWindowVisible();
+    return;
+  }
+
   if (subscribers.size === 0) pending.push(link);
   broadcast(link);
   // Activation is gated on `app.isReady()`. On cold launch, the
@@ -186,7 +227,9 @@ export const installDeepLinks = (): void => {
   // Dynamic registration. Packaged builds also declare these in
   // `electron-builder.yml`'s `protocols` (so `Info.plist` carries
   // `CFBundleURLTypes`); the dynamic call is required for dev and
-  // defensive for prod.
+  // defensive for prod. Includes the environment-specific callback
+  // scheme (e.g. `vellum-assistant-dev`) so the OS routes OAuth
+  // callbacks from the system browser back to this instance.
   for (const scheme of ACCEPTED_SCHEMES) {
     app.setAsDefaultProtocolClient(scheme.replace(/:$/, ""));
   }

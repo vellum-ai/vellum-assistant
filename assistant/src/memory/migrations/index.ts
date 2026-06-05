@@ -259,6 +259,7 @@ export { migrateScheduleScriptTimeout } from "./269-schedule-script-timeout.js";
 export { migrateMessagesRoleCreatedAtIndex } from "./270-messages-role-created-at-index.js";
 export { migrateScheduleSourceConversation } from "./270-schedule-source-conversation.js";
 export { createAuthFallbackEventsTable } from "./271-create-auth-fallback-events.js";
+export { migrateAcpSessionHistoryCwd } from "./272-acp-session-history-cwd.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

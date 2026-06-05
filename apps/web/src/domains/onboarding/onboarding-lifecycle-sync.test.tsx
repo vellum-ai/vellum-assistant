@@ -63,7 +63,7 @@ type TestOnboardingRecipe = {
 };
 
 let onboardingCompleted = false;
-let prechatOnboardingCondensedFlow = true;
+let preChatOnboardingExperiment = "variant-a";
 let activationFlowExperiment = false;
 let selfIntroGreeting = true;
 let isIOSWeb = false;
@@ -212,7 +212,9 @@ mock.module("@/runtime/local-mode-host", () => ({
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
-      prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
+      stringFlags: () => ({
+        preChatOnboardingExperiment20260606: preChatOnboardingExperiment,
+      }),
       experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
@@ -361,7 +363,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
-  prechatOnboardingCondensedFlow = true;
+  preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = false;
   selfIntroGreeting = true;
   isIOSWeb = false;
@@ -509,7 +511,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
 
     render(<PreChatFlow />);
 
@@ -520,7 +522,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat control flow skips the macOS app step on macOS web", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isMacOSWeb = true;
     macOsAppDownloaded = false;
 
@@ -634,7 +636,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode without a platform session gates the prior-assistants step", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "absent";
 
@@ -655,7 +657,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode with a platform session shows the prior-assistants step", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "present";
 

@@ -3,8 +3,11 @@
  *
  * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
- * `claude` and `codex` Just Work whenever `acp.enabled: true` — no per-user
- * config required. The result is a discriminated union covering every reason
+ * `claude` and `codex` Just Work whenever ACP is enabled (the `acp` feature
+ * flag or `acp.enabled: true`; see `feature-gate.ts`), with no per-user
+ * config required. Natural names ("claude code", "Gemini CLI") resolve via
+ * `AGENT_ID_ALIASES` when the raw id misses both maps. The result is a
+ * discriminated union covering every reason
  * a spawn might fail before we even start the agent process: ACP disabled,
  * unknown agent id, or binary missing from PATH. Callers (acp_spawn,
  * acp_list_agents, and the `/v1/acp/spawn` HTTP route) get a single source
@@ -21,6 +24,7 @@ import {
 } from "../config/acp-defaults.js";
 import type { AcpAgentConfig } from "../config/acp-schema.js";
 import { getConfig } from "../config/loader.js";
+import { isAcpEnabled } from "./feature-gate.js";
 
 /**
  * Whether this agent's entry came from user config (wins over default) or
@@ -29,8 +33,11 @@ import { getConfig } from "../config/loader.js";
  */
 type AcpAgentSource = "config" | "default";
 
-type ResolveAcpAgentResult =
+export type ResolveAcpAgentResult =
   | { ok: true; agent: AcpAgentConfig }
+  | ResolveAcpAgentFailure;
+
+export type ResolveAcpAgentFailure =
   | { ok: false; reason: "acp_disabled"; hint: string }
   | { ok: false; reason: "unknown_agent"; available: string[] }
   | {
@@ -39,6 +46,33 @@ type ResolveAcpAgentResult =
       hint: string;
       command: string;
     };
+
+/**
+ * Single source of truth for the user-facing message of each resolver
+ * failure reason. Every caller that surfaces a resolve failure (acp_spawn
+ * tool, /v1/acp/spawn route, AcpSessionManager.resumeFromHistory) renders
+ * the same copy through this helper; only the transport wrapping (tool
+ * error result vs. HTTP error class vs. thrown Error) differs per caller.
+ */
+export function formatResolveFailure(
+  agentId: string,
+  failure: ResolveAcpAgentFailure,
+): string {
+  switch (failure.reason) {
+    case "acp_disabled":
+      return failure.hint;
+    case "unknown_agent":
+      return `Unknown agent "${agentId}". Available: ${failure.available.join(", ")}.`;
+    case "binary_not_found":
+      return `${failure.command} is not on PATH. ${failure.hint}`;
+    default: {
+      const _exhaustive: never = failure;
+      throw new Error(
+        `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
+      );
+    }
+  }
+}
 
 interface AcpAgentEntry {
   id: string;
@@ -56,7 +90,7 @@ interface AcpAgentEntry {
  * the same string instead of duplicating near-identical copy.
  */
 export const ACP_DISABLED_HINT =
-  "Set 'acp.enabled': true in ~/.vellum/workspace/config.json (or via the runtime config endpoint).";
+  "Enable the \"ACP Coding Agents\" feature flag in the client's feature flags UI (or set 'acp.enabled': true in ~/.vellum/workspace/config.json).";
 
 function installHintFor(command: string): string {
   const pkg = DEFAULT_AGENT_NPM_PACKAGES[command];
@@ -77,11 +111,51 @@ function findAgentBinary(agent: AcpAgentConfig): string | null {
 }
 
 /**
+ * Natural-name aliases for the bundled agent ids, keyed by normalized form
+ * (see `normalizeAgentId`). Resolution sugar only: aliases are consulted as a
+ * last-resort fallback in `lookupAgent` and never appear in the
+ * `listAcpAgents` catalog.
+ */
+const AGENT_ID_ALIASES: Record<string, string> = {
+  claudecode: "claude",
+  codexcli: "codex",
+  openaicodex: "codex",
+  geminicli: "gemini",
+  googlegemini: "gemini",
+};
+
+/**
+ * Normalize a raw agent id for alias matching: lowercase and strip spaces,
+ * underscores, and hyphens so "Claude Code", "claude-code", and
+ * "claude_code" all hit the same alias entry.
+ */
+function normalizeAgentId(id: string): string {
+  return id.toLowerCase().replace(/[\s_-]/g, "");
+}
+
+/**
  * Resolve an id against user config first, then bundled defaults. Returns the
  * resolved entry plus a `source` label so callers can surface "user override
  * vs bundled default" without re-deriving it.
+ *
+ * When the raw id misses both maps, fall back to `AGENT_ID_ALIASES` so
+ * natural names like "claude code" or "Gemini CLI" resolve to the canonical
+ * id. The alias is consulted ONLY after both direct lookups miss, so a user
+ * config entry literally keyed "claude code" always wins over the alias.
  */
 function lookupAgent(
+  userAgents: Record<string, AcpAgentConfig>,
+  id: string,
+): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
+  const direct = directLookup(userAgents, id);
+  if (direct) return direct;
+  const canonicalId = AGENT_ID_ALIASES[normalizeAgentId(id)];
+  return canonicalId !== undefined
+    ? directLookup(userAgents, canonicalId)
+    : undefined;
+}
+
+function directLookup(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
@@ -109,7 +183,7 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  * Resolve an ACP agent id to its config + binary preflight result.
  *
  * Order of checks:
- * 1. ACP must be enabled in config.
+ * 1. ACP must be enabled (feature flag or config; see `isAcpEnabled`).
  * 2. The id must resolve to an agent (user config wins; falls back to defaults).
  * 3. The agent's `command` must be discoverable via `Bun.which` (PATH lookup).
  *
@@ -118,7 +192,7 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  */
 export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
   const config = getConfig();
-  if (!config.acp.enabled) {
+  if (!isAcpEnabled(config)) {
     return { ok: false, reason: "acp_disabled", hint: ACP_DISABLED_HINT };
   }
 
@@ -160,7 +234,7 @@ export function listAcpAgents(): {
   agents: AcpAgentEntry[];
 } {
   const config = getConfig();
-  if (!config.acp.enabled) {
+  if (!isAcpEnabled(config)) {
     return { enabled: false, agents: [] };
   }
 

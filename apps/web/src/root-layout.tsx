@@ -32,11 +32,17 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
+import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { retireAssistant } from "@/assistant/retire-service";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 const ShareFeedbackModal = lazy(() =>
   import("@/components/share-feedback-modal").then((m) => ({
@@ -117,6 +123,7 @@ export function RootLayout() {
   // the live connection status to the menu-bar dot. Both no-op off Electron.
   useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
   useElectronStatusSync();
+  useElectronFeatureFlagBridge();
 
   // Size the Electron main window to the onboarding layout (440×630
   // default) while on an onboarding step, and back to the main-app size
@@ -134,6 +141,11 @@ export function RootLayout() {
   useGlobalDeepLinkConsumer();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
+  // dispatches by id; the destructive confirmation lives here in the layout so
+  // the retire can run without first routing the user to settings.
+  const [retireId, setRetireId] = useState<string | null>(null);
+  const [retirePending, setRetirePending] = useState(false);
 
   useVellumCommands({
     openSettings: () => {
@@ -153,7 +165,47 @@ export function RootLayout() {
       }
     },
     shareFeedback: () => setFeedbackOpen(true),
+    selectAssistant: (command) => {
+      if (command.kind === "selectAssistant") {
+        void useAuthStore.getState().connectLocalAssistant(command.assistantId);
+      }
+    },
+    createAssistant: () => {
+      void navigate(routes.onboarding.prechat);
+    },
+    retireAssistant: (command) => {
+      if (command.kind === "retireAssistant") {
+        setRetireId(command.assistantId);
+      }
+    },
+    quickInputSubmit: (command) => {
+      if (command.kind !== "quickInputSubmit") {
+        return;
+      }
+      const draftId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      useViewerStore.getState().setMainView("chat");
+      void navigate(
+        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
+      );
+    },
   });
+
+  const handleConfirmRetire = async () => {
+    if (!retireId) return;
+    setRetirePending(true);
+    const outcome = await retireAssistant(retireId);
+    if (outcome.ok) {
+      setRetireId(null);
+      setRetirePending(false);
+      toast.success("Assistant retired.");
+      navigate(outcome.nextRoute, { replace: true });
+      return;
+    }
+    toast.error(outcome.error);
+    setRetirePending(false);
+    setRetireId(null);
+  };
 
   const keyboardOpen =
     isMobile &&
@@ -215,6 +267,20 @@ export function RootLayout() {
           />
         </LazyBoundary>
       ) : null}
+
+      {/* Destructive confirmation for the tray "Retire <assistant>…" command.
+          Mirrors the settings RetireAssistant dialog so a retire triggered from
+          the menu bar carries the same irreversible-action warning. */}
+      <ConfirmDialog
+        open={retireId !== null}
+        title="Retire Assistant"
+        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
+        confirmLabel="Retire"
+        destructive
+        isPending={retirePending}
+        onConfirm={handleConfirmRetire}
+        onCancel={() => setRetireId(null)}
+      />
     </div>
   );
 }

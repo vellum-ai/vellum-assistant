@@ -105,6 +105,12 @@ export const routeTree = [
     // Vite's SPA fallback in dev (which is scoped to the `base`).
     { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
 
+    // Quick Input — lightweight input panel rendered inside the Electron
+    // quick input BrowserWindow (a frameless, always-on-top panel invoked
+    // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",

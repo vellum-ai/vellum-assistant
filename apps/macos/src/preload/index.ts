@@ -23,7 +23,8 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "quickInputSubmit"; message: string };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
@@ -163,9 +164,11 @@ export interface VellumBridge {
     getToken(): string | null;
   };
   auth: {
-    signIn(): Promise<void>;
-    signOut(): Promise<void>;
-    getToken(): Promise<string | null>;
+    startOAuth(options: {
+      providerHint?: string;
+      loginHint?: string;
+      intent?: string;
+    }): Promise<{ sessionToken: string }>;
   };
   settings: {
     get<T = unknown>(key: string): Promise<T | null>;
@@ -212,16 +215,17 @@ export interface VellumBridge {
      * Publish the unread count so the main process can update the macOS
      * Dock badge. Pass `0` (or any non-positive number) to clear. Main
      * formats per Swift Vellum's convention — pass-through up to 99,
-     * `"99+"` beyond.
+     * `"99+"` beyond. Fire-and-forget — no acknowledgement.
      */
-    setBadge(count: number): Promise<void>;
+    setBadge(count: number): void;
     /**
      * Publish the user's signed-in state so the main process can decide
      * whether to keep the Dock icon visible after the last window
      * closes. Temporary — once main owns auth state directly, this
-     * call becomes a no-op and the renderer drops it.
+     * call becomes a no-op and the renderer drops it. Fire-and-forget —
+     * no acknowledgement.
      */
-    setSignedIn(signedIn: boolean): Promise<void>;
+    setSignedIn(signedIn: boolean): void;
   };
   localMode: {
     /**
@@ -307,14 +311,6 @@ export interface VellumBridge {
      * right size.
      */
     setOnboarding(active: boolean): Promise<void>;
-    /**
-     * Relax the main window's same-origin navigation guard for the duration
-     * of a sign-in so the OAuth provider chain (WorkOS → Google/Apple → our
-     * callback) runs in-window instead of being ejected to the system
-     * browser. Call right before kicking off the provider redirect; the guard
-     * re-arms automatically when the flow returns to the app.
-     */
-    beginAuthFlow(): Promise<void>;
   };
   power: {
     /**
@@ -383,6 +379,14 @@ export interface VellumBridge {
      */
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
   };
+  quickInput: {
+    /** Submit a message from the quick input panel. Main closes the panel,
+     * ensures the main window is visible, and dispatches a `quickInputSubmit`
+     * command so the chat domain creates a new conversation and auto-sends. */
+    submit(message: string): Promise<void>;
+    /** Dismiss the quick input panel without submitting. */
+    dismiss(): Promise<void>;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -401,9 +405,14 @@ const bridge: VellumBridge = {
       ipcRenderer.sendSync("vellum:csrf:getToken") as string | null,
   },
   auth: {
-    signIn: notImplemented("auth.signIn"),
-    signOut: notImplemented("auth.signOut"),
-    getToken: notImplemented("auth.getToken"),
+    startOAuth: (options: {
+      providerHint?: string;
+      loginHint?: string;
+      intent?: string;
+    }): Promise<{ sessionToken: string }> =>
+      ipcRenderer.invoke("vellum:auth:startOAuth", options) as Promise<{
+        sessionToken: string;
+      }>,
   },
   settings: {
     get: <T>(key: string): Promise<T | null> =>
@@ -436,10 +445,12 @@ const bridge: VellumBridge = {
     },
   },
   dock: {
-    setBadge: (count: number): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
-    setSignedIn: (signedIn: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+    setBadge: (count: number): void => {
+      ipcRenderer.send("vellum:dock:setBadge", count);
+    },
+    setSignedIn: (signedIn: boolean): void => {
+      ipcRenderer.send("vellum:dock:setSignedIn", signedIn);
+    },
   },
   localMode: {
     hatch: (species: string, remote?: string) =>
@@ -497,8 +508,6 @@ const bridge: VellumBridge = {
         "vellum:mainWindow:setOnboarding",
         active,
       ) as Promise<void>,
-    beginAuthFlow: (): Promise<void> =>
-      ipcRenderer.invoke("vellum:mainWindow:beginAuthFlow") as Promise<void>,
   },
   power: {
     onEvent: (callback) => {
@@ -583,6 +592,12 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+  },
+  quickInput: {
+    submit: (message: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
+    dismiss: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
   },
 };
 

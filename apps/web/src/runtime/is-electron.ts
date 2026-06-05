@@ -43,7 +43,11 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "createAssistant" }
+  | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "quickInputSubmit"; message: string };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in
@@ -149,8 +153,8 @@ declare global {
         setAvatar(png: Uint8Array | null): void;
       };
       dock: {
-        setBadge(count: number): Promise<void>;
-        setSignedIn(signedIn: boolean): Promise<void>;
+        setBadge(count: number): void;
+        setSignedIn(signedIn: boolean): void;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
@@ -181,10 +185,17 @@ declare global {
           | { ok: false; status: number; error: string }
         >;
       };
+      // Optional: older Electron shells predate the native OAuth IPC channel.
+      auth?: {
+        startOAuth(options: {
+          providerHint?: string;
+          loginHint?: string;
+          intent?: string;
+        }): Promise<{ sessionToken: string }>;
+      };
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
-        beginAuthFlow(): Promise<void>;
       };
       power: {
         onEvent(
@@ -221,6 +232,11 @@ declare global {
         ): () => void;
         setDevice(online: boolean): void;
         retry(): void;
+      };
+      // Optional: older Electron shells predate the quick input channel.
+      quickInput?: {
+        submit(message: string): Promise<void>;
+        dismiss(): Promise<void>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {

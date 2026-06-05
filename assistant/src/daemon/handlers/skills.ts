@@ -31,7 +31,10 @@ import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
-import { getCachedCatalogSync, getCatalog } from "../../skills/catalog-cache.js";
+import {
+  getCachedCatalogSync,
+  getCatalog,
+} from "../../skills/catalog-cache.js";
 import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,

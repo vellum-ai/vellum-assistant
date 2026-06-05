@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { z } from "zod";
 
 // `./main-window` (which `./dock` imports `current` /
 // `onMainWindowVisibilityChange` from) transitively pulls in
@@ -14,7 +16,35 @@ mock.module("./main-window", () => ({
 // `./avatar` and `./ipc` transitively reach `electron`'s `ipcMain`; stub the
 // two seams `./dock` actually uses so the module loads without a real Electron
 // runtime. `avatarBitmap` is the single knob the Dock-icon tests turn.
-mock.module("./ipc", () => ({ handle: () => undefined, on: () => undefined }));
+//
+// Capture what `installDock` registers so the IPC tests can assert the
+// renderer→main publish channels use the fire-and-forget `on` path (not the
+// awaitable `handle`/`invoke` path) and exercise the payload schemas directly.
+// The sender-origin guard inside the real `on`/`handle` is covered by
+// `ipc.test.ts`, so it's intentionally absent here.
+type Registration = {
+  channel: string;
+  schema: z.ZodType<unknown[]>;
+  fn: (args: unknown[]) => void;
+};
+const onRegistrations: Registration[] = [];
+const handleRegistrations: Registration[] = [];
+mock.module("./ipc", () => ({
+  on: (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    fn: (args: unknown[]) => void,
+  ) => {
+    onRegistrations.push({ channel, schema, fn });
+  },
+  handle: (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    fn: (args: unknown[]) => void,
+  ) => {
+    handleRegistrations.push({ channel, schema, fn });
+  },
+}));
 mock.module("./avatar", () => ({ onAvatarChange: () => () => undefined }));
 
 const avatarBitmapMock = mock((_size: number): Buffer | null => null);
@@ -30,6 +60,11 @@ Object.defineProperty(process, "resourcesPath", {
 });
 
 const setIconMock = mock((_icon: unknown) => undefined);
+const setBadgeMock = mock((_label: string) => undefined);
+const dockShowMock = mock(() => Promise.resolve());
+const dockHideMock = mock(() => undefined);
+const setActivationPolicyMock = mock((_policy: string) => undefined);
+const appOnMock = mock((_event: string, _listener: () => void) => undefined);
 const createFromBitmapMock = mock((_buf: Buffer, _opts: unknown) => ({
   __kind: "bitmap",
 }));
@@ -38,7 +73,16 @@ const createEmptyMock = mock(() => ({ __kind: "empty", isEmpty: () => true }));
 const bundleImage = { __kind: "bundle", isEmpty: () => false };
 const createFromPathMock = mock((_p: string) => bundleImage);
 mock.module("electron", () => ({
-  app: { dock: { setIcon: setIconMock } },
+  app: {
+    dock: {
+      setIcon: setIconMock,
+      setBadge: setBadgeMock,
+      show: dockShowMock,
+      hide: dockHideMock,
+    },
+    setActivationPolicy: setActivationPolicyMock,
+    on: appOnMock,
+  },
   nativeImage: {
     createFromBitmap: createFromBitmapMock,
     createEmpty: createEmptyMock,
@@ -51,6 +95,7 @@ const {
   formatBadge,
   buildDockIcon,
   applyDockIcon,
+  installDock,
   __resetForTesting,
 } = await import("./dock");
 
@@ -201,5 +246,64 @@ describe("applyDockIcon", () => {
     applyDockIcon();
     // No blanking: better to leave the last avatar than show an empty tile.
     expect(setIconMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("installDock IPC registration", () => {
+  // `installDock` is guarded by a module-level `installed` flag, so it can
+  // only register once across the whole file. Install once here and assert
+  // against the captured registrations.
+  beforeAll(() => {
+    installDock();
+    // Idempotent — a second call must not double-register.
+    installDock();
+  });
+
+  test("publishes dock state over fire-and-forget `on`, never awaitable `handle`/`invoke`", () => {
+    // The whole point of the call-style alignment: these are one-way
+    // notifications with no acknowledgement, so they must register through
+    // `on` (renderer `send`), not `handle` (renderer `invoke`). A renderer
+    // calling `invoke` against an `on` handler never gets a reply and its
+    // promise hangs — so this guards against a silent regression to `handle`.
+    expect(handleRegistrations).toHaveLength(0);
+
+    const channels = onRegistrations.map((r) => r.channel);
+    expect(channels.filter((c) => c === "vellum:dock:setBadge")).toHaveLength(1);
+    expect(channels.filter((c) => c === "vellum:dock:setSignedIn")).toHaveLength(
+      1,
+    );
+  });
+
+  test("the setBadge schema accepts a single number and rejects anything else", () => {
+    const schema = onRegistrations.find(
+      (r) => r.channel === "vellum:dock:setBadge",
+    )!.schema;
+    expect(schema.safeParse([5]).success).toBe(true);
+    expect(schema.safeParse([0]).success).toBe(true);
+    expect(schema.safeParse([]).success).toBe(false);
+    expect(schema.safeParse(["5"]).success).toBe(false);
+    expect(schema.safeParse([1, 2]).success).toBe(false);
+  });
+
+  test("the setSignedIn schema accepts a single boolean and rejects anything else", () => {
+    const schema = onRegistrations.find(
+      (r) => r.channel === "vellum:dock:setSignedIn",
+    )!.schema;
+    expect(schema.safeParse([true]).success).toBe(true);
+    expect(schema.safeParse([false]).success).toBe(true);
+    expect(schema.safeParse([]).success).toBe(false);
+    expect(schema.safeParse(["true"]).success).toBe(false);
+  });
+
+  test("a published badge count is formatted onto the Dock", () => {
+    const fn = onRegistrations.find(
+      (r) => r.channel === "vellum:dock:setBadge",
+    )!.fn;
+    setBadgeMock.mockClear();
+    fn([42]);
+    expect(setBadgeMock).toHaveBeenLastCalledWith("42");
+    // A non-positive count clears the badge (matches `formatBadge`).
+    fn([0]);
+    expect(setBadgeMock).toHaveBeenLastCalledWith("");
   });
 });

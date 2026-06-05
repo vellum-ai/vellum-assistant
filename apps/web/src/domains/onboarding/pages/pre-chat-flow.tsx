@@ -13,7 +13,7 @@ import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { fetchOnboardingRecipe } from "@/domains/onboarding/recipe-client.js";
 import {
   emitOnboardingFunnelStepCompleted,
-  onboardingFunnelVariantFromCondensedFlag,
+  onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VARIANTS,
   readOnboardingFunnelVariant,
@@ -100,14 +100,14 @@ export function PreChatFlow() {
   const isReplay = searchParams.get("replay") === "1";
   const isIOSWeb = useIsIOSWeb();
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
-  const condensedPrechatFlag =
-    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preChatExperimentArm =
+    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const activationFlowEnabled =
     useClientFeatureFlagStore.use.experimentActivationFlow20260603();
   const selfIntroGreetingEnabled =
     useClientFeatureFlagStore.use.selfIntroGreeting();
   const preferredFunnelVariant =
-    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
+    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const webFunnelVariant =
     readOnboardingFunnelVariant() ?? preferredFunnelVariant;
   const paredDownPrechat =

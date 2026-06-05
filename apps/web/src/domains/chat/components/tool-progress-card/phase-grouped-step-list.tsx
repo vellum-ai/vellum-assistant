@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
@@ -98,6 +98,61 @@ function parseDurationLabel(label: string): number {
   const match = /^(\d+)s$/.exec(label);
   if (!match) return 0;
   return Number(match[1]) * 1000;
+}
+
+/**
+ * Earliest known start time (epoch ms) across a phase's tool steps, or `null`
+ * when none carry timing. Drives the "Started at …" hover on the duration.
+ */
+function phaseStartedAt(steps: ToolCallCardStep[]): number | null {
+  let earliest: number | null = null;
+  for (const step of steps) {
+    if (step.kind === "tool" && step.startedAt != null) {
+      earliest =
+        earliest == null ? step.startedAt : Math.min(earliest, step.startedAt);
+    }
+  }
+  return earliest;
+}
+
+/** Format an epoch-ms timestamp as a local clock time for the duration tooltip. */
+function formatStartTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/**
+ * Phase duration label. When the phase carries a known start time, the duration
+ * becomes a tooltip trigger — hovering "3s" reveals when the work began.
+ */
+function PhaseDurationLabel({
+  durationLabel,
+  startedAt,
+}: {
+  durationLabel: string;
+  startedAt: number | null;
+}) {
+  const label = (
+    <Typography
+      variant="label-medium-default"
+      className="text-[var(--content-tertiary)]"
+    >
+      {durationLabel}
+    </Typography>
+  );
+  if (startedAt == null) return label;
+  return (
+    <Tooltip
+      content={`Started at ${formatStartTime(startedAt)}`}
+      side="top"
+      align="end"
+    >
+      <span className="cursor-default">{label}</span>
+    </Tooltip>
+  );
 }
 
 /** Total of `formatMs`-style labels, re-formatted via `formatMs`. */
@@ -326,6 +381,10 @@ function TimelinePhaseSection({
     section.steps.map((s) => ("durationLabel" in s ? s.durationLabel : "")),
   );
   const status = phaseHeaderStatus(section.steps);
+  // A thinking phase carries no real "completed" semantics — swap the green
+  // status check for the brain glyph so the node reads as a reasoning step
+  // (grouping guarantees a thinking section holds only thinking steps).
+  const isThinking = section.steps[0]?.kind === "thinking";
 
   return (
     <div
@@ -364,7 +423,7 @@ function TimelinePhaseSection({
         className="flex items-center justify-between gap-2 py-[2px]"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <TimelineNode status={status} />
+          <TimelineNode status={status} isThinking={isThinking} />
           <Typography
             variant="body-medium-default"
             className="text-[var(--content-default)]"
@@ -373,17 +432,17 @@ function TimelinePhaseSection({
           </Typography>
         </span>
         {totalDuration ? (
-          <Typography
-            variant="label-medium-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {totalDuration}
-          </Typography>
+          <PhaseDurationLabel
+            durationLabel={totalDuration}
+            startedAt={phaseStartedAt(section.steps)}
+          />
         ) : null}
       </div>
-      {/* Steps indented to align under the title (icon 14px + the row's 8px
-          gap → 22px). Non-last sections add `pb-3` so the connector line runs
-          unbroken down to the next circle. */}
+      {/* Steps aligned under the phase title (icon 14px + the row's 8px gap →
+          22px). The whole timeline body is already indented under the card
+          header by its container, so the pills only need to align with their
+          own phase title here. Non-last sections add `pb-3` so the connector
+          line runs unbroken down to the next circle. */}
       <div
         className={cn(
           "flex min-w-0 flex-col items-start gap-1 pl-[22px]",
@@ -401,7 +460,23 @@ function TimelinePhaseSection({
  * below / end above each node (with a small gap), so the icon never needs to
  * mask the line passing behind it.
  */
-function TimelineNode({ status }: { status: PhaseHeaderStatus }) {
+function TimelineNode({
+  status,
+  isThinking,
+}: {
+  status: PhaseHeaderStatus;
+  isThinking: boolean;
+}) {
+  if (isThinking) {
+    return (
+      <Brain
+        aria-hidden="true"
+        data-testid="phase-header-status-icon"
+        data-status="thinking"
+        className="h-[14px] w-[14px] shrink-0 text-[var(--content-secondary)]"
+      />
+    );
+  }
   return <TimelineNodeIcon status={status} testId="phase-header-status-icon" />;
 }
 

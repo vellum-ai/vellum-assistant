@@ -85,6 +85,13 @@ mock.module(
   }),
 );
 
+mock.module(
+  "@/domains/chat/components/question-prompt-slot",
+  () => ({
+    QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
+  }),
+);
+
 // Import after mocks are registered.
 const { ChatBody } = await import("@/domains/chat/components/chat-body");
 

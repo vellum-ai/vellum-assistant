@@ -85,8 +85,8 @@ describe("unified feature flag registry guard", () => {
       ) {
         violations.push(`${prefix}: missing or non-string 'description'`);
       }
-      if (typeof flag.defaultEnabled !== "boolean") {
-        violations.push(`${prefix}: missing or non-boolean 'defaultEnabled'`);
+      if (typeof flag.defaultEnabled !== "boolean" && typeof flag.defaultEnabled !== "string") {
+        violations.push(`${prefix}: missing or invalid 'defaultEnabled' (expected boolean or string)`);
       }
     }
 

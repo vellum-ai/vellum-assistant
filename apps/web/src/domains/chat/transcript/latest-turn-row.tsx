@@ -30,14 +30,9 @@ export interface LatestTurnRowProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
@@ -46,7 +41,6 @@ export interface LatestTurnRowProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    riskScopeOptions: import("@/types/interaction-ui-types").RiskScopeOption[];
     directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
@@ -76,14 +70,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   expandedCardIds,
   expandedThinkingKeys,
   onSurfaceAction,
-  onSecretSubmit,
-  onConfirmationDecision,
   onRetryError,
   onForkConversation,
   onInspectMessage,
-  renderPendingSecret,
-  renderPendingConfirmation,
-  renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
@@ -111,14 +100,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         expandedCardIds={expandedCardIds}
         expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
-        onSecretSubmit={onSecretSubmit}
-        onConfirmationDecision={onConfirmationDecision}
         onRetryError={onRetryError}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
-        renderPendingSecret={renderPendingSecret}
-        renderPendingConfirmation={renderPendingConfirmation}
-        renderPendingContactRequest={renderPendingContactRequest}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
@@ -140,14 +124,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             expandedCardIds={expandedCardIds}
             expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
-            onSecretSubmit={onSecretSubmit}
-            onConfirmationDecision={onConfirmationDecision}
             onRetryError={onRetryError}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}
-            renderPendingSecret={renderPendingSecret}
-            renderPendingConfirmation={renderPendingConfirmation}
-            renderPendingContactRequest={renderPendingContactRequest}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}

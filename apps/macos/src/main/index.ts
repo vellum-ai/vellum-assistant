@@ -13,7 +13,6 @@ import {
 import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
-import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle, handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
@@ -27,7 +26,9 @@ import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
+import { installQuickInput } from "./quick-input-window";
 import { installLocalMode } from "./local-mode";
+import { installLockfileWatcher } from "./lockfile-watcher";
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -35,6 +36,7 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPowerEvents } from "./power-events";
@@ -116,7 +118,7 @@ const RENDERER_MOUNT = "/assistant";
 
 const resolveRendererRoot = (): string => {
   if (app.isPackaged) {
-    return getWebDistPath();
+    return path.join(process.resourcesPath, "web-dist");
   }
   // Dev source tree: apps/web/dist — requires `bun run build` in apps/web/.
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
@@ -300,9 +302,6 @@ app
   .whenReady()
   .then(async () => {
     if (!isDev) {
-      // TODO(LUM-2214): a deep-link or second-instance activation during
-      // this await can create a window before the protocol handler exists.
-      await ensureWebInstalled();
       registerAppProtocol();
     }
     installPermissionHandler();
@@ -312,6 +311,7 @@ app
     installAbout();
     installFeedbackIpc();
     installApplicationMenu();
+    installQuickInput();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
@@ -327,11 +327,16 @@ app
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);
+    // Start watching the lockfile before the tray installs so the assistant
+    // switcher submenu has data on its first right-click.
+    const teardownLockfileWatcher = installLockfileWatcher();
+    app.on("before-quit", teardownLockfileWatcher);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
+    installNativeAuth();
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window

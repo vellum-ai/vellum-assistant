@@ -24,7 +24,11 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "createAssistant" }
+  | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "quickInputSubmit"; message: string };
 
 export type VellumCommandKind = VellumCommand["kind"];
 
@@ -53,6 +57,10 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   previousConversation: "CmdOrCtrl+Up",
   nextConversation: "CmdOrCtrl+Down",
   commandPalette: "CmdOrCtrl+K",
+  selectAssistant: "",
+  createAssistant: "",
+  retireAssistant: "",
+  quickInputSubmit: "",
 };
 
 /**
