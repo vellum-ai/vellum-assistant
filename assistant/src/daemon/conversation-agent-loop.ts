@@ -1168,12 +1168,10 @@ export async function runAgentLoopImpl(
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 
     // The retriever owns its side effects (injected-block metadata, recall
-    // log, `memory_recalled` event) and the dense/sparse pair selection; the
-    // loop only reads back the turn-scoped context it reuses downstream — the
-    // injected message list and the PKB query vectors.
+    // log, `memory_recalled` event) and records the dense/sparse PKB query
+    // pair on the graph handle for the PKB-reminder injector to read back; the
+    // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.runMessages;
-    const pkbQueryVector = memoryCtx.pkbQueryVector;
-    const pkbSparseVector = memoryCtx.pkbSparseVector;
 
     // Build active surface context
     let activeSurface: ActiveSurfaceContext | null = null;
@@ -1454,8 +1452,6 @@ export async function runAgentLoopImpl(
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
       pkbActive,
-      pkbQueryVector,
-      pkbSparseVector,
       pkbConversation,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,

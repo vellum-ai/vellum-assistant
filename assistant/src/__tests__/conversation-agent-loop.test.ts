@@ -771,6 +771,7 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
+      recordPkbQueryVectors: () => {},
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,

@@ -51,6 +51,7 @@ import { getConfig } from "../../../config/loader.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { listComments } from "../../../documents/document-comments-store.js";
+import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
@@ -284,7 +285,7 @@ const pkbReminderInjector: Injector = {
     if (mode !== "full") return null;
     if (!inputs.pkbActive) return null;
     if (isPkbInjectionSilencedByV2()) return null;
-    const reminder = await buildPkbReminderWithHints(inputs);
+    const reminder = await buildPkbReminderWithHints(ctx, inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
@@ -311,18 +312,25 @@ function buildPkbContextBlock(content: string): string {
  * enough scope metadata is available, run the hybrid PKB search to
  * surface up to three relevance hints; fall back to the flat static
  * reminder on empty results or any error.
+ *
+ * The dense/sparse query pair is read off the conversation's live graph
+ * handle ({@link getLiveGraphMemory}) — the memory-retrieval hook records it
+ * there during the turn's retrieval — so the vectors stay owned by the
+ * memory-retrieval domain rather than being threaded through the agent loop.
  */
 async function buildPkbReminderWithHints(
+  ctx: TurnContext,
   inputs: TurnInjectionInputs,
 ): Promise<string> {
   let hints: string[] = [];
-  const queryVector = inputs.pkbQueryVector;
+  const graphMemory = getLiveGraphMemory(ctx.conversationId);
+  const queryVector = graphMemory?.pkbQueryVector;
   if (queryVector && queryVector.length > 0 && inputs.pkbConversation) {
     try {
       const pkbRoot = getPkbRoot();
       const results = await searchPkbFiles(
         queryVector,
-        inputs.pkbSparseVector,
+        graphMemory?.pkbSparseVector,
         8,
         [PKB_WORKSPACE_SCOPE],
       );

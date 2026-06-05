@@ -37,7 +37,6 @@ import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js"
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
-import type { QdrantSparseVector } from "../../../../memory/qdrant-client.js";
 import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
@@ -86,17 +85,6 @@ export interface MemoryRetrievalHookContext {
    * the hook.
    */
   runMessages: Message[];
-  /**
-   * Dense query vector for downstream PKB hybrid search, selected as a matched
-   * pair with `pkbSparseVector`. `undefined` when no graph retrieval ran.
-   * Written by the hook.
-   */
-  pkbQueryVector?: number[];
-  /**
-   * Sparse (TF-IDF) query vector paired with `pkbQueryVector` for PKB hybrid
-   * search. `undefined` when no graph retrieval ran. Written by the hook.
-   */
-  pkbSparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -230,12 +218,19 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   //      themselves co-aligned (both summary-derived in context-load, both
   //      user-last-message-derived in per-turn).
   // Never pair a user-query dense with a summary-aligned sparse.
+  // The PKB-reminder injector reads this pair back off the same graph handle
+  // (looked up by conversation id) rather than receiving it threaded through
+  // the agent loop.
   if (graphResult.userQueryVector) {
-    ctx.pkbQueryVector = graphResult.userQueryVector;
-    ctx.pkbSparseVector = graphResult.userQuerySparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.userQueryVector,
+      graphResult.userQuerySparseVector,
+    );
   } else {
-    ctx.pkbQueryVector = graphResult.queryVector;
-    ctx.pkbSparseVector = graphResult.sparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.queryVector,
+      graphResult.sparseVector,
+    );
   }
 };
 
