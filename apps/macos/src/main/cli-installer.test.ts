@@ -67,10 +67,7 @@ const {
   getCliInstallDir,
   getCliBinPath,
   getBundledBunPath,
-  getWebDistPath,
-  isWebInstalled,
   isCliInstalled,
-  ensureWebInstalled,
   ensureCliInstalled,
   cleanupOldVersions,
   _resetInstallLock,
@@ -111,28 +108,6 @@ describe("getBundledBunPath", () => {
   });
 });
 
-describe("getWebDistPath", () => {
-  test("returns <installDir>/node_modules/@vellumai/web/dist", () => {
-    expect(getWebDistPath()).toBe(
-      `${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist`,
-    );
-  });
-});
-
-// --- isWebInstalled ---
-
-describe("isWebInstalled", () => {
-  test("returns true when web dist/index.html exists", () => {
-    existsSyncByPath[`${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist/index.html`] = true;
-    expect(isWebInstalled()).toBe(true);
-  });
-
-  test("returns false when web dist is missing", () => {
-    existsSyncDefault = false;
-    expect(isWebInstalled()).toBe(false);
-  });
-});
-
 // --- isCliInstalled ---
 
 describe("isCliInstalled", () => {
@@ -144,59 +119,6 @@ describe("isCliInstalled", () => {
   test("returns false when the bin path is missing", () => {
     existsSyncDefault = false;
     expect(isCliInstalled()).toBe(false);
-  });
-});
-
-// --- ensureWebInstalled ---
-
-describe("ensureWebInstalled", () => {
-  test("skips install when web dist already exists", async () => {
-    existsSyncByPath[`${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/@vellumai/web/dist/index.html`] = true;
-    await ensureWebInstalled();
-    expect(spawnCalls).toHaveLength(0);
-  });
-
-  test("spawns bun add @vellumai/web with correct args", async () => {
-    existsSyncDefault = false;
-
-    const promise = ensureWebInstalled();
-    lastChild.emit("close", 0);
-    await promise;
-
-    expect(spawnCalls).toHaveLength(1);
-    const [cmd, args, opts] = spawnCalls[0];
-    expect(cmd).toBe(`${mockResourcesPath}/bun`);
-    expect(args).toEqual(["add", `@vellumai/web@${PINNED_CLI_VERSION}`]);
-    expect(opts).toEqual({
-      cwd: `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
-    });
-  });
-
-  test("concurrent calls share a single install", async () => {
-    existsSyncDefault = false;
-
-    const p1 = ensureWebInstalled();
-    const p2 = ensureWebInstalled();
-
-    expect(spawnCalls).toHaveLength(1);
-
-    lastChild.emit("close", 0);
-    await Promise.all([p1, p2]);
-  });
-
-  test("failed install resets the lock so retries are possible", async () => {
-    existsSyncDefault = false;
-
-    const p1 = ensureWebInstalled();
-    lastChild.stderr.emit("data", Buffer.from("network error"));
-    lastChild.emit("close", 1);
-
-    await expect(p1).rejects.toThrow(/Package install failed/);
-
-    const p2 = ensureWebInstalled();
-    expect(spawnCalls).toHaveLength(2);
-    lastChild.emit("close", 0);
-    await p2;
   });
 });
 
