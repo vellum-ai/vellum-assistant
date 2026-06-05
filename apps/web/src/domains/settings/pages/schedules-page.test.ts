@@ -70,6 +70,7 @@ const {
   formatScheduleCost,
   RecentRunsCard,
   ScheduleRow,
+  SystemTaskRow,
   SystemTaskDetailView,
 } = await import("./schedules-page");
 
@@ -235,6 +236,7 @@ describe("SystemTaskDetailView", () => {
     await waitFor(() =>
       expect(document.body.textContent).toContain("$0.1234"),
     );
+    expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
     expect(document.body.textContent).not.toContain(
       "Run history is not available",
     );
@@ -434,5 +436,65 @@ describe("ScheduleRow", () => {
     );
 
     expect(screen.getAllByText("--")).toHaveLength(2);
+  });
+});
+
+describe("SystemTaskRow", () => {
+  const readyUsage = {
+    status: "ready" as const,
+    summary: {
+      scheduleId: "system-heartbeat",
+      runCount: 2,
+      totalEstimatedCostUsd: 0.42,
+      eventCount: 7,
+    },
+  };
+
+  test("opens details from the row-level control", () => {
+    let detailClicks = 0;
+
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 5 min",
+        enabled: true,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: 1_761_792_003_000,
+        usage: readyUsage,
+        onClick: () => {
+          detailClicks += 1;
+        },
+      }),
+    );
+
+    const row = screen.getByRole("button", { name: "Open Heartbeat" });
+    fireEvent.click(row);
+
+    expect(detailClicks).toBe(1);
+    expect(row.className).toContain("cursor-pointer");
+    expect(row.className).toContain("hover:bg");
+    expect(row.className).toContain("focus-visible:");
+  });
+
+  test("omits list-level run now while keeping status, usage, and chevron content", () => {
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 5 min",
+        enabled: true,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: 1_761_792_003_000,
+        usage: readyUsage,
+        onClick: () => {},
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
+    expect(screen.getByLabelText("enabled")).toBeTruthy();
+    expect(screen.getByText("Cost")).toBeTruthy();
+    expect(screen.getByText("$0.42")).toBeTruthy();
+    expect(screen.getByText("Runs")).toBeTruthy();
+    expect(screen.getByText("2 runs")).toBeTruthy();
+    expect(document.querySelector(".lucide-chevron-right")).toBeTruthy();
   });
 });
