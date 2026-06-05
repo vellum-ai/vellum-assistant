@@ -4,21 +4,16 @@ import { GLOBAL_SHORTCUT_DEFAULTS } from "./commands";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
 import { toggleQuickInput } from "./quick-input-window";
-import { onSettingChange, readSetting } from "./settings";
+import { onSettingChange, readHotkeyOverride } from "./settings";
 
 /**
  * Resolve the accelerator for a global shortcut key, preferring the user
- * override from `settings.hotkeys.<key>` over the compiled default.
+ * override from `settings.hotkeys.<key>` over the compiled default. An explicit
+ * empty-string override means the user disabled the shortcut, so it resolves to
+ * `""` and `registerAll` skips registering it.
  */
 const resolveGlobalAccelerator = (key: string): string => {
-  const hotkeys = readSetting("hotkeys");
-  if (hotkeys && typeof hotkeys === "object") {
-    const override = (hotkeys as Record<string, unknown>)[key];
-    if (typeof override === "string" && override.length > 0) {
-      return override;
-    }
-  }
-  return GLOBAL_SHORTCUT_DEFAULTS[key] ?? "";
+  return readHotkeyOverride(key) ?? GLOBAL_SHORTCUT_DEFAULTS[key] ?? "";
 };
 
 /**

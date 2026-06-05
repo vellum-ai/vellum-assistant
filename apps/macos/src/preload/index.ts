@@ -26,7 +26,25 @@ export type VellumCommand =
   | { kind: "commandPalette" }
   | { kind: "quickInputSubmit"; message: string };
 
-// Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
+// Whether a hotkey is a system-wide global shortcut or a focused-app menu
+// accelerator. Mirrors `HotkeyScope` in `apps/macos/src/main/hotkeys.ts`.
+export type HotkeyScope = "global" | "menu";
+
+// A rebindable command resolved against the current settings. Mirrors
+// `ResolvedHotkey` in `apps/macos/src/main/hotkeys.ts` (kept inline for the
+// same three-TS-project reason as `VellumCommand`). `override` is `null` when
+// the default is in use, `""` when the binding is disabled, or a custom
+// accelerator string.
+export interface ResolvedHotkey {
+  key: string;
+  label: string;
+  scope: HotkeyScope;
+  defaultAccelerator: string;
+  override: string | null;
+  accelerator: string;
+}
+
+// Surface exposed to the renderer as `window.vellum`. `platform`, `hotkeys`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
 // that reject with "not implemented yet" until their feature tickets land.
 // When adding new bridge methods, see the "When to extend the bridge with
@@ -170,9 +188,26 @@ export interface VellumBridge {
       intent?: string;
     }): Promise<{ sessionToken: string }>;
   };
-  settings: {
-    get<T = unknown>(key: string): Promise<T | null>;
-    set<T = unknown>(key: string, value: T): Promise<void>;
+  hotkeys: {
+    /** Resolved catalog of rebindable commands and their effective bindings. */
+    get(): Promise<ResolvedHotkey[]>;
+    /**
+     * Persist one override: `null` clears it (revert to the compiled default),
+     * `""` disables the binding, any other string is a custom accelerator
+     * (validated against Electron's grammar by main, rejecting the promise on
+     * an invalid value).
+     */
+    set(key: string, accelerator: string | null): Promise<void>;
+    /**
+     * Subscribe to hotkey-catalog changes — including ones another window
+     * initiated — so an open settings view stays in sync. Returns an
+     * unsubscribe function; call it on cleanup to avoid leaks.
+     */
+    onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
+  };
+  featureFlags: {
+    /** Publish the renderer's feature-flag map to main (fire-and-forget). */
+    set(flags: Record<string, boolean>): void;
   };
   helper: {
     ping(): Promise<"pong">;
@@ -414,11 +449,32 @@ const bridge: VellumBridge = {
         sessionToken: string;
       }>,
   },
-  settings: {
-    get: <T>(key: string): Promise<T | null> =>
-      ipcRenderer.invoke("vellum:settings:get", key) as Promise<T | null>,
-    set: <T>(key: string, value: T): Promise<void> =>
-      ipcRenderer.invoke("vellum:settings:set", key, value) as Promise<void>,
+  hotkeys: {
+    get: (): Promise<ResolvedHotkey[]> =>
+      ipcRenderer.invoke("vellum:hotkeys:get") as Promise<ResolvedHotkey[]>,
+    set: (key: string, accelerator: string | null): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:hotkeys:set",
+        key,
+        accelerator,
+      ) as Promise<void>,
+    onChange: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        catalog: ResolvedHotkey[],
+      ): void => {
+        callback(catalog);
+      };
+      ipcRenderer.on("vellum:hotkeys:changed", handler);
+      return () => {
+        ipcRenderer.off("vellum:hotkeys:changed", handler);
+      };
+    },
+  },
+  featureFlags: {
+    set: (flags: Record<string, boolean>): void => {
+      ipcRenderer.send("vellum:featureFlags:set", flags);
+    },
   },
   helper: {
     ping: notImplemented("helper.ping"),

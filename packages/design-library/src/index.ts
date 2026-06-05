@@ -202,6 +202,11 @@ export {
   SkillRow,
   type SkillRowProps,
 } from "./components/skill-row";
+export {
+  ShortcutKeys,
+  parseAccelerator,
+  type ShortcutKeysProps,
+} from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
 export { initInputModality } from "./utils/input-modality";
 export {

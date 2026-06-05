@@ -1,6 +1,6 @@
 import { BrowserWindow } from "electron";
 
-import { readSetting } from "./settings";
+import { readHotkeyOverride } from "./settings";
 
 /**
  * Discriminated union of every command the app supports. Main is the source
@@ -75,19 +75,13 @@ export const GLOBAL_SHORTCUT_DEFAULTS: Record<string, string> = {
 
 /**
  * Resolve the accelerator for a command, preferring the user override from
- * `settings.hotkeys.<kind>` and falling back to the default. Returns the
- * default for empty/non-string overrides so a corrupted setting doesn't
- * silently disable a menu item.
+ * `settings.hotkeys.<kind>` and falling back to the compiled default when no
+ * override is set. An explicit empty-string override is honored as "disabled"
+ * (the user removed the binding via the Keyboard Shortcuts settings) — callers
+ * that build menu items must treat an empty result as "no accelerator".
  */
 export const resolveAccelerator = (kind: VellumCommandKind): string => {
-  const hotkeys = readSetting("hotkeys");
-  if (hotkeys && typeof hotkeys === "object") {
-    const override = (hotkeys as Record<string, unknown>)[kind];
-    if (typeof override === "string" && override.length > 0) {
-      return override;
-    }
-  }
-  return DEFAULT_ACCELERATORS[kind];
+  return readHotkeyOverride(kind) ?? DEFAULT_ACCELERATORS[kind];
 };
 
 /**

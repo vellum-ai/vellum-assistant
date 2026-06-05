@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { isElectron } from "@/runtime/is-electron";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
@@ -50,6 +51,12 @@ export function SettingsLayout() {
           return false;
         }
         if (item.id === "sounds" && !sounds) {
+          return false;
+        }
+        // Hotkey rebinding drives Electron globalShortcut + menu accelerators,
+        // which have no web/iOS analogue. Hide the entry off the desktop app;
+        // the page itself also redirects as defense in depth.
+        if (item.id === "keyboard-shortcuts" && !isElectron()) {
           return false;
         }
         if (item.id === "developer") {

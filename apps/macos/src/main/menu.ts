@@ -25,11 +25,17 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
   const fileItem = (
     label: string,
     command: VellumCommand,
-  ): MenuItemConstructorOptions => ({
-    label,
-    accelerator: resolveAccelerator(command.kind),
-    click: () => dispatchToFocused(command),
-  });
+  ): MenuItemConstructorOptions => {
+    const accelerator = resolveAccelerator(command.kind);
+    return {
+      label,
+      // Omit the accelerator entirely when the user disabled the binding (an
+      // empty-string override); Electron treats a missing `accelerator` as "no
+      // shortcut" whereas an empty string is not a valid accelerator.
+      ...(accelerator ? { accelerator } : {}),
+      click: () => dispatchToFocused(command),
+    };
+  };
 
   return [
     {

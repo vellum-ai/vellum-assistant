@@ -99,7 +99,7 @@ const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
  * right-click without requiring an app restart.
  */
 const isMultiAssistantEnabled = (): boolean => {
-  const flags = readSetting("featureFlags") as Record<string, boolean> | null;
+  const flags = readSetting("featureFlags");
   return flags?.["multi-platform-assistant"] === true;
 };
 

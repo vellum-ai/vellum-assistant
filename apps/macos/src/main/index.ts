@@ -2,7 +2,6 @@ import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { z } from "zod";
 
 import {
   readAllowedGatewayPorts,
@@ -13,7 +12,7 @@ import {
 import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
-import { handle, handleSync } from "./ipc";
+import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import { planPlatformForward } from "./platform-forward";
@@ -24,8 +23,10 @@ import {
 } from "./deep-links";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
+import { installHotkeysIpc } from "./hotkeys";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode } from "./local-mode";
 import { installLockfileWatcher } from "./lockfile-watcher";
@@ -40,7 +41,6 @@ import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPowerEvents } from "./power-events";
-import { readSetting, writeSetting } from "./settings";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
 import { hardenedWebPreferences } from "./windows";
@@ -274,26 +274,6 @@ const installPermissionHandler = (): void => {
   );
 };
 
-// IPC bridge for the `window.vellum.settings.*` API exposed by preload.
-// The IPC layer only asserts the key is a string; electron-store's own
-// ajv schema is the validator for both the key namespace and each
-// value's shape, so the value crosses as `unknown` rather than being
-// re-modeled here (a second schema would just be a drift risk).
-// Validator errors (thrown as SyntaxError from `set`) propagate as
-// rejected Promises to the renderer.
-const installSettingsIpc = (): void => {
-  handle("vellum:settings:get", z.tuple([z.string()]), ([key]) =>
-    readSetting(key),
-  );
-  handle(
-    "vellum:settings:set",
-    z.tuple([z.string(), z.unknown()]),
-    ([key, value]) => {
-      writeSetting(key, value);
-    },
-  );
-};
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -306,7 +286,8 @@ app
     }
     installPermissionHandler();
     installCsp();
-    installSettingsIpc();
+    installHotkeysIpc();
+    installFeatureFlagsIpc();
     installLocalMode();
     installAbout();
     installFeedbackIpc();
