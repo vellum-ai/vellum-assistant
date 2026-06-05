@@ -181,10 +181,17 @@ declare global {
           | { ok: false; status: number; error: string }
         >;
       };
+      // Optional: older Electron shells predate the native OAuth IPC channel.
+      auth?: {
+        startOAuth(options: {
+          providerHint?: string;
+          loginHint?: string;
+          intent?: string;
+        }): Promise<{ sessionToken: string }>;
+      };
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
-        beginAuthFlow(): Promise<void>;
       };
       power: {
         onEvent(

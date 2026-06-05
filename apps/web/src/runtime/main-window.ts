@@ -42,17 +42,3 @@ export async function setOnboardingWindow(active: boolean): Promise<void> {
   await window.vellum?.mainWindow.setOnboarding(active);
 }
 
-/**
- * Relax the Electron main window's same-origin navigation guard for the
- * duration of a sign-in, so the OAuth provider chain (WorkOS → Google/Apple →
- * our callback) runs in the main window instead of being ejected to the system
- * browser. Call immediately before starting the provider redirect; the main
- * process re-arms the guard once the flow returns to the app (or on a timeout).
- *
- * No-op off Electron — web runs OAuth as a normal top-level navigation and
- * Capacitor iOS uses the native auth sheet.
- */
-export async function beginMainWindowAuthFlow(): Promise<void> {
-  if (!isElectron()) return;
-  await window.vellum?.mainWindow.beginAuthFlow();
-}

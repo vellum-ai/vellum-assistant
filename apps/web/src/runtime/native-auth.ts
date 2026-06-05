@@ -8,7 +8,6 @@ import {
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
 import { isElectron } from "@/runtime/is-electron";
-import { beginMainWindowAuthFlow } from "@/runtime/main-window";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -249,12 +248,26 @@ export async function startAuthFlow(
     return;
   }
 
-  // Desktop (Electron): run the OAuth flow in the main window like the web,
-  // but first relax the main window's navigation guard so the cross-origin
-  // provider chain isn't ejected to the system browser mid-handshake. The
-  // existing provider callback page completes the flow in-window.
+  // Desktop (Electron): open the system browser for OAuth so the user can
+  // leverage existing Google/Apple sessions. The main process handles the
+  // full flow (nonce, browser, deep-link callback, code exchange, cookie
+  // install) and returns the session token.
   if (isElectron()) {
-    await beginMainWindowAuthFlow();
+    const result = await window.vellum?.auth?.startOAuth({
+      providerHint: options.providerHint,
+      loginHint: options.loginHint,
+      intent: options.intent,
+    });
+    if (result?.sessionToken) {
+      const destination = sanitizeReturnTo(
+        options.intent === "signup"
+          ? routes.onboarding.privacy
+          : options.returnTo ?? null,
+        DEFAULT_POST_AUTH_DESTINATION,
+      );
+      window.location.href = destination;
+    }
+    return;
   }
 
   // Web path: `options` carries an extra `returnTo` field that the web
