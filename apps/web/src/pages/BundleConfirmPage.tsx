@@ -10,19 +10,19 @@ const TRUST_BADGE: Record<
 > = {
   verified: {
     label: "Verified",
-    className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    className: "bg-[var(--system-positive-weak)] text-[var(--system-positive-strong)]",
   },
   signed: {
     label: "Signed",
-    className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    className: "bg-[var(--system-info-weak)] text-[var(--system-info-strong)]",
   },
   unsigned: {
     label: "Unsigned",
-    className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+    className: "bg-[var(--surface-active)] text-[var(--content-secondary)]",
   },
   tampered: {
     label: "Tampered — signature invalid",
-    className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    className: "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]",
   },
 };
 
@@ -47,7 +47,7 @@ export function BundleConfirmPage() {
   const { manifest, scanResult, signatureResult, bundleSizeBytes } = data;
   const badge = TRUST_BADGE[signatureResult.trustTier];
   const isTampered = signatureResult.trustTier === "tampered";
-  const warnings = scanResult.findings.filter((f) => f.level === "warn");
+  const warnings = scanResult.warnings;
 
   return (
     <div className="flex h-svh w-screen flex-col bg-background px-6 pt-14 pb-6 text-foreground select-none">
@@ -112,12 +112,12 @@ export function BundleConfirmPage() {
           </button>
           {warningsOpen && (
             <ul className="mt-1.5 space-y-1 text-xs">
-              {warnings.map((w, i) => (
+              {warnings.map((msg, i) => (
                 <li
-                  key={`${w.code}-${i}`}
-                  className="rounded bg-yellow-50 px-2 py-1 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200"
+                  key={i}
+                  className="rounded bg-[var(--system-mid-weak)] px-2 py-1 text-[var(--system-mid-strong)]"
                 >
-                  <span className="font-medium">{w.code}</span>: {w.message}
+                  {msg}
                 </li>
               ))}
             </ul>

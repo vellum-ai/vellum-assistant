@@ -134,12 +134,8 @@ export interface BundleScanData {
   };
   scanResult: {
     passed: boolean;
-    findings: Array<{
-      category: string;
-      code: string;
-      message: string;
-      level: "block" | "warn";
-    }>;
+    blocked: string[];
+    warnings: string[];
   };
   signatureResult: {
     trustTier: "verified" | "signed" | "unsigned" | "tampered";

@@ -98,7 +98,7 @@ const SAMPLE_SCAN: BundleScanData = {
     created_by: "user@example.com",
     created_at: "2025-01-01T00:00:00Z",
   },
-  scanResult: { passed: true, findings: [] },
+  scanResult: { passed: true, blocked: [], warnings: [] },
   signatureResult: { trustTier: "signed", signerDisplayName: "Example User" },
   bundleSizeBytes: 1234,
 };
@@ -203,14 +203,8 @@ describe("handleBundleFile", () => {
       ...SAMPLE_SCAN,
       scanResult: {
         passed: false,
-        findings: [
-          {
-            category: "security",
-            code: "MALICIOUS_SCRIPT",
-            message: "Detected malicious script",
-            level: "block",
-          },
-        ],
+        blocked: ["Detected malicious script"],
+        warnings: [],
       },
     };
     netFetchMock.mockResolvedValue(
