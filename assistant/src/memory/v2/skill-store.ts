@@ -19,11 +19,9 @@
 // The cache is replaced atomically at the end of a successful seed run; on
 // error the prior cache stays intact (skills are best-effort).
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import {
-  isSkillFeatureFlagEnabled,
-  resolveSkillStates,
-} from "../../config/skill-state.js";
+import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
 import {
@@ -187,7 +185,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     const seeds: SkillEntry[] = [];
     for (const { summary } of enabled) {
       const flagKey = summary.featureFlag;
-      if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) continue;
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
 
       const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
       const content = buildSkillContent(augmented);
@@ -212,7 +210,8 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
         knownSkillIds.add(entry.id);
         if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
-        if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) continue;
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
         const content = buildSkillContent(fromCatalogSkill(entry));
         seeds.push({ id: entry.id, content });
       }

@@ -6,7 +6,6 @@ metadata:
   emoji: "🔗"
   vellum:
     display-name: "ACP"
-    feature-flag: acp
     activation-hints:
       - "User asks to use Claude Code, Codex, or Gemini to do something"
       - "User wants to delegate a coding task to Claude Code, Codex, Gemini, or another ACP agent"

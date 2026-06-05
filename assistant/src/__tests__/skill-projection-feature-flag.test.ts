@@ -41,12 +41,6 @@ mock.module("../config/loader.js", () => ({
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
     skill.featureFlag || undefined,
-  // Mirror the real helper: route through the (mocked) flag resolver.
-  isSkillFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
-    const explicit = _mockOverrides[key];
-    if (typeof explicit === "boolean") return explicit;
-    return false;
-  },
 }));
 
 // Mock assistant-feature-flags to avoid loading the real module (which

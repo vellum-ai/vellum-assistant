@@ -11,11 +11,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import {
-  isSkillFeatureFlagEnabled,
-  skillFlagKey,
-} from "../config/skill-state.js";
+import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -257,7 +255,7 @@ export function projectSkillTools(
   for (const id of allCandidateIds) {
     const skill = catalogById.get(id);
     const flagKey = skill ? skillFlagKey(skill) : undefined;
-    if (!flagKey || isSkillFeatureFlagEnabled(flagKey, config)) {
+    if (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config)) {
       activeIds.add(id);
     }
   }

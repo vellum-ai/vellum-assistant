@@ -109,8 +109,6 @@ mock.module("../../../config/skills.js", () => ({
 }));
 
 mock.module("../../../config/skill-state.js", () => ({
-  // Mirror the real helper: route through the mocked flag state.
-  isSkillFeatureFlagEnabled: (key: string) => state.flagsEnabled[key] ?? true,
   resolveSkillStates: (
     catalog: SkillSummary[],
     config: { skills?: { allowBundled?: string[] | null } },

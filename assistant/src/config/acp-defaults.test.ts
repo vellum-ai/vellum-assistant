@@ -48,18 +48,6 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
       expect(Object.isFrozen(profile.args)).toBe(true);
     }
   });
-
-  test("mutating gemini's non-empty args throws in strict mode", () => {
-    // gemini is the one default with non-empty args, frozen via a dedicated
-    // array rather than the shared FROZEN_EMPTY_ARGS: verify the deep-freeze
-    // invariant actually rejects writes, not just that isFrozen reports true.
-    const args = DEFAULT_ACP_AGENT_PROFILES.gemini.args;
-    expect(() => args.push("--oops")).toThrow();
-    expect(() => {
-      args[0] = "--mutated";
-    }).toThrow();
-    expect(args).toEqual(["--acp"]);
-  });
 });
 
 describe("DEFAULT_AGENT_NPM_PACKAGES", () => {

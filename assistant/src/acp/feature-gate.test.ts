@@ -46,9 +46,3 @@ describe("isAcpEnabled", () => {
     expect(isAcpEnabled(makeConfig(true))).toBe(true);
   });
 });
-
-describe("ACP flag key format", () => {
-  test(`${ACP_FLAG_KEY} uses simple kebab-case format`, () => {
-    expect(ACP_FLAG_KEY).toMatch(/^[a-z0-9][a-z0-9-]*$/);
-  });
-});

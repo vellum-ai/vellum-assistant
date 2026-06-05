@@ -5,6 +5,8 @@
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -223,5 +225,36 @@ describe("frontmatter feature-flag integration", () => {
 
     const resolvedOff = resolveSkillStates([skill], configOff);
     expect(resolvedOff.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundled ACP skill: discoverability when ACP is disabled
+// ---------------------------------------------------------------------------
+
+describe("bundled acp skill discoverability", () => {
+  test("acp skill resolves with the flag off and config.acp disabled (no frontmatter flag gate)", () => {
+    // The ACP skill carries its own first-time-setup instructions, so it must
+    // stay visible even when the acp flag and config.acp.enabled are both off.
+    // Runtime enforcement happens in the ACP tools via isAcpEnabled instead.
+    const skillMdPath = fileURLToPath(
+      new URL("../config/bundled-skills/acp/SKILL.md", import.meta.url),
+    );
+    const skillMd = readFileSync(skillMdPath, "utf8");
+
+    const skill = buildSkillSummary("acp", skillMd);
+    expect(skill).not.toBeNull();
+    expect(skill!.featureFlag).toBeUndefined();
+    expect(skillFlagKey(skill!)).toBeUndefined();
+
+    // acp flag at its registry default (off) and config.acp disabled.
+    const config = makeConfig({
+      acp: { enabled: false, maxConcurrentSessions: 4, agents: {} },
+    } as Partial<AssistantConfig>);
+
+    const resolved = resolveSkillStates([skill!], config);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("acp");
+    expect(resolved[0].state).toBe("enabled");
   });
 });
