@@ -13,14 +13,10 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  type CompactionArgs,
-  type CompactionResult,
-  type Middleware,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
   type PluginManifest,
-  PluginTimeoutError,
   type TurnContext,
 } from "../plugins/types.js";
 import type { Tool } from "../tools/types.js";
@@ -34,7 +30,6 @@ const sampleTurnContext: TurnContext = {
   requestId: "req-abc",
   conversationId: "conv-xyz",
   turnIndex: 0,
-  pluginName: "sample-plugin",
   trust: sampleTrust,
 };
 
@@ -47,14 +42,6 @@ describe("plugin core types", () => {
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
-
-    // The `compaction` slot has a concrete arg/result shape, so it needs a
-    // dedicated passthrough whose middleware signature matches — keeping the
-    // shape-only `satisfies Plugin` assertion meaningful for the slot.
-    const compactionPassthrough: Middleware<
-      CompactionArgs,
-      CompactionResult
-    > = async (args, next, _ctx) => next(args);
 
     const sampleTool: Tool = {
       name: "sample-tool",
@@ -99,32 +86,10 @@ describe("plugin core types", () => {
           body: "## Sample\n\nPlugin-provided skill body.",
         },
       ],
-      middleware: {
-        compaction: compactionPassthrough,
-      },
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
-    expect(plugin.middleware.compaction).toBe(compactionPassthrough);
-  });
-
-  test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {
-    const err = new PluginTimeoutError("compaction", "sample-plugin", 30000);
-    expect(err).toBeInstanceOf(Error);
-    expect(err.name).toBe("PluginTimeoutError");
-    expect(err.pipeline).toBe("compaction");
-    expect(err.pluginName).toBe("sample-plugin");
-    expect(err.elapsedMs).toBe(30000);
-    expect(err.message).toContain("compaction");
-    expect(err.message).toContain("30000");
-    expect(err.message).toContain("sample-plugin");
-  });
-
-  test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("compaction", undefined, 1234);
-    expect(err.pluginName).toBeUndefined();
-    expect(err.message).not.toContain("offending plugin");
   });
 
   test("PluginExecutionError carries the plugin name and message", () => {
