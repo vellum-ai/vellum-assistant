@@ -28,6 +28,7 @@ export const ACP_FLAG_KEY = "acp" as const;
  */
 export function isAcpEnabled(config: AssistantConfig): boolean {
   return (
-    config.acp.enabled || isAssistantFeatureFlagEnabled(ACP_FLAG_KEY, config)
+    config.acp?.enabled === true ||
+    isAssistantFeatureFlagEnabled(ACP_FLAG_KEY, config)
   );
 }

@@ -9,14 +9,17 @@ import {
 } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
+import {
+  isSkillFeatureFlagEnabled,
+  resolveSkillStates,
+  skillFlagKey,
+} from "../../config/skill-state.js";
 import type { SkillSummary } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
@@ -31,7 +34,10 @@ import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
-import { getCachedCatalogSync, getCatalog } from "../../skills/catalog-cache.js";
+import {
+  getCachedCatalogSync,
+  getCatalog,
+} from "../../skills/catalog-cache.js";
 import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,
@@ -1133,7 +1139,7 @@ export async function installSkill(spec: {
     const flaggedSkill = catalog.find((s) => s.id === spec.slug);
     if (flaggedSkill) {
       const flagKey = skillFlagKey(flaggedSkill);
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
+      if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) {
         return {
           success: false,
           error: `Skill "${spec.slug}" is currently unavailable (disabled by feature flag)`,

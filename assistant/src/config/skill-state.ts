@@ -1,8 +1,38 @@
+import { ACP_FLAG_KEY, isAcpEnabled } from "../acp/feature-gate.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
 import type { SkillSummary } from "./skills.js";
 
 export type SkillState = "enabled" | "disabled";
+
+/**
+ * Per-flag predicate overrides for skill gating. Most skill feature flags are
+ * resolved purely through the flag system, but some subsystems have richer
+ * enablement semantics (e.g. ACP is flag OR `config.acp.enabled`). Routing the
+ * skill gate through the subsystem's own feature gate keeps the skill
+ * available whenever the subsystem itself is enabled.
+ */
+const SKILL_FLAG_PREDICATES: Record<
+  string,
+  (config: AssistantConfig) => boolean
+> = {
+  [ACP_FLAG_KEY]: isAcpEnabled,
+};
+
+/**
+ * Whether the feature flag declared by a skill's frontmatter should be
+ * considered enabled. Used by every skill flag-gating enforcement point so
+ * that per-flag predicate overrides (see {@link SKILL_FLAG_PREDICATES}) apply
+ * consistently everywhere.
+ */
+export function isSkillFeatureFlagEnabled(
+  flagKey: string,
+  config: AssistantConfig,
+): boolean {
+  const predicate = SKILL_FLAG_PREDICATES[flagKey];
+  if (predicate) return predicate(config);
+  return isAssistantFeatureFlagEnabled(flagKey, config);
+}
 
 export interface ResolvedSkill {
   summary: SkillSummary;
@@ -33,7 +63,7 @@ export function resolveSkillStates(
   for (const skill of catalog) {
     // Assistant feature flag gate: if the skill declares a flag and it's disabled, skip it
     const flagKey = skillFlagKey(skill);
-    if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
+    if (flagKey && !isSkillFeatureFlagEnabled(flagKey, config)) {
       continue;
     }
 

@@ -60,6 +60,11 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
     skill.featureFlag ?? undefined,
+  // Mirror the real helper: route through the mocked flag resolver.
+  isSkillFeatureFlagEnabled: (key: string) => {
+    if (key === "app-control") return appControlFlagEnabled;
+    return true;
+  },
 }));
 
 mock.module("../config/loader.js", () => ({
