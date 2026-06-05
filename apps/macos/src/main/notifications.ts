@@ -63,22 +63,24 @@ interface CategoryAction {
 }
 
 /**
- * Action buttons per category. Matches the Swift app's category
- * registrations so users see the same affordances on Electron.
+ * Action buttons per category. Mirrors the Swift app's
+ * `UNNotificationCategory` registrations in
+ * `clients/macos/.../App/AppDelegate+Notifications.swift` so users see the
+ * same affordances and identical button labels on Electron and macOS.
  *
- * `activityComplete`      → "View" (navigate to the thread)
- * `toolConfirmation`      → "Approve" / "Reject"
- * `voiceResponseComplete` → (no actions — body click navigates)
- * `notificationIntent`    → "Open" (follow the deep link)
+ * `activityComplete`      → "View Results" (navigate to the thread)
+ * `toolConfirmation`      → "Allow" / "Deny"
+ * `voiceResponseComplete` → "View Response"
+ * `notificationIntent`    → "View" (follow the deep link)
  */
 const CATEGORY_ACTIONS: Record<NotificationCategory, CategoryAction[]> = {
-  activityComplete: [{ type: "button", text: "View" }],
+  activityComplete: [{ type: "button", text: "View Results" }],
   toolConfirmation: [
-    { type: "button", text: "Approve" },
-    { type: "button", text: "Reject" },
+    { type: "button", text: "Allow" },
+    { type: "button", text: "Deny" },
   ],
-  voiceResponseComplete: [],
-  notificationIntent: [{ type: "button", text: "Open" }],
+  voiceResponseComplete: [{ type: "button", text: "View Response" }],
+  notificationIntent: [{ type: "button", text: "View" }],
 };
 
 /**
@@ -180,18 +182,31 @@ const pruneStaleEntries = (): void => {
 };
 
 // ---------------------------------------------------------------------------
-// Permission tracking
+// Delivery confirmation
 // ---------------------------------------------------------------------------
 
 /**
- * macOS prompts for notification permission at the bundle level on the
- * first `.show()`. There's no programmatic API to read permission state
- * in Electron — we track our own based on whether `.show()` delivered
- * or the `failed` event fired (unsigned dev builds always emit `failed`
- * because UNNotification requires code-signing on Electron 42+).
+ * `electron.Notification` delivery is asynchronous: after `.show()`, macOS
+ * reports the outcome via a `show` event (displayed) or a `failed` event
+ * (rejected — e.g. an unsigned build, which always emits `failed` because
+ * UNNotification requires code-signing on Electron 42+). There is no
+ * synchronous result and no API to read authorization state, so the IPC
+ * result is resolved from whichever event fires and the renderer acks the
+ * daemon with the real outcome — never optimistically. This mirrors the
+ * Swift client, which acks only after `UNUserNotificationCenter.add(...)`'s
+ * completion handler resolves.
+ *
+ * Unlike the Swift client, Electron cannot request authorization up front, so
+ * the very first notification races the macOS permission prompt — neither
+ * event fires until the user answers. The timeout is deliberately generous so
+ * a user who takes a few seconds to click "Allow" still acks as delivered;
+ * only a genuinely unanswered or dropped notification falls through to the
+ * conservative "not confirmed" failure ack.
  */
-type PermissionState = "unknown" | "granted" | "denied";
-let permissionState: PermissionState = "unknown";
+const DELIVERY_TIMEOUT_MS = 30_000;
+
+// Overridable so tests don't wait the full timeout for the no-event path.
+let deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
 
 // ---------------------------------------------------------------------------
 // Show notification
@@ -211,26 +226,19 @@ interface ShowResult {
   errorMessage?: string;
 }
 
-/** How long to wait for macOS to confirm/reject delivery before falling back. */
-export const DELIVERY_TIMEOUT_MS = 5_000;
-
-const showNotification = async (
-  payload: ShowNotificationPayload,
-): Promise<ShowResult> => {
+const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult> => {
   if (!Notification.isSupported()) {
-    return { success: false, errorMessage: "Notifications not supported" };
-  }
-
-  if (permissionState === "denied") {
-    return {
+    return Promise.resolve({
       success: false,
-      errorMessage: "Notification permission denied",
-    };
+      errorMessage: "Notifications not supported",
+    });
   }
 
   if (isCoolingDown(payload)) {
-    // Treated as successful delivery — the user already saw a recent one.
-    return { success: true };
+    // An equivalent was delivered within the cooldown window — treat as a
+    // successful delivery (the user already saw it). Matches the Swift
+    // client, which also acks a suppressed duplicate as success.
+    return Promise.resolve({ success: true });
   }
 
   const actions = CATEGORY_ACTIONS[payload.category];
@@ -252,36 +260,6 @@ const showNotification = async (
     deepLinkMetadata: payload.deepLinkMetadata,
   };
 
-  // Await actual delivery confirmation from macOS before reporting
-  // success. The `show` event fires when macOS accepts the notification;
-  // `failed` fires when it's rejected (e.g. unsigned build, user denied).
-  const delivery = new Promise<ShowResult>((resolve) => {
-    const timer = setTimeout(() => {
-      log.warn(
-        "[notifications] Delivery confirmation timed out — assuming success",
-      );
-      permissionState = "granted";
-      recordShown(payload);
-      resolve({ success: true });
-    }, DELIVERY_TIMEOUT_MS);
-
-    notif.on("show", () => {
-      clearTimeout(timer);
-      permissionState = "granted";
-      recordShown(payload);
-      resolve({ success: true });
-    });
-
-    notif.on("failed", (_event, error) => {
-      clearTimeout(timer);
-      log.warn("[notifications] Notification failed:", error);
-      permissionState = "denied";
-      resolve({ success: false, errorMessage: "Notification delivery failed" });
-    });
-  });
-
-  // Interaction handlers — fire later when the user clicks/taps an
-  // action button, not tied to the delivery outcome.
   notif.on("click", () => {
     void ensureVisible();
     broadcastAction({ kind: "click", ...baseMeta });
@@ -298,9 +276,44 @@ const showNotification = async (
     });
   });
 
-  notif.show();
+  // Resolve the IPC result from the real delivery outcome so the renderer
+  // acks the daemon with what actually happened. The `show` event can fire
+  // more than once, so guard with `settled`.
+  return new Promise<ShowResult>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const settle = (result: ShowResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
 
-  return delivery;
+    timer = setTimeout(() => {
+      // Neither event fired in time — e.g. the user never answered the
+      // first-run permission prompt, or the OS dropped it. Report failure
+      // conservatively so the audit trail doesn't record a phantom delivery.
+      settle({
+        success: false,
+        errorMessage: "Notification delivery not confirmed",
+      });
+    }, deliveryTimeoutMs);
+    // Don't let a pending delivery timeout keep the process alive on quit.
+    timer.unref?.();
+
+    notif.on("show", () => {
+      recordShown(payload);
+      settle({ success: true });
+    });
+
+    notif.on("failed", (_event, error) => {
+      // Electron delivers the `failed` error as a string description.
+      log.warn("[notifications] Notification failed:", error);
+      settle({ success: false, errorMessage: error });
+    });
+
+    notif.show();
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -322,9 +335,15 @@ export const installNotifications = (): void => {
 // Test seam
 export const __resetForTesting = (): void => {
   recentNotifications.clear();
-  permissionState = "unknown";
+  deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
   if (pruneTimer) {
     clearInterval(pruneTimer);
     pruneTimer = null;
   }
+};
+
+// Test seam — shrink the delivery-confirmation timeout so the no-event path
+// can be exercised without waiting the full production duration.
+export const __setDeliveryTimeoutForTesting = (ms: number): void => {
+  deliveryTimeoutMs = ms;
 };
