@@ -33,7 +33,6 @@ import {
   getTelegramWebhookUrl,
   getTwilioConnectActionUrl,
   getTwilioMediaStreamUrl,
-  getTwilioRelayUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
@@ -66,7 +65,6 @@ describe("IngressConfigSchema", () => {
       }),
     ).toThrow(/ingress\.publicBaseUrl must be an absolute URL/);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -217,9 +215,6 @@ describe("Twilio URL builders use publicBaseUrl", () => {
     expect(getTwilioConnectActionUrl(config)).toBe(
       "https://example.com/webhooks/twilio/connect-action",
     );
-    expect(getTwilioRelayUrl(config)).toBe(
-      "wss://example.com/webhooks/twilio/relay",
-    );
     expect(getTwilioMediaStreamUrl(config)).toBe(
       "wss://example.com/webhooks/twilio/media-stream",
     );
@@ -301,33 +296,6 @@ describe("getTwilioConnectActionUrl", () => {
       ingress: { publicBaseUrl: "https://example.com" },
     });
     expect(url).toBe("https://example.com/webhooks/twilio/connect-action");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getTwilioRelayUrl — scheme conversion
-// ---------------------------------------------------------------------------
-
-describe("getTwilioRelayUrl", () => {
-  test("converts https to wss", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "https://example.com" },
-    });
-    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
-  });
-
-  test("converts http to ws", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "http://localhost:7821" },
-    });
-    expect(url).toBe("ws://localhost:7821/webhooks/twilio/relay");
-  });
-
-  test("normalizes trailing slash before conversion", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "https://example.com/" },
-    });
-    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
   });
 });
 
