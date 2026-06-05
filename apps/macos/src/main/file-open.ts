@@ -58,11 +58,16 @@ export const handleFileOpen = (filePath: string): void => {
 
 /**
  * Register a main-process callback invoked for every `.vellum` file-open event.
- * Returns an unsubscribe function. When files are drained by the renderer, the
- * callback is also invoked for each drained path.
+ * Returns an unsubscribe function. Any paths already buffered in `pending[]`
+ * (cold-launch files that arrived before this callback was registered) are
+ * replayed immediately so cold-launch `.vellum` files reach handlers like
+ * `handleBundleFile` even though they arrived before `whenReady`.
  */
 export const onFileOpen = (callback: (path: string) => void): (() => void) => {
   fileOpenCallbacks.add(callback);
+  for (const filePath of pending) {
+    callback(filePath);
+  }
   return () => {
     fileOpenCallbacks.delete(callback);
   };
