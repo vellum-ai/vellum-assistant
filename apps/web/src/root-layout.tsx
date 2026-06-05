@@ -1,5 +1,7 @@
+import { lazy, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
@@ -27,11 +29,19 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { TimezoneSync } from "@/components/timezone-sync";
+
+const ShareFeedbackModal = lazy(() =>
+  import("@/components/share-feedback-modal").then((m) => ({
+    default: m.ShareFeedbackModal,
+  })),
+);
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -83,6 +93,8 @@ export function RootLayout() {
   });
 
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -120,6 +132,8 @@ export function RootLayout() {
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
 
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
   useVellumCommands({
     openSettings: () => {
       void navigate(routes.settings.root);
@@ -131,6 +145,7 @@ export function RootLayout() {
         navigate(getOnboardingEntrypoint());
       });
     },
+    shareFeedback: () => setFeedbackOpen(true),
   });
 
   const keyboardOpen =
@@ -181,6 +196,18 @@ export function RootLayout() {
       {/* Headless: keeps daemon config.ui.detectedTimezone fresh on
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
+
+      {feedbackOpen ? (
+        <LazyBoundary>
+          <ShareFeedbackModal
+            open={feedbackOpen}
+            onClose={() => setFeedbackOpen(false)}
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
+          />
+        </LazyBoundary>
+      ) : null}
     </div>
   );
 }

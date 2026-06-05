@@ -13,6 +13,8 @@ export type VellumCommand =
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
   | { kind: "openSettings" }
+  | { kind: "shareFeedback" }
+  | { kind: "find" }
   | { kind: "logout" };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
@@ -286,6 +288,12 @@ export interface VellumBridge {
      */
     onLink(callback: (link: DeepLink) => void): () => void;
   };
+  feedback: {
+    /** Collect Electron-specific diagnostics (versions, platform, metrics). */
+    diagnostics(): Promise<Record<string, unknown>>;
+    /** Read redacted log file content. */
+    logs(): Promise<string>;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -428,6 +436,14 @@ const bridge: VellumBridge = {
         ipcRenderer.send("vellum:deepLinks:unsubscribe");
       };
     },
+  },
+  feedback: {
+    diagnostics: () =>
+      ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
+        Record<string, unknown>
+      >,
+    logs: () =>
+      ipcRenderer.invoke("vellum:feedback:logs") as Promise<string>,
   },
 };
 

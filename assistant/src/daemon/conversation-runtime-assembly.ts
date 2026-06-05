@@ -12,7 +12,12 @@ import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
-import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  listAppFiles,
+  resolveAppDir,
+} from "../memory/app-store.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
@@ -56,6 +61,11 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import type {
+  DynamicPageSurfaceData,
+  SurfaceData,
+  SurfaceType,
+} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
@@ -276,8 +286,49 @@ export interface ActiveSurfaceContext {
   appPages?: Record<string, string>;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
-  /** Pre-fetched list of files in the app directory. */
-  appFiles?: string[];
+}
+
+/**
+ * Resolve the conversation's active workspace surface into the context block
+ * consumed by {@link applyRuntimeInjections}, or `null` when no dynamic-page
+ * surface is active. App-backed surfaces are enriched with their persisted app
+ * metadata; the file tree is listed on demand by the injector.
+ */
+export function buildActiveSurfaceContext(params: {
+  currentActiveSurfaceId: string | undefined;
+  currentPage: string | undefined;
+  surfaceState: ReadonlyMap<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData }
+  >;
+}): ActiveSurfaceContext | null {
+  const { currentActiveSurfaceId, currentPage, surfaceState } = params;
+  if (!currentActiveSurfaceId) return null;
+
+  const stored = surfaceState.get(currentActiveSurfaceId);
+  if (!stored || stored.surfaceType !== "dynamic_page") return null;
+
+  const data = stored.data as DynamicPageSurfaceData;
+  const activeSurface: ActiveSurfaceContext = {
+    surfaceId: currentActiveSurfaceId,
+    html: data.html,
+    currentPage,
+  };
+
+  if (data.appId) {
+    const app = getApp(data.appId);
+    if (app) {
+      activeSurface.appId = app.id;
+      activeSurface.appName = app.name;
+      activeSurface.appDirName = resolveAppDir(app.id).dirName;
+      activeSurface.appSchemaJson = app.schemaJson;
+      if (app.pages && Object.keys(app.pages).length > 0) {
+        activeSurface.appPages = app.pages;
+      }
+    }
+  }
+
+  return activeSurface;
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
@@ -320,7 +371,7 @@ function injectActiveSurfaceContext(
     );
 
     // File tree with sizes (capped at 50 files to bound prompt size)
-    const files = ctx.appFiles ?? listAppFiles(ctx.appId);
+    const files = listAppFiles(ctx.appId);
     const MAX_FILE_TREE_ENTRIES = 50;
     const displayFiles = files.slice(0, MAX_FILE_TREE_ENTRIES);
     lines.push("", "App files:");

@@ -6,6 +6,7 @@ import type {
   ConversationMessageSurface,
   ConversationMessageToolCall,
 } from "../../api/responses/conversation-message.js";
+import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
@@ -483,8 +484,12 @@ export function renderHistoryContent(
         entry.startedAt = block._startedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
-      if (typeof block._confirmationDecision === "string")
-        entry.confirmationDecision = block._confirmationDecision;
+      const confirmationDecision = ConfirmationDecisionSchema.safeParse(
+        block._confirmationDecision,
+      );
+      if (confirmationDecision.success) {
+        entry.confirmationDecision = confirmationDecision.data;
+      }
       if (typeof block._confirmationLabel === "string")
         entry.confirmationLabel = block._confirmationLabel;
       if (typeof block._riskLevel === "string")

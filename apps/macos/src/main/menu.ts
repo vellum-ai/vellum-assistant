@@ -73,7 +73,22 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       ],
     },
     {
-      role: "editMenu",
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+        { type: "separator" },
+        {
+          label: "Find\u2026",
+          accelerator: resolveAccelerator("find"),
+          click: () => dispatchToFocused({ kind: "find" }),
+        },
+      ],
     },
     {
       label: "View",
@@ -95,6 +110,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
     {
       role: "help",
       submenu: [
+        {
+          label: "Send Feedback\u2026",
+          click: () => dispatchToFocused({ kind: "shareFeedback" }),
+        },
+        { type: "separator" },
         {
           label: "Vellum Documentation",
           click: () => {

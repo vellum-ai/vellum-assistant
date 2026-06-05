@@ -14,7 +14,8 @@
  * block onto the user message's metadata, writing the recall log, and emitting
  * the `memory_recalled` event — so the loop only consumes the turn-scoped
  * outputs written back onto the context (`pkbContent`, `nowContent`,
- * `runMessages`, and the PKB query vectors).
+ * `latestMessages`). The PKB query-vector pair is recorded on the
+ * conversation's graph handle for the PKB-reminder injector to read back.
  *
  * This fires at the early "prompt submitted, before context assembly" moment,
  * distinct from the canonical late `user-prompt-submit` hook (history repair,
@@ -41,14 +42,14 @@ import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
 /**
- * Context threaded through the `user-prompt-submit-temp` hook. The input
+ * Context threaded through the `user-prompt-submit-temp` hook. The readonly
  * fields carry the conversation-scoped state the retriever needs (graph
- * handle, event sink, live message list, abort signal); the output fields are
- * populated by the hook and read back by the agent loop.
+ * handle, event sink, abort signal); the output fields are populated by the
+ * hook and read back by the agent loop. `latestMessages` straddles both: the
+ * loop seeds it with the pre-injection array and the hook overwrites it with
+ * the injected result.
  */
 export interface MemoryRetrievalHookContext {
-  /** Live message list for this turn (pre-injection). */
-  readonly messages: Message[];
   /** Per-conversation memory graph handle. */
   readonly graphMemory: ConversationGraphMemory;
   /** Assistant config snapshot. */
@@ -79,12 +80,13 @@ export interface MemoryRetrievalHookContext {
    */
   nowContent: string | null;
   /**
-   * Working message list for the turn: the input messages with the
-   * memory-graph block injected, or the unchanged input messages when no
-   * graph retrieval ran (untrusted actor, or a no-op retrieval). Written by
-   * the hook.
+   * Working message list for the turn. Seeded by the loop with the
+   * pre-injection messages and consumed as the retrieval input; the hook
+   * overwrites it with the memory-graph block injected, or leaves it
+   * unchanged when no graph retrieval ran (untrusted actor, or a no-op
+   * retrieval). Read back by the loop.
    */
-  runMessages: Message[];
+  latestMessages: Message[];
 }
 
 /**
@@ -176,9 +178,10 @@ function recordRecallSideEffects(
 
 /**
  * Run the default retrieval, writing `pkbContent` / `nowContent` /
- * `runMessages` and the PKB query vectors back onto the context. Skips the
- * memory-graph call entirely (leaving `runMessages` as the input messages and
- * the query vectors `undefined`) when the actor is not trusted.
+ * `latestMessages` back onto the context and recording the PKB query-vector
+ * pair on the graph handle. Skips the memory-graph call entirely (leaving
+ * `latestMessages` as the seeded input messages and no query pair recorded)
+ * when the actor is not trusted.
  *
  * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
  * critical context, and silently dropping it produces a worse outcome than a
@@ -192,7 +195,6 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // to inject them based on first-turn / post-compaction gating.
   ctx.pkbContent = readPkbContext();
   ctx.nowContent = readNowScratchpad();
-  ctx.runMessages = ctx.messages;
 
   if (!ctx.isTrustedActor) {
     // Untrusted actors skip memory-graph retrieval entirely.
@@ -200,7 +202,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   }
 
   const graphResult = await ctx.graphMemory.prepareMemory(
-    ctx.messages,
+    ctx.latestMessages,
     ctx.config,
     ctx.signal,
     ctx.onEvent,
@@ -208,7 +210,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
 
   recordRecallSideEffects(graphResult, ctx);
 
-  ctx.runMessages = graphResult.runMessages;
+  ctx.latestMessages = graphResult.runMessages;
   // Select dense+sparse as a matched pair so RRF fusion combines two signals
   // aligned to the same query text:
   //   1. Context-load with a user query: user-query dense + user-query sparse

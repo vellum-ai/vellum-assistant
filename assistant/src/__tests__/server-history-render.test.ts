@@ -499,6 +499,46 @@ describe("renderHistoryContent", () => {
     expect(entry.riskDirectoryScopeOptions).toBeUndefined();
   });
 
+  test("reads back a persisted confirmation decision from the closed enum", () => {
+    // GIVEN a persisted tool_use block stamped with a recorded decision
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "rm file" },
+        _confirmationDecision: "denied",
+        _confirmationLabel: "Run Command",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the decision survives verbatim alongside its label
+    expect(entry.confirmationDecision).toBe("denied");
+    expect(entry.confirmationLabel).toBe("Run Command");
+  });
+
+  test("drops a _confirmationDecision outside the closed enum", () => {
+    // GIVEN a malformed persisted decision the daemon never writes
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "ls" },
+        _confirmationDecision: "bogus",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the unknown value is not surfaced on the wire
+    expect(entry.confirmationDecision).toBeUndefined();
+  });
+
   test("handles mixed text and tool blocks", () => {
     const output = renderHistoryContent([
       { type: "text", text: "Let me look that up." },

@@ -12,6 +12,7 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import { installCsp } from "./csp";
 import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
 import { handle } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
@@ -24,7 +25,9 @@ import {
 } from "./deep-links";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeedbackIpc } from "./feedback";
 import { installLocalMode } from "./local-mode";
+import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
@@ -297,10 +300,6 @@ const installSettingsIpc = (): void => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-// TODO(security): set a Content Security Policy via session.webRequest.
-// onHeadersReceived once the prod connect-src endpoints (api.vellum.ai,
-// websocket origins, telemetry) are settled in the auth + networking tickets.
-
 app
   .whenReady()
   .then(async () => {
@@ -311,9 +310,11 @@ app
       registerAppProtocol();
     }
     installPermissionHandler();
+    installCsp();
     installSettingsIpc();
     installLocalMode();
     installAbout();
+    installFeedbackIpc();
     installApplicationMenu();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
@@ -342,7 +343,7 @@ app
     });
   })
   .catch((err: unknown) => {
-    console.error("[app] whenReady setup failed:", err);
+    log.error("[app] whenReady setup failed:", err);
   });
 
 app.on("second-instance", (_event, argv) => {
