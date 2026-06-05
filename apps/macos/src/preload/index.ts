@@ -350,6 +350,21 @@ export interface VellumBridge {
      */
     onLink(callback: (link: DeepLink) => void): () => void;
   };
+  fileOpen: {
+    /**
+     * Drain and return the buffer of `.vellum` file paths that arrived
+     * before the renderer was ready. Returns ALL pending paths and clears
+     * the buffer. Also registers the caller as a subscriber so subsequent
+     * file-open events broadcast directly rather than buffering.
+     */
+    drain(): Promise<string[]>;
+    /**
+     * Subscribe to live file-open events (files opened after the renderer
+     * is up). Returns an unsubscribe function; callers invoke it on
+     * cleanup.
+     */
+    onFile(callback: (filePath: string) => void): () => void;
+  };
   feedback: {
     /** Collect Electron-specific diagnostics (versions, platform, metrics). */
     diagnostics(): Promise<Record<string, unknown>>;
@@ -527,6 +542,21 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:deepLinks:event", handler);
         ipcRenderer.send("vellum:deepLinks:unsubscribe");
+      };
+    },
+  },
+  fileOpen: {
+    drain: (): Promise<string[]> =>
+      ipcRenderer.invoke("vellum:fileOpen:drain") as Promise<string[]>,
+    onFile: (callback) => {
+      ipcRenderer.send("vellum:fileOpen:subscribe");
+      const handler = (_event: IpcRendererEvent, filePath: string) => {
+        callback(filePath);
+      };
+      ipcRenderer.on("vellum:fileOpen:event", handler);
+      return () => {
+        ipcRenderer.send("vellum:fileOpen:unsubscribe");
+        ipcRenderer.off("vellum:fileOpen:event", handler);
       };
     },
   },
