@@ -12742,7 +12742,9 @@ paths:
     get:
       operationId: identity_intro_get
       summary: Get identity greetings
-      description: Returns greetings sourced from SOUL.md, the generated cache, fresh LLM generation, or generic fallbacks.
+      description:
+        Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background
+        generation refreshes the cache.
       tags:
         - identity
       responses:
@@ -12759,9 +12761,19 @@ paths:
                       type: string
                   text:
                     type: string
+                  source:
+                    type: string
+                    enum:
+                      - workspace
+                      - cache
+                      - fallback
+                  refreshing:
+                    type: boolean
                 required:
                   - greetings
                   - text
+                  - source
+                  - refreshing
                 additionalProperties: false
   /v1/image-generation/generate:
     post:

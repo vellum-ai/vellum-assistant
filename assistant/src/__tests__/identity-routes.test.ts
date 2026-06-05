@@ -49,12 +49,22 @@ type SidechainCall = {
   tools: unknown[];
 };
 
+type SidechainResult = {
+  text: string;
+  hadTextDeltas: false;
+  response: { content: [] };
+};
+
 const sidechainCalls: SidechainCall[] = [];
 let sidechainText = "";
+let sidechainResultPromise: Promise<SidechainResult> | null = null;
 
 mock.module("../runtime/btw-sidechain.js", () => ({
   runBtwSidechain: mock(async (params: SidechainCall) => {
     sidechainCalls.push(params);
+    if (sidechainResultPromise) {
+      return sidechainResultPromise;
+    }
     return {
       text: sidechainText,
       hadTextDeltas: false,
@@ -75,6 +85,17 @@ import {
   resolveHatchedAtReadOnly,
   selectHatchedAtFromStats,
 } from "../workspace/hatched-date.js";
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 // ── Env helpers ─────────────────────────────────────────────────────────
 
@@ -177,6 +198,7 @@ beforeEach(() => {
   getConfiguredProviderCalls.length = 0;
   sidechainCalls.length = 0;
   sidechainText = "";
+  sidechainResultPromise = null;
 });
 
 afterEach(() => {
@@ -543,7 +565,7 @@ describe("identity routes — createdAt selection", () => {
 });
 
 describe("identity routes — intro greetings", () => {
-  test("generates personalized empty-state greetings with the callsite, then reuses the cache", async () => {
+  test("returns fallback immediately, generates personalized greetings in the background, then reuses the cache", async () => {
     const workspaceDir = getWorkspaceDir();
     writeFileSync(
       join(workspaceDir, "IDENTITY.md"),
@@ -568,21 +590,37 @@ describe("identity routes — intro greetings", () => {
       ].join("\n"),
       "utf-8",
     );
-    sidechainText = JSON.stringify([
-      "Charting the next useful thing?",
-      "I brought the compass. Where to?",
-      "Ready to make this lighter.",
-    ]);
+    const deferredSidechain = createDeferred<SidechainResult>();
+    sidechainResultPromise = deferredSidechain.promise;
 
     const route = ROUTES.find(
       (candidate) => candidate.operationId === "identity_intro",
     );
     expect(route).toBeDefined();
 
-    const body = (await route!.handler({})) as {
+    const body = route!.handler({}) as {
       greetings: string[];
       text: string;
+      source: string;
+      refreshing: boolean;
     };
+
+    expect(body).toEqual({
+      greetings: [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Ready when you are.",
+      ],
+      text: "What are we working on?",
+      source: "fallback",
+      refreshing: true,
+    });
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
+
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(getConfiguredProviderCalls).toEqual(["emptyStateGreeting"]);
     expect(sidechainCalls).toHaveLength(1);
@@ -595,14 +633,18 @@ describe("identity routes — intro greetings", () => {
     expect(sidechainCalls[0]?.systemPrompt).toContain(
       "Soul sentinel: copper lighthouse.",
     );
-    expect(body).toEqual({
-      greetings: [
+    deferredSidechain.resolve({
+      text: JSON.stringify([
         "Charting the next useful thing?",
         "I brought the compass. Where to?",
         "Ready to make this lighter.",
-      ],
-      text: "Charting the next useful thing?",
+      ]),
+      hadTextDeltas: false,
+      response: { content: [] },
     });
+
+    await sidechainResultPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     sidechainCalls.length = 0;
     getConfiguredProviderCalls.length = 0;
@@ -610,9 +652,20 @@ describe("identity routes — intro greetings", () => {
     const cachedBody = (await route!.handler({})) as {
       greetings: string[];
       text: string;
+      source: string;
+      refreshing: boolean;
     };
 
-    expect(cachedBody).toEqual(body);
+    expect(cachedBody).toEqual({
+      greetings: [
+        "Charting the next useful thing?",
+        "I brought the compass. Where to?",
+        "Ready to make this lighter.",
+      ],
+      text: "Charting the next useful thing?",
+      source: "cache",
+      refreshing: false,
+    });
     expect(getConfiguredProviderCalls).toEqual([]);
     expect(sidechainCalls).toEqual([]);
   });

@@ -21,15 +21,23 @@ import type { IdentityIntroGetResponse } from "@/generated/daemon/types.gen";
 import { assistantIdentityIntroQueryKey } from "@/lib/sync/query-tags";
 
 const STALE_TIME_MS = 5 * 60 * 1000;
+const FALLBACK_REFRESH_INTERVAL_MS = 1500;
 
 type IdentityIntroResponse = Partial<IdentityIntroGetResponse> & {
   greetings?: unknown;
   text?: unknown;
+  source?: unknown;
+  refreshing?: unknown;
 };
+
+interface EmptyStateGreetingQueryResult {
+  candidates: readonly string[];
+  refreshing: boolean;
+}
 
 async function fetchIdentityIntro(
   assistantId: string
-): Promise<readonly string[] | null> {
+): Promise<EmptyStateGreetingQueryResult | null> {
   try {
     const { data, error, response } = await identityIntroGet({
       path: { assistant_id: assistantId },
@@ -41,7 +49,15 @@ async function fetchIdentityIntro(
       return null;
     }
 
-    return normalizeIdentityIntroCandidates(data);
+    const candidates = normalizeIdentityIntroCandidates(data);
+    if (!candidates) {
+      return null;
+    }
+
+    return {
+      candidates,
+      refreshing: data.source === "fallback" && data.refreshing === true,
+    };
   } catch {
     return null;
   }
@@ -80,16 +96,19 @@ export function useEmptyStateGreeting(
 ): string {
   const enabled = Boolean(assistantId);
 
-  const query = useQuery<readonly string[] | null>({
+  const query = useQuery<EmptyStateGreetingQueryResult | null>({
     queryKey: assistantIdentityIntroQueryKey(assistantId),
     queryFn: () => fetchIdentityIntro(assistantId!),
     enabled,
     staleTime: STALE_TIME_MS,
+    refetchInterval: (query) =>
+      query.state.data?.refreshing ? FALLBACK_REFRESH_INTERVAL_MS : false,
   });
 
-  const greeting = useMemo(() => pickGreetingCandidate(query.data), [
-    query.data,
-  ]);
+  const greeting = useMemo(
+    () => pickGreetingCandidate(query.data?.candidates),
+    [query.data]
+  );
 
   return greeting ?? DEFAULT_EMPTY_STATE_GREETING;
 }

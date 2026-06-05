@@ -410,29 +410,81 @@ const FALLBACK_GREETINGS = [
 
 const GENERATED_GREETING_LIMIT = 4;
 const GREETING_GENERATION_TIMEOUT_MS = 10_000;
+const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
 const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
 
-async function getIdentityIntro() {
+type IdentityIntroSource = "workspace" | "cache" | "fallback";
+
+interface IdentityIntroResponse {
+  greetings: string[];
+  text: string;
+  source: IdentityIntroSource;
+  refreshing: boolean;
+}
+
+let greetingGenerationInFlight: Promise<void> | null = null;
+let lastGreetingGenerationFailureAt = 0;
+
+function identityIntroResponse(
+  greetings: string[],
+  source: IdentityIntroSource,
+  refreshing = false,
+): IdentityIntroResponse {
+  return {
+    greetings,
+    text: greetings[0] ?? "",
+    source,
+    refreshing,
+  };
+}
+
+function getIdentityIntro(): IdentityIntroResponse {
   // 1. User-defined greetings from SOUL.md `## Greetings`
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
-    return { greetings: workspaceGreetings, text: workspaceGreetings[0] };
+    return identityIntroResponse(workspaceGreetings, "workspace");
   }
 
   // 2. Cached LLM-generated greetings
   const cached = getCachedIntro();
   if (cached) {
-    return { greetings: cached.greetings, text: cached.greetings[0] };
+    return identityIntroResponse(cached.greetings, "cache");
   }
 
-  // 3. Fresh LLM-generated greetings, cached for subsequent empty states.
-  const generated = await generateEmptyStateGreetings();
-  if (generated) {
-    return { greetings: generated, text: generated[0] };
-  }
+  // 3. Trigger fresh generation without blocking the empty-state UI.
+  const refreshing = triggerEmptyStateGreetingGeneration();
 
   // 4. Generic fallback only when generation is unavailable.
-  return { greetings: FALLBACK_GREETINGS, text: FALLBACK_GREETINGS[0] };
+  return identityIntroResponse(FALLBACK_GREETINGS, "fallback", refreshing);
+}
+
+function triggerEmptyStateGreetingGeneration(): boolean {
+  if (greetingGenerationInFlight) {
+    return true;
+  }
+
+  if (
+    lastGreetingGenerationFailureAt > 0 &&
+    Date.now() - lastGreetingGenerationFailureAt <
+      GREETING_GENERATION_FAILURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  greetingGenerationInFlight = new Promise<void>((resolve) => {
+    queueMicrotask(() => {
+      void generateEmptyStateGreetings()
+        .then((greetings) => {
+          lastGreetingGenerationFailureAt = greetings === null ? Date.now() : 0;
+        })
+        .finally(() => {
+          greetingGenerationInFlight = null;
+          resolve();
+        });
+    });
+  });
+
+  return true;
 }
 
 async function generateEmptyStateGreetings(): Promise<string[] | null> {
@@ -671,11 +723,13 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity greetings",
     description:
-      "Returns greetings sourced from SOUL.md, the generated cache, fresh LLM generation, or generic fallbacks.",
+      "Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background generation refreshes the cache.",
     tags: ["identity"],
     responseBody: z.object({
       greetings: z.array(z.string()),
       text: z.string(),
+      source: z.enum(["workspace", "cache", "fallback"]),
+      refreshing: z.boolean(),
     }),
   },
 ];
