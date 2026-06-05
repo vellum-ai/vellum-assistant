@@ -106,7 +106,11 @@ export function ProfileAdvancedParams({
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
   return (
-    <>
+    // space-y-4 matches the modal body's rhythm so each advanced param gets
+    // the same vertical breathing room as the "normal" fields above. Without
+    // a spacing wrapper the fragment stacked these blocks flush against each
+    // other (and against the disclosure edges).
+    <div className="space-y-4">
       {/* Max Output Tokens */}
       {visibility.maxTokens && (
         <div className="space-y-1">
@@ -317,6 +321,6 @@ export function ProfileAdvancedParams({
           />
         </div>
       )}
-    </>
+    </div>
   );
 }

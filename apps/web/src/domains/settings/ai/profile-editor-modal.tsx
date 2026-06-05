@@ -794,7 +794,7 @@ function ProfileEditorModalInner({
           <span>Advanced</span>
         </button>
         {advancedExpanded ? (
-          <div className="mt-2">{advancedParamsNode}</div>
+          <div className="mt-4">{advancedParamsNode}</div>
         ) : null}
       </div>
     ) : null;
