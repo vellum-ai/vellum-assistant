@@ -57,7 +57,7 @@ export function ProviderCallbackPage() {
           case "authenticated": {
             await refreshSession();
 
-            if (isLocalMode()) {
+            if (isLocalMode() && !returnTo) {
               try {
                 const assistants = await listAssistants();
                 if (assistants.ok && assistants.data.length > 0) {
