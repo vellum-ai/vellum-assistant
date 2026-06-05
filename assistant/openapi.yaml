@@ -16011,7 +16011,691 @@ paths:
                 properties:
                   messages:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        mergedMessageIds:
+                          type: array
+                          items:
+                            type: string
+                        role:
+                          type: string
+                        content:
+                          type: string
+                        timestamp:
+                          type: string
+                        attachments:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              filename:
+                                type: string
+                              mimeType:
+                                type: string
+                              sizeBytes:
+                                type: number
+                              kind:
+                                type: string
+                              data:
+                                type: string
+                              thumbnailData:
+                                type: string
+                              fileBacked:
+                                type: boolean
+                            required:
+                              - id
+                              - filename
+                              - mimeType
+                              - sizeBytes
+                              - kind
+                            additionalProperties: false
+                        toolCalls:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              name:
+                                type: string
+                              input:
+                                type: object
+                                propertyNames:
+                                  type: string
+                                additionalProperties: {}
+                              result:
+                                type: string
+                              isError:
+                                type: boolean
+                              imageData:
+                                type: string
+                              imageDataList:
+                                type: array
+                                items:
+                                  type: string
+                              startedAt:
+                                type: number
+                              completedAt:
+                                type: number
+                              confirmationDecision:
+                                type: string
+                                enum:
+                                  - approved
+                                  - denied
+                                  - timed_out
+                              confirmationLabel:
+                                type: string
+                              riskLevel:
+                                type: string
+                              riskReason:
+                                type: string
+                              matchedTrustRuleId:
+                                type: string
+                              autoApproved:
+                                type: boolean
+                              approvalMode:
+                                type: string
+                              approvalReason:
+                                type: string
+                              riskThreshold:
+                                type: string
+                              riskScopeOptions:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    pattern:
+                                      type: string
+                                    label:
+                                      type: string
+                                  required:
+                                    - pattern
+                                    - label
+                                  additionalProperties: false
+                              riskAllowlistOptions:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    label:
+                                      type: string
+                                    description:
+                                      type: string
+                                    pattern:
+                                      type: string
+                                  required:
+                                    - label
+                                    - description
+                                    - pattern
+                                  additionalProperties: false
+                              riskDirectoryScopeOptions:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    scope:
+                                      type: string
+                                    label:
+                                      type: string
+                                  required:
+                                    - scope
+                                    - label
+                                  additionalProperties: false
+                              activityMetadata:
+                                type: object
+                                properties:
+                                  webSearch:
+                                    type: object
+                                    properties:
+                                      query:
+                                        type: string
+                                      provider:
+                                        type: string
+                                        enum:
+                                          - anthropic-native
+                                          - brave
+                                          - perplexity
+                                          - tavily
+                                      resultCount:
+                                        type: number
+                                      durationMs:
+                                        type: number
+                                      results:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            rank:
+                                              type: number
+                                            title:
+                                              type: string
+                                            url:
+                                              type: string
+                                            domain:
+                                              type: string
+                                            faviconUrl:
+                                              type: string
+                                            snippet:
+                                              type: string
+                                            age:
+                                              type: string
+                                            score:
+                                              type: number
+                                          required:
+                                            - rank
+                                            - title
+                                            - url
+                                            - domain
+                                          additionalProperties: false
+                                      errorMessage:
+                                        type: string
+                                    required:
+                                      - query
+                                      - provider
+                                      - resultCount
+                                      - durationMs
+                                      - results
+                                    additionalProperties: false
+                                  webFetch:
+                                    type: object
+                                    properties:
+                                      url:
+                                        type: string
+                                      finalUrl:
+                                        type: string
+                                      status:
+                                        type: number
+                                      contentType:
+                                        type: string
+                                      byteCount:
+                                        type: number
+                                      charCount:
+                                        type: number
+                                      truncated:
+                                        type: boolean
+                                      title:
+                                        type: string
+                                      domain:
+                                        type: string
+                                      faviconUrl:
+                                        type: string
+                                      redirectCount:
+                                        type: number
+                                      durationMs:
+                                        type: number
+                                      errorMessage:
+                                        type: string
+                                      mayRequireJavaScript:
+                                        type: boolean
+                                    required:
+                                      - url
+                                      - finalUrl
+                                      - status
+                                      - byteCount
+                                      - charCount
+                                      - truncated
+                                      - domain
+                                      - redirectCount
+                                      - durationMs
+                                    additionalProperties: false
+                                additionalProperties: false
+                            required:
+                              - name
+                              - input
+                            additionalProperties: false
+                        surfaces:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              surfaceId:
+                                type: string
+                              surfaceType:
+                                type: string
+                              title:
+                                type: string
+                              data:
+                                type: object
+                                propertyNames:
+                                  type: string
+                                additionalProperties: {}
+                              actions:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                    label:
+                                      type: string
+                                    style:
+                                      type: string
+                                    data:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
+                                  required:
+                                    - id
+                                    - label
+                                  additionalProperties: false
+                              display:
+                                type: string
+                              persistent:
+                                type: boolean
+                              completed:
+                                type: boolean
+                              completionSummary:
+                                type: string
+                              toolCallId:
+                                type: string
+                            required:
+                              - surfaceId
+                              - surfaceType
+                              - data
+                            additionalProperties: false
+                        textSegments:
+                          type: array
+                          items:
+                            type: string
+                        thinkingSegments:
+                          type: array
+                          items:
+                            type: string
+                        contentOrder:
+                          type: array
+                          items:
+                            type: string
+                        contentBlocks:
+                          type: array
+                          items:
+                            oneOf:
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: text
+                                  text:
+                                    type: string
+                                required:
+                                  - type
+                                  - text
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: thinking
+                                  thinking:
+                                    type: string
+                                required:
+                                  - type
+                                  - thinking
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: tool_use
+                                  toolCall:
+                                    type: object
+                                    properties:
+                                      id:
+                                        type: string
+                                      name:
+                                        type: string
+                                      input:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
+                                      result:
+                                        type: string
+                                      isError:
+                                        type: boolean
+                                      imageData:
+                                        type: string
+                                      imageDataList:
+                                        type: array
+                                        items:
+                                          type: string
+                                      startedAt:
+                                        type: number
+                                      completedAt:
+                                        type: number
+                                      confirmationDecision:
+                                        type: string
+                                        enum:
+                                          - approved
+                                          - denied
+                                          - timed_out
+                                      confirmationLabel:
+                                        type: string
+                                      riskLevel:
+                                        type: string
+                                      riskReason:
+                                        type: string
+                                      matchedTrustRuleId:
+                                        type: string
+                                      autoApproved:
+                                        type: boolean
+                                      approvalMode:
+                                        type: string
+                                      approvalReason:
+                                        type: string
+                                      riskThreshold:
+                                        type: string
+                                      riskScopeOptions:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            pattern:
+                                              type: string
+                                            label:
+                                              type: string
+                                          required:
+                                            - pattern
+                                            - label
+                                          additionalProperties: false
+                                      riskAllowlistOptions:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            label:
+                                              type: string
+                                            description:
+                                              type: string
+                                            pattern:
+                                              type: string
+                                          required:
+                                            - label
+                                            - description
+                                            - pattern
+                                          additionalProperties: false
+                                      riskDirectoryScopeOptions:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            scope:
+                                              type: string
+                                            label:
+                                              type: string
+                                          required:
+                                            - scope
+                                            - label
+                                          additionalProperties: false
+                                      activityMetadata:
+                                        type: object
+                                        properties:
+                                          webSearch:
+                                            type: object
+                                            properties:
+                                              query:
+                                                type: string
+                                              provider:
+                                                type: string
+                                                enum:
+                                                  - anthropic-native
+                                                  - brave
+                                                  - perplexity
+                                                  - tavily
+                                              resultCount:
+                                                type: number
+                                              durationMs:
+                                                type: number
+                                              results:
+                                                type: array
+                                                items:
+                                                  type: object
+                                                  properties:
+                                                    rank:
+                                                      type: number
+                                                    title:
+                                                      type: string
+                                                    url:
+                                                      type: string
+                                                    domain:
+                                                      type: string
+                                                    faviconUrl:
+                                                      type: string
+                                                    snippet:
+                                                      type: string
+                                                    age:
+                                                      type: string
+                                                    score:
+                                                      type: number
+                                                  required:
+                                                    - rank
+                                                    - title
+                                                    - url
+                                                    - domain
+                                                  additionalProperties: false
+                                              errorMessage:
+                                                type: string
+                                            required:
+                                              - query
+                                              - provider
+                                              - resultCount
+                                              - durationMs
+                                              - results
+                                            additionalProperties: false
+                                          webFetch:
+                                            type: object
+                                            properties:
+                                              url:
+                                                type: string
+                                              finalUrl:
+                                                type: string
+                                              status:
+                                                type: number
+                                              contentType:
+                                                type: string
+                                              byteCount:
+                                                type: number
+                                              charCount:
+                                                type: number
+                                              truncated:
+                                                type: boolean
+                                              title:
+                                                type: string
+                                              domain:
+                                                type: string
+                                              faviconUrl:
+                                                type: string
+                                              redirectCount:
+                                                type: number
+                                              durationMs:
+                                                type: number
+                                              errorMessage:
+                                                type: string
+                                              mayRequireJavaScript:
+                                                type: boolean
+                                            required:
+                                              - url
+                                              - finalUrl
+                                              - status
+                                              - byteCount
+                                              - charCount
+                                              - truncated
+                                              - domain
+                                              - redirectCount
+                                              - durationMs
+                                            additionalProperties: false
+                                        additionalProperties: false
+                                    required:
+                                      - name
+                                      - input
+                                    additionalProperties: false
+                                required:
+                                  - type
+                                  - toolCall
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: surface
+                                  surface:
+                                    type: object
+                                    properties:
+                                      surfaceId:
+                                        type: string
+                                      surfaceType:
+                                        type: string
+                                      title:
+                                        type: string
+                                      data:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
+                                      actions:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            id:
+                                              type: string
+                                            label:
+                                              type: string
+                                            style:
+                                              type: string
+                                            data:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                          required:
+                                            - id
+                                            - label
+                                          additionalProperties: false
+                                      display:
+                                        type: string
+                                      persistent:
+                                        type: boolean
+                                      completed:
+                                        type: boolean
+                                      completionSummary:
+                                        type: string
+                                      toolCallId:
+                                        type: string
+                                    required:
+                                      - surfaceId
+                                      - surfaceType
+                                      - data
+                                    additionalProperties: false
+                                required:
+                                  - type
+                                  - surface
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  type:
+                                    type: string
+                                    const: attachment
+                                  attachment:
+                                    type: object
+                                    properties:
+                                      id:
+                                        type: string
+                                      filename:
+                                        type: string
+                                      mimeType:
+                                        type: string
+                                      sizeBytes:
+                                        type: number
+                                      kind:
+                                        type: string
+                                      data:
+                                        type: string
+                                      thumbnailData:
+                                        type: string
+                                      fileBacked:
+                                        type: boolean
+                                    required:
+                                      - id
+                                      - filename
+                                      - mimeType
+                                      - sizeBytes
+                                      - kind
+                                    additionalProperties: false
+                                required:
+                                  - type
+                                  - attachment
+                                additionalProperties: false
+                        subagentNotification:
+                          type: object
+                          properties:
+                            subagentId:
+                              type: string
+                            label:
+                              type: string
+                            status:
+                              type: string
+                            error:
+                              type: string
+                            conversationId:
+                              type: string
+                            objective:
+                              type: string
+                          required:
+                            - subagentId
+                            - label
+                            - status
+                          additionalProperties: false
+                        slackMessage:
+                          type: object
+                          properties:
+                            channelId:
+                              type: string
+                            channelName:
+                              type: string
+                            channelTs:
+                              type: string
+                            threadTs:
+                              type: string
+                            sender:
+                              type: object
+                              properties:
+                                displayName:
+                                  type: string
+                                externalUserId:
+                                  type: string
+                              additionalProperties: false
+                            messageLink:
+                              type: object
+                              properties:
+                                appUrl:
+                                  type: string
+                                webUrl:
+                                  type: string
+                              additionalProperties: false
+                            threadLink:
+                              type: object
+                              properties:
+                                appUrl:
+                                  type: string
+                                webUrl:
+                                  type: string
+                              additionalProperties: false
+                          required:
+                            - channelId
+                            - channelTs
+                          additionalProperties: false
+                      required:
+                        - id
+                        - role
+                        - timestamp
+                        - attachments
+                      additionalProperties: false
                     description: Array of message objects
                   hasMore:
                     description: Whether older messages exist beyond this page
