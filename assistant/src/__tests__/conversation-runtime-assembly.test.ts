@@ -825,7 +825,6 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
-    isNonInteractive: true,
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
     // gate hinge purely on PKB content presence.
@@ -837,6 +836,7 @@ describe("applyRuntimeInjections — injection mode", () => {
         sourceChannel: "vellum" as const,
         trustClass: "guardian" as const,
       },
+      isNonInteractive: true,
     },
   };
 

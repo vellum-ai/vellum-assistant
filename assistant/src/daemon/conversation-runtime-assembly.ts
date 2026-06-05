@@ -1820,23 +1820,21 @@ function applyInjectionBlock(
  *
  * Most fields flow through to the per-injector {@link TurnInjectionInputs}
  * bag attached to the {@link TurnContext} the caller provides (or to an
- * ephemeral {@link TurnContext} synthesized for test call sites). A small
- * number of fields drive hardcoded branches that live outside the injector
- * chain — `isNonInteractive` — because it is orchestrator-owned content that
- * never made sense as a plugin-overridable default injector.
+ * ephemeral {@link TurnContext} synthesized for test call sites).
  *
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, and the
  * transport hints are not on this bag: `applyRuntimeInjections` resolves them
  * from the live conversation itself (its surface state, `channelCapabilities`,
  * the document store keyed by `conversationId`, its `commandIntent`, its
- * `voiceCallControlPrompt`, and its `transportHints` respectively), so the
- * orchestrator does not compute or thread them per turn.
+ * `voiceCallControlPrompt`, and its `transportHints` respectively). The
+ * turn's interactivity drives the `<non_interactive_context>` branch and the
+ * `background-turn` injector from {@link TurnContext.isNonInteractive}, so the
+ * orchestrator does not compute or thread any of them per turn.
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
   subagentStatusBlock?: string | null;
-  isNonInteractive?: boolean;
   /**
    * True when the active conversation's type is "background" or "scheduled".
    * Forwarded to {@link TurnInjectionInputs.isBackgroundConversation} so the
@@ -1907,6 +1905,7 @@ function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
   channelCapabilities: ChannelCapabilities | null,
   activeDocuments: TurnInjectionInputs["activeDocuments"],
+  isNonInteractive: boolean,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1915,7 +1914,7 @@ function buildTurnInjectionInputs(
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    isNonInteractive: options.isNonInteractive,
+    isNonInteractive,
     isBackgroundConversation: options.isBackgroundConversation,
     activeDocuments,
   };
@@ -2033,6 +2032,14 @@ export async function applyRuntimeInjections(
   const transportHints =
     findConversationOrSubagent(conversationId)?.transportHints ?? null;
 
+  // Source the turn's interactivity from the caller's TurnContext rather than a
+  // per-turn option. The orchestrator resolves it once at turn start (the
+  // `isInteractive` override, falling back to the conversation's client /
+  // headless state) and carries it on the context, so the same value drives the
+  // `<non_interactive_context>` branch and the `background-turn` injector on
+  // every assembly call within the turn.
+  const isNonInteractive = options.turnContext?.isNonInteractive ?? false;
+
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
@@ -2042,6 +2049,7 @@ export async function applyRuntimeInjections(
     options,
     channelCapabilities,
     activeDocuments,
+    isNonInteractive,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
@@ -2197,7 +2205,7 @@ export async function applyRuntimeInjections(
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
-  if (options.isNonInteractive) {
+  if (isNonInteractive) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
