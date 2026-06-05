@@ -1138,6 +1138,18 @@ export async function runAgentLoopImpl(
       }
     };
 
+    // Resolve the turn's timezone cascade up front. It depends only on config
+    // and the inbound request — never on retrieval output — so it can be
+    // settled before context assembly. Local date semantics prefer the
+    // configured user timezone, then device timezones, then the host clock.
+    const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezoneContext = resolveTurnTimezoneContext({
+      configuredUserTimeZone: config.ui.userTimezone ?? null,
+      clientTimezone: ctx.clientTimezone ?? null,
+      detectedTimezone: config.ui.detectedTimezone ?? null,
+      hostTimeZone,
+    });
+
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
@@ -1170,20 +1182,6 @@ export async function runAgentLoopImpl(
     // pair on the graph handle for the PKB-reminder injector to read back; the
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
-
-    // Compute fresh turn timestamp for date grounding.
-    // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then device timezones.
-    const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const timezoneContext = resolveTurnTimezoneContext({
-      configuredUserTimeZone: config.ui.userTimezone ?? null,
-      clientTimezone: ctx.clientTimezone ?? null,
-      detectedTimezone: config.ui.detectedTimezone ?? null,
-      hostTimeZone,
-    });
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
-    });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
     // When the conversation carries enough identity info, use the unified
@@ -1255,6 +1253,13 @@ export async function runAgentLoopImpl(
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
       setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
     }
+
+    // Capture wall-clock "now" at its point of use, after the blocking memory
+    // retrieval, so the injected `<turn_context>` timestamp reflects current
+    // time rather than the moment the turn began.
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
+    });
 
     const baseTurnContext = {
       timestamp,
