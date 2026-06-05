@@ -38,10 +38,6 @@ Sources: [Plugins reference](https://code.claude.com/docs/en/plugins-reference),
    `claude plugin` commands. For local authoring you can skip the marketplace
    entirely with `claude --plugin-dir <path>`.
 
-The defining trait vs. our loader: Claude Code plugins are **multi-surface
-bundles** (commands + skills + subagents + hooks + MCP + LSP + monitors) shipped
-through a marketplace, not a single hooks/tools tree.
-
 ---
 
 ## What a plugin can contribute today
