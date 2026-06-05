@@ -50,6 +50,10 @@ protocol ConversationRestorerDelegate: AnyObject {
         from item: ConversationListResponseItem,
         into conversation: inout ConversationModel
     )
+    /// Patch a single already-loaded conversation row from a server item,
+    /// used for narrow per-conversation metadata sync tags so the client
+    /// avoids refetching the entire paginated list.
+    func mergeConversationRow(from item: ConversationListResponseItem)
 }
 
 /// Handles daemon conversation restoration: fetching the conversation list on connect,
@@ -77,6 +81,7 @@ final class ConversationRestorer {
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
+    private let conversationDetailClient: any ConversationDetailClientProtocol
     private var disconnectObservationTask: Task<Void, Never>?
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
@@ -104,12 +109,14 @@ final class ConversationRestorer {
         connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
-        conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+        conversationListClient: any ConversationListClientProtocol = ConversationListClient(),
+        conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient()
     ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
         self.conversationListClient = conversationListClient
+        self.conversationDetailClient = conversationDetailClient
     }
 
     deinit {
@@ -294,11 +301,22 @@ final class ConversationRestorer {
         for route in routes {
             switch route {
             case .conversationList:
+                // Shape change (created / deleted / reordered): the *set* of
+                // rows changed, so the paginated list must be refetched.
                 shouldRefetchConversationList = true
-            case .conversationMetadata:
-                shouldRefetchConversationList = true
+            case .conversationMetadata(let conversationId):
+                // Content-only change to one existing row (seen / rename /
+                // attention). Patch just that row via a single
+                // `GET /v1/conversations/:id` instead of draining the full
+                // paginated list (3 parallel streams over every conversation),
+                // which is what otherwise exhausts the daemon's per-client
+                // request budget and 429s the app. Mirrors web's single-row
+                // GET-and-patch.
+                refreshConversationRow(conversationId: conversationId)
             case .conversationMessages(let conversationId):
-                shouldRefetchConversationList = true
+                // A messages-only change doesn't alter the list shape, so it
+                // must not trigger a full list refetch — only the active
+                // conversation needs its history reconciled.
                 guard activeConversationId == conversationId else { continue }
                 requestReconnectHistory(conversationId: conversationId)
             case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds, .assistantSchedules:
@@ -308,6 +326,20 @@ final class ConversationRestorer {
 
         if shouldRefetchConversationList {
             scheduleInvalidationRefetch()
+        }
+    }
+
+    /// Fetch a single conversation and patch its sidebar row in place. Used for
+    /// narrow `conversation:<id>:metadata` sync tags so a content-only change
+    /// to one row costs one request instead of a full paginated list drain.
+    /// No-ops silently when the fetch fails or the row isn't loaded locally —
+    /// a subsequent shape-changing `conversations:list` tag or cold restore
+    /// reconciles anything missed.
+    private func refreshConversationRow(conversationId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let item = await self.conversationDetailClient.fetchConversation(conversationId: conversationId) else { return }
+            self.delegate?.mergeConversationRow(from: item)
         }
     }
 
