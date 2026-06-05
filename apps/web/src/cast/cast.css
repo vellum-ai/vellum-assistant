@@ -8,29 +8,31 @@
   align-items: center;
   justify-content: center;
   background: #0e0f13;
-  /* keep the keyboard/zoom from selecting text while tapping characters */
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Portrait-mobile panel (~390x844). Scales down on short viewports. */
+/* Full-window stage. */
 .cast-panel {
   position: relative;
-  width: 390px;
-  height: 844px;
-  max-height: 100dvh;
+  width: 100vw;
+  height: 100dvh;
   overflow: hidden;
-  background: radial-gradient(120% 80% at 50% 0%, #20222b 0%, #15161c 55%, #101116 100%);
+  background: radial-gradient(120% 90% at 50% 0%, #20222b 0%, #15161c 55%, #101116 100%);
   color: #f4f4f6;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
 }
 
 .cast-panel__header {
-  padding: 28px 24px 8px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 30px 24px 40px;
   text-align: center;
-  flex-shrink: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(14, 15, 19, 0.7) 0%, rgba(14, 15, 19, 0) 100%);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
 .cast-panel__title {
@@ -46,71 +48,119 @@
   color: rgba(244, 244, 246, 0.55);
 }
 
-/* ---- Beat 1: grid ---- */
+/* ---- Beat 1: the crowd on a tilted ground plane ---- */
 
-.cast-grid {
-  flex: 1;
+.cast-stage3d {
+  --tilt: 40deg;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  perspective: 1500px;
+  /* horizon high in frame so the crowd recedes nearly to the top */
+  perspective-origin: 50% 13%;
+}
+
+.cast-floor {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  padding: 16px 16px 72px;
-  align-content: start;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.cast-grid::-webkit-scrollbar {
-  display: none;
+  column-gap: 2px;
+  width: 120%;
+  padding: 0 1%;
+  transform: rotateX(var(--tilt));
+  transform-origin: bottom center;
+  transform-style: preserve-3d;
 }
 
-.cast-tile {
-  position: relative;
+/* Spotlight — a lit pool that tracks the cursor (--mx/--my); the rest of the
+   crowd sits in shadow. Layers (top→bottom): warm core glow, the shadow mask
+   with a transparent disc at the cursor, and a horizon fade at the top. */
+.cast-spotlight {
+  --mx: 50%;
+  --my: 58%;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background:
+    radial-gradient(
+      circle 220px at var(--mx) var(--my),
+      rgba(255, 240, 214, 0.14) 0%,
+      rgba(255, 240, 214, 0) 65%
+    ),
+    radial-gradient(
+      circle 320px at var(--mx) var(--my),
+      rgba(14, 15, 19, 0) 0%,
+      rgba(14, 15, 19, 0) 30%,
+      rgba(14, 15, 19, 0.55) 64%,
+      rgba(14, 15, 19, 0.92) 100%
+    ),
+    linear-gradient(
+      to top,
+      rgba(14, 15, 19, 0) 60%,
+      rgba(14, 15, 19, 0.55) 84%,
+      rgba(14, 15, 19, 0.94) 100%
+    );
+}
+
+.cast-cell {
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 22px;
+  background: none;
+  padding: 0;
+  margin-bottom: -28%; /* pull rows together so the crowd packs tight */
   aspect-ratio: 1;
-  cursor: pointer;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  transition: background 160ms ease;
+  cursor: pointer;
+  transform-style: preserve-3d;
   outline: none;
 }
 
-.cast-tile:hover,
-.cast-tile:focus-visible {
-  background: rgba(255, 255, 255, 0.07);
+/* counter-rotate about the feet so characters stand upright, planted on the
+ * floor, facing us — perspective alone gives the receding-crowd depth. */
+.cast-cell__stand {
+  display: block;
+  width: 90%;
+  aspect-ratio: 1;
+  transform-origin: bottom center;
+  transform: rotateX(calc(-1 * var(--tilt)));
+  transform-style: preserve-3d;
+  transition: filter 140ms ease, transform 140ms ease;
 }
 
-/* The layout box framer-motion controls — keep CSS transforms off of it. */
-.cast-tile__box {
-  width: 78%;
-  height: 78%;
+.cast-cell:hover .cast-cell__stand,
+.cast-cell:focus-visible .cast-cell__stand {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
+  z-index: 5;
 }
 
-/* idle bob lives on an inner element so it never fights the hover/zoom layers */
 .cast-idle {
+  display: block;
   width: 100%;
   height: 100%;
   animation: cast-bob 3.2s ease-in-out infinite;
 }
 
 .cast-hover {
+  display: block;
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
 }
 
-.cast-tile:hover .cast-hover[data-anim="jump"] {
+.cast-cell:hover .cast-hover[data-anim="jump"] {
   animation: cast-jump 0.6s ease;
 }
-.cast-tile:hover .cast-hover[data-anim="flip"] {
+.cast-cell:hover .cast-hover[data-anim="flip"] {
   animation: cast-flip 0.7s ease;
 }
-.cast-tile:hover .cast-hover[data-anim="wiggle"] {
+.cast-cell:hover .cast-hover[data-anim="wiggle"] {
   animation: cast-wiggle 0.6s ease;
 }
-.cast-tile:hover .cast-hover[data-anim="spin"] {
+.cast-cell:hover .cast-hover[data-anim="spin"] {
   animation: cast-spin 0.7s ease;
 }
 
@@ -125,37 +175,31 @@
   overflow: visible;
 }
 
+/* ---- flying clone (Beat 1 → Beat 2 FLIP) ---- */
+
+.cast-fly {
+  position: absolute;
+  z-index: 6;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+}
+
 /* ---- Beat 2: focus ---- */
 
 .cast-focus {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0 24px;
+  z-index: 4;
 }
 
-.cast-focus__avatar-slot {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  /* nudge the character above true-center so the name has room */
-  padding-bottom: 56px;
-}
-
-.cast-focus__box {
-  width: 220px;
-  height: 220px;
+.cast-focus__avatar {
+  position: absolute;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
 }
 
 .cast-name {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 188px;
   text-align: center;
 }
 
@@ -196,11 +240,10 @@
   outline: none;
 }
 
-/* floating Zzz used by the grumpy "yawn" reaction */
 .cast-zzz {
   position: absolute;
-  top: 18%;
-  left: 64%;
+  top: 4%;
+  left: 70%;
   font-size: 22px;
   font-weight: 700;
   color: rgba(244, 244, 246, 0.7);
@@ -262,7 +305,7 @@
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
-  z-index: 3;
+  z-index: 5;
 }
 .cast-back:hover {
   background: rgba(255, 255, 255, 0.12);
@@ -277,7 +320,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 5;
+  z-index: 7;
   padding: 24px;
 }
 
@@ -380,7 +423,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cast-idle,
-  .cast-tile:hover .cast-hover {
+  .cast-cell:hover .cast-hover {
     animation: none !important;
   }
 }
