@@ -1,4 +1,4 @@
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app } from "electron";
 import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
@@ -76,7 +76,18 @@ const openPopout = (conversationId: string): void => {
       title: "Vellum",
       show: false,
     },
-    navigation: "deny-all",
+    navigation: {
+      installGuard: (w) => {
+        // Block top-level navigation (prevents navigating away from the pop-out
+        // route via bare <a href>, dropped URLs, or location writes) but do NOT
+        // override setWindowOpenHandler — the global handler in index.ts
+        // forwards target=_blank links to shell.openExternal and allows OAuth
+        // popups, which chat messages and connect flows depend on.
+        w.webContents.on("will-navigate", (event) => {
+          event.preventDefault();
+        });
+      },
+    },
   });
 
   trackWindowState(`thread.${conversationId}`, win);
@@ -91,10 +102,10 @@ const openPopout = (conversationId: string): void => {
     popouts.delete(conversationId);
   });
 
-  // External link handling: the renderer is sandboxed with deny-all navigation,
-  // so outbound links route through IPC → shell.openExternal. The per-window
-  // handler is registered in the global web-contents-created handler in
-  // index.ts; no additional wiring needed here.
+  // External link handling: the global web-contents-created handler in index.ts
+  // installs setWindowOpenHandler on every WebContents, forwarding target=_blank
+  // links to shell.openExternal and allowing OAuth popups. Our custom
+  // installGuard intentionally does NOT override it.
 
   void win.loadURL(popoutUrl(conversationId));
 };
