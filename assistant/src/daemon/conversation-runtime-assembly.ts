@@ -29,7 +29,6 @@ import {
   extractMemoryPrefixBlocks,
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
-import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -43,6 +42,7 @@ import {
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
+import { MEMORY_V3_BLOCK_ID } from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
   DiskPressureInjectionContext,
   InjectionBlock,

@@ -18,15 +18,15 @@
  * omitted, resolves the `memoryV3RouteL1` callsite provider.
  */
 
+import { listPages, readPage, writePage } from "../../../memory/v2/page-store.js";
+import type { ConceptPage } from "../../../memory/v2/types.js";
 import {
   extractToolUse,
   getConfiguredProvider,
   userMessage,
-} from "../../providers/provider-send-message.js";
-import type { Provider, ToolDefinition } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
-import { listPages, readPage, writePage } from "../v2/page-store.js";
-import type { ConceptPage } from "../v2/types.js";
+} from "../../../providers/provider-send-message.js";
+import type { Provider, ToolDefinition } from "../../../providers/types.js";
+import { getLogger } from "../../../util/logger.js";
 import type { LeafPath, LeafTree, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-assign");

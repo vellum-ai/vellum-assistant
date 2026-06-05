@@ -38,9 +38,9 @@ import { join, relative, sep } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
-import type { Provider } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
-import { listPages, readPage, writePage } from "../v2/page-store.js";
+import { listPages, readPage, writePage } from "../../../memory/v2/page-store.js";
+import type { Provider } from "../../../providers/types.js";
+import { getLogger } from "../../../util/logger.js";
 import { assignPages } from "./assign.js";
 import { loadCore } from "./core.js";
 import { invalidateLanes } from "./shadow-plugin.js";

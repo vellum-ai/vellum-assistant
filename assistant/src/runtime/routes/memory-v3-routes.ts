@@ -21,16 +21,26 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { getPageIndex } from "../../memory/v2/page-index.js";
-import { loadCore } from "../../memory/v3/core.js";
-import { computeV3Health, renderV3Health } from "../../memory/v3/health.js";
-import { type LeafRef, reconcileTree } from "../../memory/v3/reconcile.js";
-import { invalidateLanes } from "../../memory/v3/shadow-plugin.js";
+import { loadCore } from "../../plugins/defaults/memory-v3-shadow/core.js";
+import {
+  computeV3Health,
+  renderV3Health,
+} from "../../plugins/defaults/memory-v3-shadow/health.js";
+import {
+  type LeafRef,
+  reconcileTree,
+} from "../../plugins/defaults/memory-v3-shadow/reconcile.js";
+import { invalidateLanes } from "../../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import {
   coreSlugs,
   loadLeafTree,
   resolveDataDir,
-} from "../../memory/v3/tree.js";
-import type { LeafPath, LeafTree, Slug } from "../../memory/v3/types.js";
+} from "../../plugins/defaults/memory-v3-shadow/tree.js";
+import type {
+  LeafPath,
+  LeafTree,
+  Slug,
+} from "../../plugins/defaults/memory-v3-shadow/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";

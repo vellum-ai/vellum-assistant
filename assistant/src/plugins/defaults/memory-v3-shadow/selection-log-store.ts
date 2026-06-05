@@ -7,10 +7,10 @@
  * across turns) and can't be reproduced after the fact.
  */
 
-import type { MemoryV3SelectionLog } from "../../api/responses/memory-v3-selection-log.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
-import { getDb, getSqliteFrom } from "../db-connection.js";
+import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";
+import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
+import { getConfig } from "../../../config/loader.js";
+import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 import { renderV3PageContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import type { Slug } from "./types.js";

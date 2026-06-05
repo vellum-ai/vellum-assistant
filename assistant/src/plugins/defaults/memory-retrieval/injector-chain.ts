@@ -18,8 +18,8 @@
  * ordering assumptions about when `defaultInjectors` finishes initializing.
  */
 
-import { memoryV3Injector } from "../../../memory/v3/shadow-plugin.js";
 import type { Injector } from "../../types.js";
+import { memoryV3Injector } from "../memory-v3-shadow/injector.js";
 import { defaultInjectors } from "./injectors.js";
 
 let cachedChain: Injector[] | null = null;

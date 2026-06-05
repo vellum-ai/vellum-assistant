@@ -28,8 +28,8 @@
 import {
   getCliCommandCapability,
   isCliCommandSlug,
-} from "../v2/cli-command-store.js";
-import { getSkillCapability, isSkillSlug } from "../v2/skill-store.js";
+} from "../../../memory/v2/cli-command-store.js";
+import { getSkillCapability, isSkillSlug } from "../../../memory/v2/skill-store.js";
 import type { LeafNode, LeafPath, LeafTree, Slug } from "./types.js";
 
 /** Path of the always-on synthetic leaf that owns skill + CLI capability rows. */

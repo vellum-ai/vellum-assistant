@@ -22,8 +22,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../migrations/268-add-memory-v3-selections.js";
-import * as schema from "../../schema.js";
+import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
+import * as schema from "../../../../memory/schema.js";
 import type { LeafTree, SelectionSource } from "../types.js";
 
 // `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
@@ -41,10 +41,10 @@ const realTree = { ...(await import("../tree.js")) };
 const realCore = { ...(await import("../core.js")) };
 const realNeedle = { ...(await import("../needle.js")) };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
-const realPlatform = { ...(await import("../../../util/platform.js")) };
-const realPageStore = { ...(await import("../../v2/page-store.js")) };
+const realPlatform = { ...(await import("../../../../util/platform.js")) };
+const realPageStore = { ...(await import("../../../../memory/v2/page-store.js")) };
 const realConversationCrud = {
-  ...(await import("../../conversation-crud.js")),
+  ...(await import("../../../../memory/conversation-crud.js")),
 };
 
 let shadowMockActive = false;
@@ -95,7 +95,7 @@ const FAKE_TREE = {
 
 // ─── module mocks (installed before the plugin import) ──────────────────────
 
-mock.module("../../../config/assistant-feature-flags.js", () => ({
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
     key === "memory-v3-live"
       ? liveEnabled
@@ -104,7 +104,7 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
         : false,
 }));
 
-mock.module("../../../config/loader.js", () => ({
+mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
       v3: {
@@ -119,12 +119,12 @@ mock.module("../../../config/loader.js", () => ({
 // (e.g. `getMessageById` via page-content.ts) stays present — replacing the
 // whole module with a bare `{ getMessages }` made those consumers fail to load.
 // Only `getMessages` is overridden, since that's the one the plugin reads.
-mock.module("../../conversation-crud.js", () => ({
+mock.module("../../../../memory/conversation-crud.js", () => ({
   ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
 }));
 
-mock.module("../../db-connection.js", () => ({
+mock.module("../../../../memory/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
 }));
@@ -136,7 +136,7 @@ mock.module("../v2/page-index.js", () => ({
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
 // Stub them to return a deterministic body per slug so the rendered `<memory>`
 // block is assertable without touching the filesystem.
-mock.module("../../v2/page-store.js", () => ({
+mock.module("../../../../memory/v2/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -150,7 +150,7 @@ mock.module("../../v2/page-store.js", () => ({
         ),
 }));
 
-mock.module("../../../util/platform.js", () => ({
+mock.module("../../../../util/platform.js", () => ({
   ...realPlatform,
   getWorkspaceDir: () =>
     shadowMockActive
@@ -209,8 +209,8 @@ const {
   runShadowObservation,
   resetShadowLanesForTests,
   invalidateLanes,
-  memoryV3Injector,
 } = await import("../shadow-plugin.js");
+const { memoryV3Injector } = await import("../injector.js");
 
 // The module stubs above stay installed for the rest of the process (Bun can't
 // reliably uninstall them), but `shadowMockActive` gates their fake behavior to

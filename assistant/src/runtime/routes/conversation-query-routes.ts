@@ -72,7 +72,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { getMemoryV3SelectionForInspector } from "../../memory/v3/selection-log-store.js";
+import { getMemoryV3SelectionForInspector } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,
   listConnections,
