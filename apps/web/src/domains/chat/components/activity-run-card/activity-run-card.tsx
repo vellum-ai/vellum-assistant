@@ -31,7 +31,7 @@ import {
 } from "@/domains/chat/hooks/tool-call-card-utils";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { truncate } from "@/domains/chat/utils/truncate";
@@ -78,7 +78,6 @@ export interface ActivityRunCardProps {
     input?: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
-    riskScopeOptions: RiskScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
@@ -510,7 +509,6 @@ function UnknownCommandNudge({
             input: toolCall.input ?? {},
             allowlistOptions: toolCall.riskAllowlistOptions ?? [],
             scopeOptions: toolCall.scopeOptions ?? [],
-            riskScopeOptions: toolCall.riskScopeOptions ?? [],
             directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
           })
         }

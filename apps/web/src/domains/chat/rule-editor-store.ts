@@ -3,8 +3,6 @@
  *
  * Owns `showRuleEditor`, `ruleEditorContext`, and `isSavingRule` — the UI
  * state that controls visibility and content of `ChatRuleEditorModal`.
- * Previously these lived as `useState` inside `useInteractionActions`,
- * which meant each component that called the hook got an isolated copy.
  * A Zustand store ensures all consumers share the same state, so any
  * component can open the rule editor and `ChatRouteContent` (which
  * renders the modal) always sees the update.
@@ -19,7 +17,26 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-actions";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Context for the trust-rule editor modal. */
+export interface RuleEditorContext {
+  requestId: string;
+  toolName: string;
+  riskLevel: string;
+  allowlistOptions: AllowlistOption[];
+  scopeOptions: ScopeOption[];
+  directoryScopeOptions: DirectoryScopeOption[];
+  commandText: string;
+  commandDescription: string;
+  existingRule?: TrustRuleItem;
+  suggestion?: TrustRuleSuggestion;
+}
 
 // ---------------------------------------------------------------------------
 // State
