@@ -34,10 +34,29 @@ export function AssistantLifecyclePanel() {
     setHatchConfirmOpen(false);
     setHatching(true);
     try {
-      const result = await hatchAssistant();
+      // `create` mode so this actually provisions an *additional* assistant.
+      // Without it the platform defaults to `ensure` and hands back the
+      // existing assistant — the button then looked like a no-op.
+      const result = await hatchAssistant(undefined, "create");
       if (result.ok) {
-        toast.success("New assistant hatched successfully.");
-        void queryClient.invalidateQueries({ queryKey: ["assistants"] });
+        // 201 = newly created; 200 = server returned the existing assistant
+        // (multi-assistant hatching disabled / deduped). Report honestly
+        // instead of always claiming a new one was made.
+        toast.success(
+          result.status === 201
+            ? "New assistant hatched successfully."
+            : "Returned your existing assistant — no new one was created.",
+        );
+        // Invalidate the panel's own queries by their real generated keys so
+        // the info + list cards refresh (the previous `["assistants"]` key
+        // matched none of them).
+        void queryClient.invalidateQueries({
+          queryKey: assistantsActiveRetrieveOptions().queryKey,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: assistantsListOptions({ query: { hosting: "all" } })
+            .queryKey,
+        });
       } else {
         const detail =
           typeof result.error?.detail === "string"
