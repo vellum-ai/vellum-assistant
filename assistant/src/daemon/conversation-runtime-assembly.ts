@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
@@ -1982,20 +1983,6 @@ export interface RuntimeInjectionOptions {
   activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
-   * memory-v3-live: when true AND the v3 injector produced a `<memory>` block
-   * this turn (placement `after-memory-prefix`, id `memory-v3`), the v2
-   * `<memory>` injection that `graphMemory.prepareMemory` prepended to the
-   * tail is stripped from EVERY user message before the v3 block is spliced —
-   * so v3 becomes the sole `<memory>` source and history stays byte-stable for
-   * prompt caching.
-   *
-   * The strip is keyed off whether v3 ACTUALLY produced a block, not off the
-   * flag alone: when v3 errors or selects nothing (its injector returns
-   * `null`), v2's block is left in place so the turn still ships memory rather
-   * than dropping it (fallback-to-v2). Default false — v2 untouched.
-   */
-  suppressV2MemoryForV3?: boolean;
-  /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
    * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
    * `applyRuntimeInjections` synthesizes an ephemeral context (with a
@@ -2194,21 +2181,25 @@ export async function applyRuntimeInjections(
       : undefined;
 
   // ── Step 0: memory-v3-live v2 suppression ──
-  // When v3 live mode is on AND the v3 injector actually produced a block this
-  // turn, v3 is the sole `<memory>` source. v2's `prepareMemory` already
-  // prepended its own `<memory>` block to the tail user message (and historical
-  // turns may carry v2 blocks from earlier turns). Strip every user message's
-  // memory prefix here so:
+  // When the `memory-v3-live` flag is on AND the v3 injector actually produced
+  // a block this turn, v3 is the sole `<memory>` source. v2's `prepareMemory`
+  // already prepended its own `<memory>` block to the tail user message (and
+  // historical turns may carry v2 blocks from earlier turns). Strip every user
+  // message's memory prefix here so:
   //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
   //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
   //   2. History is byte-stable across turns for prompt caching.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
-  // see no change.
+  // see no change. Flag off → bit-for-bit identical to the v2 path.
+  const suppressV2MemoryForV3 = isAssistantFeatureFlagEnabled(
+    "memory-v3-live",
+    getConfig(),
+  );
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   let runMessagesForAssembly = runMessages;
-  if (options.suppressV2MemoryForV3 && v3ProducedBlock) {
+  if (suppressV2MemoryForV3 && v3ProducedBlock) {
     runMessagesForAssembly = stripAllMemoryInjections(runMessages);
   }
 
