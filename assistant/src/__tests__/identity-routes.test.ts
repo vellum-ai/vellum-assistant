@@ -73,6 +73,13 @@ mock.module("../runtime/btw-sidechain.js", () => ({
   }),
 }));
 
+const assistantFeatureFlags: Record<string, boolean> = {};
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    assistantFeatureFlags[key] ?? false,
+}));
+
 import {
   handleDetailedHealth,
   handleReadyz,
@@ -199,6 +206,9 @@ beforeEach(() => {
   sidechainCalls.length = 0;
   sidechainText = "";
   sidechainResultPromise = null;
+  for (const key of Object.keys(assistantFeatureFlags)) {
+    delete assistantFeatureFlags[key];
+  }
 });
 
 afterEach(() => {
@@ -565,7 +575,53 @@ describe("identity routes — createdAt selection", () => {
 });
 
 describe("identity routes — intro greetings", () => {
+  test("returns static fallback and does not generate when the dynamic greetings flag is off", async () => {
+    const workspaceDir = getWorkspaceDir();
+    writeFileSync(
+      join(workspaceDir, "IDENTITY.md"),
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+    writeFileSync(
+      join(workspaceDir, "SOUL.md"),
+      "# Soul\n\nNo explicit greetings section here.\n",
+      "utf-8",
+    );
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity_intro",
+    );
+    expect(route).toBeDefined();
+
+    const body = route!.handler({}) as {
+      greetings: string[];
+      text: string;
+      source: string;
+      refreshing: boolean;
+    };
+
+    expect(body).toEqual({
+      greetings: [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Ready when you are.",
+      ],
+      text: "What are we working on?",
+      source: "fallback",
+      refreshing: false,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
+  });
+
   test("returns fallback immediately, generates personalized greetings in the background, then reuses the cache", async () => {
+    assistantFeatureFlags["empty-state-dynamic-greetings"] = true;
+
     const workspaceDir = getWorkspaceDir();
     writeFileSync(
       join(workspaceDir, "IDENTITY.md"),

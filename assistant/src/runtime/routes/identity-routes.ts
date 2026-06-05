@@ -7,6 +7,7 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
@@ -412,6 +413,8 @@ const GENERATED_GREETING_LIMIT = 4;
 const GREETING_GENERATION_TIMEOUT_MS = 10_000;
 const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
 const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
+const EMPTY_STATE_DYNAMIC_GREETINGS_FLAG =
+  "empty-state-dynamic-greetings" as const;
 
 type IdentityIntroSource = "workspace" | "cache" | "fallback";
 
@@ -443,6 +446,13 @@ function getIdentityIntro(): IdentityIntroResponse {
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
     return identityIntroResponse(workspaceGreetings, "workspace");
+  }
+
+  const config = getConfig();
+  if (
+    !isAssistantFeatureFlagEnabled(EMPTY_STATE_DYNAMIC_GREETINGS_FLAG, config)
+  ) {
+    return identityIntroResponse(FALLBACK_GREETINGS, "fallback");
   }
 
   // 2. Cached LLM-generated greetings

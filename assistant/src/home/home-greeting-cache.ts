@@ -10,11 +10,15 @@
  * Storage uses the existing `memory_checkpoints` table (simple key-value store).
  */
 
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
-import { computeIdentityContentHash } from "../runtime/routes/identity-intro-cache.js";
+import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -25,6 +29,25 @@ const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const CHECKPOINT_KEY_TEXT = "home:greeting:text";
 const CHECKPOINT_KEY_HASH = "home:greeting:content_hash";
 const CHECKPOINT_KEY_TIMESTAMP = "home:greeting:cached_at";
+
+const IDENTITY_FILES = ["IDENTITY.md", "SOUL.md"] as const;
+
+function readWorkspaceFile(name: string): string {
+  try {
+    const path = getWorkspacePromptPath(name);
+    if (!existsSync(path)) return "";
+    return readFileSync(path, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+function computeIdentityContentHash(): string {
+  const staticFiles = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");
+  const guardianPersona = resolveGuardianPersona() ?? "";
+  const combined = staticFiles + "\n---\n" + guardianPersona;
+  return createHash("sha256").update(combined).digest("hex");
+}
 
 // ---------------------------------------------------------------------------
 // Public API
