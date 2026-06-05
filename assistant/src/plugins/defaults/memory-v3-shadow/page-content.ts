@@ -1,5 +1,5 @@
-import { getWorkspaceDir } from "../../util/platform.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
+import { readPage, renderPageContent } from "../../../memory/v2/page-store.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
 import { renderCapabilityContent } from "./capabilities.js";
 import type { Slug } from "./types.js";
 

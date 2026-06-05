@@ -25,14 +25,14 @@
  * `assignPages`, and `invalidateLanes` without process-global module mocks.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../../config/types.js";
-import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import type { MemoryJob } from "../jobs-store.js";
-import { getPageIndex } from "../v2/page-index.js";
-import { listPages, readPage, writePage } from "../v2/page-store.js";
+import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
+import type { AssistantConfig } from "../../../config/types.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "../../../memory/checkpoints.js";
+import type { MemoryJob } from "../../../memory/jobs-store.js";
+import { getPageIndex } from "../../../memory/v2/page-index.js";
+import { listPages, readPage, writePage } from "../../../memory/v2/page-store.js";
+import { getLogger } from "../../../util/logger.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
 import { assignPages as realAssignPages } from "./assign.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
 import { loadLeafTree as realLoadLeafTree, resolveDataDir } from "./tree.js";

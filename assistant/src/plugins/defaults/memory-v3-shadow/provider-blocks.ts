@@ -1,4 +1,4 @@
-import type { ContentBlock } from "../../providers/types.js";
+import type { ContentBlock } from "../../../providers/types.js";
 
 /**
  * Text content block carrying a `cache_control` breakpoint with a 1-hour TTL.

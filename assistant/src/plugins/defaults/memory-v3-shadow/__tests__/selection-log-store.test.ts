@@ -20,14 +20,14 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../migrations/268-add-memory-v3-selections.js";
-import * as schema from "../../schema.js";
+import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
+import * as schema from "../../../../memory/schema.js";
 
 const realFlags = {
-  ...(await import("../../../config/assistant-feature-flags.js")),
+  ...(await import("../../../../config/assistant-feature-flags.js")),
 };
-const realLoader = { ...(await import("../../../config/loader.js")) };
-const realDb = { ...(await import("../../db-connection.js")) };
+const realLoader = { ...(await import("../../../../config/loader.js")) };
+const realDb = { ...(await import("../../../../memory/db-connection.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
 
 let storeMockActive = false;
@@ -64,7 +64,7 @@ function seed(
   }
 }
 
-mock.module("../../../config/assistant-feature-flags.js", () => ({
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
   ...realFlags,
   isAssistantFeatureFlagEnabled: (key: string, config: unknown) =>
     storeMockActive
@@ -81,12 +81,12 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
         ),
 }));
 
-mock.module("../../../config/loader.js", () => ({
+mock.module("../../../../config/loader.js", () => ({
   ...realLoader,
   getConfig: () => (storeMockActive ? {} : realLoader.getConfig()),
 }));
 
-mock.module("../../db-connection.js", () => ({
+mock.module("../../../../memory/db-connection.js", () => ({
   ...realDb,
   getDb: () => (storeMockActive ? testDb : realDb.getDb()),
   getSqliteFrom: (db: unknown) =>

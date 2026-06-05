@@ -33,10 +33,10 @@ import { z } from "zod";
 import {
   extractToolUse,
   getConfiguredProvider,
-} from "../../providers/provider-send-message.js";
-import type { Message, ToolDefinition } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
-import { mapLimit } from "../../util/map-limit.js";
+} from "../../../providers/provider-send-message.js";
+import type { Message, ToolDefinition } from "../../../providers/types.js";
+import { getLogger } from "../../../util/logger.js";
+import { mapLimit } from "../../../util/map-limit.js";
 import { retryForResult } from "./llm-retry.js";
 import { cachedTextBlock } from "./provider-blocks.js";
 import { membersOf } from "./tree.js";

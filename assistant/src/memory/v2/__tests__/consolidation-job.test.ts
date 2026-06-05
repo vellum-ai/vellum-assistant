@@ -121,7 +121,7 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 
 let renderedHealth = "";
 let computeThrows = false;
-mock.module("../../v3/health.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/health.js", () => ({
   computeV3Health: () => {
     if (computeThrows) throw new Error("simulated health compute failure");
     return {};
@@ -129,12 +129,12 @@ mock.module("../../v3/health.js", () => ({
   renderV3Health: () => renderedHealth,
 }));
 
-mock.module("../../v3/tree.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/tree.js", () => ({
   loadLeafTree: async () => ({ leaves: new Map(), byPage: new Map() }),
   resolveDataDir: () => "/tmp/v3-data-stub",
 }));
 
-mock.module("../../v3/core.js", () => ({
+mock.module("../../../plugins/defaults/memory-v3-shadow/core.js", () => ({
   loadCore: async () => new Set<string>(),
 }));
 

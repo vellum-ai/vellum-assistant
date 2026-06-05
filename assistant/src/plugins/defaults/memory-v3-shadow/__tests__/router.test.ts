@@ -25,7 +25,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolUseContent,
-} from "../../../providers/types.js";
+} from "../../../../providers/types.js";
 import type { LeafNode, LeafPath, LeafTree, TurnContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -41,13 +41,13 @@ interface ProviderCall {
 }
 const providerCalls: ProviderCall[] = [];
 
-mock.module("../../../providers/provider-send-message.js", () => ({
+mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => (prop === "child" ? () => ({}) : () => {}),
