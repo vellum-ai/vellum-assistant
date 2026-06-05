@@ -114,6 +114,13 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       },
     },
     {
+      label: "Send Feedback\u2026",
+      click: async () => {
+        await handlers.ensureMainWindow();
+        dispatchToMain({ kind: "shareFeedback" });
+      },
+    },
+    {
       label: `About ${app.name}`,
       click: handlers.openAbout,
     },

@@ -96,6 +96,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       role: "help",
       submenu: [
         {
+          label: "Send Feedback\u2026",
+          click: () => dispatchToFocused({ kind: "shareFeedback" }),
+        },
+        { type: "separator" },
+        {
           label: "Vellum Documentation",
           click: () => {
             void shell.openExternal("https://docs.vellum.ai");
