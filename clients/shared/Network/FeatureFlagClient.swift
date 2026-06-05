@@ -128,7 +128,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             return AssistantFeatureFlag(
                 key: registryKey,
                 enabled: enabled,
-                defaultEnabled: def?.defaultEnabled,
+                defaultEnabled: def?.defaultEnabled.boolValue,
                 description: def?.description,
                 label: def?.label
             )
