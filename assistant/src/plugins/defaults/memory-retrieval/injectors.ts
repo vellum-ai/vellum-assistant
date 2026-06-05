@@ -47,6 +47,7 @@ import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
+import { isDiskPressureCleanupModeActive } from "../../../daemon/conversation-disk-pressure.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
@@ -126,12 +127,21 @@ Then help the user clean up storage. Prefer safe inspection steps first, such as
 Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
 </disk_pressure_warning>`;
 
+/**
+ * `disk-pressure-warning` injector — order 5, prepend-user-tail.
+ *
+ * Emits the storage cleanup-mode warning at the very top of the user tail when
+ * the turn is restricted to disk-pressure cleanup. Sources the cleanup-mode
+ * flag itself from the per-conversation disk-pressure registry (keyed by
+ * conversation id) — the agent loop sets the flag when it classifies the
+ * turn's disk-pressure policy — rather than having the loop thread it as an
+ * injection input.
+ */
 const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (!inputs.diskPressureContext?.cleanupModeActive) return null;
+    if (!isDiskPressureCleanupModeActive(ctx.conversationId)) return null;
     return {
       id: "disk-pressure-warning",
       text: DISK_PRESSURE_WARNING_PROMPT,

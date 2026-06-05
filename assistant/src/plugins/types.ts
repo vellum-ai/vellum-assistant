@@ -364,8 +364,6 @@ export interface TurnInjectionInputs {
    * context (unified turn context, etc.). Drives per-injector gating.
    */
   readonly mode?: InjectionMode;
-  /** Disk-pressure cleanup-mode context or null to skip the warning. */
-  readonly diskPressureContext?: DiskPressureInjectionContext | null;
   /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
   readonly unifiedTurnContext?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
@@ -419,11 +417,6 @@ export interface TurnInjectionInputs {
     wordCount: number;
     updatedAt: number;
   }> | null;
-}
-
-export interface DiskPressureInjectionContext {
-  /** True when the current turn is allowed to run only for storage cleanup. */
-  readonly cleanupModeActive: boolean;
 }
 
 /**

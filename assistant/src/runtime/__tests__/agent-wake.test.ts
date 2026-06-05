@@ -432,7 +432,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(target.runCalls).toHaveLength(0);
   });
 
-  test("threads cleanup-mode injection context for explicit local-owner wakes", async () => {
+  test("builds a guardian turn context for explicit local-owner cleanup-mode wakes", async () => {
     mockDiskPressureStatus = {
       enabled: true,
       state: "critical",
@@ -463,11 +463,11 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     expect(target.runCalls).toHaveLength(1);
-    expect(target.runCalls[0]!.turnContext).toMatchObject({
+    expect(target.runCalls[0]!.turnContext).toEqual({
+      requestId: "wake:local-cleanup",
       conversationId: target.conversationId,
-      injectionInputs: {
-        diskPressureContext: { cleanupModeActive: true },
-      },
+      turnIndex: 0,
+      trust: { sourceChannel: "vellum", trustClass: "guardian" },
     });
   });
 

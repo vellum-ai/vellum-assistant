@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  type DiskPressureConversationContext,
+  registerConversationDiskPressure,
+  unregisterConversationDiskPressure,
+} from "../daemon/conversation-disk-pressure.js";
+import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
@@ -52,7 +57,28 @@ function tailTexts(messages: Message[]): string[] {
 }
 
 const diskPressureInjector = findInjector("disk-pressure-warning");
-const cleanupContext = { cleanupModeActive: true };
+
+// The disk-pressure-warning injector sources the cleanup-mode flag from the
+// per-conversation disk-pressure registry keyed by `conversationId`. Register
+// a context under the id `makeContext()` uses so the injector emits the block;
+// unregister between tests so suites that assert the block is absent stay
+// unaffected.
+let registeredDiskPressure: DiskPressureConversationContext | null = null;
+
+function seedDiskPressure(cleanupModeActive: boolean): void {
+  registeredDiskPressure = {
+    conversationId: TEST_CONVERSATION_ID,
+    diskPressureCleanupModeActive: cleanupModeActive,
+  };
+  registerConversationDiskPressure(registeredDiskPressure);
+}
+
+function clearDiskPressure(): void {
+  if (registeredDiskPressure) {
+    unregisterConversationDiskPressure(registeredDiskPressure);
+    registeredDiskPressure = null;
+  }
+}
 
 // The workspace-context injector sources its block from the per-conversation
 // workspace registry keyed by `conversationId`. Register a non-dirty context
@@ -81,14 +107,12 @@ function clearWorkspaceContext(): void {
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     clearWorkspaceContext();
+    clearDiskPressure();
   });
 
   test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
-    const block = await diskPressureInjector.produce(
-      makeContext({
-        injectionInputs: { diskPressureContext: cleanupContext },
-      }),
-    );
+    seedDiskPressure(true);
+    const block = await diskPressureInjector.produce(makeContext());
 
     expect(block).toEqual({
       id: "disk-pressure-warning",
@@ -109,21 +133,14 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
 </disk_pressure_warning>`);
   });
 
-  test("omits the prompt when cleanup context is null or inactive", async () => {
+  test("omits the prompt when no cleanup context is registered or it is inactive", async () => {
     await expect(
-      diskPressureInjector.produce(
-        makeContext({ injectionInputs: { diskPressureContext: null } }),
-      ),
+      diskPressureInjector.produce(makeContext()),
     ).resolves.toBeNull();
 
+    seedDiskPressure(false);
     await expect(
-      diskPressureInjector.produce(
-        makeContext({
-          injectionInputs: {
-            diskPressureContext: { cleanupModeActive: false },
-          },
-        }),
-      ),
+      diskPressureInjector.produce(makeContext()),
     ).resolves.toBeNull();
   });
 
@@ -135,9 +152,9 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     const turnContext = "<turn_context>\ninterface: macos\n</turn_context>";
 
     seedWorkspaceContext(workspace);
+    seedDiskPressure(true);
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeContext(),
-      diskPressureContext: cleanupContext,
       unifiedTurnContext: turnContext,
     });
 
@@ -155,12 +172,12 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
   });
 
   test("survives minimal mode as safety-critical context", async () => {
+    seedDiskPressure(true);
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
         turnContext: makeContext(),
         mode: "minimal",
-        diskPressureContext: cleanupContext,
         unifiedTurnContext: "<turn_context>...</turn_context>",
       },
     );
@@ -190,9 +207,9 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       },
     ];
 
+    seedDiskPressure(true);
     const result = await applyRuntimeInjections(originalRun, {
       turnContext: makeContext(),
-      diskPressureContext: cleanupContext,
       channelCapabilities: {
         channel: "slack",
         dashboardCapable: false,
@@ -217,16 +234,15 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       { role: "user", content: [{ type: "text", text: "find large files" }] },
     ];
 
+    seedDiskPressure(true);
     const first = await applyRuntimeInjections(runMessages, {
       turnContext: makeContext(),
-      diskPressureContext: cleanupContext,
     });
     const stripped = stripInjectionsForCompaction(first.messages);
     expect(tailTexts(stripped)).toEqual(["find large files"]);
 
     const second = await applyRuntimeInjections(stripped, {
       turnContext: makeContext(),
-      diskPressureContext: cleanupContext,
     });
     expect(
       tailTexts(second.messages).filter(

@@ -80,6 +80,10 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
+import {
+  registerConversationDiskPressure,
+  unregisterConversationDiskPressure,
+} from "./conversation-disk-pressure.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
@@ -395,6 +399,7 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
     registerConversationWorkspace(this);
+    registerConversationDiskPressure(this);
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
@@ -824,6 +829,7 @@ export class Conversation {
     this.graphMemory.persistState();
     this.graphMemory.dispose();
     unregisterConversationWorkspace(this);
+    unregisterConversationDiskPressure(this);
     disposeConversation(this);
   }
 
