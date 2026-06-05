@@ -2,8 +2,7 @@ import crypto from "node:crypto";
 import { app, net, session, shell } from "electron";
 import { z } from "zod";
 
-import { SEEDS } from "@vellumai/environments";
-import { resolveEnvironmentName, resolveLocalConfigFromEnv } from "@vellumai/local-mode";
+import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { handle } from "./ipc";
 
@@ -102,13 +101,13 @@ function cancelPendingFlows(): void {
   pendingFlows.clear();
 }
 
-// The OAuth start/exchange endpoints must hit the remote platform whose
-// redirect URI is registered in WorkOS — not the local dev server, whose
-// localhost URL isn't (and can't practically be) registered.
+// The OAuth start/exchange endpoints must go through the web origin (not
+// the platform origin) because WorkOS redirect URIs are registered against
+// the web domain (e.g. dev-assistant.vellum.ai, localhost:3000). The web
+// server proxies /accounts/* to Django, so Django sees the web host and
+// builds a matching callback URL.
 function resolveAuthPlatformUrl(): string {
-  const env = resolveEnvironmentName(process.env);
-  const seed = SEEDS[env] ?? SEEDS["production"];
-  return seed!.platformUrl;
+  return resolveLocalConfigFromEnv(process.env).webUrl;
 }
 
 // The cookie must be installed against the platform URL the renderer's
