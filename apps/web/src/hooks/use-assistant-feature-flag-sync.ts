@@ -13,9 +13,9 @@ import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 
 interface FeatureFlagEntry {
   key: string;
-  enabled: boolean;
+  enabled: boolean | string;
   label: string;
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
   description: string;
 }
 
@@ -30,6 +30,7 @@ function mapFlags(
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
   for (const entry of entries) {
+    if (typeof entry.enabled !== "boolean") continue;
     const storeKey = flagKeyToStoreKey(entry.key);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = entry.enabled;

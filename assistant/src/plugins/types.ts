@@ -34,7 +34,6 @@ import type {
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
@@ -380,23 +379,15 @@ export interface TurnInjectionInputs {
    * hybrid-search relevance-hint branch.
    */
   readonly pkbActive?: boolean;
-  /** Dense query vector surfaced from the graph memory retriever for PKB hints. */
-  readonly pkbQueryVector?: number[];
-  /** Optional sparse vector accompanying `pkbQueryVector`. */
-  readonly pkbSparseVector?: QdrantSparseVector;
   /**
    * Live conversation (or a minimal shape containing `messages`) used to
    * compute which PKB paths are already "in context" and therefore suppressed
    * from hint suggestions.
    */
   readonly pkbConversation?: PkbContextConversation;
-  /** Auto-injected PKB filenames resolved relative to `pkbRoot`. */
-  readonly pkbAutoInjectList?: string[];
-  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
-  readonly pkbRoot?: string;
   /**
    * Working directory against which relative `file_read` paths resolve.
-   * Falls back to `pkbRoot` when omitted.
+   * Falls back to the PKB root when omitted.
    */
   readonly pkbWorkingDir?: string;
   /**

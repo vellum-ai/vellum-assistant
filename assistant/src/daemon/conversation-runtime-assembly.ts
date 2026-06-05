@@ -12,7 +12,12 @@ import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
-import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  listAppFiles,
+  resolveAppDir,
+} from "../memory/app-store.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
@@ -22,7 +27,7 @@ import {
   extractMemoryPrefixBlocks,
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { getPkbAutoInjectList } from "../memory/pkb/autoinject.js";
 import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
@@ -56,6 +61,11 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import type {
+  DynamicPageSurfaceData,
+  SurfaceData,
+  SurfaceType,
+} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
@@ -276,8 +286,49 @@ export interface ActiveSurfaceContext {
   appPages?: Record<string, string>;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
-  /** Pre-fetched list of files in the app directory. */
-  appFiles?: string[];
+}
+
+/**
+ * Resolve the conversation's active workspace surface into the context block
+ * consumed by {@link applyRuntimeInjections}, or `null` when no dynamic-page
+ * surface is active. App-backed surfaces are enriched with their persisted app
+ * metadata; the file tree is listed on demand by the injector.
+ */
+export function buildActiveSurfaceContext(params: {
+  currentActiveSurfaceId: string | undefined;
+  currentPage: string | undefined;
+  surfaceState: ReadonlyMap<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData }
+  >;
+}): ActiveSurfaceContext | null {
+  const { currentActiveSurfaceId, currentPage, surfaceState } = params;
+  if (!currentActiveSurfaceId) return null;
+
+  const stored = surfaceState.get(currentActiveSurfaceId);
+  if (!stored || stored.surfaceType !== "dynamic_page") return null;
+
+  const data = stored.data as DynamicPageSurfaceData;
+  const activeSurface: ActiveSurfaceContext = {
+    surfaceId: currentActiveSurfaceId,
+    html: data.html,
+    currentPage,
+  };
+
+  if (data.appId) {
+    const app = getApp(data.appId);
+    if (app) {
+      activeSurface.appId = app.id;
+      activeSurface.appName = app.name;
+      activeSurface.appDirName = resolveAppDir(app.id).dirName;
+      activeSurface.appSchemaJson = app.schemaJson;
+      if (app.pages && Object.keys(app.pages).length > 0) {
+        activeSurface.appPages = app.pages;
+      }
+    }
+  }
+
+  return activeSurface;
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
@@ -320,7 +371,7 @@ function injectActiveSurfaceContext(
     );
 
     // File tree with sizes (capped at 50 files to bound prompt size)
-    const files = ctx.appFiles ?? listAppFiles(ctx.appId);
+    const files = listAppFiles(ctx.appId);
     const MAX_FILE_TREE_ENTRIES = 50;
     const displayFiles = files.slice(0, MAX_FILE_TREE_ENTRIES);
     lines.push("", "App files:");
@@ -556,56 +607,8 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 // PKB (Personal Knowledge Base) injection
 // ---------------------------------------------------------------------------
 
-const PKB_DEFAULT_FILES = [
-  "INDEX.md",
-  "essentials.md",
-  "threads.md",
-  "buffer.md",
-];
-
-const AUTOINJECT_FILENAME = "_autoinject.md";
-
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
-
-/**
- * Read `_autoinject.md` from the PKB directory and return the list of
- * filenames to inject.
- *
- * - Returns `null` when the file is missing or unreadable — callers
- *   should fall back to the hardcoded defaults.
- * - Returns `[]` when the file exists but has no entries (empty or
- *   comments only) — an explicit opt-out meaning "inject nothing."
- */
-export function readAutoinjectList(pkbDir: string): string[] | null {
-  const filePath = join(pkbDir, AUTOINJECT_FILENAME);
-  if (!existsSync(filePath)) return null;
-  try {
-    const raw = stripCommentLines(readFileSync(filePath, "utf-8"));
-    const files = raw
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    return files.length > 0 ? files : [];
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve the effective list of auto-inject filenames for a PKB directory.
- *
- * This is the single source of truth used both by `readPkbContext` (which
- * actually injects the files) and by the PKB reminder-hint tracker in
- * `conversation-agent-loop.ts` (which needs to know what's already in
- * context so it doesn't redundantly recommend those files).
- *
- * Returns `PKB_DEFAULT_FILES` when `_autoinject.md` is missing/unreadable,
- * or the parsed list (possibly empty) when it is present.
- */
-export function getPkbAutoInjectList(pkbRoot: string): string[] {
-  return readAutoinjectList(pkbRoot) ?? PKB_DEFAULT_FILES;
-}
 
 /**
  * Read the always-loaded PKB files and append a nudge encouraging the
@@ -1913,28 +1916,15 @@ export interface RuntimeInjectionOptions {
   pkbContext?: string | null;
   pkbActive?: boolean;
   /**
-   * Dense query vector surfaced from the graph memory retriever.
-   * When present together with `pkbActive`, used to run `searchPkbFiles`
-   * to surface relevance hints in the PKB system reminder. When missing,
-   * the reminder falls back to the flat static text.
-   */
-  pkbQueryVector?: number[];
-  /** Optional sparse vector accompanying `pkbQueryVector`. */
-  pkbSparseVector?: QdrantSparseVector;
-  /**
    * The live conversation (or a minimal shape containing `messages`) used
    * to compute which PKB paths are already "in context" and therefore
    * suppressed from hint suggestions.
    */
   pkbConversation?: PkbContextConversation;
-  /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
-  pkbAutoInjectList?: string[];
-  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
-  pkbRoot?: string;
   /**
    * Working directory against which relative `file_read` tool paths
    * resolve, used to detect workspace-relative reads like
-   * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
+   * `pkb/threads.md`. Falls back to the PKB root when omitted.
    */
   pkbWorkingDir?: string;
   /**
@@ -2040,11 +2030,7 @@ function buildTurnInjectionInputs(
     unifiedTurnContext: options.unifiedTurnContext,
     pkbContext: options.pkbContext,
     pkbActive: options.pkbActive,
-    pkbQueryVector: options.pkbQueryVector,
-    pkbSparseVector: options.pkbSparseVector,
     pkbConversation: options.pkbConversation,
-    pkbAutoInjectList: options.pkbAutoInjectList,
-    pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,
     nowScratchpad: options.nowScratchpad,

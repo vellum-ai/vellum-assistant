@@ -25,6 +25,8 @@
 
 import { z } from "zod";
 
+import { ToolActivityMetadataSchema } from "../events/tool-result.js";
+
 // ---------------------------------------------------------------------------
 // Attachment metadata
 // ---------------------------------------------------------------------------
@@ -68,6 +70,19 @@ const RiskDirectoryScopeOptionSchema = z.object({
 });
 
 /**
+ * Closed set of confirmation outcomes recorded for a tool call. The daemon
+ * only ever persists one of these three values (the outcome map is gated to
+ * them in `conversation-agent-loop.ts`), so the wire carries the closed enum
+ * rather than a free string and clients consume it without re-narrowing.
+ */
+export const ConfirmationDecisionSchema = z.enum([
+  "approved",
+  "denied",
+  "timed_out",
+]);
+export type ConfirmationDecision = z.infer<typeof ConfirmationDecisionSchema>;
+
+/**
  * A single tool call rendered into a history row. Mirrors the object the
  * daemon's `renderHistoryContent` emits; `contentOrder` references it as
  * `tool:N` where `N` indexes into `toolCalls`.
@@ -87,8 +102,12 @@ export const ConversationMessageToolCallSchema = z.object({
   startedAt: z.number().optional(),
   /** Unix ms when the tool completed. */
   completedAt: z.number().optional(),
-  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
-  confirmationDecision: z.string().optional(),
+  /**
+   * Confirmation outcome for this tool call, when one was recorded. Closed
+   * enum: the daemon has only ever emitted these three values since the field
+   * was introduced, so every daemon that carries it conforms — no version gate.
+   */
+  confirmationDecision: ConfirmationDecisionSchema.optional(),
   /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
   confirmationLabel: z.string().optional(),
   /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
@@ -111,6 +130,14 @@ export const ConversationMessageToolCallSchema = z.object({
   riskAllowlistOptions: z.array(RiskAllowlistOptionSchema).optional(),
   /** Directory scope ladder for the rule editor. */
   riskDirectoryScopeOptions: z.array(RiskDirectoryScopeOptionSchema).optional(),
+  /**
+   * Structured tool activity (web_search / web_fetch) for rich client cards.
+   * Persisted alongside the tool call so the activity card survives a history
+   * reopen instead of degrading to the plain `result` text. Mirrors the live
+   * `tool_result` event's `activityMetadata`. Guaranteed present for tool calls
+   * that produced activity as of daemon v0.8.8; absent for older history rows.
+   */
+  activityMetadata: ToolActivityMetadataSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema

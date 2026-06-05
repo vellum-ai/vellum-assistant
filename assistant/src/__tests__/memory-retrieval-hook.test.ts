@@ -34,6 +34,7 @@ mock.module("../memory/memory-recall-log-store.js", () => ({
 import type { AssistantConfig } from "../config/schema.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
@@ -66,17 +67,23 @@ function makeMetrics() {
 
 /**
  * Fake graph-memory whose `prepareMemory` returns a canonical result. The hook
- * writes this return value onto `ctx.graphResult`, so tests can assert the
- * result by comparing object identity.
+ * unpacks this return value onto `ctx.latestMessages` and records the selected
+ * PKB query pair back onto the handle via `recordPkbQueryVectors`, so tests
+ * can assert those outputs by comparing object identity.
  */
 function makeFakeGraphMemory(overrides?: {
   messages?: Message[];
   injectedTokens?: number;
   injectedBlockText?: string | null;
   metrics?: ReturnType<typeof makeMetrics> | null;
+  queryVector?: number[];
+  sparseVector?: QdrantSparseVector;
+  userQueryVector?: number[];
+  userQuerySparseVector?: QdrantSparseVector;
 }): {
   memory: ConversationGraphMemory;
   prepareMemoryMock: ReturnType<typeof mock>;
+  recordPkbQueryVectorsMock: ReturnType<typeof mock>;
 } {
   const returnValue = {
     runMessages: overrides?.messages ?? [],
@@ -88,12 +95,18 @@ function makeFakeGraphMemory(overrides?: {
         ? null
         : overrides.injectedBlockText,
     metrics: overrides?.metrics ?? null,
+    queryVector: overrides?.queryVector,
+    sparseVector: overrides?.sparseVector,
+    userQueryVector: overrides?.userQueryVector,
+    userQuerySparseVector: overrides?.userQuerySparseVector,
   };
   const prepareMemoryMock = mock(async () => returnValue);
+  const recordPkbQueryVectorsMock = mock(() => {});
   const memory = {
     prepareMemory: prepareMemoryMock,
+    recordPkbQueryVectors: recordPkbQueryVectorsMock,
   } as unknown as ConversationGraphMemory;
-  return { memory, prepareMemoryMock };
+  return { memory, prepareMemoryMock, recordPkbQueryVectorsMock };
 }
 
 function makeHookCtx(
@@ -101,7 +114,6 @@ function makeHookCtx(
 ): MemoryRetrievalHookContext {
   const { memory } = makeFakeGraphMemory();
   return {
-    messages: [],
     graphMemory: memory,
     config: {} as AssistantConfig,
     onEvent: () => {},
@@ -114,7 +126,7 @@ function makeHookCtx(
     signal: new AbortController().signal,
     pkbContent: null,
     nowContent: null,
-    graphResult: null,
+    latestMessages: [],
     ...overrides,
   };
 }
@@ -129,8 +141,13 @@ beforeEach(() => {
 });
 
 describe("user-prompt-submit-temp hook (memory retrieval)", () => {
-  test("writes PKB, NOW, and the graph result when the actor is trusted", async () => {
-    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+  test("writes PKB, NOW, and the injected run messages when the actor is trusted", async () => {
+    const injected: Message[] = [
+      { role: "user", content: [{ type: "text", text: "injected" }] },
+    ];
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory({
+      messages: injected,
+    });
     const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: true });
 
     await userPromptSubmitMemoryRetrieval(ctx);
@@ -138,20 +155,63 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     expect(ctx.pkbContent).toBe("pkb-default");
     expect(ctx.nowContent).toBe("now-default");
     expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
-    // The hook forwards the graph-memory return value verbatim under
-    // `graphResult` — consumers in the agent loop rely on that identity.
-    expect(ctx.graphResult).not.toBeNull();
-    expect(ctx.graphResult?.mode).toBe("none");
+    // The hook adopts the retriever's injected message array verbatim —
+    // consumers in the agent loop rely on that identity.
+    expect(ctx.latestMessages).toBe(injected);
+  });
+
+  test("selects the user-query dense/sparse pair when present, else the summary pair", async () => {
+    const userDense = [1, 1, 1];
+    const userSparse: QdrantSparseVector = { indices: [0], values: [1] };
+    const summaryDense = [2, 2, 2];
+    const summarySparse: QdrantSparseVector = { indices: [1], values: [2] };
+
+    const withUserQuery = makeFakeGraphMemory({
+      queryVector: summaryDense,
+      sparseVector: summarySparse,
+      userQueryVector: userDense,
+      userQuerySparseVector: userSparse,
+    });
+    const userCtx = makeHookCtx({ graphMemory: withUserQuery.memory });
+    await userPromptSubmitMemoryRetrieval(userCtx);
+    // User-query pair wins — never crossed with the summary signal — and is
+    // recorded back onto the graph handle for the PKB-reminder injector.
+    expect(withUserQuery.recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      userDense,
+      userSparse,
+    );
+
+    const summaryOnly = makeFakeGraphMemory({
+      queryVector: summaryDense,
+      sparseVector: summarySparse,
+    });
+    const summaryCtx = makeHookCtx({ graphMemory: summaryOnly.memory });
+    await userPromptSubmitMemoryRetrieval(summaryCtx);
+    expect(summaryOnly.recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      summaryDense,
+      summarySparse,
+    );
   });
 
   test("skips graph retrieval and side effects for untrusted actors", async () => {
-    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
-    const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: false });
+    const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
+      makeFakeGraphMemory();
+    const seeded: Message[] = [
+      { role: "user", content: [{ type: "text", text: "seeded" }] },
+    ];
+    const ctx = makeHookCtx({
+      graphMemory: memory,
+      isTrustedActor: false,
+      latestMessages: seeded,
+    });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
-    expect(ctx.graphResult).toBeNull();
+    // No graph retrieval ran: the working array stays the seeded input and no
+    // PKB query pair is recorded onto the graph handle.
+    expect(ctx.latestMessages).toBe(seeded);
+    expect(recordPkbQueryVectorsMock).not.toHaveBeenCalled();
     expect(ctx.pkbContent).toBe("pkb-default");
     expect(ctx.nowContent).toBe("now-default");
     expect(recordMemoryRecallLogMock).not.toHaveBeenCalled();
@@ -254,6 +314,7 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     );
     const graphMemory = {
       prepareMemory: prepareMemoryMock,
+      recordPkbQueryVectors: mock(() => {}),
     } as unknown as ConversationGraphMemory;
     const controller = new AbortController();
     const ctx = makeHookCtx({ graphMemory, signal: controller.signal });

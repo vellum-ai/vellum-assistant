@@ -8,6 +8,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
@@ -385,6 +386,79 @@ describe("renderHistoryContent", () => {
     expect(entry.riskDirectoryScopeOptions).toEqual(directoryScopeOptions);
   });
 
+  // ── Persisted tool activity (web_search / web_fetch) ────────────────────────
+
+  test("hydrates persisted _activityMetadata onto a tool_use block", () => {
+    // Mirrors what `annotatePersistedAssistantMessage` writes so the activity
+    // card survives a history reopen instead of degrading to plain text.
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "vellum docs",
+        provider: "brave",
+        resultCount: 1,
+        durationMs: 120,
+        results: [
+          {
+            rank: 1,
+            title: "Vellum",
+            url: "https://vellum.ai",
+            domain: "vellum.ai",
+          },
+        ],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "vellum docs" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("hydrates persisted _activityMetadata onto a server_tool_use block", () => {
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "native search",
+        provider: "anthropic-native",
+        resultCount: 0,
+        durationMs: 80,
+        results: [],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "native search" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("ignores non-object _activityMetadata annotations", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: "not an object",
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toBeUndefined();
+  });
+
   test("ignores non-array _risk*Options annotations", () => {
     // Defensive: a malformed persisted block should not throw or coerce.
     const output = renderHistoryContent([
@@ -423,6 +497,46 @@ describe("renderHistoryContent", () => {
     expect(entry.riskScopeOptions).toBeUndefined();
     expect(entry.riskAllowlistOptions).toBeUndefined();
     expect(entry.riskDirectoryScopeOptions).toBeUndefined();
+  });
+
+  test("reads back a persisted confirmation decision from the closed enum", () => {
+    // GIVEN a persisted tool_use block stamped with a recorded decision
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "rm file" },
+        _confirmationDecision: "denied",
+        _confirmationLabel: "Run Command",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the decision survives verbatim alongside its label
+    expect(entry.confirmationDecision).toBe("denied");
+    expect(entry.confirmationLabel).toBe("Run Command");
+  });
+
+  test("drops a _confirmationDecision outside the closed enum", () => {
+    // GIVEN a malformed persisted decision the daemon never writes
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "ls" },
+        _confirmationDecision: "bogus",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the unknown value is not surfaced on the wire
+    expect(entry.confirmationDecision).toBeUndefined();
   });
 
   test("handles mixed text and tool blocks", () => {

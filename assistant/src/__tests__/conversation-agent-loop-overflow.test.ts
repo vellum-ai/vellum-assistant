@@ -281,12 +281,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
   readPkbContext: () => null,
-  getPkbAutoInjectList: () => [
-    "INDEX.md",
-    "essentials.md",
-    "threads.md",
-    "buffer.md",
-  ],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix: () => null,
   loadSlackChronologicalContext: () => null,
@@ -676,6 +670,7 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
+      recordPkbQueryVectors: () => {},
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,

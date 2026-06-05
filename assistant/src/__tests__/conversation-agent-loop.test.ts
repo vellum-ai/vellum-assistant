@@ -359,12 +359,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
   readPkbContext: () => null,
-  getPkbAutoInjectList: () => [
-    "INDEX.md",
-    "essentials.md",
-    "threads.md",
-    "buffer.md",
-  ],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,
@@ -777,6 +771,7 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
+      recordPkbQueryVectors: () => {},
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,
@@ -3629,12 +3624,6 @@ describe("session-agent-loop", () => {
         // Yield a microtask so any (incorrectly) fire-and-forget
         // pipeline call has a chance to land before message_complete.
         await new Promise((resolve) => setImmediate(resolve));
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-no-flush",
-          content: "ok",
-          isError: false,
-        });
         await onEvent({
           type: "message_complete",
           message: {

@@ -6,7 +6,6 @@
  * composer, and interaction-handler modules within the chat domain.
  */
 
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
   AllowlistOption,
   ConversationMessageToolCall,
@@ -34,11 +33,12 @@ export interface PendingToolConfirmation {
 /**
  * A tool call as rendered in the transcript. Extends the canonical wire
  * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
- * risk/approval fields, and the `risk*Options` rule-editor ladders) with the
+ * risk/approval fields, the `risk*Options` rule-editor ladders, the
+ * `confirmationDecision` outcome, and the activity metadata) with the
  * client-only live state the wire deliberately omits — the in-flight
- * confirmation prompt and activity metadata accumulated from SSE events.
- * Execution state (`running`/`completed`/`error`) is not stored: derive it
- * on demand from `isError`/`result`/`completedAt` via the predicates in
+ * confirmation prompt and its scope/working-directory context. Execution
+ * state (`running`/`completed`/`error`) is not stored: derive it on demand
+ * from `isError`/`result`/`completedAt` via the predicates in
  * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
  */
 export interface ChatMessageToolCall extends ConversationMessageToolCall {
@@ -60,18 +60,6 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
   scopeOptions?: ScopeOption[];
   pendingConfirmation?: PendingToolConfirmation | null;
   workingDir?: string;
-  /** Explicit decision made during the confirmation flow. */
-  confirmationDecision?: "approved" | "denied" | "timed_out";
-  /**
-   * Structured tool activity metadata (e.g. web_search, web_fetch) persisted
-   * alongside the tool call so the `WebSearchProgressCard` can keep
-   * rendering after the active turn ends and the live `liveWebActivity`
-   * map is cleared. Set by `applyToolResult` when the `tool_result` event
-   * carries `activityMetadata`. Absent on historical reopens that arrive
-   * via reconcile (the server snapshot doesn't carry this field). See
-   * `web-activity-types.ts`.
-   */
-  activityMetadata?: ToolActivityMetadata;
 }
 
 // ---------------------------------------------------------------------------

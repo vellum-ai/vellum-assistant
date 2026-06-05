@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
 // `true`) makes the PKB injector go silent — force it off here so the v1
@@ -60,6 +60,8 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -73,6 +75,7 @@ import {
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 // `applyRuntimeInjections` is now driven by the default injector chain
 // (PR G2.1). The default-injectors plugin must be registered for the chain
@@ -2032,20 +2035,31 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   const FLAT_REMINDER = buildPkbReminder([]);
 
-  // Use a platform-agnostic absolute workspace root so the tests work on
-  // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
-  // mirror production, where `pkbRoot = join(workingDir, "pkb")`.
-  const pkbWorkingDir = "/tmp/fake-workspace";
-  const pkbRoot = `${pkbWorkingDir}/pkb`;
+  // The pkb-reminder injector sources the PKB root itself via `getPkbRoot()`,
+  // so the in-context file paths these tests build must resolve against the
+  // same per-test workspace the injector sees.
+  const pkbWorkingDir = getWorkspaceDir();
+  const pkbRoot = getPkbRoot();
+
+  // The pkb-reminder injector reads the dense/sparse PKB query pair off the
+  // conversation's live graph handle (the memory-retrieval hook records it
+  // there during retrieval), not from the injection options. Register a handle
+  // for the fallback conversation id `applyRuntimeInjections` synthesizes and
+  // seed it with a query vector so the hint-search branch runs.
+  let graphHandle: ConversationGraphMemory;
+  beforeEach(() => {
+    graphHandle = new ConversationGraphMemory("runtime-assembly-fallback");
+    graphHandle.recordPkbQueryVectors([0.1, 0.2, 0.3], undefined);
+  });
+  afterEach(() => {
+    graphHandle.dispose();
+  });
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
       pkbActive: true,
-      pkbQueryVector: [0.1, 0.2, 0.3],
       pkbConversation: { messages: baseMessages },
-      pkbRoot,
       pkbWorkingDir,
-      pkbAutoInjectList: [],
       ...overrides,
     };
   }
@@ -2081,10 +2095,11 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("default auto-injected files (from PKB_DEFAULT_FILES) are filtered out of hints", async () => {
     // Regression test: when `_autoinject.md` is missing, `readPkbContext`
     // falls back to PKB_DEFAULT_FILES — so those files ARE in the prompt.
-    // The tracker must know about them too, otherwise the reminder would
-    // redundantly recommend e.g. `essentials.md` even though its contents
-    // are already injected. The agent-loop passes the effective auto-inject
-    // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
+    // The injector sources the same fallback via `getPkbAutoInjectList`, so
+    // it must know about them too, otherwise the reminder would redundantly
+    // recommend e.g. `essentials.md` even though its contents are already
+    // injected. The per-test workspace has no `_autoinject.md`, so the
+    // injector resolves PKB_DEFAULT_FILES here.
     pkbSearchResults = [
       { path: "essentials.md", denseScore: 0.95 },
       { path: "topics/alpha.md", denseScore: 0.9 },
@@ -2093,16 +2108,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({
-        // Simulate the fallback the agent-loop now threads through:
-        // `_autoinject.md` is missing, so defaults are injected.
-        pkbAutoInjectList: [
-          "INDEX.md",
-          "essentials.md",
-          "threads.md",
-          "buffer.md",
-        ],
-      }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2200,10 +2206,13 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
+    // No dense vector was recorded on the graph handle this turn, so the
+    // injector must skip the hint search entirely.
+    graphHandle.recordPkbQueryVectors(undefined, undefined);
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({ pkbQueryVector: undefined }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2341,11 +2350,8 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       baseMessages,
       {
         pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
         pkbConversation: preCompactionConversation,
-        pkbRoot,
         pkbWorkingDir,
-        pkbAutoInjectList: [],
       },
     );
     // Unwrap the injected reminder from the last user message.
@@ -2386,11 +2392,8 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       postCompactionMessages,
       {
         pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
         pkbConversation: postCompactionConversation,
-        pkbRoot,
         pkbWorkingDir,
-        pkbAutoInjectList: [],
       },
     );
     const rebuiltTexts = extractTexts(rebuiltResult);

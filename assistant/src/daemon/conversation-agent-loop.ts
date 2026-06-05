@@ -7,8 +7,6 @@
  * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
-import { join } from "node:path";
-
 import { v4 as uuid } from "uuid";
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
@@ -58,7 +56,6 @@ import {
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
@@ -85,7 +82,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
   shouldExposePersonalMemory,
@@ -115,11 +111,9 @@ import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -138,6 +132,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  finalizePendingToolResultRow,
   markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
@@ -154,17 +149,16 @@ import { raceWithTimeout } from "./conversation-media-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ActiveSurfaceContext,
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
-  getPkbAutoInjectList,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -184,7 +178,6 @@ import {
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
-  DynamicPageSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -1144,8 +1137,6 @@ export async function runAgentLoopImpl(
       }
     };
 
-    let runMessages = ctx.messages;
-
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
@@ -1157,7 +1148,6 @@ export async function runAgentLoopImpl(
     // share a fire site until compaction is cleared from the gap between them.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     const memoryCtx: MemoryRetrievalHookContext = {
-      messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
       onEvent,
@@ -1170,63 +1160,15 @@ export async function runAgentLoopImpl(
       signal: abortController.signal,
       pkbContent: null,
       nowContent: null,
-      graphResult: null,
+      latestMessages: ctx.messages,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // Consume the memory-graph retrieval. The retriever owns its own side
-    // effects (injected-block metadata, recall log, `memory_recalled` event);
-    // here the loop only takes the turn-scoped context it reuses downstream —
-    // the injected message list and the PKB query vectors.
-    const graphResult = memoryCtx.graphResult;
-    let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector: QdrantSparseVector | undefined;
-    if (graphResult) {
-      runMessages = graphResult.runMessages;
-      // Select dense+sparse as a matched pair so RRF fusion combines two
-      // signals aligned to the same query text:
-      //   1. Context-load with a user query: user-query dense + user-query
-      //      sparse — the cleanest pairing.
-      //   2. Otherwise (context-load without a user query, or per-turn):
-      //      whatever `queryVector` / `sparseVector` the retriever produced,
-      //      which are themselves co-aligned (both summary-derived in
-      //      context-load, both user-last-message-derived in per-turn).
-      // Never pair a user-query dense with a summary-aligned sparse.
-      if (graphResult.userQueryVector) {
-        pkbQueryVector = graphResult.userQueryVector;
-        pkbSparseVector = graphResult.userQuerySparseVector;
-      } else {
-        pkbQueryVector = graphResult.queryVector;
-        pkbSparseVector = graphResult.sparseVector;
-      }
-    }
-
-    // Build active surface context
-    let activeSurface: ActiveSurfaceContext | null = null;
-    if (ctx.currentActiveSurfaceId) {
-      const stored = ctx.surfaceState.get(ctx.currentActiveSurfaceId);
-      if (stored && stored.surfaceType === "dynamic_page") {
-        const data = stored.data as DynamicPageSurfaceData;
-        activeSurface = {
-          surfaceId: ctx.currentActiveSurfaceId,
-          html: data.html,
-          currentPage: ctx.currentPage,
-        };
-        if (data.appId) {
-          const app = getApp(data.appId);
-          if (app) {
-            activeSurface.appId = app.id;
-            activeSurface.appName = app.name;
-            activeSurface.appDirName = resolveAppDir(app.id).dirName;
-            activeSurface.appSchemaJson = app.schemaJson;
-            activeSurface.appFiles = listAppFiles(app.id);
-            if (app.pages && Object.keys(app.pages).length > 0) {
-              activeSurface.appPages = app.pages;
-            }
-          }
-        }
-      }
-    }
+    // The retriever owns its side effects (injected-block metadata, recall
+    // log, `memory_recalled` event) and records the dense/sparse PKB query
+    // pair on the graph handle for the PKB-reminder injector to read back; the
+    // loop only reuses the injected message list downstream.
+    let runMessages = memoryCtx.latestMessages;
 
     // Query active documents for this conversation so the injector chain
     // can surface them to the assistant (prevents duplicate document_create
@@ -1392,16 +1334,10 @@ export async function runAgentLoopImpl(
       : null;
     const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
-    // PKB relevance-hint inputs. Resolved once per turn and reused across
-    // re-injections so post-compaction rebuilds pick up fresh hints against
-    // the updated conversation history.
-    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
-    const pkbAutoInjectList = pkbRoot
-      ? getPkbAutoInjectList(pkbRoot)
-      : undefined;
-    // Pass `ctx` directly — `PkbContextConversation` is structural and
-    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
-    // so post-compaction re-injects see the updated history.
+    // PKB relevance-hint input. Pass `ctx` directly —
+    // `PkbContextConversation` is structural and `getInContextPkbPaths`
+    // re-reads `conversation.messages` on each call, so post-compaction
+    // re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
@@ -1476,7 +1412,13 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
-      activeSurface,
+      // Resolved from the conversation's surface state here, where the
+      // runtime injector is the only consumer of the active-surface block.
+      activeSurface: buildActiveSurfaceContext({
+        currentActiveSurfaceId: ctx.currentActiveSurfaceId,
+        currentPage: ctx.currentPage,
+        surfaceState: ctx.surfaceState,
+      }),
       activeDocuments,
       workspaceTopLevelContext: state.shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
@@ -1486,11 +1428,7 @@ export async function runAgentLoopImpl(
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
       pkbActive,
-      pkbQueryVector,
-      pkbSparseVector,
       pkbConversation,
-      pkbAutoInjectList,
-      pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
       nowScratchpad,
@@ -2509,25 +2447,11 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Flush remaining tool results
+    // Flush remaining tool results. On a normal turn these drain at the next
+    // `message_complete`; an aborted or yielded loop exits with them still
+    // buffered, so finalize the (possibly already on-arrival-reserved) grouped
+    // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
-      const toolResultBlocks = Array.from(
-        state.pendingToolResults.entries(),
-      ).map(([toolUseId, result]) => ({
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: redactSecrets(result.content),
-        is_error: result.isError,
-        ...(result.contentBlocks
-          ? {
-              contentBlocks: result.contentBlocks.map((block) =>
-                block.type === "text"
-                  ? { ...block, text: redactSecrets(block.text) }
-                  : block,
-              ),
-            }
-          : {}),
-      }));
       const toolResultMetadata = {
         ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -2537,15 +2461,12 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await addMessage(
+      await finalizePendingToolResultRow(
+        state,
         ctx.conversationId,
-        "user",
-        JSON.stringify(toolResultBlocks),
-        {
-          metadata: toolResultMetadata,
-        },
+        toolResultMetadata,
+        rlog,
       );
-      state.pendingToolResults.clear();
     }
 
     // Persist the budget_yield_unrecovered notice now that any pending

@@ -33,7 +33,7 @@ function getMaxPollIntervalMs(): number {
 
 /** Discriminated result from a remote feature flag fetch attempt. */
 type RemoteFetchResult =
-  | { status: "success"; values: Record<string, boolean> }
+  | { status: "success"; values: Record<string, boolean | string> }
   | { status: "missing_credentials" }
   | { status: "error" };
 
@@ -386,24 +386,24 @@ export class RemoteFeatureFlagSync {
     }
 
     const body = (await response.json()) as {
-      flags?: Record<string, boolean>;
+      flags?: Record<string, boolean | string>;
     };
     if (!body.flags || typeof body.flags !== "object") {
       log.warn("Platform feature flags response missing 'flags' field");
       return { status: "error" };
     }
 
-    // Filter to boolean values only (defensive), and prevent the platform
-    // from disabling flags that are already GA (defaultEnabled: true in the
-    // registry). The platform uses a blanket-deny posture, sending false for
-    // every flag it knows about. Store GA false values as true rather than
-    // omitting them so the persisted snapshot cannot be interpreted as an
-    // explicit disable by any consumer.
+    // Accept boolean and string values from the platform. Prevent the
+    // platform from disabling boolean flags that are already GA
+    // (defaultEnabled: true in the registry). The platform uses a
+    // blanket-deny posture, sending false for every flag it knows about.
+    // GA normalization only applies to boolean false values; string flag
+    // values pass through unchanged.
     const registry = loadFeatureFlagDefaults();
-    const values: Record<string, boolean> = {};
+    const values: Record<string, boolean | string> = {};
     for (const [key, value] of Object.entries(body.flags)) {
-      if (typeof value !== "boolean") continue;
-      if (!value && registry[key]?.defaultEnabled) {
+      if (typeof value !== "boolean" && typeof value !== "string") continue;
+      if (value === false && registry[key]?.defaultEnabled === true) {
         log.debug(
           { key },
           "Normalizing remote false for GA flag to true (defaultEnabled: true)",

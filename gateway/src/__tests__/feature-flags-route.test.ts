@@ -47,6 +47,14 @@ const TEST_REGISTRY = {
       description: "Enable user-hosted onboarding flow",
       defaultEnabled: false,
     },
+    {
+      id: "default-model",
+      scope: "assistant",
+      key: "default-model",
+      label: "Default Model",
+      description: "Default LLM model identifier",
+      defaultEnabled: "claude-sonnet-4-6",
+    },
   ],
 };
 
@@ -111,8 +119,8 @@ describe("GET /v1/feature-flags handler", () => {
     for (const flag of body.flags) {
       expect(typeof flag.key).toBe("string");
       expect(typeof flag.label).toBe("string");
-      expect(typeof flag.enabled).toBe("boolean");
-      expect(typeof flag.defaultEnabled).toBe("boolean");
+      expect(["boolean", "string"]).toContain(typeof flag.enabled);
+      expect(["boolean", "string"]).toContain(typeof flag.defaultEnabled);
       expect(typeof flag.description).toBe("string");
       expect(flag.key).toMatch(/^[a-z0-9][a-z0-9-]*$/);
     }
@@ -215,14 +223,13 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.defaultEnabled).toBe(true);
   });
 
-  test("ignores non-boolean values in persisted feature flags", async () => {
-    // Write a feature-flags.json with an invalid non-boolean value manually
+  test("accepts string values in persisted feature flags", async () => {
     writeFileSync(
       featureFlagStorePath,
       JSON.stringify({
         version: 1,
         values: {
-          browser: "no",
+          "default-model": "gpt-4",
         },
       }),
     );
@@ -236,9 +243,34 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // readPersistedFeatureFlags filters out non-boolean values, so the
-    // invalid "no" string is dropped and the flag falls back to its
-    // registry default (true).
+    const modelFlag = body.flags.find(
+      (f: { key: string }) => f.key === "default-model",
+    );
+    expect(modelFlag).toBeDefined();
+    expect(modelFlag.enabled).toBe("gpt-4");
+    expect(modelFlag.defaultEnabled).toBe("claude-sonnet-4-6");
+  });
+
+  test("ignores non-boolean non-string values in persisted feature flags", async () => {
+    writeFileSync(
+      featureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: {
+          browser: 42,
+        },
+      }),
+    );
+    clearFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
     const browserFlag = body.flags.find(
       (f: { key: string }) => f.key === "browser",
     );
@@ -437,6 +469,48 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.defaultEnabled).toBe(true);
   });
 
+  test("string flag uses registry default when no override exists", async () => {
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    if (existsSync(remoteFeatureFlagStorePath)) rmSync(remoteFeatureFlagStorePath);
+    clearFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const modelFlag = body.flags.find(
+      (f: { key: string }) => f.key === "default-model",
+    );
+    expect(modelFlag).toBeDefined();
+    expect(modelFlag.enabled).toBe("claude-sonnet-4-6");
+    expect(modelFlag.defaultEnabled).toBe("claude-sonnet-4-6");
+  });
+
+  test("remote string value overrides registry default for string flag", async () => {
+    writeRemoteFeatureFlags({ "default-model": "gpt-4" });
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    clearFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const modelFlag = body.flags.find(
+      (f: { key: string }) => f.key === "default-model",
+    );
+    expect(modelFlag).toBeDefined();
+    expect(modelFlag.enabled).toBe("gpt-4");
+  });
+
   test("returns flags when invoked via assistants path without trailing slash", async () => {
     // The macOS client sends GET /v1/assistants/<id>/feature-flags (no trailing slash).
     // The gateway route regex must accept this path.
@@ -454,7 +528,7 @@ describe("GET /v1/feature-flags handler", () => {
     expect(body.flags.length).toBeGreaterThan(0);
     for (const flag of body.flags) {
       expect(typeof flag.key).toBe("string");
-      expect(typeof flag.enabled).toBe("boolean");
+      expect(["boolean", "string"]).toContain(typeof flag.enabled);
     }
 
     // Verify a known flag is present
@@ -650,10 +724,31 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     }
   });
 
-  test("rejects non-boolean enabled value", async () => {
+  test("accepts string enabled value", async () => {
     const handler = createFeatureFlagsPatchHandler();
 
-    const invalidValues = ["true", 1, null, undefined];
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags/default-model", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: "gpt-4" }),
+      }),
+      "default-model",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ key: "default-model", enabled: "gpt-4" });
+
+    clearFeatureFlagStoreCache();
+    const persisted = readPersistedFeatureFlags();
+    expect(persisted["default-model"]).toBe("gpt-4");
+  });
+
+  test("rejects non-boolean non-string enabled value", async () => {
+    const handler = createFeatureFlagsPatchHandler();
+
+    const invalidValues = [1, null, undefined];
     for (const value of invalidValues) {
       const res = await handler(
         new Request("http://gateway.test/v1/feature-flags/browser", {
@@ -666,7 +761,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toContain("boolean");
+      expect(body.error).toContain("boolean or string");
     }
   });
 

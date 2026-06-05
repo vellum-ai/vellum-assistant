@@ -6,6 +6,7 @@ import type {
   ConversationMessageSurface,
   ConversationMessageToolCall,
 } from "../../api/responses/conversation-message.js";
+import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
@@ -483,8 +484,12 @@ export function renderHistoryContent(
         entry.startedAt = block._startedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
-      if (typeof block._confirmationDecision === "string")
-        entry.confirmationDecision = block._confirmationDecision;
+      const confirmationDecision = ConfirmationDecisionSchema.safeParse(
+        block._confirmationDecision,
+      );
+      if (confirmationDecision.success) {
+        entry.confirmationDecision = confirmationDecision.data;
+      }
       if (typeof block._confirmationLabel === "string")
         entry.confirmationLabel = block._confirmationLabel;
       if (typeof block._riskLevel === "string")
@@ -513,6 +518,12 @@ export function renderHistoryContent(
       if (Array.isArray(block._riskDirectoryScopeOptions))
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
+      // Read back tool activity (web_search / web_fetch) persisted by
+      // `annotatePersistedAssistantMessage` so the activity card survives a
+      // history reopen instead of degrading to the plain result text.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -534,6 +545,11 @@ export function renderHistoryContent(
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
       if (id) entry.id = id;
+      // Native server tools (Anthropic web_search) persist their activity on
+      // the server_tool_use block, so read it back here too.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
