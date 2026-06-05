@@ -30,7 +30,10 @@ import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
-import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
+import {
+  type ConversationMessagesSnapshot,
+  fetchConversationMessages as defaultFetchConversationMessages,
+} from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
@@ -451,7 +454,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<ConversationMessage[]>;
+  ) => Promise<ConversationMessagesSnapshot>;
 }
 
 /**
@@ -638,7 +641,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     }
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    return await historyFetcher(assistantId, conversationId);
+    const { messages } = await historyFetcher(assistantId, conversationId);
+    return messages;
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {

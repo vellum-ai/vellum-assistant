@@ -121,7 +121,11 @@ export function useConversationMessageList(
     ] as const,
     queryFn: async (): Promise<ConversationMessage[]> => {
       if (!assistantId || !conversationId) return [];
-      return await fetchConversationMessages(assistantId, conversationId);
+      const snapshot = await fetchConversationMessages(
+        assistantId,
+        conversationId,
+      );
+      return snapshot.messages;
     },
     enabled,
     staleTime: 30_000,
@@ -231,7 +235,7 @@ async function fetchConversationLlmContextFromPerMessage(
   conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const messages = await fetchConversationMessages(
+  const { messages } = await fetchConversationMessages(
     assistantId,
     conversationId,
   );

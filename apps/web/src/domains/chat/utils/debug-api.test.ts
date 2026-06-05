@@ -601,7 +601,7 @@ describe("createChatDebugApi.serverMessages", () => {
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
-    const historyFetcher = async () => serverList;
+    const historyFetcher = async () => ({ messages: serverList, seq: null });
     const api = createChatDebugApi(makeRefs({ historyFetcher }));
     const result = await api.serverMessages();
     expect(result).toBe(serverList);
@@ -619,7 +619,7 @@ describe("createChatDebugApi.serverMessages", () => {
     const seen: Array<{ assistantId: string; conversationId: string }> = [];
     const historyFetcher = async (assistantId: string, conversationId: string) => {
       seen.push({ assistantId, conversationId });
-      return [];
+      return { messages: [], seq: null };
     };
     const api = createChatDebugApi(
       makeRefs({

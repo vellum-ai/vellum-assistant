@@ -1,8 +1,12 @@
-// Client-side seq gap detection. When enabled, the bus subscriber in
-// `use-event-stream.ts` tracks per-conversation seq cursors in
-// localStorage and triggers `reconcileActiveConversation` when a gap
-// (`event.seq > stored + 1`) or a server restart (`event.seq < stored`)
-// is detected.
+// Client-side seq gap detection. When enabled, the SSE consumer tracks a
+// single in-memory global seq cursor (see `reconnect-cursor.ts`) and
+// triggers `reconcileActiveConversation` when a gap (`event.seq >
+// stored + 1`) or a server restart (`event.seq < stored`) is detected.
+//
+// The same flag also gates the per-conversation seq machinery that builds
+// on the cursor: the applied-seq frontier (`applied-seq.ts`), idempotent
+// stream apply, and the monotonic snapshot/stream merge
+// (`reconcile-with-seq.ts`).
 //
 // Default: disabled. Enable via the console to opt a specific
 // environment into gap detection.

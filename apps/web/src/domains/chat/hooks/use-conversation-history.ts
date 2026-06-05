@@ -20,8 +20,9 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
 import {
-  reconcileDisplayMessagesWithLatestHistory,
-} from "@/domains/chat/utils/reconcile";
+  noteSnapshotApplied,
+  reconcileLatestHistorySnapshot,
+} from "@/domains/chat/utils/reconcile-snapshot";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
@@ -115,7 +116,9 @@ export function useConversationHistory({
     // client state, so an out-of-order or aborted fetch (which never becomes
     // committed query data) can't regress the baseline. Older-page loads keep
     // the same `latestPage`, so re-running here records the same seq.
-    recordSnapshotSeq(activeConversationId, pagination.latestPage?.seq);
+    const latestPageSeq = pagination.latestPage?.seq ?? null;
+    recordSnapshotSeq(activeConversationId, latestPageSeq);
+    noteSnapshotApplied(activeConversationId, latestPageSeq);
 
     const isFreshSwitch = store.switchResetPending;
     if (isFreshSwitch) {
@@ -150,13 +153,13 @@ export function useConversationHistory({
           const nextMessages =
             isFreshSwitch || prev.length === 0
               ? filteredMessages
-              : reconcileDisplayMessagesWithLatestHistory(
-                  prev,
-                  filteredMessages,
-                  useConversationStore
+              : reconcileLatestHistorySnapshot(prev, filteredMessages, {
+                  conversationId: activeConversationId,
+                  snapshotSeq: latestPageSeq,
+                  isProcessing: useConversationStore
                     .getState()
                     .processingConversationIds.has(activeConversationId),
-                );
+                });
           return nextMessages;
         });
         setTranscriptPagination({
