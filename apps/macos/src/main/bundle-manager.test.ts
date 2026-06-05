@@ -28,7 +28,7 @@ const makeScanData = (overrides?: Partial<BundleScanData>): BundleScanData => ({
     created_by: "user@example.com",
     created_at: "2025-01-01T00:00:00Z",
   },
-  scanResult: { passed: true, findings: [] },
+  scanResult: { passed: true, blocked: [], warnings: [] },
   signatureResult: { trustTier: "unsigned" },
   bundleSizeBytes: 1024,
   ...overrides,
