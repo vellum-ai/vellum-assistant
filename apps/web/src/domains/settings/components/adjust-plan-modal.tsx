@@ -290,6 +290,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const priceForCredit = (tier: CreditTierEnum | null): number =>
     creditTiers.find((t) => t.tier === tier)?.price_cents ?? 0;
   const currentCreditPriceCents = priceForCredit(currentCreditTier);
+  // A held bundle that is no longer in the live catalog has no resolvable price
+  // (`priceForCredit` returns 0), so any total that folds it in understates what
+  // the subscriber actually pays. In the no-picker header — where the price is
+  // presented as authoritative — we surface "unavailable" rather than a
+  // confidently-wrong lower number. (In the change picker this is the documented
+  // accepted limitation.)
+  const currentCreditPriceUnknown =
+    currentCreditTier != null &&
+    !creditTiers.some((t) => t.tier === currentCreditTier);
 
   // The picker and the mutation bodies require `CreditTierEnum | null` — never
   // the un-seeded `undefined` sentinel. While un-seeded, fall back to the
@@ -807,26 +816,21 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                 </Typography>
                               </>
                             ) : isCurrent &&
-                              proCurrentTotalCents == null &&
-                              !(proPickerShown && proLiveTotalCents != null) ? (
+                              !(proPickerShown && proLiveTotalCents != null) &&
+                              (proCurrentTotalCents == null ||
+                                currentCreditPriceUnknown) ? (
                               // Current Pro card whose current total isn't
-                              // available. Showing the cheapest `From $X` here
-                              // would understate what this subscriber actually
-                              // pays. While onboarding is still loading, show a
-                              // neutral spinner; once it has settled in an error
-                              // state, show a distinct fallback instead — an
-                              // infinite spinner would misleadingly imply the
-                              // price is still on its way.
-                              onboardingQuery.isError ? (
-                                <Typography
-                                  as="p"
-                                  variant="body-medium-lighter"
-                                  className="text-[var(--content-tertiary)]"
-                                  data-testid="modal-pro-price-unavailable"
-                                >
-                                  Current plan pricing unavailable
-                                </Typography>
-                              ) : (
+                              // reliably known — onboarding hasn't resolved, or
+                              // the held bundle is no longer priceable. Showing
+                              // the cheapest `From $X` (or an understated
+                              // `Currently $X`) would misstate what this
+                              // subscriber pays. While onboarding is actively
+                              // loading, show a neutral spinner; otherwise (a
+                              // settled error or an unpriceable held bundle) show
+                              // a distinct "unavailable" fallback — an infinite
+                              // spinner would misleadingly imply the price is
+                              // still on its way.
+                              onboardingQuery.isLoading ? (
                                 <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
                                   <Loader2 className="h-4 w-4 animate-spin" />
                                   <Typography
@@ -836,6 +840,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                     Loading your plan...
                                   </Typography>
                                 </div>
+                              ) : (
+                                <Typography
+                                  as="p"
+                                  variant="body-medium-lighter"
+                                  className="text-[var(--content-tertiary)]"
+                                  data-testid="modal-pro-price-unavailable"
+                                >
+                                  Current plan pricing unavailable
+                                </Typography>
                               )
                             ) : (
                               <>

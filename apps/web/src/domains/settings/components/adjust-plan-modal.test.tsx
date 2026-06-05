@@ -664,6 +664,29 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
     const price = queryByTestId("modal-pro-price");
     expect(price).toBeNull();
   });
+
+  test("a current Pro card whose held bundle is no longer in the catalog shows unavailable, not an understated Currently total", async () => {
+    // A cancellation-pending Pro subscriber holding a bundle that the live
+    // catalog no longer lists. `priceForCredit` can't resolve its price (0), so
+    // the authoritative no-picker "Currently $X" would understate what the user
+    // pays. With onboarding fully resolved (so machine/storage are known), the
+    // header must show the "unavailable" fallback rather than a wrong, lower
+    // "Currently $X".
+    const { findByTestId, queryByTestId } = renderModal(
+      subscription("pro", "credits_legacy", { cancel_at_period_end: true }),
+      proPlansResponse(CREDIT_TIERS),
+      undefined,
+      {
+        max_machine_tier: "machine_large",
+        selected_storage_tier: "storage_20",
+        selected_storage_gib: 20,
+      },
+    );
+
+    await findByTestId("modal-pro-price-unavailable");
+    // No authoritative price is shown when the held bundle isn't priceable.
+    expect(queryByTestId("modal-pro-price")).toBeNull();
+  });
 });
 
 describe("AdjustPlanModal credit bundle — catalog gate", () => {
