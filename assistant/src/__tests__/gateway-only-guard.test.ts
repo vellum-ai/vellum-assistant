@@ -27,6 +27,7 @@ const ALLOWLIST = new Set([
   "clients/shared/App/Auth/PlatformOAuthService.swift", // comment explaining runtimeUrl vs platformUrl
   "clients/macos/vellum-assistant/App/AppDelegate.swift",
   "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
+  "apps/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
   ".claude/skills/update/SKILL.md", // daemon health check script
 
   // --- Test fixtures that poll the daemon directly (gateway may require auth) ---
