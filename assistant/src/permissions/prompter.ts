@@ -118,6 +118,10 @@ export class PermissionPrompter {
             label: o.label,
             scope: o.scope,
           })),
+          directoryScopeOptions: directoryScopeOptions?.map((o) => ({
+            label: o.label,
+            scope: o.scope,
+          })),
           persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         },
         rpcResolve: resolve as (value: unknown) => void,

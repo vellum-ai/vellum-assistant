@@ -1338,13 +1338,12 @@ export async function runAgentLoopImpl(
 
     state.reducerCompacted = compactedThisTurn;
 
-    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
-    // When on, runtime assembly suppresses v2's `<memory>` injection (only
-    // when the v3 injector actually produced a block — otherwise v2 stays as a
-    // fallback) and the provider anchors its long-TTL cache breakpoint on the
-    // most recent STABLE user message, since the latest user message now
-    // carries the volatile per-turn memory block. Flag off → bit-for-bit
-    // identical to today's v2 path.
+    // memory-v3-live: when on, the provider anchors its long-TTL cache
+    // breakpoint on the most recent STABLE user message, since the latest user
+    // message now carries the volatile per-turn `<memory>` block the v3
+    // injector emits. The matching v2-suppression strip is owned by
+    // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
+    // bit-for-bit identical to today's v2 path.
     const memoryV3Live = isAssistantFeatureFlagEnabled(
       "memory-v3-live",
       getConfig(),
@@ -1352,7 +1351,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       // Resolved from the conversation's surface state here, where the
       // runtime injector is the only consumer of the active-surface block.
