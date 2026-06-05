@@ -26,6 +26,8 @@ rsync -a \
   --exclude='__tests__/' \
   --exclude='meet-join/bot/' \
   --exclude='meet-join/meet-controller-ext/' \
+  --exclude='meet-join/package.json' \
+  --exclude='meet-join/bun.lock' \
   "$SKILLS_SRC/" "$DEST/"
 
 # Emit meet-join manifest (matches emit_meet_join_manifest() in build.sh)
