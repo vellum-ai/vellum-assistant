@@ -56,7 +56,9 @@ import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
+import { Button } from "@vellumai/design-library/components/button";
 
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
@@ -299,11 +301,23 @@ export function ActiveChatView() {
 
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
-  const autoGreetPending = useAutoGreetGate(
+  const autoGreet = useAutoGreetGate(
     activeConversationId,
     peekPendingPreChatContext()?.initialMessage != null,
     onboardingConversationId,
   );
+
+  // Stash the initial message before the first send consumes it from
+  // sessionStorage, so the retry callback can re-send it.
+  const initialMessageRef = useRef(
+    peekPendingPreChatContext()?.initialMessage ?? null,
+  );
+  const handleAutoGreetRetry = useCallback(() => {
+    const message = initialMessageRef.current;
+    if (!message) return;
+    lifecycleService.markExpectingFirstMessage();
+    void sendMessage(message);
+  }, [sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   useDeepLinkApp(assistantId, searchParams);
@@ -360,12 +374,23 @@ export function ActiveChatView() {
   // message after hatching. Hooks continue running (SSE, queries) so the
   // gate clears when the first message arrives.
   // -------------------------------------------------------------------------
-  if (autoGreetPending) {
+  if (autoGreet.show) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-[var(--text-secondary)]">
-          Starting your first conversation…
+          {autoGreet.timedOut
+            ? "Your assistant is taking longer than expected."
+            : "Starting your first conversation…"}
         </p>
+        {autoGreet.timedOut && (
+          <Button
+            variant="outlined"
+            size="regular"
+            onClick={handleAutoGreetRetry}
+          >
+            Try again
+          </Button>
+        )}
       </div>
     );
   }
