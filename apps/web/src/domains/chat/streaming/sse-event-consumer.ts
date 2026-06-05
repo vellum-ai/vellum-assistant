@@ -226,9 +226,8 @@ export function createSseEventConsumer(
           // of this seq is recognised as a no-op above. Recording the
           // frontier is unconditional — it is just in-memory bookkeeping;
           // only the seq-based decisions above are flag-gated.
-          if (eventSeq != null) {
-            recordAppliedSeq(eventConversationId, eventSeq);
-          }
+          // `recordAppliedSeq` ignores a null/undefined seq itself.
+          recordAppliedSeq(eventConversationId, eventSeq);
         }
       } else {
         recordDiagnostic("sse_event_wrong_conversation_filtered", {

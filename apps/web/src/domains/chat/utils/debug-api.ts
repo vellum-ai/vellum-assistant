@@ -25,7 +25,6 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
-import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
 import {
   type ChatDebugEventsApi,
@@ -327,12 +326,14 @@ export interface ChatDebugApi {
   forceReconcile(): Promise<ReconcileActiveConversationResult>;
   /**
    * [experimental] Fetch `/v1/history` for the active assistant +
-   * conversation and return the raw server-side message list. Does
-   * not touch UI state — diff against `getClientMessages()` manually in
-   * the console when you need to declare drift. Throws if there's no
-   * active assistant/conversation context. Subject to change.
+   * conversation and return the raw server snapshot response — the
+   * message list plus the top-level `seq` watermark. Does not touch UI
+   * state — diff against `getClientMessages()` manually in the console
+   * when you need to declare drift, and read `seq` to compare against the
+   * applied frontier. Throws if there's no active assistant/conversation
+   * context. Subject to change.
    */
-  serverMessages(): Promise<ConversationMessage[]>;
+  serverMessages(): Promise<MessagesGetResponse | undefined>;
   /**
    * Return the frontend-tracked pending interactions — the user prompts
    * currently rendered (or recently dismissed) by the chat UI, plus their
@@ -620,7 +621,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  async function serverMessages(): Promise<ConversationMessage[]> {
+  async function serverMessages(): Promise<MessagesGetResponse | undefined> {
     // Resolve context from stream store first (matches what reconcile
     // would use); fall back to assistantId + activeConversationId so
     // the call still works during a brief conv-switch window where
@@ -639,8 +640,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     }
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    const snapshot = await historyFetcher(assistantId, conversationId);
-    return snapshot?.messages ?? [];
+    return await historyFetcher(assistantId, conversationId);
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {
@@ -733,7 +733,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
       "  .streamingRing()           why the avatar ring is showing or stuck — .visible / .litBy",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
-      "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
+      "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
       "                              contact-request/question) and submission flags",

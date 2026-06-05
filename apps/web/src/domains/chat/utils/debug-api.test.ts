@@ -595,18 +595,27 @@ describe("createChatDebugApi.serverMessages", () => {
     );
   });
 
-  test("narrows ConversationMessage[] from injected historyFetcher", async () => {
+  test("returns the full server snapshot response from injected historyFetcher", async () => {
+    // GIVEN an active conversation and a history fetcher returning a
+    // snapshot with both messages and a top-level seq watermark
     useConversationStore.setState({ activeConversationId: "conv-1" });
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
-    const historyFetcher = async () => ({ messages: serverList, seq: null });
+    const snapshot = { messages: serverList, seq: 7 };
+    const historyFetcher = async () => snapshot;
     const api = createChatDebugApi(makeRefs({ historyFetcher }));
+
+    // WHEN serverMessages() is called
     const result = await api.serverMessages();
-    expect(result).toEqual(serverList);
-    expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe("srv-1");
+
+    // THEN the full response is returned, not just the messages array
+    expect(result).toEqual(snapshot);
+    // AND the seq watermark survives alongside the messages
+    expect(result?.seq).toBe(7);
+    expect(result?.messages).toHaveLength(2);
+    expect(result?.messages[0]!.id).toBe("srv-1");
   });
 
   test("prefers stream store context over conversation store + getAssistantId", async () => {
