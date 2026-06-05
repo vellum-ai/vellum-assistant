@@ -433,7 +433,7 @@ export function HatchingScreen() {
           role="alert"
           className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]"
         >
-          <h1 className="text-title-large">
+          <h1 className="text-3xl font-semibold tracking-tight">
             Something went wrong
           </h1>
           <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
@@ -512,7 +512,7 @@ export function HatchingScreen() {
   return (
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]">
-        <h1 className="text-title-large">
+        <h1 className="text-3xl font-semibold tracking-tight">
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
         {phase !== "ready" && (

@@ -65,7 +65,7 @@ export function GetIOSAppScreen({ onComplete }: GetIOSAppScreenProps) {
         </p>
 
         <h1
-          className="mb-3 text-title-large"
+          className="mb-3 text-3xl font-semibold tracking-tight"
           style={{
             color: "var(--content-default)",
             animation: "fadeInUp 0.3s ease-out 0.1s both",

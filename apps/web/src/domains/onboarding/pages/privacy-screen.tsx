@@ -183,7 +183,7 @@ export function PrivacyScreen() {
             <StepIndicatorDots current={2} total={3} />
           </div>
         )}
-        <h1 className="text-title-large">
+        <h1 className="text-3xl font-semibold tracking-tight">
           Before You Start
         </h1>
         <p className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]">

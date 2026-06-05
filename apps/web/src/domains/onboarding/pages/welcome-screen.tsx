@@ -44,7 +44,7 @@ export function WelcomeScreen() {
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 text-[var(--content-default)]">
         <div className="flex flex-1 flex-col items-center justify-center">
           <h1
-            className="text-title-large"
+            className="text-3xl font-semibold tracking-tight"
             style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
           >
             Welcome to Vellum

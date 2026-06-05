@@ -63,7 +63,7 @@ export function NameStepScreen({
 
         <div className="flex flex-1 flex-col items-center pt-4">
           <h1
-            className="text-center text-title-large"
+            className="text-center text-3xl font-semibold tracking-tight"
             style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
           >
             Let&apos;s get to know each other.

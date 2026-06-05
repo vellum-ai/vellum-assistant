@@ -52,7 +52,7 @@ export function VibeStepScreen({
 
         <div className="flex flex-1 flex-col items-center pt-4">
           <h1
-            className="w-full text-left text-title-large"
+            className="w-full text-left text-3xl font-semibold tracking-tight"
             style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
           >
             What&apos;s my vibe?
