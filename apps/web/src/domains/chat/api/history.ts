@@ -34,13 +34,11 @@ type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
-  const validMessages = (body?.messages ?? []).filter(
-    (m) => m.role === "user" || m.role === "assistant",
-  );
+  const rows = body?.messages ?? [];
 
   // Map to display messages first so we can correlate ids with subagent
   // notifications. The two arrays share the same indices.
-  const mapped = validMessages.map(mapRuntimeToDisplayMessage);
+  const mapped = rows.map(mapRuntimeToDisplayMessage);
   const messages = dedupeDisplayMessages(mapped);
 
   // Extract notifications and associate each with the id of the last
@@ -48,8 +46,8 @@ function parsePaginatedResponse(
   // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
   let lastAssistantMessageId: string | undefined;
-  for (let i = 0; i < validMessages.length; i++) {
-    const m = validMessages[i];
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i];
     if (!m) continue;
     if (m.role === "assistant" && !m.subagentNotification) {
       lastAssistantMessageId = m.id;

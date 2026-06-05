@@ -335,7 +335,13 @@ export const ConversationMessageSchema = z.object({
    * assistant messages were consolidated for history rendering.
    */
   mergedMessageIds: z.array(z.string()).optional(),
-  role: z.string(),
+  /**
+   * Renderable conversation roles only. The messages endpoint emits a
+   * UI-facing transcript, so it excludes the `system` rows that the
+   * underlying `MessageRole` column also permits — those are agent-context
+   * scaffolding, never a displayed turn.
+   */
+  role: z.enum(["user", "assistant"]),
   /**
    * Flat plain-text body (joined text segments). Redundant with
    * `textSegments`/`contentOrder` for clients that render from the positional

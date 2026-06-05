@@ -680,7 +680,14 @@ export function handleListMessages({
   // assistant message has tool_use blocks but its matching user tool_result
   // is left visible, the result will render as a standalone orphan because
   // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
-  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+  //
+  // Only renderable roles reach this UI-facing transcript. `system` rows (a
+  // permitted `MessageRole`, e.g. skill-authored context) are agent-context
+  // scaffolding, never a displayed turn, so they are dropped here at the
+  // source rather than narrowed away per-client.
+  const visibleFilter = (m: MessageRow) =>
+    !isHiddenMessage(m.metadata) &&
+    (m.role === "user" || m.role === "assistant");
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -772,9 +779,15 @@ export function handleListMessages({
       },
     );
 
+    // `visibleFilter` has already dropped every non-renderable role, so the
+    // only values reaching here are `user` and `assistant`; narrow the raw DB
+    // `string` to the wire union.
+    const role: "user" | "assistant" =
+      msg.role === "assistant" ? "assistant" : "user";
+
     return {
       id: msg.id,
-      role: msg.role,
+      role,
       content,
       createdAt: msg.createdAt,
       sentAt,

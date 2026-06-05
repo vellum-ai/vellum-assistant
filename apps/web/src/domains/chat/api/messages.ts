@@ -193,9 +193,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = (data?.messages ?? [])
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map(mapRuntimeToDisplayMessage);
+    const messages = (data?.messages ?? []).map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {

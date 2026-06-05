@@ -16022,6 +16022,9 @@ paths:
                             type: string
                         role:
                           type: string
+                          enum:
+                            - user
+                            - assistant
                         content:
                           type: string
                         timestamp:
