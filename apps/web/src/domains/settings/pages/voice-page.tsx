@@ -31,7 +31,7 @@ import {
     type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
-import { supportsFnPushToTalk } from "@/runtime/hotkey";
+import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
@@ -100,12 +100,12 @@ function SpeechServicesBanner() {
 }
 
 function PushToTalkCard() {
-  const fnPushToTalkSupported = supportsFnPushToTalk();
+  const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
     return raw
-      ? parseActivator(raw, { preserveFunction: fnPushToTalkSupported })
-      : fnPushToTalkSupported
+      ? parseActivator(raw, { preserveFunction: fnPushToTalkConfigurable })
+      : fnPushToTalkConfigurable
         ? FN_PTT_PRESET.activator
         : { kind: "off" };
   });
@@ -115,11 +115,12 @@ function PushToTalkCard() {
   const nonModifierPressedRef = useRef(false);
   const pttPresets = useMemo(
     () =>
-      fnPushToTalkSupported ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS,
-    [fnPushToTalkSupported],
+      fnPushToTalkConfigurable ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS,
+    [fnPushToTalkConfigurable],
   );
 
   const pttEnabled = activator.kind !== "off";
+  const showFocusedTabNote = pttEnabled && !fnPushToTalkConfigurable;
 
   const selectActivator = useCallback((next: PTTActivator) => {
     setActivator(next);
@@ -146,7 +147,7 @@ function PushToTalkCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (fnPushToTalkSupported && event.getModifierState("Fn")) {
+      if (fnPushToTalkConfigurable && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
       if (event.ctrlKey) modifiers.push("control");
@@ -155,7 +156,7 @@ function PushToTalkCard() {
       if (event.metaKey) modifiers.push("command");
       return modifiers;
     },
-    [fnPushToTalkSupported],
+    [fnPushToTalkConfigurable],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -259,7 +260,7 @@ function PushToTalkCard() {
             if (next) {
               if (activator.kind === "off") {
                 selectActivator(
-                  fnPushToTalkSupported
+                  fnPushToTalkConfigurable
                     ? FN_PTT_PRESET.activator
                     : CTRL_PTT_ACTIVATOR,
                 );
@@ -312,7 +313,7 @@ function PushToTalkCard() {
               )}
             </div>
 
-            {!fnPushToTalkSupported && (
+            {showFocusedTabNote && (
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>
