@@ -1149,6 +1149,28 @@ export async function runAgentLoopImpl(
       hostTimeZone,
     });
 
+    // Resolve the inbound actor context for the unified <turn_context> block.
+    // When the conversation carries enough identity info, use the unified
+    // actor trust resolver so member status/policy and guardian binding details
+    // are fresh for this turn. The conversation runtime context remains the source
+    // for policy gating; this block is model-facing grounding metadata.
+    let resolvedInboundActorContext: InboundActorContext | null = null;
+    if (ctx.trustContext) {
+      const gc = ctx.trustContext;
+      if (gc.requesterExternalUserId && gc.requesterChatId) {
+        const actorTrust = resolveActorTrust({
+          assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          sourceChannel: gc.sourceChannel,
+          conversationExternalId: gc.requesterChatId,
+          actorExternalId: gc.requesterExternalUserId,
+          actorDisplayName: gc.requesterSenderDisplayName,
+        });
+        resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
+      } else {
+        resolvedInboundActorContext = inboundActorContextFromTrustContext(gc);
+      }
+    }
+
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
@@ -1181,28 +1203,6 @@ export async function runAgentLoopImpl(
     // pair on the graph handle for the PKB-reminder injector to read back; the
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
-
-    // Resolve the inbound actor context for the unified <turn_context> block.
-    // When the conversation carries enough identity info, use the unified
-    // actor trust resolver so member status/policy and guardian binding details
-    // are fresh for this turn. The conversation runtime context remains the source
-    // for policy gating; this block is model-facing grounding metadata.
-    let resolvedInboundActorContext: InboundActorContext | null = null;
-    if (ctx.trustContext) {
-      const gc = ctx.trustContext;
-      if (gc.requesterExternalUserId && gc.requesterChatId) {
-        const actorTrust = resolveActorTrust({
-          assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          sourceChannel: gc.sourceChannel,
-          conversationExternalId: gc.requesterChatId,
-          actorExternalId: gc.requesterExternalUserId,
-          actorDisplayName: gc.requesterSenderDisplayName,
-        });
-        resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
-      } else {
-        resolvedInboundActorContext = inboundActorContextFromTrustContext(gc);
-      }
-    }
 
     // Build unified turn context block that replaces the separate temporal,
     // channel, interface, and actor context blocks.
