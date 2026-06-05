@@ -62,9 +62,8 @@ export function NameStepScreen({
         </div>
 
         <div className="flex flex-1 flex-col items-center pt-4">
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
           <h1
-            className="text-center text-3xl font-semibold tracking-tight"
+            className="text-center text-title-large"
             style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
           >
             Let&apos;s get to know each other.

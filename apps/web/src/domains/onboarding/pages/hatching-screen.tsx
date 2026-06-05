@@ -433,8 +433,7 @@ export function HatchingScreen() {
           role="alert"
           className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]"
         >
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-title-large">
             Something went wrong
           </h1>
           <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
@@ -513,8 +512,7 @@ export function HatchingScreen() {
   return (
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]">
-        {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="text-title-large">
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
         {phase !== "ready" && (

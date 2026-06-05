@@ -183,8 +183,7 @@ export function PrivacyScreen() {
             <StepIndicatorDots current={2} total={3} />
           </div>
         )}
-        {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="text-title-large">
           Before You Start
         </h1>
         <p className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]">

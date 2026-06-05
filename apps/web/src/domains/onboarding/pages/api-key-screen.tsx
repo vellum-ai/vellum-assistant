@@ -54,7 +54,7 @@ export function ApiKeyScreen() {
     <OnboardingLayout>
       <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 py-16 text-[var(--content-default)]">
         <h1
-          className="text-3xl font-semibold tracking-tight"
+          className="text-title-large"
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Connect a Model Provider

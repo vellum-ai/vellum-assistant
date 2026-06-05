@@ -64,9 +64,8 @@ export function GetIOSAppScreen({ onComplete }: GetIOSAppScreenProps) {
           One more thing
         </p>
 
-        {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
         <h1
-          className="mb-3 text-3xl font-semibold tracking-tight"
+          className="mb-3 text-title-large"
           style={{
             color: "var(--content-default)",
             animation: "fadeInUp 0.3s ease-out 0.1s both",

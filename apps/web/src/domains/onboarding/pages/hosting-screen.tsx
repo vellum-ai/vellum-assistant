@@ -83,7 +83,7 @@ export function HostingScreen() {
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 pt-16 text-[var(--content-default)]">
         <h1
-          className="text-3xl font-semibold tracking-tight"
+          className="text-title-large"
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Hosting

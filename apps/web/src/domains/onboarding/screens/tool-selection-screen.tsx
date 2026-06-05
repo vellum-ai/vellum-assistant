@@ -106,8 +106,7 @@ export function ToolSelectionScreen({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className="text-center text-title-large">
             What do you use?
           </h1>
           {onBack ? <div aria-hidden="true" className="h-8 w-8" /> : null}
