@@ -25,6 +25,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  countCompletedRunsToday,
   countRecentConsecutiveRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
@@ -185,6 +186,13 @@ export class HeartbeatService {
       countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
       config.maxConsecutiveRuns
     );
+  }
+
+  /** Whether the daily run cap has been reached. */
+  get isDailyCapReached(): boolean {
+    const config = getConfig().heartbeat;
+    if (config.maxDailyRuns == null) return false;
+    return countCompletedRunsToday() >= config.maxDailyRuns;
   }
 
   async runManagedWakeIfDue(
@@ -545,6 +553,24 @@ export class HeartbeatService {
         "Max consecutive runs reached, skipping",
       );
       if (runId) skipHeartbeatRun(runId, "max_consecutive_runs");
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
+      return false;
+    }
+
+    // Daily run cap — stop burning tokens when the daily budget is exhausted.
+    // Force runs bypass the cap.
+    if (
+      !force &&
+      config.maxDailyRuns != null &&
+      countCompletedRunsToday() >= config.maxDailyRuns
+    ) {
+      log.debug(
+        { maxDailyRuns: config.maxDailyRuns },
+        "Daily run cap reached, skipping",
+      );
+      if (runId) skipHeartbeatRun(runId, "max_daily_runs");
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }

@@ -56,6 +56,15 @@ export const HeartbeatConfigSchema = z
       .describe(
         "Maximum heartbeats that can run consecutively without a guardian message. Counter resets when the guardian sends a message. Set to null for unlimited.",
       ),
+    maxDailyRuns: z
+      .number({ error: "heartbeat.maxDailyRuns must be a number" })
+      .int("heartbeat.maxDailyRuns must be an integer")
+      .positive("heartbeat.maxDailyRuns must be a positive integer")
+      .nullable()
+      .default(2)
+      .describe(
+        "Maximum heartbeats that can run per calendar day. Resets at midnight local time. Set to null for unlimited.",
+      ),
     disposition: z
       .string({ error: "heartbeat.disposition must be a string" })
       .default(
