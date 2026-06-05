@@ -95,7 +95,9 @@ paths:
     post:
       operationId: acp_by_id_steer_post
       summary: Steer ACP session
-      description: Send a steering instruction to an active ACP session.
+      description:
+        Send a steering instruction to an ACP session. Sessions no longer in memory (completed, or lost to a daemon
+        restart) are transparently resumed from persisted history first, when the agent supports ACP session loading.
       tags:
         - acp
       responses:
@@ -109,6 +111,9 @@ paths:
                   acpSessionId:
                     type: string
                   steered:
+                    type: boolean
+                  resumed:
+                    description: True when the session was resumed from persisted history before steering.
                     type: boolean
                 required:
                   - acpSessionId
