@@ -1018,7 +1018,7 @@ export async function runAgentLoopImpl(
     // Skip auto-compaction while the circuit breaker is open. Force paths
     // and user-initiated /compact bypass this check.
     const autoCompactAllowed =
-      !(await ctx.agentLoop.compactionCircuit.isOpen(ctx));
+      !(await ctx.agentLoop.compactionCircuit.isOpen());
     if (compactCheck.needed && autoCompactAllowed) {
       ctx.emitActivityState("thinking", "context_compacting", {
         requestId: reqId,
@@ -1060,11 +1060,7 @@ export async function runAgentLoopImpl(
             { err, phase: "start-of-turn-compaction" },
             "Compaction pipeline timed out — skipping compaction this turn",
           );
-          await ctx.agentLoop.compactionCircuit.recordOutcome(
-            ctx,
-            true,
-            onEvent,
-          );
+          await ctx.agentLoop.compactionCircuit.recordOutcome(true, onEvent);
           compacted = null;
         } else {
           throw err;
@@ -1078,7 +1074,6 @@ export async function runAgentLoopImpl(
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
       await ctx.agentLoop.compactionCircuit.recordOutcome(
-        ctx,
         compacted.summaryFailed,
         onEvent,
       );
@@ -1531,7 +1526,6 @@ export async function runAgentLoopImpl(
                 "Compaction pipeline timed out — falling through to next reducer tier",
               );
               await ctx.agentLoop.compactionCircuit.recordOutcome(
-                ctx,
                 true,
                 onEvent,
               );
@@ -1572,7 +1566,6 @@ export async function runAgentLoopImpl(
           // breaker.
           if (result.summaryFailed !== undefined) {
             await ctx.agentLoop.compactionCircuit.recordOutcome(
-              ctx,
               result.summaryFailed,
               onEvent,
             );
@@ -2045,7 +2038,6 @@ export async function runAgentLoopImpl(
             );
             if (emergencyResult.summaryFailed !== undefined) {
               await ctx.agentLoop.compactionCircuit.recordOutcome(
-                ctx,
                 emergencyResult.summaryFailed,
                 onEvent,
               );
@@ -2120,7 +2112,6 @@ export async function runAgentLoopImpl(
           step.compactionResult.summaryFailed !== undefined
         ) {
           await ctx.agentLoop.compactionCircuit.recordOutcome(
-            ctx,
             step.compactionResult.summaryFailed,
             onEvent,
           );
@@ -2243,7 +2234,6 @@ export async function runAgentLoopImpl(
                 "Emergency compaction pipeline timed out — continuing with overflow fallback",
               );
               await ctx.agentLoop.compactionCircuit.recordOutcome(
-                ctx,
                 true,
                 onEvent,
               );
@@ -2259,7 +2249,6 @@ export async function runAgentLoopImpl(
             emergencyCompact.summaryFailed !== undefined
           ) {
             await ctx.agentLoop.compactionCircuit.recordOutcome(
-              ctx,
               emergencyCompact.summaryFailed,
               onEvent,
             );

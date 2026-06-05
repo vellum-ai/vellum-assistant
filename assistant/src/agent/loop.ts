@@ -680,15 +680,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<void> {
     try {
-      await this.compactionCircuit.recordOutcome(
-        {
-          currentRequestId: turnContext.requestId,
-          currentTurnTrustContext: turnContext.trust,
-          turnCount: turnContext.turnIndex,
-        },
-        summaryFailed,
-        onEvent,
-      );
+      await this.compactionCircuit.recordOutcome(summaryFailed, onEvent);
     } catch (recordError) {
       log.error(
         { err: recordError, requestId: turnContext.requestId },

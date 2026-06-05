@@ -25,7 +25,6 @@
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
 import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
@@ -53,7 +52,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
-    defaultCircuitBreakerPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
   ];

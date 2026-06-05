@@ -1,27 +1,15 @@
-import type { TrustContext } from "../daemon/trust-context.js";
-import { FALLBACK_TURN_TRUST } from "../daemon/trust-context.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CircuitBreakerArgs,
-  CircuitBreakerResult,
-  CompactionCircuitEvent,
-  TurnContext,
-} from "../plugins/types.js";
+import type { CompactionCircuitEvent } from "../plugins/types.js";
 
 /**
- * Turn-scoped identifiers the circuit pipeline runner needs to populate its
- * log records and plugin attribution. They are supplied per call because they
- * belong to the active turn, not to the circuit's durable state — non-turn
- * callers (e.g. `Conversation.forceCompact`) leave the optional fields unset
- * and fall back to stable placeholders.
+ * Consecutive summary-LLM failures required to trip the breaker.
  */
-export interface CircuitTurnInfo {
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}
+export const COMPACTION_CIRCUIT_FAILURE_THRESHOLD = 3;
+
+/**
+ * Cooldown window after the breaker trips, during which auto-compaction is
+ * suspended.
+ */
+export const COMPACTION_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000;
 
 /**
  * Per-conversation compaction circuit breaker: three consecutive summary-LLM
@@ -30,12 +18,10 @@ export interface CircuitTurnInfo {
  * resets on process restart, the intended "one free retry after restart"
  * behavior.
  *
- * The breaker's threshold/cooldown semantics live in the `circuitBreaker`
- * plugin (`plugins/defaults/circuit-breaker/register.ts`), which mutates this
- * object in place via the `CircuitBreakerArgs.state` container. This class is
- * that container plus the methods the rest of the daemon uses to query and
- * update it, so the dev-only playground routes can read and write the same
- * fields directly.
+ * The dev-only playground routes (`POST /playground/reset-compaction-circuit`,
+ * `POST /playground/inject-compaction-failures`) read and mutate
+ * `consecutiveCompactionFailures` and `compactionCircuitOpenUntil` directly on
+ * this object.
  */
 export class CompactionCircuit {
   readonly conversationId: string;
@@ -51,90 +37,62 @@ export class CompactionCircuit {
    * transition event. Callers must only invoke this when the summary LLM
    * actually ran (`summaryFailed !== undefined`) so early-return paths don't
    * silently reset the 3-strike counter.
+   *
+   * A run of three failures trips the breaker; any success resets both the
+   * counter and the cooldown timestamp. `compaction_circuit_open` fires once
+   * when the counter first reaches the threshold while the circuit is dormant;
+   * `compaction_circuit_closed` fires only on the open→closed transition.
    */
   async recordOutcome(
-    turn: CircuitTurnInfo,
     summaryFailed: boolean,
     onEvent: (msg: CompactionCircuitEvent) => void,
   ): Promise<void> {
-    await this.run(turn, {
-      outcome: summaryFailed ? "failure" : "success",
-      onEvent,
-    });
+    if (summaryFailed) {
+      this.consecutiveCompactionFailures += 1;
+      // Treat a stale/expired open-until timestamp the same as null so a new
+      // 3-strike window can re-open the circuit after the prior cooldown
+      // elapses. Without this, subsequent trips would no-op because
+      // `compactionCircuitOpenUntil` remains set to a past timestamp even
+      // though the breaker is effectively closed.
+      const circuitDormant =
+        this.compactionCircuitOpenUntil === null ||
+        Date.now() >= this.compactionCircuitOpenUntil;
+      if (
+        this.consecutiveCompactionFailures >=
+          COMPACTION_CIRCUIT_FAILURE_THRESHOLD &&
+        circuitDormant
+      ) {
+        const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
+        this.compactionCircuitOpenUntil = openUntil;
+        onEvent({
+          type: "compaction_circuit_open",
+          conversationId: this.conversationId,
+          reason: "3_consecutive_failures",
+          openUntil,
+        });
+      }
+    } else {
+      // Emit only on the open→closed transition; firing on the common
+      // closed→closed case would be noise.
+      const wasOpen = this.compactionCircuitOpenUntil !== null;
+      this.consecutiveCompactionFailures = 0;
+      this.compactionCircuitOpenUntil = null;
+      if (wasOpen) {
+        onEvent({
+          type: "compaction_circuit_closed",
+          conversationId: this.conversationId,
+        });
+      }
+    }
   }
 
   /**
    * Query-only: is the breaker currently open? Auto-compaction paths gate on
-   * `!isOpen(...)`; forced paths admit regardless of the decision.
+   * `!isOpen()`; forced paths admit regardless. An expired open-until
+   * timestamp reads as closed — it is the only source of truth for the gate.
    */
-  async isOpen(turn: CircuitTurnInfo): Promise<boolean> {
-    const decision = await this.run(turn, {});
-    return decision.open;
-  }
-
-  /**
-   * Clear the breaker: zero the failure counter and close the circuit,
-   * emitting `compaction_circuit_closed` on the open→closed transition.
-   * Equivalent to recording a successful outcome.
-   */
-  async reset(
-    turn: CircuitTurnInfo,
-    onEvent?: (msg: CompactionCircuitEvent) => void,
-  ): Promise<void> {
-    await this.run(turn, {
-      outcome: "success",
-      ...(onEvent ? { onEvent } : {}),
-    });
-  }
-
-  private async run(
-    turn: CircuitTurnInfo,
-    args: {
-      outcome?: "success" | "failure";
-      onEvent?: (msg: CompactionCircuitEvent) => void;
-    },
-  ): Promise<CircuitBreakerResult> {
-    const turnContext = this.buildTurnContext(turn);
-    return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
-      "circuitBreaker",
-      getMiddlewaresFor("circuitBreaker"),
-      async (terminalArgs) => {
-        // No plugin in the chain produced a decision. This should be
-        // unreachable in production because the default plugin registers a
-        // `circuitBreaker` middleware that always returns a decision, but we
-        // defensively derive the state here so test setups that intentionally
-        // omit the default plugin still get a sensible response.
-        const openUntil = terminalArgs.state.compactionCircuitOpenUntil;
-        const now = Date.now();
-        if (openUntil !== null && now < openUntil) {
-          return { open: true, cooldownRemainingMs: openUntil - now };
-        }
-        return { open: false };
-      },
-      {
-        key: `compaction:${this.conversationId}`,
-        // Pass this circuit as the mutable state container. The
-        // `CircuitBreakerArgs.state` shape matches its `conversationId` /
-        // `consecutiveCompactionFailures` / `compactionCircuitOpenUntil`
-        // fields so plugins mutate the same object the playground routes read.
-        state: this,
-        ...(args.outcome !== undefined ? { outcome: args.outcome } : {}),
-        ...(args.onEvent ? { onEvent: args.onEvent } : {}),
-      },
-      turnContext,
-      DEFAULT_TIMEOUTS.circuitBreaker,
-    );
-  }
-
-  private buildTurnContext(turn: CircuitTurnInfo): TurnContext {
-    return {
-      requestId: turn.currentRequestId ?? "circuit-breaker",
-      conversationId: this.conversationId,
-      turnIndex: turn.turnCount,
-      trust:
-        turn.currentTurnTrustContext ??
-        turn.trustContext ??
-        FALLBACK_TURN_TRUST,
-    };
+  async isOpen(): Promise<boolean> {
+    const openUntil = this.compactionCircuitOpenUntil;
+    return openUntil !== null && Date.now() < openUntil;
   }
 }

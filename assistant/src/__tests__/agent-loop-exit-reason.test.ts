@@ -448,7 +448,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // own circuit breaker, and yields for budget so the orchestrator can
     // escalate.
     expect(recordOutcomeSpy).toHaveBeenCalledTimes(1);
-    expect(recordOutcomeSpy.mock.calls[0]?.[1]).toBe(true);
+    expect(recordOutcomeSpy.mock.calls[0]?.[0]).toBe(true);
     expect(result.exitReason).toBe("budget");
   });
 

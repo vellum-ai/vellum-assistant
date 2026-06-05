@@ -42,8 +42,6 @@
 
 import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
-  CircuitBreakerArgs,
-  CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
   OverflowReduceArgs,
@@ -131,9 +129,6 @@ const echoPlugin: Plugin = {
     compaction: makeObserver<CompactionArgs, CompactionResult>("compaction"),
     overflowReduce: makeObserver<OverflowReduceArgs, OverflowReduceResult>(
       "overflowReduce",
-    ),
-    circuitBreaker: makeObserver<CircuitBreakerArgs, CircuitBreakerResult>(
-      "circuitBreaker",
     ),
   },
 };

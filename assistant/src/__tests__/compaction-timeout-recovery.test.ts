@@ -6,34 +6,30 @@
  * `PluginTimeoutError`. The three compaction call sites in
  * `conversation-agent-loop.ts` (start-of-turn, mid-loop, emergency) catch
  * that error, record the failure on the loop-held `CompactionCircuit`
- * (`recordOutcome(turn, true, ...)`) so the circuit breaker counts it, and degrade
+ * (`recordOutcome(true, ...)`) so the circuit breaker counts it, and degrade
  * gracefully.
  *
  * This file asserts the tight coupling between:
  *  (1) a `PluginTimeoutError`-driven failure and
  *  (2) the compaction circuit breaker's 3-strike threshold.
  *
- * The existing `circuit-breaker-pipeline.test.ts` already exercises the
- * breaker's transitions end-to-end. These tests verify that our new
- * catch-blocks feed the breaker the same `"failure"` outcome a normal
- * summary-LLM throw would, and that repeated timeouts therefore trip the
- * same 3-strike trip.
+ * The `compaction-circuit.test.ts` file exercises the breaker's transitions
+ * end-to-end. These tests verify that our catch-blocks feed the breaker the
+ * same failure outcome a normal summary-LLM throw would, and that repeated
+ * timeouts therefore trip the same 3-strike trip.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  type CircuitTurnInfo,
+  COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
   CompactionCircuit,
 } from "../agent/compaction-circuit.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { COMPACTION_CIRCUIT_FAILURE_THRESHOLD } from "../plugins/defaults/circuit-breaker/middlewares/circuitBreaker.js";
-import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
-  registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import {
@@ -49,11 +45,6 @@ import {
 function makeCircuit(conversationId = "conv-timeout-test"): CompactionCircuit {
   return new CompactionCircuit(conversationId);
 }
-
-const turn: CircuitTurnInfo = {
-  turnCount: 0,
-  trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
-};
 
 const trust: TrustContext = {
   sourceChannel: "vellum",
@@ -82,7 +73,6 @@ function collectEvents(): {
 describe("compaction timeout recovery (JARVIS-587)", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
-    registerPlugin(defaultCircuitBreakerPlugin);
   });
 
   afterEach(() => {
@@ -122,21 +112,21 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
   test("recordOutcome(failed=true) driven by PluginTimeoutError trips the breaker at the 3rd strike", async () => {
     // Simulates the production sequence: each mid-loop compaction hits the
     // pipeline's 30s ceiling, the catch path calls
-    // `circuit.recordOutcome(turn, true, onEvent)`. After three such catches
+    // `circuit.recordOutcome(true, onEvent)`. After three such catches
     // the circuit breaker must be open — matching the same invariant the
     // existing breaker test file exercises for normal summary-LLM throws.
     const circuit = makeCircuit();
     const { onEvent, events } = collectEvents();
 
     // First two timeouts — circuit still closed.
-    await circuit.recordOutcome(turn, true, onEvent);
-    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(2);
     expect(circuit.compactionCircuitOpenUntil).toBeNull();
     expect(events).toHaveLength(0);
 
     // Third timeout — breaker trips and emits the canonical transition event.
-    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(
       COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
     );
@@ -157,15 +147,15 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
     const circuit = makeCircuit();
     const { onEvent } = collectEvents();
 
-    await circuit.recordOutcome(turn, true, onEvent);
-    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(2);
 
-    await circuit.recordOutcome(turn, false, onEvent);
+    await circuit.recordOutcome(false, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(0);
     expect(circuit.compactionCircuitOpenUntil).toBeNull();
 
-    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(1);
   });
 
@@ -188,7 +178,6 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
 describe("abort propagation end-to-end (Part A + updateSummary fallback)", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
-    registerPlugin(defaultCircuitBreakerPlugin);
   });
 
   afterEach(() => {

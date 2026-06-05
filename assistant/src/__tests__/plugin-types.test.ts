@@ -13,8 +13,6 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  type CircuitBreakerArgs,
-  type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
   type Middleware,
@@ -81,14 +79,6 @@ describe("plugin core types", () => {
       CompactionResult
     > = async (args, next, _ctx) => next(args);
 
-    // `circuitBreaker` carries a concrete arg shape (pipeline wrapping
-    // landed ahead of the other slots) so it needs its own passthrough
-    // rather than reusing the generic placeholder.
-    const circuitPassthrough: Middleware<
-      CircuitBreakerArgs,
-      CircuitBreakerResult
-    > = async (args, next, _ctx) => next(args);
-
     const sampleTool: Tool = {
       name: "sample-tool",
       description: "Sample plugin tool",
@@ -135,7 +125,6 @@ describe("plugin core types", () => {
       middleware: {
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
-        circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;
 
@@ -157,7 +146,7 @@ describe("plugin core types", () => {
   });
 
   test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("circuitBreaker", undefined, 1234);
+    const err = new PluginTimeoutError("overflowReduce", undefined, 1234);
     expect(err.pluginName).toBeUndefined();
     expect(err.message).not.toContain("offending plugin");
   });

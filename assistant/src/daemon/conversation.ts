@@ -1104,7 +1104,6 @@ export class Conversation {
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
       await this.agentLoop.compactionCircuit.recordOutcome(
-        this,
         result.summaryFailed,
         this.sendToClient,
       );
