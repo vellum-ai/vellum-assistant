@@ -144,7 +144,7 @@ export function getThinkingStatusText(state: TurnState): string | null {
 /**
  * Sending is blocked only by prompts with a dedicated cancel UI (secret,
  * confirmation). Visible surfaces don't block — sending implicitly dismisses
- * them in `AssistantPageClient.sendMessage`.
+ * them in `useSendMessage`.
  */
 export function isSendDisabled(
   _state: TurnState,

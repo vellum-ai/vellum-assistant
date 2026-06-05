@@ -14,6 +14,9 @@
 
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
+import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
+
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
@@ -38,14 +41,14 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
+import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
@@ -62,17 +65,9 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
-import {
-    canStopGeneration,
-    getThinkingStatusText,
-    isSendDisabled,
-    shouldShowThinkingIndicator,
-    type UIContext,
-} from "@/domains/chat/turn-selectors";
-import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
@@ -81,7 +76,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/di
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
@@ -220,7 +215,6 @@ export function ChatRouteContent({
   // Store reads — conversation, viewer
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
 
@@ -291,17 +285,11 @@ export function ChatRouteContent({
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
   // -------------------------------------------------------------------------
-  // Turn state (read from Zustand store)
+  // Turn state — only `phase` is read directly (recall-last-message guard).
+  // All other turn derivations (thinking indicator, send-disabled,
+  // stop-generation) live in `useChatUIState`.
   // -------------------------------------------------------------------------
   const phase = useTurnStore.use.phase();
-  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
-  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
-  const activeTurnId = useTurnStore.use.activeTurnId();
-  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
-  const statusText = useTurnStore.use.statusText();
-  const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
-  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity, autoRoutedProfileLabel };
 
   // -------------------------------------------------------------------------
   // Tool-call rule editor (signalled via viewer store seq counter)
@@ -339,20 +327,19 @@ export function ChatRouteContent({
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
-  // Interaction state — transcript-row interaction cards (secret,
-  // confirmation, contact-request) now read interaction-store directly via
-  // focused row components; see domains/chat/transcript/pending-*-row.tsx.
-  // Inline confirmations render per tool-call chip from tc.pendingConfirmation.
-  //
-  // The reads below are still needed for:
-  //  - uiContext booleans (drives isSendDisabled / shouldShowThinkingIndicator)
-  //  - buildTranscriptItems (inserts placeholder items into the transcript)
+  // Derived UI state + transcript data (extracted from inline derivations)
   // -------------------------------------------------------------------------
 
-  const pendingSecret = useInteractionStore.use.pendingSecret();
-  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const {
+    uiContext,
+    showThinking,
+    isAssistantStreaming,
+    canStopGenerating,
+    isSendDisabledFromTurn,
+    thinkingLabel,
+    liveAssistantMessageId,
+    activeConversationIsProcessing,
+  } = useChatUIState();
 
   // -------------------------------------------------------------------------
   // Onboarding choice card
@@ -381,45 +368,11 @@ export function ChatRouteContent({
   const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
 
   // -------------------------------------------------------------------------
-  // Derived values
+  // Nudges + ghost text (depend on liveAssistantMessageId from useChatUIState)
   // -------------------------------------------------------------------------
 
-  const hasUncompletedVisibleSurface = useMemo(
-    () => hasAnyInteractiveSurface(messages),
-    [messages],
-  );
-
-  // Derive "is this conversation processing?" as an OR of the local
-  // optimistic set (driven by `useSendMessage` and the SSE start
-  // handlers) and the server's cached snapshot (`isProcessing` on the
-  // conversation row, mirroring the daemon's `Conversation.isProcessing()`).
-  //
-  // Either signal is sufficient to light the avatar progress badge.
-  // They converge via terminal SSE handlers (which clear the local set
-  // AND patch the cached snapshot via `patchConversation`) and the
-  // next list/detail GET refreshing the server snapshot. The OR also
-  // makes us robust to pre-0.8.7 daemons that omit `isProcessing` on
-  // the wire — the fallback to the local set still drives the badge.
-  const activeConversationIsProcessing =
-    (activeConversationId != null &&
-      processingConversationIds.has(activeConversationId)) ||
-    !!activeConversation?.isProcessing;
-
-  const activeConversationHasPendingAssistantResponse = useMemo(
-    () => hasPendingAssistantResponse(messages),
-    [messages],
-  );
-
-  const liveAssistantMessageId = useMemo(
-    () => liveAssistantRowId(messages, activeConversationIsProcessing),
-    [messages, activeConversationIsProcessing],
-  );
-  const hasStreamingAssistantMessage = liveAssistantMessageId != null;
-
-  // Nudges (depends on liveAssistantMessageId)
   const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId);
 
-  // Ghost text suggestion (depends on liveAssistantMessageId)
   const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
     const last = messages[messages.length - 1];
     return last &&
@@ -435,35 +388,17 @@ export function ChatRouteContent({
     lastCompleteAssistantMsgId,
   });
 
-  const uiContext: UIContext = useMemo(
-    () => ({
-      hasStreamingAssistantMessage,
-      hasPendingSecret: !!pendingSecret,
-      hasPendingConfirmation: !!pendingConfirmation,
-      hasPendingQuestion: !!pendingQuestion,
-      hasPendingContactRequest: !!pendingContactRequest,
-      hasUncompletedVisibleSurface,
-      activeConversationIsProcessing,
-      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
-    }),
-    [
-      hasStreamingAssistantMessage,
-      pendingSecret,
-      pendingConfirmation,
-      pendingQuestion,
-      pendingContactRequest,
-      hasUncompletedVisibleSurface,
-      activeConversationIsProcessing,
-      activeConversationHasPendingAssistantResponse,
-    ],
-  );
+  // -------------------------------------------------------------------------
+  // Transcript data (sanitise + build items)
+  // -------------------------------------------------------------------------
 
-  // Publish the rendered context (in an effect, after commit — never mutate a
-  // ref during render) so the debug API reports on-screen state instead of a
-  // separate recomputation (see useChatDebugRegistration). Clear it on unmount
-  // so the debug API falls back to its empty default instead of reporting the
-  // last rendered frame (which could claim a badge is processing) while no chat
-  // content is on screen.
+  const { sanitizedMessages, transcriptItems } = useTranscriptData({
+    showThinking,
+    thinkingLabel,
+    showOnboardingChoice,
+  });
+
+  // --- Ref writes (connect hook outputs to ActiveChatView's debug refs) ---
   useEffect(() => {
     uiContextRef.current = uiContext;
     return () => {
@@ -471,10 +406,12 @@ export function ChatRouteContent({
     };
   }, [uiContextRef, uiContext]);
 
-  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
-  const isAssistantStreaming =
-    showThinking || hasStreamingAssistantMessage;
-  const canStopGenerating = canStopGeneration(turnState, uiContext);
+  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
+  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
+
+  // -------------------------------------------------------------------------
+  // Remaining derived values
+  // -------------------------------------------------------------------------
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.mode !== null,
@@ -489,8 +426,7 @@ export function ChatRouteContent({
     diskPressureInputDisabled ||
     isChannelReadonly;
 
-  const sendDisabled =
-    isSendDisabled(turnState, uiContext) || typingDisabled;
+  const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
   const isEmptyConversation =
     !!activeConversationId &&
@@ -630,83 +566,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const loadOlder = historyPagination.fetchOlderPage;
-
-  // -------------------------------------------------------------------------
-  // Transcript items (projection of chat state onto flat list)
-  // -------------------------------------------------------------------------
-
-  const thinkingLabel = getThinkingStatusText(turnState);
-
-  // Single render-boundary cleanup pass. `sanitizeDisplayMessages` houses
-  // every "this shouldn't be necessary, but is" hack we apply before the
-  // transcript renders (timestamp sort, blank/phantom row filter, duplicate
-  // trailing assistant drop). See `sanitize-display-messages.ts` for the
-  // rationale and removal triggers for each sub-step.
-  const sanitizedMessages = useMemo(
-    () => sanitizeDisplayMessages(messages),
-    [messages],
-  );
-
-  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
-
-  // The standalone confirmation card is the fallback home for confirmations
-  // that aren't bound to a tool call (e.g. the `host_file_read` directive
-  // approval). When a tool call carries the same prompt it renders inline on
-  // that chip, so deriving attachment from the message tree avoids a
-  // double-render without relying on a single store slot (which can't
-  // represent two overlapping confirmations).
-  const pendingConfirmationAttachedToToolCall = useMemo(
-    () =>
-      pendingConfirmation != null &&
-      sanitizedMessages.some((m) =>
-        m.toolCalls?.some(
-          (tc) =>
-            tc.pendingConfirmation?.requestId === pendingConfirmation.requestId,
-        ),
-      ),
-    [pendingConfirmation, sanitizedMessages],
-  );
-
-  const transcriptItems = useMemo(
-    () =>
-      buildTranscriptItems({
-        messages: sanitizedMessages,
-        pendingSecret: pendingSecret
-          ? { requestId: pendingSecret.requestId }
-          : null,
-        pendingConfirmation: pendingConfirmation && !pendingConfirmationAttachedToToolCall
-          ? { requestId: pendingConfirmation.requestId }
-          : null,
-        pendingContactRequest: pendingContactRequest
-          ? {
-              requestId: pendingContactRequest.requestId,
-              channel: pendingContactRequest.channel,
-              placeholder: pendingContactRequest.placeholder,
-              label: pendingContactRequest.label,
-              description: pendingContactRequest.description,
-              role: pendingContactRequest.role,
-            }
-          : null,
-        isThinking: showThinking,
-        thinkingLabel,
-        autoRoutedProfileLabel,
-        errorNotice: null,
-        showOnboardingChoice,
-      }),
-    [
-      sanitizedMessages,
-      pendingSecret,
-      pendingConfirmation,
-      pendingConfirmationAttachedToToolCall,
-      pendingContactRequest,
-      showThinking,
-      thinkingLabel,
-      autoRoutedProfileLabel,
-      showOnboardingChoice,
-    ],
-  );
-
-  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
 
   // -------------------------------------------------------------------------
   // Scroll coordination

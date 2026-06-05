@@ -179,11 +179,8 @@ export const TranscriptRow = memo(function TranscriptRow({
       return <PendingContactRequestRow />;
 
     case "error":
-      // Mirrors the `{error && <Notice tone="error">{error}</Notice>}` from
-      // AssistantPageClient.tsx. `onRetryError` is wired as the dismiss
-      // handler so the user has a visible retry/ack affordance; the legacy
-      // path elides the close button, which is acceptable here because the
-      // error item is synthesized only after retries are exhausted.
+      // `onRetryError` is wired as the dismiss handler so the user has a
+      // visible retry/ack affordance.
       return (
         <Notice tone="error" onDismiss={onRetryError}>
           {item.message}
