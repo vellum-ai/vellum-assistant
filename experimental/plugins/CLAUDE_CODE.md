@@ -32,6 +32,11 @@ Sources: [Plugins reference](https://code.claude.com/docs/en/plugins-reference),
    catalog hosted in a git repo (or the official Anthropic marketplace).
 4. Users run `/plugin marketplace add <owner/repo>` then
    `/plugin install <name>@<marketplace>`; components register on next start.
+   **Live/installed plugins are stored under `~/.claude/plugins/`** (cloned
+   marketplaces + installed versions are copied into `~/.claude/plugins/cache/`,
+   per-plugin data lives at `~/.claude/plugins/data/<id>/`), managed by the
+   `claude plugin` commands. For local authoring you can skip the marketplace
+   entirely with `claude --plugin-dir <path>`.
 
 The defining trait vs. our loader: Claude Code plugins are **multi-surface
 bundles** (commands + skills + subagents + hooks + MCP + LSP + monitors) shipped
