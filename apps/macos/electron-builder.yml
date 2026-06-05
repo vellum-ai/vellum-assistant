@@ -16,6 +16,10 @@ protocols:
     schemes:
       - vellum
       - vellum-assistant
+fileAssociations:
+  - ext: vellum
+    name: Vellum Bundle
+    role: Viewer
 mac:
   icon: build/icon.icns
   category: public.app-category.productivity
