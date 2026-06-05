@@ -315,7 +315,10 @@ export function ActiveChatView() {
   );
   const handleAutoGreetRetry = useCallback(() => {
     const message = initialMessageRef.current;
-    if (!message) return;
+    if (!message) {
+      lifecycleService.clearExpectingFirstMessage();
+      return;
+    }
     if (isSending(useTurnStore.getState())) return;
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
