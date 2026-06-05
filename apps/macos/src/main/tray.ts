@@ -142,7 +142,7 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       enabled: !onboarding,
       click: () => {
         app.relaunch();
-        app.exit(0);
+        app.quit();
       },
     },
     {

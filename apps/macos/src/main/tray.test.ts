@@ -44,7 +44,7 @@ const appListeners = new Map<string, () => void>();
 const themeListeners = new Map<string, () => void>();
 
 const appRelaunchMock = mock(() => undefined);
-const appExitMock = mock((_code?: number) => undefined);
+const appQuitMock = mock(() => undefined);
 
 mock.module("electron", () => ({
   app: {
@@ -53,7 +53,7 @@ mock.module("electron", () => ({
       appListeners.set(event, handler);
     },
     relaunch: appRelaunchMock,
-    exit: appExitMock,
+    quit: appQuitMock,
   },
   BrowserWindow: class {
     static getFocusedWindow() {
@@ -164,7 +164,7 @@ beforeEach(() => {
   statusFramesMock.mockClear();
   invalidateIconCacheMock.mockClear();
   appRelaunchMock.mockClear();
-  appExitMock.mockClear();
+  appQuitMock.mockClear();
   currentStatus = "idle";
   statusListeners.clear();
   intervalCallback = null;
@@ -290,7 +290,7 @@ describe("installTray", () => {
     template.find((i) => i.label === "Restart")?.click?.();
 
     expect(appRelaunchMock).toHaveBeenCalledTimes(1);
-    expect(appExitMock).toHaveBeenCalledWith(0);
+    expect(appQuitMock).toHaveBeenCalledTimes(1);
   });
 
   test("conversation items surface the window before dispatching", async () => {
