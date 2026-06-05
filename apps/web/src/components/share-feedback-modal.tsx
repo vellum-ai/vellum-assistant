@@ -391,10 +391,7 @@ async function buildClientLogsFile(
     } catch { /* best-effort */ }
 
     try {
-      const redactedLogs = await window.vellum.feedback.logs({
-        startMs: startTime,
-        endMs: endTime,
-      });
+      const redactedLogs = await window.vellum.feedback.logs();
       if (redactedLogs) {
         const logBytes = new TextEncoder().encode(redactedLogs);
         tarParts.push(buildTarEntry("electron-main-logs.txt", logBytes));

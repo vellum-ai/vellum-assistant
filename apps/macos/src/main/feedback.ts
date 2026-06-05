@@ -66,11 +66,7 @@ export function collectDiagnostics(): ElectronDiagnostics {
   };
 }
 
-export async function collectRedactedLogs(timeRange: {
-  startMs: number | null;
-  endMs: number;
-}): Promise<string> {
-  void timeRange; // reserved for future per-line filtering
+export async function collectRedactedLogs(): Promise<string> {
   const paths = getLogFilePaths();
   const parts: string[] = [];
   for (const p of paths) {
@@ -94,11 +90,5 @@ export function installFeedbackIpc(): void {
     collectDiagnostics(),
   );
 
-  handle(
-    "vellum:feedback:logs",
-    z.tuple([
-      z.object({ startMs: z.number().nullable(), endMs: z.number() }),
-    ]),
-    ([timeRange]) => collectRedactedLogs(timeRange),
-  );
+  handle("vellum:feedback:logs", z.tuple([]), () => collectRedactedLogs());
 }
