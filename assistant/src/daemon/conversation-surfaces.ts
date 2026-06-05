@@ -2035,21 +2035,24 @@ export function buildCompletionSummary(
           : typeof data?.providerKey === "string"
             ? data.providerKey
             : "OAuth";
+    // Strip the verb once so every branch (connected/cancelled/failed/
+    // fallback) is normalized — a displayName like "Connect Gmail" must not
+    // produce "Cancelled Connect Gmail connection".
+    const label = stripConnectVerb(providerLabel);
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
-      const connectedLabel = stripConnectVerb(providerLabel);
       return accountLabel
-        ? `Connected ${connectedLabel}: ${accountLabel}`
-        : `Connected ${connectedLabel}`;
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
-      return `Cancelled ${providerLabel} connection`;
+      return `Cancelled ${label} connection`;
     }
     if (data?.status === "error") {
-      return `${providerLabel} connection failed`;
+      return `${label} connection failed`;
     }
-    return `${providerLabel} connection ${actionId}`;
+    return `${label} connection ${actionId}`;
   }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
@@ -2130,19 +2133,21 @@ function buildUserFacingLabel(
           : typeof data?.providerKey === "string"
             ? data.providerKey
             : "OAuth";
+    // Strip the verb once so every branch is normalized (e.g. a displayName
+    // like "Connect Gmail" must not produce "Connect Gmail connection failed").
+    const label = stripConnectVerb(providerLabel);
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
-      const connectedLabel = stripConnectVerb(providerLabel);
       return accountLabel
-        ? `Connected ${connectedLabel}: ${accountLabel}`
-        : `Connected ${connectedLabel}`;
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
       return "Cancelled";
     }
     if (data?.status === "error") {
-      return `${providerLabel} connection failed`;
+      return `${label} connection failed`;
     }
     return `Selected: ${actionId}`;
   }

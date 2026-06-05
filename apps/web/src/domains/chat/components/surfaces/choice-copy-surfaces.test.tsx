@@ -263,6 +263,13 @@ describe("OAuthConnectSurface", () => {
 
     expect(getByText("Connect Gmail")).toBeTruthy();
     expect(queryByText("Connect Connect Gmail")).toBeNull();
+    // The description fallback resolves through the same normalized label,
+    // so it must not double the verb either.
+    expect(
+      getByText("Connect Gmail so I can use it for this task.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
   });
 
   test("lets the user cancel without opening OAuth", () => {
