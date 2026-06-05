@@ -190,10 +190,22 @@ export function KeyboardShortcutsPage() {
 
   const resetHotkey = useCallback(
     (key: string) => {
+      // Reverting to the compiled default is still a write, so it must clear the
+      // same conflict bar as recording: a default freed by rebinding this
+      // command may have since been claimed by another, and writing `null`
+      // blindly would resurrect that accelerator and shadow the other binding.
+      const fallback =
+        catalog.find((entry) => entry.key === key)?.defaultAccelerator ?? "";
+      const clash = findConflict(catalog, key, fallback);
+      if (clash !== null) {
+        setRecordingKey(null);
+        setConflict({ key, label: clash.label });
+        return;
+      }
       stopRecording();
       void setHotkey(key, null).then(refresh);
     },
-    [refresh, stopRecording],
+    [catalog, refresh, stopRecording],
   );
 
   const removeHotkey = useCallback(
@@ -237,8 +249,10 @@ export function KeyboardShortcutsPage() {
 
       {conflict !== null && (
         <Notice tone="warning">
-          That shortcut is already used by {conflict.label}. Pick a different
-          combination, or press Esc to cancel.
+          That shortcut is already used by {conflict.label}.{" "}
+          {recordingKey !== null
+            ? "Pick a different combination, or press Esc to cancel."
+            : "Remove or change that binding before resetting."}
         </Notice>
       )}
 

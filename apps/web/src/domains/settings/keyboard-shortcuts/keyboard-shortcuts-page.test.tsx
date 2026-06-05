@@ -23,11 +23,15 @@ const hotkey = (
   accelerator: string,
   override: string | null = null,
   rebindable = true,
+  // Defaults to the effective accelerator, matching the no-override case where
+  // the compiled default and the effective binding coincide. Pass explicitly to
+  // model a command whose default differs from its current binding.
+  defaultAccelerator = accelerator,
 ): ResolvedHotkey => ({
   key,
   label,
   scope,
-  defaultAccelerator: scope === "global" ? "CmdOrCtrl+Shift+G" : "CmdOrCtrl+N",
+  defaultAccelerator,
   override,
   accelerator,
   rebindable,
@@ -139,6 +143,39 @@ describe("KeyboardShortcutsPage", () => {
     fireEvent.click(await screen.findByLabelText("Reset Home to default"));
 
     expect(setHotkey).toHaveBeenCalledWith("home", null);
+  });
+
+  test("blocks a reset whose default is now used by another command", async () => {
+    // Home was moved off its default, and that freed default was since claimed
+    // by New chat. Resetting Home must not resurrect the now-occupied default
+    // (which would leave both commands bound to it), the same guard recording
+    // applies.
+    catalog = [
+      hotkey(
+        "home",
+        "Home",
+        "menu",
+        "CmdOrCtrl+Alt+J",
+        "CmdOrCtrl+Alt+J",
+        true,
+        "CmdOrCtrl+Alt+H",
+      ),
+      hotkey(
+        "newConversation",
+        "New chat",
+        "menu",
+        "CmdOrCtrl+Alt+H",
+        "CmdOrCtrl+Alt+H",
+      ),
+    ];
+
+    render(<KeyboardShortcutsPage />);
+    fireEvent.click(await screen.findByLabelText("Reset Home to default"));
+
+    expect(setHotkey).not.toHaveBeenCalled();
+    expect(
+      screen.getAllByText(/already used by New chat/i).length,
+    ).toBeGreaterThan(0);
   });
 
   test("Remove disables a binding with an empty string", async () => {
