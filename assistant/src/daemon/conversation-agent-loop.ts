@@ -7,8 +7,6 @@
  * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
-import { join } from "node:path";
-
 import { v4 as uuid } from "uuid";
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
@@ -85,6 +83,7 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   readMemoryV2StaticContent,
   shouldExposePersonalMemory,
@@ -117,7 +116,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -1373,7 +1371,7 @@ export async function runAgentLoopImpl(
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
     // the updated conversation history.
-    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
+    const pkbRoot = pkbActive ? getPkbRoot() : undefined;
     const pkbAutoInjectList = pkbRoot
       ? getPkbAutoInjectList(pkbRoot)
       : undefined;
@@ -1468,7 +1466,6 @@ export async function runAgentLoopImpl(
       pkbSparseVector,
       pkbConversation,
       pkbAutoInjectList,
-      pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
       nowScratchpad,

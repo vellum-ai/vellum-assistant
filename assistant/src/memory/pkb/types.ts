@@ -5,7 +5,21 @@
  * index writer) land in later PRs.
  */
 
+import { join } from "node:path";
+
+import { getWorkspaceDir } from "../../util/platform.js";
+
 export const PKB_TARGET_TYPE = "pkb_file" as const;
+
+/**
+ * Absolute path to the workspace's PKB directory (`<workspace>/pkb`). PKB is
+ * a workspace-shared resource with a single on-disk location, so this is the
+ * canonical way to resolve its root rather than re-joining the workspace dir
+ * at each call site.
+ */
+export function getPkbRoot(): string {
+  return join(getWorkspaceDir(), "pkb");
+}
 
 /**
  * Sentinel `memory_scope_id` under which ALL PKB points are indexed and
