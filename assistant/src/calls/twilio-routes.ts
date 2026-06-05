@@ -5,14 +5,13 @@
  *   media-stream transport (`<Connect><Stream>`) — the daemon performs STT, TTS,
  *   the interactive setup sub-flows, and the credential preflight server-side.
  * - handleStatusCallback: call status updates (ringing, in-progress, completed, etc.)
- * - handleConnectAction: called when the relay connection ends.
  *
  * ## Transport
  *
  * EVERY phone call now routes through the media-stream transport, regardless of
  * `services.stt.provider` or the `routeSetup` outcome: Twilio opens a WebSocket
  * to the daemon, which transcribes raw audio, drives all setup sub-flows, and
- * synthesizes replies. The legacy ConversationRelay TwiML path has been removed.
+ * synthesizes replies.
  *
  * The ONE exception is the inbound TTS-unavailable case: when neither the
  * configured TTS provider nor the verified-ready default can synthesize audio,
@@ -610,21 +609,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   return new Response(null, { status: 200 });
 }
 
-/**
- * Called when the ConversationRelay connection ends.
- * Returns empty TwiML to acknowledge.
- */
-export async function handleConnectAction(_req: Request): Promise<Response> {
-  log.info("ConversationRelay connect-action callback received");
-  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
-}
-
 // ── Transport-agnostic internal route handlers ───────────────────────
-
-const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
 
 /**
  * Internal voice-webhook handler for gateway→runtime forwarding.
@@ -662,12 +647,4 @@ export function handleInternalStatusCallback({
   const { params = {} } = body as { params?: Record<string, string> };
   processStatusCallback(params);
   return new RouteResponse(null, {});
-}
-
-/**
- * Internal connect-action handler for gateway→runtime forwarding.
- */
-export function handleInternalConnectAction(): RouteResponse {
-  log.info("ConversationRelay connect-action callback received");
-  return new RouteResponse(EMPTY_TWIML, TWIML_HEADERS);
 }

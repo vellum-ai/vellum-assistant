@@ -779,10 +779,10 @@ export class CallController {
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
-    // tells ConversationRelay to start listening — it does NOT trigger TTS
-    // synthesis.  This is required even when a synthesized provider handled
-    // all audio playback, because ConversationRelay still needs the
-    // end-of-turn signal to transition from "assistant speaking" to
+    // marks end-of-turn on the transport so it starts listening — it does
+    // NOT trigger TTS synthesis.  This is required even when a synthesized
+    // provider handled all audio playback, because the transport still needs
+    // the end-of-turn signal to transition from "assistant speaking" to
     // "caller speaking" state.
     this.transport.sendTextToken("", true);
 
@@ -909,9 +909,10 @@ export class CallController {
           "TTS synthesis failed — falling back to native token TTS",
         );
         // If synthesis fails before any audio has started, degrade to
-        // token-based speech on ConversationRelay so the caller still
-        // hears a response instead of silence. This fallback is only
-        // used for providers whose catalog entry allows native fallback.
+        // token-based speech for transports that accept text tokens
+        // (requiresWavAudio === false) so the caller still hears a response
+        // instead of silence. This fallback is only used for providers whose
+        // catalog entry allows native fallback.
         if (!playUrlSent && !this.transport.requiresWavAudio) {
           this.transport.sendTextToken(text, false);
         }

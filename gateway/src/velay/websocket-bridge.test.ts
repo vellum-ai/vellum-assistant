@@ -39,7 +39,7 @@ function makeOpenFrame(
   return {
     type: VELAY_FRAME_TYPES.websocketOpen,
     connection_id: "conn-123",
-    path: "/webhooks/twilio/relay",
+    path: "/webhooks/twilio/media-stream",
     raw_query: "callSessionId=session-123&token=edge-token",
     headers: {},
     ...overrides,
@@ -78,7 +78,7 @@ describe("VelayWebSocketBridge", () => {
       { headers: Record<string, string>; protocols?: string[] },
     ];
     expect(url).toBe(
-      "ws://127.0.0.1:7830/webhooks/twilio/relay?callSessionId=session-123&token=edge-token",
+      "ws://127.0.0.1:7830/webhooks/twilio/media-stream?callSessionId=session-123&token=edge-token",
     );
     expect(options.protocols).toEqual(["twilio-relay"]);
     expect(options.headers.authorization).toBe("Bearer edge-token");
@@ -322,7 +322,7 @@ describe("VelayWebSocketBridge", () => {
   test("sends websocket_open_error without connecting for unsafe paths", () => {
     bridge.open(
       makeOpenFrame({
-        path: "https://example.com/webhooks/twilio/relay",
+        path: "https://example.com/webhooks/twilio/media-stream",
       }),
     );
 

@@ -28,7 +28,6 @@
  */
 
 import {
-  buildTwilioConnectActionUrl,
   buildTwilioMediaStreamUrl,
   buildTwilioStatusWebhookUrl,
   buildTwilioVoiceWebhookUrl,
@@ -102,16 +101,9 @@ export function getTwilioStatusCallbackUrl(config: IngressConfig): string {
 }
 
 /**
- * Build the Twilio connect-action callback URL.
- */
-export function getTwilioConnectActionUrl(config: IngressConfig): string {
-  return buildTwilioConnectActionUrl(getPublicBaseUrl(config));
-}
-
-/**
  * Build the Twilio media-stream WebSocket URL.
- * Used for the `<Stream>` TwiML path when the STT provider requires
- * custom server-side transcription (e.g. OpenAI Whisper).
+ * Used for the `<Connect><Stream>` TwiML path that every phone call takes:
+ * Twilio streams raw call audio to the daemon, which performs STT and TTS.
  * Converts http:// → ws:// and https:// → wss://.
  */
 export function getTwilioMediaStreamUrl(config: IngressConfig): string {

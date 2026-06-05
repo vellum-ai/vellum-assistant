@@ -171,10 +171,10 @@ async function synthesizeAndPlay(
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
-    // tells ConversationRelay to start listening — it does NOT trigger TTS
-    // synthesis.  This is required even when a synthesized provider handled
-    // all audio playback, because ConversationRelay still needs the
-    // end-of-turn signal to transition from "assistant speaking" to
+    // marks end-of-turn on the transport so it starts listening — it does
+    // NOT trigger TTS synthesis.  This is required even when a synthesized
+    // provider handled all audio playback, because the transport still needs
+    // the end-of-turn signal to transition from "assistant speaking" to
     // "caller speaking" state.
     relay.sendTextToken("", true);
   } catch (err) {
@@ -198,9 +198,9 @@ async function synthesizeAndPlay(
         { err, provider: provider.id, errName, errCode },
         "System prompt TTS synthesis failed — native fallback disabled for this provider",
       );
-      // Send the end-of-turn signal so ConversationRelay transitions from
+      // Send the end-of-turn signal so the transport transitions from
       // "assistant speaking" to "caller speaking" state. Without this, the
-      // relay hangs waiting for the prompt to complete and the caller
+      // transport hangs waiting for the prompt to complete and the caller
       // cannot interact.
       relay.sendTextToken("", true);
       return;

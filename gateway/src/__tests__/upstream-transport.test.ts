@@ -163,13 +163,13 @@ describe("WS upstream URL construction via assistant-client", () => {
   test("twilio-relay builds correct upstream WS URL with callSessionId", () => {
     const result = buildWsUpstreamUrl({
       baseUrl,
-      path: "/v1/calls/relay",
+      path: "/v1/calls/media-stream",
       serviceToken: "svc-jwt-token",
       extraParams: { callSessionId: "call-session-123" },
     });
 
     const url = new URL(result.url);
-    expect(url.pathname).toBe("/v1/calls/relay");
+    expect(url.pathname).toBe("/v1/calls/media-stream");
     expect(url.searchParams.get("token")).toBe("svc-jwt-token");
     expect(url.searchParams.get("callSessionId")).toBe("call-session-123");
   });
@@ -235,7 +235,7 @@ describe("WS upstream log-safe URL", () => {
       path: string;
       params: Record<string, string>;
     }> = [
-      { path: "/v1/calls/relay", params: { callSessionId: "c1" } },
+      { path: "/v1/calls/media-stream", params: { callSessionId: "c1" } },
       { path: "/v1/calls/media-stream", params: { callSessionId: "m1" } },
       { path: "/v1/stt/stream", params: { mimeType: "audio/webm" } },
     ];

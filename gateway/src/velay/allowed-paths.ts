@@ -13,7 +13,7 @@
  * depending on the route shape:
  *
  *   - `^/webhooks/` — every webhook handler under `/webhooks/*` (Twilio voice,
- *     status, connect-action, voice-verify, Telegram, WhatsApp, email, Resend,
+ *     status, voice-verify, media-stream, Telegram, WhatsApp, email, Resend,
  *     Mailgun, OAuth callback). Provider-side signature validation is
  *     performed by the per-route handlers in the gateway runtime, not by
  *     Velay.
@@ -48,6 +48,5 @@ export const VELAY_ALLOWED_PATHS_HEADER = "X-Vellum-Velay-Allowed-Paths";
  * module load — the allowlist is static for the lifetime of the gateway
  * process.
  */
-export const VELAY_ALLOWED_PATHS_HEADER_VALUE = JSON.stringify(
-  VELAY_ALLOWED_PATHS,
-);
+export const VELAY_ALLOWED_PATHS_HEADER_VALUE =
+  JSON.stringify(VELAY_ALLOWED_PATHS);
