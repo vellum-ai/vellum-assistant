@@ -74,10 +74,17 @@ const makeWindow = (options: Record<string, unknown>): StubWindow => {
   return win;
 };
 
-const fromPartitionMock = mock((_partition: string, _opts?: { cache: boolean }) => ({}));
+const sessionProtocolHandleMock = mock(
+  (_scheme: string, _handler: unknown) => undefined,
+);
+const fromPartitionMock = mock(
+  (_partition: string, _opts?: { cache: boolean }) => ({
+    protocol: { handle: sessionProtocolHandleMock },
+  }),
+);
 
 mock.module("electron", () => ({
-  app: { isPackaged: false },
+  app: { isPackaged: false, getPath: () => "/fake/user-data" },
   session: { fromPartition: fromPartitionMock },
   BrowserWindow: class {
     constructor(options: Record<string, unknown>) {
@@ -86,6 +93,14 @@ mock.module("electron", () => ({
       Object.assign(this, win);
     }
   },
+}));
+
+const createVellumAppHandlerMock = mock(
+  (_bundlesRoot: string) => async (_req: Request) => new Response("ok"),
+);
+
+mock.module("./vellumapp-protocol", () => ({
+  createVellumAppHandler: createVellumAppHandlerMock,
 }));
 
 const {
@@ -104,6 +119,8 @@ beforeEach(() => {
   closeMock.mockClear();
   loadURLMock.mockClear();
   fromPartitionMock.mockClear();
+  sessionProtocolHandleMock.mockClear();
+  createVellumAppHandlerMock.mockClear();
 });
 
 afterEach(() => {
@@ -139,6 +156,12 @@ describe("openBundleWindow", () => {
     expect(prefs.sandbox).toBe(true);
     expect(prefs.nodeIntegration).toBe(false);
     expect(prefs.preload).toBeUndefined();
+  });
+
+  test("registers the vellumapp:// handler on the bundle session", () => {
+    openBundleWindow(UUID, "index.html", "Test Bundle");
+    expect(sessionProtocolHandleMock).toHaveBeenCalledTimes(1);
+    expect(sessionProtocolHandleMock.mock.calls[0]?.[0]).toBe("vellumapp");
   });
 
   test("loads the correct vellumapp:// URL", () => {
