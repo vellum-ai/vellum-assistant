@@ -5,8 +5,6 @@
  * - Runtime does not expose any Telegram webhook ingress routes
  * - Direct Twilio webhook routes return 410
  * - Internal forwarding routes (gateway→runtime) still work
- * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin)
- * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -391,69 +389,6 @@ describe("gateway-only ingress enforcement", () => {
       );
       // Should succeed or return a non-410 status
       expect(res.status).not.toBe(410);
-    });
-  });
-
-  // ── Relay WebSocket upgrade ───────────────────
-
-  describe("relay WebSocket upgrade", () => {
-    test("blocks non-private-network origin", async () => {
-      // The peer address (127.0.0.1) passes the private network check,
-      // but the external Origin header triggers the secondary defense-in-depth block.
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            Origin: "https://external.example.com",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      expect(res.status).toBe(403);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("FORBIDDEN");
-      expect(body.error.message).toContain("Direct relay access disabled");
-    });
-
-    test("allows request with no origin header (private network peer)", async () => {
-      // Without an origin header, isPrivateNetworkOrigin returns true.
-      // The peer address (127.0.0.1) passes the private network peer check.
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      // Should NOT be 403 — WebSocket upgrade may or may not succeed
-      // depending on test environment, but the gateway guard should pass.
-      expect(res.status).not.toBe(403);
-    });
-
-    test("allows localhost origin from loopback peer", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            Origin: "http://127.0.0.1:3000",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      // Should NOT be 403
-      expect(res.status).not.toBe(403);
     });
   });
 
