@@ -174,14 +174,14 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
       "status query param is required and must be 'completed'",
     );
   }
-  // Exclude sessions currently active in memory: a resumed session reuses
-  // its original id, and its history row keeps the old terminal status
-  // until the next terminal upsert - a status-only delete would remove the
-  // row out from under the live session. Mirrors the 409 guard on the
-  // single-id delete route.
-  const activeIds = (
-    getAcpSessionManager().getStatus() as AcpSessionState[]
-  ).map((s) => s.id);
+  // Exclude sessions currently active in memory AND ids with a resume in
+  // flight (reserved but not yet registered): a resumed session reuses its
+  // original id, and its history row keeps the old terminal status until
+  // the next terminal upsert - a status-only delete would remove the row
+  // out from under the live (or resuming) session, and the later terminal
+  // upsert would resurrect it. Mirrors the 409 guard on the single-id
+  // delete route.
+  const activeIds = getAcpSessionManager().getActiveAndPendingIds();
   const terminalFilter = inArray(
     acpSessionHistory.status,
     TERMINAL_SESSION_STATUSES,
@@ -201,9 +201,10 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
 
 function deleteSession({ pathParams }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
+  const manager = getAcpSessionManager();
 
   try {
-    const state = getAcpSessionManager().getStatus(id);
+    const state = manager.getStatus(id);
     if (
       !Array.isArray(state) &&
       (state.status === "running" || state.status === "initializing")
@@ -214,7 +215,16 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
     }
   } catch (err) {
     if (err instanceof ConflictError) throw err;
-    // Not in memory — fall through to the (idempotent) DB delete.
+    // Not registered in memory, but a resume may be in flight (id reserved
+    // while awaiting env preparation). Its history row must survive until
+    // the resume lands - the later terminal upsert would resurrect a
+    // deleted row.
+    if (manager.getActiveAndPendingIds().includes(id)) {
+      throw new ConflictError(
+        `ACP session "${id}" has a resume in flight. Wait for it to finish before deleting.`,
+      );
+    }
+    // Otherwise fall through to the (idempotent) DB delete.
   }
 
   getDb().delete(acpSessionHistory).where(eq(acpSessionHistory.id, id)).run();
@@ -364,7 +374,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Remove every terminal-state row (completed/failed/cancelled) from " +
       "the persisted acp_session_history table. Rows whose session is " +
-      "currently active in memory (e.g. resumed) are excluded.",
+      "currently active in memory (e.g. resumed) or has a resume in " +
+      "flight are excluded.",
     tags: ["acp"],
     queryParams: [
       {
@@ -390,7 +401,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Delete ACP session from history",
     description:
       "Remove a persisted ACP session row. Rejects with 409 when the " +
-      "session is still active in memory; idempotent for unknown ids.",
+      "session is still active in memory or has a resume in flight; " +
+      "idempotent for unknown ids.",
     tags: ["acp"],
     responseBody: z.object({
       deleted: z.boolean(),
