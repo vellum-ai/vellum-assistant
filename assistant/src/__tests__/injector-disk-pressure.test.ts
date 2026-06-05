@@ -8,7 +8,7 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/injectors/register.js";
+} from "../plugins/defaults/memory-retrieval/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 

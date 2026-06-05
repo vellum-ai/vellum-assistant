@@ -585,7 +585,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/injectors/register.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
 // placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
