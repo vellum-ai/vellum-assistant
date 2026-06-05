@@ -29,8 +29,7 @@ import type {
  * - `"media-stream-custom"` — a `<Stream>` media-stream is opened and the
  *   daemon transcribes audio server-side via the provider's STT pipeline.
  *
- * All telephony audio flows through this single strategy; the legacy
- * Twilio-native ConversationRelay path has been removed.
+ * All telephony audio flows through this single strategy.
  */
 type TelephonyStrategyKind = "media-stream-custom";
 

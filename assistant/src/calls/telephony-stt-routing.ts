@@ -9,8 +9,7 @@
  *
  * - **`media-stream-custom`** — a `<Stream>` media-stream is opened and the
  *   daemon transcribes audio server-side via the provider's STT pipeline.
- *   Every STT provider routes through this path; the legacy Twilio-native
- *   ConversationRelay strategy has been removed.
+ *   Every STT provider routes through this path.
  *
  * Strategy selection is driven entirely by the provider catalog's
  * `telephonyRouting` metadata — this module contains no hardcoded
@@ -36,8 +35,8 @@ export interface MediaStreamCustomStrategy {
 }
 
 /**
- * Telephony setup strategy. Currently a single variant; kept as a named
- * type so future strategies can re-introduce a discriminated union.
+ * Telephony setup strategy. A single variant, expressed as a named type so
+ * additional strategies can extend it into a discriminated union.
  */
 export type TelephonySttStrategy = MediaStreamCustomStrategy;
 
