@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import { openAboutWindow } from "./about";
 import {
+  acceleratorOption,
   dispatchToFocused,
-  resolveAccelerator,
   type VellumCommand,
 } from "./commands";
 import { handle } from "./ipc";
@@ -25,17 +25,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
   const fileItem = (
     label: string,
     command: VellumCommand,
-  ): MenuItemConstructorOptions => {
-    const accelerator = resolveAccelerator(command.kind);
-    return {
-      label,
-      // Omit the accelerator entirely when the user disabled the binding (an
-      // empty-string override); Electron treats a missing `accelerator` as "no
-      // shortcut" whereas an empty string is not a valid accelerator.
-      ...(accelerator ? { accelerator } : {}),
-      click: () => dispatchToFocused(command),
-    };
-  };
+  ): MenuItemConstructorOptions => ({
+    label,
+    ...acceleratorOption(command.kind),
+    click: () => dispatchToFocused(command),
+  });
 
   return [
     {
@@ -50,7 +44,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         {
           label: "Settings\u2026",
-          accelerator: resolveAccelerator("openSettings"),
+          ...acceleratorOption("openSettings"),
           enabled: !readOnboardingActive(),
           click: () => dispatchToFocused({ kind: "openSettings" }),
         },
@@ -95,7 +89,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         {
           label: "Find\u2026",
-          accelerator: resolveAccelerator("find"),
+          ...acceleratorOption("find"),
           click: () => dispatchToFocused({ kind: "find" }),
         },
       ],

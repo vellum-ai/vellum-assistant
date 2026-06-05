@@ -85,6 +85,22 @@ export const resolveAccelerator = (kind: VellumCommandKind): string => {
 };
 
 /**
+ * Menu/tray template fragment carrying a command's accelerator, or no
+ * `accelerator` key at all when the binding is disabled (an empty-string
+ * override, or a command with no compiled default). Electron treats a missing
+ * `accelerator` as "no shortcut", whereas `accelerator: ""` is not a valid
+ * accelerator — passing it to `Menu.buildFromTemplate` throws. Every menu and
+ * tray item builds its accelerator through this helper so the empty-string
+ * case is handled in exactly one place.
+ */
+export const acceleratorOption = (
+  kind: VellumCommandKind,
+): { accelerator?: string } => {
+  const accelerator = resolveAccelerator(kind);
+  return accelerator ? { accelerator } : {};
+};
+
+/**
  * Send a command to whichever BrowserWindow currently has focus, falling
  * back to the first window if none is focused (which happens when a menu
  * item is clicked from the menu bar while the app is in the background but

@@ -69,7 +69,7 @@ beforeEach(() => {
 describe("resolveHotkeyCatalog", () => {
   test("returns every rebindable command with its compiled default", () => {
     const catalog = resolveHotkeyCatalog();
-    expect(catalog.map((c) => c.key)).toEqual([
+    expect(catalog.filter((c) => c.rebindable).map((c) => c.key)).toEqual([
       "globalHotkey",
       "quickInput",
       "newConversation",
@@ -86,6 +86,19 @@ describe("resolveHotkeyCatalog", () => {
     expect(newConversation?.defaultAccelerator).toBe("CmdOrCtrl+N");
     expect(newConversation?.override).toBeNull();
     expect(newConversation?.accelerator).toBe("CmdOrCtrl+N");
+    expect(newConversation?.rebindable).toBe(true);
+  });
+
+  test("includes reserved, non-rebindable accelerators for conflict checks", () => {
+    const find = resolveHotkeyCatalog().find((c) => c.key === "find");
+    expect(find?.rebindable).toBe(false);
+    expect(find?.accelerator).toBe("CmdOrCtrl+F");
+  });
+
+  test("drops a reserved command whose accelerator the user disabled", () => {
+    store["hotkeys"] = { find: "" };
+    const catalog = resolveHotkeyCatalog();
+    expect(catalog.some((c) => c.key === "find")).toBe(false);
   });
 
   test("reflects a custom override in the effective accelerator", () => {

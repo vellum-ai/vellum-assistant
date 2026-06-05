@@ -94,9 +94,11 @@ export const eventToAccelerator = (event: KeyboardEvent): string | null => {
 
 /**
  * The first command (other than `excludeKey`) already bound to `accelerator`,
- * or `null` when the accelerator is free. Disabled bindings (`accelerator`
- * resolved to `""`) never conflict. Used to block a save that would shadow
- * another shortcut.
+ * or `null` when the accelerator is free. The catalog includes reserved,
+ * non-rebindable commands (e.g. Find, Settings), so this also blocks binding
+ * over an accelerator the app reserves for a fixed menu item. Disabled bindings
+ * (`accelerator` resolved to `""`) never conflict. Used to block a save that
+ * would shadow another shortcut.
  */
 export const findConflict = (
   catalog: ResolvedHotkey[],

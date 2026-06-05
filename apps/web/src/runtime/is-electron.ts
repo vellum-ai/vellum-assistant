@@ -70,6 +70,12 @@ export interface ResolvedHotkey {
   defaultAccelerator: string;
   override: string | null;
   accelerator: string;
+  /**
+   * Whether the user can rebind this command. `false` entries are reserved
+   * accelerators (e.g. Find, Settings) carried only so the recorder can flag
+   * conflicts against them; the page filters them out of the rendered rows.
+   */
+  rebindable: boolean;
 }
 
 /**

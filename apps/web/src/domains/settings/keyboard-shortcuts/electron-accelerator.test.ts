@@ -22,13 +22,18 @@ const keydown = (
     ...init,
   }) as KeyboardEvent;
 
-const hotkey = (key: string, accelerator: string): ResolvedHotkey => ({
+const hotkey = (
+  key: string,
+  accelerator: string,
+  rebindable = true,
+): ResolvedHotkey => ({
   key,
   label: key,
   scope: "menu",
   defaultAccelerator: accelerator,
   override: null,
   accelerator,
+  rebindable,
 });
 
 describe("eventToAccelerator", () => {
@@ -96,5 +101,12 @@ describe("findConflict", () => {
 
   it("never reports a conflict for a disabled binding", () => {
     expect(findConflict(catalog, "home", "")).toBeNull();
+  });
+
+  it("flags a collision with a reserved, non-rebindable command", () => {
+    const withReserved = [...catalog, hotkey("find", "CmdOrCtrl+F", false)];
+    const clash = findConflict(withReserved, "home", "CmdOrCtrl+F");
+    expect(clash?.key).toBe("find");
+    expect(clash?.rebindable).toBe(false);
   });
 });

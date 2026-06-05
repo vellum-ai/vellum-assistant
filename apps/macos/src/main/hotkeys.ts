@@ -52,10 +52,44 @@ const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
 
 const CATALOG_KEYS = new Set(HOTKEY_CATALOG.map((command) => command.key));
 
+/**
+ * Commands the app binds but does not expose for rebinding. Their accelerators
+ * are still "taken", so the recorder must treat them as conflicts — otherwise a
+ * user could bind a rebindable command to, say, Find's chord and silently break
+ * one of the two menu items that would then share it. They are not in
+ * `HOTKEY_CATALOG` (so they render no row and `writeHotkey` rejects writes to
+ * them); they ride along in the resolved catalog flagged `rebindable: false`
+ * purely so conflict detection sees the full set of bound accelerators. Labels
+ * match the application menu so the conflict message names a command the user
+ * recognizes.
+ */
+const RESERVED_COMMANDS: readonly HotkeyCommand[] = [
+  { key: "find", label: "Find", scope: "menu" },
+  { key: "openSettings", label: "Settings", scope: "menu" },
+  { key: "commandPalette", label: "Command Palette", scope: "menu" },
+];
+
 const defaultAcceleratorFor = (command: HotkeyCommand): string =>
   command.scope === "global"
     ? (GLOBAL_SHORTCUT_DEFAULTS[command.key] ?? "")
     : (DEFAULT_ACCELERATORS[command.key as VellumCommandKind] ?? "");
+
+const resolveCommand = (
+  command: HotkeyCommand,
+  rebindable: boolean,
+): ResolvedHotkey => {
+  const override = readHotkeyOverride(command.key);
+  const defaultAccelerator = defaultAcceleratorFor(command);
+  return {
+    key: command.key,
+    label: command.label,
+    scope: command.scope,
+    defaultAccelerator,
+    override,
+    accelerator: override ?? defaultAccelerator,
+    rebindable,
+  };
+};
 
 /**
  * A catalog command resolved against the current settings: the compiled
@@ -71,21 +105,26 @@ export interface ResolvedHotkey {
   defaultAccelerator: string;
   override: string | null;
   accelerator: string;
+  /**
+   * Whether the user can rebind this command from the settings UI. `false`
+   * entries are reserved accelerators included only so the recorder can detect
+   * conflicts against them; the page does not render a row for them.
+   */
+  rebindable: boolean;
 }
 
-export const resolveHotkeyCatalog = (): ResolvedHotkey[] =>
-  HOTKEY_CATALOG.map((command) => {
-    const override = readHotkeyOverride(command.key);
-    const defaultAccelerator = defaultAcceleratorFor(command);
-    return {
-      key: command.key,
-      label: command.label,
-      scope: command.scope,
-      defaultAccelerator,
-      override,
-      accelerator: override ?? defaultAccelerator,
-    };
-  });
+/**
+ * The resolved catalog: every rebindable command followed by the reserved
+ * commands whose accelerator is currently bound (a non-empty resolved value).
+ * Disabled reserved bindings are dropped — an empty accelerator can never
+ * conflict, so carrying it would only add noise.
+ */
+export const resolveHotkeyCatalog = (): ResolvedHotkey[] => [
+  ...HOTKEY_CATALOG.map((command) => resolveCommand(command, true)),
+  ...RESERVED_COMMANDS.map((command) => resolveCommand(command, false)).filter(
+    (entry) => entry.accelerator !== "",
+  ),
+];
 
 /**
  * Persist a single hotkey override. `null` clears the override (reverting to

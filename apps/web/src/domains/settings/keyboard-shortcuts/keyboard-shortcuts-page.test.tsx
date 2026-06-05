@@ -22,6 +22,7 @@ const hotkey = (
   scope: ResolvedHotkey["scope"],
   accelerator: string,
   override: string | null = null,
+  rebindable = true,
 ): ResolvedHotkey => ({
   key,
   label,
@@ -29,6 +30,7 @@ const hotkey = (
   defaultAccelerator: scope === "global" ? "CmdOrCtrl+Shift+G" : "CmdOrCtrl+N",
   override,
   accelerator,
+  rebindable,
 });
 
 let catalog: ResolvedHotkey[] = [];
@@ -55,6 +57,8 @@ beforeEach(() => {
     hotkey("globalHotkey", "Open Vellum", "global", "CmdOrCtrl+Shift+G"),
     hotkey("newConversation", "New chat", "menu", "CmdOrCtrl+N"),
     hotkey("home", "Home", "menu", "CmdOrCtrl+Alt+H", "CmdOrCtrl+Alt+H"),
+    // Reserved (non-rebindable) — must not render a row but must block binds.
+    hotkey("find", "Find", "menu", "CmdOrCtrl+F", null, false),
   ];
   getHotkeys.mockClear();
   setHotkey.mockClear();
@@ -99,6 +103,25 @@ describe("KeyboardShortcutsPage", () => {
     expect(setHotkey).not.toHaveBeenCalled();
     // Surfaced both in the page-level Notice and inline under the row.
     expect(screen.getAllByText(/already used by New chat/i).length).toBeGreaterThan(0);
+  });
+
+  test("does not render a row for a reserved command", async () => {
+    render(<KeyboardShortcutsPage />);
+    await screen.findByText("Open Vellum");
+    expect(screen.queryByText("Find")).toBeNull();
+  });
+
+  test("blocks binding over a reserved accelerator", async () => {
+    render(<KeyboardShortcutsPage />);
+    fireEvent.click(await screen.findByLabelText("Record shortcut for Home"));
+
+    // CmdOrCtrl+F is reserved for Find, which the UI does not list as a row.
+    fireEvent.keyDown(document.body, { code: "KeyF", metaKey: true });
+
+    expect(setHotkey).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/already used by Find/i).length).toBeGreaterThan(
+      0,
+    );
   });
 
   test("Escape cancels recording without writing", async () => {

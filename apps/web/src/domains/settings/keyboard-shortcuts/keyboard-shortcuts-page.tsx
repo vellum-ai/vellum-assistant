@@ -204,11 +204,15 @@ export function KeyboardShortcutsPage() {
     [refresh, stopRecording],
   );
 
+  // Only rebindable commands get a row; reserved entries (e.g. Find) ride along
+  // in `catalog` solely so `findConflict` can flag collisions against them.
   const sections = useMemo(
     () =>
       SCOPE_SECTIONS.map((section) => ({
         ...section,
-        commands: catalog.filter((entry) => entry.scope === section.scope),
+        commands: catalog.filter(
+          (entry) => entry.rebindable && entry.scope === section.scope,
+        ),
       })).filter((section) => section.commands.length > 0),
     [catalog],
   );
