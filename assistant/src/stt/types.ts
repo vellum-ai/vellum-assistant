@@ -32,8 +32,7 @@ export type SttProviderId =
  * Describes the provider's native audio-ingestion capability when used in
  * a telephony context. This is a **capability classification** that informs
  * how the daemon transcribes media-stream audio for the provider; all
- * telephony calls route through the media-stream custom path (see
- * `telephony-stt-routing.ts`).
+ * telephony calls route through the media-stream custom path.
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
  *   for low-latency telephony audio (e.g. Deepgram live transcription).

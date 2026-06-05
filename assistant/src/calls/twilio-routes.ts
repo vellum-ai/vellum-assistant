@@ -55,7 +55,7 @@ import {
   resolveTelephonyCredentialReadiness,
   TELEPHONY_SETUP_REQUIRED_MESSAGE,
 } from "./telephony-credential-preflight.js";
-import type { CallSession, CallStatus } from "./types.js";
+import type { CallStatus } from "./types.js";
 
 const log = getLogger("twilio-routes");
 
@@ -297,25 +297,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     }
     throw err;
   }
-}
-
-/**
- * Decide whether an OUTBOUND call needs the local STT + TTS credential
- * preflight to run before dialing.
- *
- * EVERY call now routes through the media-stream transport (`<Connect><Stream>`),
- * where the daemon performs both STT and TTS itself, so the credential preflight
- * is always relevant — this helper is effectively always-true. It is kept as the
- * seam the outbound preflight gate (`call-domain.ts`) calls so that the gate and
- * the real transport decision share one source of truth.
- *
- * (Before PR 11 this gated on the STT routing strategy AND the `routeSetup`
- * outcome, because CR-native STT and interactive CR-fallback flows were served
- * by ConversationRelay and needed no local credentials. With CR routing removed,
- * both conditions collapse to true.)
- */
-export function outboundWillUseMediaStream(_session: CallSession): boolean {
-  return true;
 }
 
 /**

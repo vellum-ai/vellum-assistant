@@ -177,22 +177,6 @@ async function resolveTtsGap(): Promise<TelephonyCredentialGap | null> {
 }
 
 /**
- * Whether the telephony TTS path can produce audible bytes — i.e. the
- * configured provider OR the verified-ready PCM-capable default
- * ({@link DEFAULT_PLAYABLE_TTS_PROVIDER}) is playable. This mirrors
- * {@link resolveTtsGap}: it is playable exactly when that helper finds NO gap.
- *
- * Used by the inbound voice webhook (`buildVoiceWebhookTwiml`) to decide whether
- * the media-stream transport can speak the "setup required" prompt. When TTS is
- * NOT playable, the media-stream `speakSystemPrompt` would synthesize nothing
- * (silent call), so the webhook instead emits a Twilio-native `<Say>` at the
- * TwiML level. STT-missing cases are unaffected — TTS can still speak.
- */
-export async function resolveTelephonyTtsPlayable(): Promise<boolean> {
-  return (await resolveTtsGap()) === null;
-}
-
-/**
  * Map a TTS not-playable reason to the preflight's credential-gap reason.
  *
  * A missing/unknown `services.tts.provider` (the resolver now returns these as
@@ -214,16 +198,6 @@ function ttsReasonToGapReason(
       return "not-playable";
   }
 }
-
-// ---------------------------------------------------------------------------
-// Transport gate
-// ---------------------------------------------------------------------------
-//
-// The outbound transport gate lives in `twilio-routes.ts` as
-// `outboundWillUseMediaStream(session)`, NOT here, because it is the shared seam
-// with the transport decision `buildVoiceWebhookTwiml` makes. Now that EVERY
-// call routes through the media-stream transport, that helper is effectively
-// always-true, so the outbound credential preflight runs for every call.
 
 // ---------------------------------------------------------------------------
 // Public API

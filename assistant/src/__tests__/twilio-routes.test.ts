@@ -185,10 +185,10 @@ mock.module("../security/secure-keys.js", () => ({
     return "deleted";
   },
   // Read paths used by the telephony TTS playability check
-  // (resolveTelephonyTtsPlayable → isTtsProviderCredentialAvailable). The
-  // default store is seeded in beforeEach with a usable ElevenLabs key so the
-  // inbound webhook emits <Connect><Stream>; the TTS-missing test clears it to
-  // exercise the <Say> setup-required path.
+  // (resolveTtsGap → isTtsProviderCredentialAvailable). The default store is
+  // seeded in beforeEach with a usable ElevenLabs key so the inbound webhook
+  // emits <Connect><Stream>; the TTS-missing test clears it to exercise the
+  // <Say> setup-required path.
   getSecureKeyAsync: async (key: string) => mockSecureKeyStore[key],
   getProviderKeyAsync: async (provider: string) =>
     mockSecureKeyStore[credentialKey(provider, "api_key")] ??
@@ -340,7 +340,6 @@ import {
   buildWelcomeGreeting,
   handleStatusCallback,
   handleVoiceWebhook,
-  outboundWillUseMediaStream,
 } from "../calls/twilio-routes.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import { getDb } from "../memory/db-connection.js";
@@ -1386,70 +1385,6 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain("<Stream");
       expect(twiml).not.toContain("<Say>");
     });
-  });
-
-  // ── Outbound preflight transport gate ───────────────────────────────
-  // PR 11 flip: every call routes through the media-stream transport, so
-  // `outboundWillUseMediaStream` is effectively always-true and the outbound
-  // credential preflight (call-domain.startCall) runs for EVERY call —
-  // regardless of STT provider or routeSetup outcome.
-
-  describe("outboundWillUseMediaStream (preflight runs for every call)", () => {
-    const cases: Array<{
-      label: string;
-      provider: string;
-      outcome: { action: string; [key: string]: unknown };
-      trustClass: string;
-    }> = [
-      {
-        label: "media-stream-custom STT + normal_call",
-        provider: "openai-whisper",
-        outcome: { action: "normal_call", isInbound: false },
-        trustClass: "guardian",
-      },
-      {
-        label: "media-stream-custom STT + interactive callee_verification",
-        provider: "openai-whisper",
-        outcome: {
-          action: "callee_verification",
-          verificationConfig: { maxAttempts: 3, codeLength: 6 },
-        },
-        trustClass: "guardian",
-      },
-      {
-        label: "media-stream-custom STT + deny",
-        provider: "openai-whisper",
-        outcome: { action: "deny", message: "Not authorized.", logReason: "t" },
-        trustClass: "unknown",
-      },
-      {
-        label: "formerly-CR-native STT (deepgram) + normal_call",
-        provider: "deepgram",
-        outcome: { action: "normal_call", isInbound: false },
-        trustClass: "guardian",
-      },
-    ];
-
-    for (const [
-      i,
-      { label, provider, outcome, trustClass },
-    ] of cases.entries()) {
-      test(`${label} → true (preflight runs)`, () => {
-        mockConfigObj.services.stt.provider = provider as any;
-        mockRouteSetupResult = {
-          outcome,
-          resolved: {
-            assistantId: "self",
-            isInbound: false,
-            otherPartyNumber: "+14155550199",
-            actorTrust: { trustClass, memberRecord: null },
-          },
-        };
-        const session = createTestSession(`conv-gate-${i}`, `CA_gate_${i}`);
-
-        expect(outboundWillUseMediaStream(session)).toBe(true);
-      });
-    }
   });
 
   describe("Twilio control-plane credential and number operations", () => {

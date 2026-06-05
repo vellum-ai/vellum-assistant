@@ -5,10 +5,10 @@
  * and invokes the PR-1 telephony STT capability resolver to transcribe
  * them via the configured `services.stt` provider.
  *
- * This module is **integration-neutral** — it exposes callback hooks
+ * This is the live media-stream transport: it exposes callback hooks
  * (`onSpeechStart`, `onTranscriptFinal`, `onDtmf`, `onStop`) and is
- * not wired to any active call ingress path. A future media-stream
- * call adapter PR will instantiate and connect it.
+ * instantiated by the media-stream call ingress path to transcribe the
+ * `<Connect><Stream>` audio Twilio opens to the daemon.
  *
  * Error handling:
  * - When the telephony resolver returns a non-supported status, the
@@ -33,7 +33,11 @@ import type {
   SttStreamServerFinalEvent,
 } from "../stt/types.js";
 import { getLogger } from "../util/logger.js";
-import { mulawToPcm16, resamplePcm16 } from "./media-stream-audio-transcode.js";
+import {
+  mulawToLinear,
+  mulawToPcm16,
+  resamplePcm16,
+} from "./media-stream-audio-transcode.js";
 import { parseMediaStreamFrame } from "./media-stream-parser.js";
 import type {
   MediaStreamMediaEvent,
@@ -963,34 +967,16 @@ function detectSpeechActivity(base64Payload: string): boolean {
 
   if (raw.length === 0) return false;
 
-  // Compute average absolute linear amplitude from mu-law samples.
+  // Compute average absolute linear amplitude from mu-law samples, using the
+  // canonical G.711 decoder ({@link mulawToLinear}) so VAD energy and STT audio
+  // share one decode of record.
   let totalAmplitude = 0;
   for (let i = 0; i < raw.length; i++) {
-    totalAmplitude += mulawToLinearMagnitude(raw[i]);
+    totalAmplitude += Math.abs(mulawToLinear(raw[i]!));
   }
   const avgAmplitude = totalAmplitude / raw.length;
 
   return avgAmplitude > SPEECH_ENERGY_THRESHOLD;
-}
-
-/**
- * Convert a single mu-law byte to its approximate absolute linear magnitude.
- *
- * mu-law decoding formula (ITU-T G.711):
- * - Bit 7 is the sign bit (0 = positive, 1 = negative).
- * - Bits 6-4 are the exponent (3 bits).
- * - Bits 3-0 are the mantissa (4 bits).
- *
- * The decoded value is: sign * ((mantissa << 1 | 0x21) << exponent) - 0x21
- * We return the absolute value since we only care about energy.
- */
-function mulawToLinearMagnitude(mulawByte: number): number {
-  // mu-law bytes are bitwise-inverted in Twilio's encoding
-  const b = ~mulawByte & 0xff;
-  const exponent = (b >> 4) & 0x07;
-  const mantissa = b & 0x0f;
-  const magnitude = ((mantissa << 1) | 0x21) << exponent;
-  return magnitude - 0x21;
 }
 
 // ---------------------------------------------------------------------------

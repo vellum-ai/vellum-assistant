@@ -68,9 +68,8 @@ export function buildElevenLabsVoiceSpec(config: {
  * no edits to this module required.
  *
  * NOTE: STT provider and speech model are intentionally NOT part of this
- * profile. STT resolution is handled once in the voice webhook route
- * (`twilio-routes.ts`) via `resolveTelephonySttRouting()` to maintain a
- * single point of ownership.
+ * profile. STT audio is transcribed server-side over the media-stream
+ * transport, independent of this TTS-oriented voice-quality profile.
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
