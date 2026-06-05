@@ -22,7 +22,6 @@ import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
-import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 
 export type { PaginatedHistoryResult };
@@ -35,13 +34,8 @@ type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
-  const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
-  const validMessages = rawMessages.filter(
-    (m): m is ConversationMessage =>
-      !!m &&
-      typeof m === "object" &&
-      ((m as ConversationMessage).role === "user" ||
-        (m as ConversationMessage).role === "assistant"),
+  const validMessages = (body?.messages ?? []).filter(
+    (m) => m.role === "user" || m.role === "assistant",
   );
 
   // Map to display messages first so we can correlate ids with subagent

@@ -10,6 +10,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import { ConversationMessageSchema } from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -2587,7 +2588,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      messages: z.array(z.unknown()).describe("Array of message objects"),
+      messages: z
+        .array(ConversationMessageSchema)
+        .describe("Array of message objects"),
       hasMore: z
         .boolean()
         .optional()
