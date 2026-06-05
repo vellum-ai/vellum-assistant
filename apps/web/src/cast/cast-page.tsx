@@ -62,17 +62,20 @@ export function CastPage() {
     return { cols: colsFor(w), rows: rowsFor(h) };
   });
 
-  // Picks (persisted in component state for later beats).
-  const [job, setJob] = useState<JobKey | null>(null);
-  const [jobEdge, setJobEdge] = useState<Edge | null>(null);
-  const [rather, setRather] = useState<RatherKey | null>(null);
+  // Picks (persisted in component state for later beats). Both steps are
+  // multi-select.
+  const [jobs, setJobs] = useState<JobKey[]>([]);
+  const [jobEdges, setJobEdges] = useState<Record<string, Edge>>({});
+  const [rathers, setRathers] = useState<RatherKey[]>([]);
   const [mime, setMime] = useState<MimeState | null>(null);
   const [showCard, setShowCard] = useState(false);
   const tapRef = useRef(0);
-  const timers = useRef<number[]>([]);
-  const clearTimers = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+  const mimeTimer = useRef<number | undefined>(undefined);
+  const cardTimer = useRef<number | undefined>(undefined);
+  const cardScheduled = useRef(false);
+  const clearBeatTimers = () => {
+    clearTimeout(mimeTimer.current);
+    clearTimeout(cardTimer.current);
   };
 
   useEffect(() => {
@@ -84,7 +87,7 @@ export function CastPage() {
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("resize", onResize);
-      clearTimers();
+      clearBeatTimers();
     };
   }, []);
 
@@ -123,48 +126,56 @@ export function CastPage() {
   }
 
   function backToGrid() {
-    clearTimers();
+    clearBeatTimers();
+    cardScheduled.current = false;
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
-    setJob(null);
-    setJobEdge(null);
-    setRather(null);
+    setJobs([]);
+    setJobEdges({});
+    setRathers([]);
     setMime(null);
     setShowCard(false);
   }
 
   function goToRather() {
-    clearTimers();
     setPhase("rather");
   }
 
-  function pickJob(key: JobKey) {
-    clearTimers();
-    setJob(key);
-    setJobEdge(EDGES[tapRef.current % EDGES.length]);
-    tapRef.current += 1;
-    // Auto-advance ~1.2s after a pick (Continue advances immediately).
-    timers.current.push(window.setTimeout(goToRather, 1200));
+  // Beat 3: toggle a job. Each newly-added job keeps a stable fly-in edge so its
+  // prop arcs in once and then stays clustered around the character.
+  function toggleJob(key: JobKey) {
+    setJobs((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    setJobEdges((prev) =>
+      prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
+    );
   }
 
-  function pickRather(key: RatherKey) {
-    clearTimers();
-    setRather(key);
+  // Beat 4: toggle a rather. Adding one plays its mime (transient) and, the
+  // first time, schedules the card.
+  function toggleRather(key: RatherKey) {
+    const has = rathers.includes(key);
+    setRathers((prev) => (has ? prev.filter((k) => k !== key) : [...prev, key]));
+    if (has) return;
     const choice = RATHERS.find((r) => r.key === key)!;
     const nonce = (tapRef.current += 1);
     setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
-    // Mime is temporary (~1.5s); a beat later the card slides up.
-    timers.current.push(window.setTimeout(() => setMime(null), 1500));
-    timers.current.push(window.setTimeout(() => setShowCard(true), 2500));
+    clearTimeout(mimeTimer.current);
+    mimeTimer.current = window.setTimeout(() => setMime(null), 1500);
+    // Card slides up a beat after the FIRST rather pick (scheduled once, so
+    // rapid multi-select doesn't keep pushing it out).
+    if (!cardScheduled.current) {
+      cardScheduled.current = true;
+      cardTimer.current = window.setTimeout(() => setShowCard(true), 2500);
+    }
   }
 
   function answer(a: "yeah" | "not-yet") {
     console.log("[Cast] answer", {
       character: selected?.id,
       name,
-      job,
-      rather,
+      jobs,
+      rathers,
       answer: a,
     });
   }
@@ -231,35 +242,33 @@ export function CastPage() {
           />
         )}
 
-        {/* Beat 3 — what will I be doing for you? */}
+        {/* Beat 3 — what will I be doing for you? (multi-select) */}
         {phase === "job" && selected && (
           <CastJob
             character={selected}
             heroBox={boxes.top}
-            job={job}
-            jobEdge={jobEdge}
-            onPick={pickJob}
+            jobs={jobs}
+            jobEdges={jobEdges}
+            onToggle={toggleJob}
             onContinue={goToRather}
-            onBack={() => {
-              clearTimers();
-              setPhase("focus");
-            }}
+            onBack={() => setPhase("focus")}
           />
         )}
 
-        {/* Beat 4 — rather */}
+        {/* Beat 4 — rather (multi-select) */}
         {phase === "rather" && selected && (
           <CastRather
             character={selected}
             heroBox={boxes.top}
-            job={job}
-            rather={rather}
+            jobs={jobs}
+            rathers={rathers}
             mime={mime}
             showCard={showCard}
-            onPick={pickRather}
+            onToggle={toggleRather}
             onAnswer={answer}
             onBack={() => {
-              clearTimers();
+              clearBeatTimers();
+              cardScheduled.current = false;
               setMime(null);
               setShowCard(false);
               setPhase("job");

@@ -1,32 +1,35 @@
 import { motion } from "motion/react";
 
 import { JOBS, type Edge, type JobKey } from "@/cast/cast-content";
-import { HeroCharacter, type Rect } from "@/cast/cast-hero";
+import { HeroCharacter, type HeldProp, type Rect } from "@/cast/cast-hero";
 import { Tile, TileGrid } from "@/cast/cast-tiles";
 import type { CastCharacter } from "@/cast/cast-roster";
 
 /**
- * Beat 3 — "What will I be doing for you?" The character sits small at top;
- * tapping a job flies its prop in and the character keeps idling with it.
+ * Beat 3 — "What will I be doing for you?" Multi-select: every chosen job's
+ * prop arcs in and clusters around the character, which keeps idling with them.
  */
 export function CastJob({
   character,
   heroBox,
-  job,
-  jobEdge,
-  onPick,
+  jobs,
+  jobEdges,
+  onToggle,
   onContinue,
   onBack,
 }: {
   character: CastCharacter;
   heroBox: Rect;
-  job: JobKey | null;
-  jobEdge: Edge | null;
-  onPick: (key: JobKey) => void;
+  jobs: JobKey[];
+  jobEdges: Record<string, Edge>;
+  onToggle: (key: JobKey) => void;
   onContinue: () => void;
   onBack: () => void;
 }) {
-  const heldProp = job ? (JOBS.find((j) => j.key === job)?.prop ?? null) : null;
+  const heldProps: HeldProp[] = jobs.map((k) => {
+    const idx = JOBS.findIndex((j) => j.key === k);
+    return { key: JOBS[idx].prop, slot: idx, fly: jobEdges[k] ?? null };
+  });
 
   return (
     <motion.div className="cast-beat" style={{ paddingTop: heroBox.top + heroBox.size + 22 }}>
@@ -34,13 +37,7 @@ export function CastJob({
         ‹
       </button>
 
-      <HeroCharacter
-        character={character}
-        box={heroBox}
-        interactive
-        heldProp={heldProp}
-        heldFly={jobEdge}
-      />
+      <HeroCharacter character={character} box={heroBox} interactive heldProps={heldProps} />
 
       <motion.p
         className="cast-beat__prompt"
@@ -57,8 +54,8 @@ export function CastJob({
             key={j.key}
             icon={j.prop}
             label={j.label}
-            active={job === j.key}
-            onClick={() => onPick(j.key)}
+            active={jobs.includes(j.key)}
+            onClick={() => onToggle(j.key)}
           />
         ))}
       </TileGrid>

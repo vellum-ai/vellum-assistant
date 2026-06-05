@@ -19,17 +19,35 @@ export interface MimeState {
   nonce: number; // bump to replay
 }
 
+/** A held job prop and the fixed slot it occupies around the character. */
+export interface HeldProp {
+  key: PropKey;
+  slot: number; // stable index (JOBS order) so props don't reshuffle on removal
+  fly: Edge | null; // fly in from this edge on first mount; null = already there
+}
+
+/** Stable slots ringing the character — one per job, so multiple props cluster
+ * around the dude without overlapping. */
+const HELD_SLOTS: React.CSSProperties[] = [
+  { left: "48%", top: "54%", width: "46%" }, // lower-right
+  { left: "6%", top: "54%", width: "46%" }, // lower-left
+  { left: "64%", top: "26%", width: "42%" }, // right
+  { left: "-6%", top: "26%", width: "42%" }, // left
+  { left: "27%", top: "68%", width: "46%" }, // bottom
+  { left: "60%", top: "-8%", width: "40%" }, // upper-right
+  { left: "0%", top: "-8%", width: "40%" }, // upper-left
+  { left: "30%", top: "-24%", width: "40%" }, // top
+];
+
 /** Off-screen start distance for a flown prop, scaled to the viewport. */
 function flyDistance(): number {
   if (typeof window === "undefined") return 900;
   return Math.hypot(window.innerWidth, window.innerHeight) * 0.55;
 }
 
-/** Placement → CSS box (percent of the hero box) + stacking. */
+/** Mime placement → CSS box (percent of the hero box) + stacking. */
 function placement(place: Placement): { style: React.CSSProperties; z: number } {
   switch (place) {
-    case "held":
-      return { style: { left: "40%", top: "50%", width: "54%" }, z: 3 };
     case "face":
       return { style: { left: "19%", top: "21%", width: "62%" }, z: 5 };
     case "top":
@@ -37,8 +55,7 @@ function placement(place: Placement): { style: React.CSSProperties; z: number } 
     case "front":
       return { style: { left: "22%", top: "48%", width: "56%" }, z: 5 };
     case "back":
-      // a blob can't show a pack literally "on its back", so it sits clearly
-      // beside the character (front-left, clear of the held job prop on the right)
+      // a blob can't show a pack literally "on its back", so it sits beside it
       return { style: { left: "-14%", top: "34%", width: "56%" }, z: 4 };
     default:
       return { style: {}, z: 5 };
@@ -52,14 +69,15 @@ function placement(place: Placement): { style: React.CSSProperties; z: number } 
  */
 function PropFly({
   name,
-  place,
+  style,
+  z,
   from,
 }: {
   name: PropKey;
-  place: Exclude<Placement, "across" | "none">;
+  style: React.CSSProperties;
+  z: number;
   from: Edge | null;
 }) {
-  const { style, z } = placement(place);
   const dist = flyDistance();
   const start = from ? { x: from.dx * dist, y: from.dy * dist, rot: from.rot } : null;
 
@@ -161,16 +179,14 @@ export function HeroCharacter({
   box,
   interactive = false,
   autoReact = false,
-  heldProp = null,
-  heldFly = null,
+  heldProps = [],
   mime = null,
 }: {
   character: CastCharacter;
   box: Rect;
   interactive?: boolean;
   autoReact?: boolean;
-  heldProp?: PropKey | null;
-  heldFly?: Edge | null;
+  heldProps?: HeldProp[];
   mime?: MimeState | null;
 }) {
   const controls = useAnimationControls();
@@ -224,7 +240,13 @@ export function HeroCharacter({
       {/* back-layer mime props (backpack) sit behind the body */}
       <AnimatePresence>
         {m && m.prop && m.place === "back" && (
-          <PropFly key={`mime-${mimeNonce}`} name={m.prop} place="back" from={mime!.edge} />
+          <PropFly
+            key={`mime-${mimeNonce}`}
+            name={m.prop}
+            style={placement("back").style}
+            z={placement("back").z}
+            from={mime!.edge}
+          />
         )}
       </AnimatePresence>
 
@@ -255,11 +277,19 @@ export function HeroCharacter({
         </div>
       </div>
 
-      {/* held job prop (front), hidden while a replacing mime plays */}
+      {/* held job props clustered in stable slots; hidden while a replacing
+          mime (reading) plays */}
       <AnimatePresence>
-        {heldProp && !hideHeld && (
-          <PropFly key={`held-${heldProp}`} name={heldProp} place="held" from={heldFly} />
-        )}
+        {!hideHeld &&
+          heldProps.map((hp) => (
+            <PropFly
+              key={`held-${hp.key}`}
+              name={hp.key}
+              style={HELD_SLOTS[hp.slot % HELD_SLOTS.length]}
+              z={3}
+              from={hp.fly}
+            />
+          ))}
       </AnimatePresence>
 
       {/* front-layer mimes */}
@@ -268,7 +298,8 @@ export function HeroCharacter({
           <PropFly
             key={`mime-${mimeNonce}`}
             name={m.prop}
-            place={m.place as "face" | "top" | "front"}
+            style={placement(m.place).style}
+            z={placement(m.place).z}
             from={mime!.edge}
           />
         )}

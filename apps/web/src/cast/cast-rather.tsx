@@ -1,37 +1,40 @@
 import { AnimatePresence, motion } from "motion/react";
 
 import { JOBS, RATHERS, type JobKey, type RatherKey } from "@/cast/cast-content";
-import { HeroCharacter, type MimeState, type Rect } from "@/cast/cast-hero";
+import { HeroCharacter, type HeldProp, type MimeState, type Rect } from "@/cast/cast-hero";
 import { Tile, TileGrid } from "@/cast/cast-tiles";
 import type { CastCharacter } from "@/cast/cast-roster";
 
 /**
- * Beat 4 — "What would you rather be doing right now?" The character keeps the
- * job prop in hand; tapping a choice flies items in and the character mimes the
- * answer. A beat after the mime, a card slides up.
+ * Beat 4 — "What would you rather be doing right now?" Multi-select: the
+ * character keeps the chosen job props in hand and mimes each rather as it's
+ * tapped. A beat after the first mime, a card slides up.
  */
 export function CastRather({
   character,
   heroBox,
-  job,
-  rather,
+  jobs,
+  rathers,
   mime,
   showCard,
-  onPick,
+  onToggle,
   onAnswer,
   onBack,
 }: {
   character: CastCharacter;
   heroBox: Rect;
-  job: JobKey | null;
-  rather: RatherKey | null;
+  jobs: JobKey[];
+  rathers: RatherKey[];
   mime: MimeState | null;
   showCard: boolean;
-  onPick: (key: RatherKey) => void;
+  onToggle: (key: RatherKey) => void;
   onAnswer: (answer: "yeah" | "not-yet") => void;
   onBack: () => void;
 }) {
-  const heldProp = job ? (JOBS.find((j) => j.key === job)?.prop ?? null) : null;
+  const heldProps: HeldProp[] = jobs.map((k) => {
+    const idx = JOBS.findIndex((j) => j.key === k);
+    return { key: JOBS[idx].prop, slot: idx, fly: null };
+  });
 
   return (
     <motion.div className="cast-beat" style={{ paddingTop: heroBox.top + heroBox.size + 22 }}>
@@ -43,7 +46,7 @@ export function CastRather({
         character={character}
         box={heroBox}
         interactive
-        heldProp={heldProp}
+        heldProps={heldProps}
         mime={mime}
       />
 
@@ -62,8 +65,8 @@ export function CastRather({
             key={r.key}
             icon={r.icon}
             label={r.label}
-            active={rather === r.key}
-            onClick={() => onPick(r.key)}
+            active={rathers.includes(r.key)}
+            onClick={() => onToggle(r.key)}
           />
         ))}
       </TileGrid>
