@@ -5,7 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -16,9 +16,30 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
+import { prepareAgentEnv } from "./prepare-agent-env.js";
+import { resolveAcpAgent } from "./resolve-agent.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
+
+/** Single source of truth for the "unknown session id" error message. */
+function sessionNotFoundMessage(acpSessionId: string): string {
+  return `ACP session "${acpSessionId}" not found`;
+}
+
+/**
+ * Whether `err` is the manager's "unknown session id" error for
+ * `acpSessionId`. Callers (acp_steer tool, /v1/acp/:id/steer route) use this
+ * to decide when a failed steer should fall back to resumeFromHistory.
+ */
+export function isAcpSessionNotFoundError(
+  err: unknown,
+  acpSessionId: string,
+): boolean {
+  return (
+    err instanceof Error && err.message === sessionNotFoundMessage(acpSessionId)
+  );
+}
 
 /** Maximum number of update events kept in a session's ring buffer. */
 const MAX_BUFFER_EVENTS = 200;
@@ -124,54 +145,16 @@ export class AcpSessionManager {
       "ACP spawn requested",
     );
 
-    // Initialize the per-session ring buffer before any update can fire.
-    this.eventBuffers.set(acpSessionId, []);
-
-    // Wrap the sender so every emitted message is mirrored into the buffer
-    // when it's an `acp_session_update`. The wrapper preserves the original
-    // call semantics — it forwards every message unchanged.
-    const wrappedSend = (msg: ServerMessage) => {
-      if (msg.type === "acp_session_update") {
-        this.appendToBuffer(acpSessionId, msg);
-      }
-      sendToVellum(msg);
-    };
-
-    const clientHandler = new VellumAcpClientHandler(
+    const entry = this.registerSession({
       acpSessionId,
-      wrappedSend,
-      parentConversationId,
-    );
-
-    const agentProcess = new AcpAgentProcess(
       agentId,
       agentConfig,
-      (_agent) => clientHandler,
-    );
-
-    // Reserve a slot in the map before any async work to enforce the
-    // concurrency limit even when multiple spawn() calls race.
-    const state: AcpSessionState = {
-      id: acpSessionId,
-      agentId,
-      acpSessionId: "", // placeholder until createSession resolves
-      parentConversationId,
-      status: "initializing",
-      startedAt: Date.now(),
-    };
-
-    const entry: SessionEntry = {
-      process: agentProcess,
-      state,
-      clientHandler,
-      sendToVellum: wrappedSend,
-      currentPrompt: null,
       parentConversationId,
       cwd,
-      command: agentConfig.command,
-    };
-
-    this.sessions.set(acpSessionId, entry);
+      startedAt: Date.now(),
+      sendToVellum,
+    });
+    const { process: agentProcess, state, sendToVellum: wrappedSend } = entry;
 
     try {
       log.info({ acpSessionId, agentId }, "ACP spawning child process");
@@ -217,6 +200,239 @@ export class AcpSessionManager {
   }
 
   /**
+   * Wires up the in-memory plumbing shared by spawn() and
+   * resumeFromHistory(): the per-session ring buffer, the buffer-mirroring
+   * sender, the client handler, the agent process, and the SessionEntry.
+   * Registers the entry in the session map (reserving a concurrency slot
+   * before any async work) and returns it. Does NOT start the process.
+   */
+  private registerSession(opts: {
+    acpSessionId: string;
+    agentId: string;
+    agentConfig: AcpAgentConfig;
+    parentConversationId: string;
+    cwd: string;
+    startedAt: number;
+    sendToVellum: (msg: ServerMessage) => void;
+  }): SessionEntry {
+    const { acpSessionId } = opts;
+
+    // Initialize the per-session ring buffer before any update can fire.
+    this.eventBuffers.set(acpSessionId, []);
+
+    // Wrap the sender so every emitted message is mirrored into the buffer
+    // when it's an `acp_session_update`. The wrapper preserves the original
+    // call semantics: it forwards every message unchanged.
+    const wrappedSend = (msg: ServerMessage) => {
+      if (msg.type === "acp_session_update") {
+        this.appendToBuffer(acpSessionId, msg);
+      }
+      opts.sendToVellum(msg);
+    };
+
+    const clientHandler = new VellumAcpClientHandler(
+      acpSessionId,
+      wrappedSend,
+      opts.parentConversationId,
+    );
+
+    const agentProcess = new AcpAgentProcess(
+      opts.agentId,
+      opts.agentConfig,
+      (_agent) => clientHandler,
+    );
+
+    const state: AcpSessionState = {
+      id: acpSessionId,
+      agentId: opts.agentId,
+      acpSessionId: "", // placeholder until createSession/resume resolves
+      parentConversationId: opts.parentConversationId,
+      status: "initializing",
+      startedAt: opts.startedAt,
+    };
+
+    const entry: SessionEntry = {
+      process: agentProcess,
+      state,
+      clientHandler,
+      sendToVellum: wrappedSend,
+      currentPrompt: null,
+      parentConversationId: opts.parentConversationId,
+      cwd: opts.cwd,
+      command: opts.agentConfig.command,
+    };
+
+    this.sessions.set(acpSessionId, entry);
+    return entry;
+  }
+
+  /**
+   * Resumes a terminal-state session from its persisted
+   * `acp_session_history` row, reattaching to the agent's stored
+   * conversation via ACP `session/resume` (preferred: no history replay) or
+   * `session/load` (replayed history is suppressed; see
+   * VellumAcpClientHandler.beginReplaySuppression).
+   *
+   * The resumed session reuses the original vellum session id,
+   * parentConversationId, and startedAt, and re-seeds its ring buffer from
+   * the persisted event log so the terminal upsert after the resumed run
+   * merges new events into the original row instead of losing them.
+   *
+   * Throws with an actionable message when the row is missing, was recorded
+   * before resume support (no cwd), the agent cannot be resolved, or the
+   * agent advertises neither resume capability.
+   */
+  async resumeFromHistory(
+    acpSessionId: string,
+    sendToVellum: (msg: ServerMessage) => void,
+  ): Promise<void> {
+    if (this.sessions.has(acpSessionId)) {
+      throw new Error(`ACP session "${acpSessionId}" is already active`);
+    }
+    if (this.sessions.size >= this.maxConcurrent) {
+      throw new Error(
+        `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
+          `Close an existing session before spawning a new one.`,
+      );
+    }
+
+    const row = getDb()
+      .select()
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, acpSessionId))
+      .get();
+    if (!row) {
+      throw new Error(sessionNotFoundMessage(acpSessionId));
+    }
+    if (!row.cwd) {
+      throw new Error(
+        `ACP session "${acpSessionId}" was recorded before resume support ` +
+          `(no working directory persisted) and cannot be resumed. ` +
+          `Spawn a new session instead.`,
+      );
+    }
+    if (!row.acpSessionId) {
+      throw new Error(
+        `ACP session "${acpSessionId}" has no protocol session id ` +
+          `persisted and cannot be resumed. Spawn a new session instead.`,
+      );
+    }
+
+    const resolved = resolveAcpAgent(row.agentId);
+    if (!resolved.ok) {
+      switch (resolved.reason) {
+        case "acp_disabled":
+          throw new Error(resolved.hint);
+        case "unknown_agent":
+          throw new Error(
+            `Unknown agent "${row.agentId}". Available: ${resolved.available.join(", ")}.`,
+          );
+        case "binary_not_found":
+          throw new Error(
+            `${resolved.command} is not on PATH. ${resolved.hint}`,
+          );
+        default: {
+          const _exhaustive: never = resolved;
+          throw new Error(
+            `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
+          );
+        }
+      }
+    }
+    const agentConfig = await prepareAgentEnv(resolved.agent);
+
+    log.info(
+      { acpSessionId, agentId: row.agentId, cwd: row.cwd },
+      "ACP resume from history requested",
+    );
+
+    const entry = this.registerSession({
+      acpSessionId,
+      agentId: row.agentId,
+      agentConfig,
+      parentConversationId: row.parentConversationId,
+      cwd: row.cwd,
+      startedAt: row.startedAt,
+      sendToVellum,
+    });
+    const { process: agentProcess, state, sendToVellum: wrappedSend } = entry;
+
+    // Re-seed the ring buffer from the persisted event log, routed through
+    // appendToBuffer so the count/byte caps still apply. The terminal
+    // upsert then persists the merged (old + new) log.
+    try {
+      const persisted = JSON.parse(row.eventLogJson) as unknown;
+      if (Array.isArray(persisted)) {
+        for (const update of persisted) {
+          this.appendToBuffer(acpSessionId, update as AcpSessionUpdate);
+        }
+      }
+    } catch (err) {
+      log.warn(
+        { acpSessionId, err },
+        "Failed to re-seed ACP event buffer from persisted history",
+      );
+    }
+
+    try {
+      log.info(
+        { acpSessionId, agentId: row.agentId },
+        "ACP spawning child process for resume",
+      );
+      agentProcess.spawn(row.cwd);
+      await agentProcess.initialize();
+      if (agentProcess.supportsSessionResume) {
+        // session/resume reattaches without replaying history.
+        await agentProcess.resumeSession(row.acpSessionId, row.cwd);
+      } else if (agentProcess.supportsLoadSession) {
+        // session/load replays the full history as session/update
+        // notifications before resolving; suppress forwarding so the
+        // conversation and ring buffer don't receive duplicates.
+        entry.clientHandler.beginReplaySuppression();
+        try {
+          await agentProcess.loadSession(row.acpSessionId, row.cwd);
+        } finally {
+          entry.clientHandler.endReplaySuppression();
+        }
+      } else {
+        throw new Error(
+          `ACP agent "${row.agentId}" does not support session resume`,
+        );
+      }
+      state.acpSessionId = row.acpSessionId;
+      state.status = "running";
+      log.info(
+        {
+          acpSessionId,
+          agentId: row.agentId,
+          protocolSessionId: row.acpSessionId,
+        },
+        "ACP session resumed",
+      );
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId: row.agentId, err },
+        "ACP resume failed",
+      );
+      // Kill the orphaned child process and remove the reserved slot.
+      agentProcess.kill();
+      this.sessions.delete(acpSessionId);
+      this.eventBuffers.delete(acpSessionId);
+      throw err;
+    }
+
+    // Reuse the existing spawned event so connected clients render the
+    // session. A dedicated acp_session_resumed event is a possible
+    // follow-up, not in scope here.
+    wrappedSend({
+      type: "acp_session_spawned",
+      acpSessionId,
+      agent: row.agentId,
+      parentConversationId: row.parentConversationId,
+    });
+  }
+
+  /**
    * Sends a follow-up instruction to an existing session.
    *
    * Cancels any in-flight prompt first, then fires the new prompt in the
@@ -225,7 +441,7 @@ export class AcpSessionManager {
   async steer(acpSessionId: string, instruction: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(`ACP session "${acpSessionId}" not found`);
+      throw new Error(sessionNotFoundMessage(acpSessionId));
     }
 
     if (entry.state.status !== "running") {
@@ -269,7 +485,7 @@ export class AcpSessionManager {
   async cancel(acpSessionId: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(`ACP session "${acpSessionId}" not found`);
+      throw new Error(sessionNotFoundMessage(acpSessionId));
     }
     await entry.process.cancel(entry.state.acpSessionId);
     entry.state.status = "cancelled";
@@ -288,7 +504,7 @@ export class AcpSessionManager {
   close(acpSessionId: string): void {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(`ACP session "${acpSessionId}" not found`);
+      throw new Error(sessionNotFoundMessage(acpSessionId));
     }
     if (
       entry.state.status === "running" ||
@@ -335,7 +551,7 @@ export class AcpSessionManager {
     if (acpSessionId) {
       const entry = this.sessions.get(acpSessionId);
       if (!entry) {
-        throw new Error(`ACP session "${acpSessionId}" not found`);
+        throw new Error(sessionNotFoundMessage(acpSessionId));
       }
       return entry.state;
     }
@@ -368,15 +584,18 @@ export class AcpSessionManager {
 
   /**
    * Persists the session's final state + buffered event log to
-   * `acp_session_history`, then frees the buffer entry. Best-effort: a DB
-   * failure is logged but does not propagate, since the session has already
-   * reached a terminal state and clients have been notified.
+   * `acp_session_history`, then frees the buffer entry. Upserts on id:
+   * resumed runs reuse the original vellum session id, so their terminal
+   * write must update the existing row (status, event log, etc.) instead of
+   * being silently skipped. Best-effort: a DB failure is logged but does
+   * not propagate, since the session has already reached a terminal state
+   * and clients have been notified.
    */
   private persistTerminal(acpSessionId: string, entry: SessionEntry): void {
     const buffer = this.eventBuffers.get(acpSessionId) ?? [];
     // Serialize only the wire-shaped updates — drop the byte-size accounting
     // metadata so persisted rows match the protocol shape clients receive.
-    const wireUpdates = buffer.map((buffered) => buffered.update);
+    const eventLogJson = JSON.stringify(buffer.map((b) => b.update));
     try {
       getDb()
         .insert(acpSessionHistory)
@@ -390,10 +609,20 @@ export class AcpSessionManager {
           status: entry.state.status,
           stopReason: entry.state.stopReason ?? null,
           error: entry.state.error ?? null,
-          eventLogJson: JSON.stringify(wireUpdates),
+          eventLogJson,
           cwd: entry.cwd,
         })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: acpSessionHistory.id,
+          set: {
+            status: entry.state.status,
+            completedAt: entry.state.completedAt ?? null,
+            stopReason: entry.state.stopReason ?? null,
+            error: entry.state.error ?? null,
+            eventLogJson,
+            cwd: entry.cwd,
+          },
+        })
         .run();
     } catch (err) {
       log.error(

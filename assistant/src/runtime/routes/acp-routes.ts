@@ -11,6 +11,7 @@ import { ensureAdapterInstalled } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import { isAcpSessionNotFoundError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
@@ -145,10 +146,31 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   try {
     await manager.steer(id, instruction);
-  } catch {
-    throw new NotFoundError("ACP session not found");
+    return { acpSessionId: id, steered: true };
+  } catch (err) {
+    if (!isAcpSessionNotFoundError(err, id)) {
+      throw new NotFoundError("ACP session not found");
+    }
   }
-  return { acpSessionId: id, steered: true };
+
+  // The session is no longer in memory (it completed, or the daemon
+  // restarted). Transparently resume it from persisted history and retry,
+  // mirroring the acp_steer skill tool. broadcastMessage plays the sender
+  // role spawnSession gives it, so connected clients render the session.
+  try {
+    await manager.resumeFromHistory(id, broadcastMessage);
+    await manager.steer(id, instruction);
+  } catch (err) {
+    if (isAcpSessionNotFoundError(err, id)) {
+      throw new NotFoundError("ACP session not found");
+    }
+    // Resume errors carry the actionable hint (legacy row without cwd,
+    // agent capability missing, resolver failures, ...).
+    throw new FailedDependencyError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return { acpSessionId: id, steered: true, resumed: true };
 }
 
 async function cancelSession({ pathParams }: RouteHandlerArgs) {
@@ -259,7 +281,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: steerSession,
     summary: "Steer ACP session",
-    description: "Send a steering instruction to an active ACP session.",
+    description:
+      "Send a steering instruction to an ACP session. Sessions no longer " +
+      "in memory (completed, or lost to a daemon restart) are " +
+      "transparently resumed from persisted history first, when the agent " +
+      "supports ACP session loading.",
     tags: ["acp"],
     requestBody: z.object({
       instruction: z.string(),
@@ -267,6 +293,12 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       acpSessionId: z.string(),
       steered: z.boolean(),
+      resumed: z
+        .boolean()
+        .optional()
+        .describe(
+          "True when the session was resumed from persisted history before steering.",
+        ),
     }),
   },
   {

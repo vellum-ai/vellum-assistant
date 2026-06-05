@@ -65,7 +65,7 @@
     },
     {
       "name": "acp_steer",
-      "description": "**Interrupts** the in-flight prompt of a running ACP session and replaces it with `instruction`. Use to redirect the agent (e.g., 'stop, do X instead'). For follow-up work that should happen *after* the current task, do NOT use this — wait for `acp_session_completed` and `acp_spawn` again.",
+      "description": "Sends `instruction` to an ACP session. On a running session this **interrupts** the in-flight prompt and replaces it - use it to redirect the agent (e.g., 'stop, do X instead'). A completed or daemon-restarted session is transparently resumed from persisted history via ACP session loading when the agent supports it, so follow-up work on an existing session id CAN go through this tool instead of spawning a new session. If resume is not possible (legacy session without a recorded working directory, or the agent lacks the capability), the error explains why; fall back to `acp_spawn`.",
       "category": "orchestration",
       "risk": "high",
       "input_schema": {
