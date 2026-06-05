@@ -25,6 +25,8 @@
 
 import { z } from "zod";
 
+import { ToolActivityMetadataSchema } from "../events/tool-result.js";
+
 // ---------------------------------------------------------------------------
 // Attachment metadata
 // ---------------------------------------------------------------------------
@@ -111,6 +113,14 @@ export const ConversationMessageToolCallSchema = z.object({
   riskAllowlistOptions: z.array(RiskAllowlistOptionSchema).optional(),
   /** Directory scope ladder for the rule editor. */
   riskDirectoryScopeOptions: z.array(RiskDirectoryScopeOptionSchema).optional(),
+  /**
+   * Structured tool activity (web_search / web_fetch) for rich client cards.
+   * Persisted alongside the tool call so the activity card survives a history
+   * reopen instead of degrading to the plain `result` text. Mirrors the live
+   * `tool_result` event's `activityMetadata`. Guaranteed present for tool calls
+   * that produced activity as of daemon v0.8.8; absent for older history rows.
+   */
+  activityMetadata: ToolActivityMetadataSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema

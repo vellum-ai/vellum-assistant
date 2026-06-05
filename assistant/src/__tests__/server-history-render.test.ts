@@ -8,6 +8,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
@@ -383,6 +384,79 @@ describe("renderHistoryContent", () => {
     expect(entry.riskScopeOptions).toEqual(scopeOptions);
     expect(entry.riskAllowlistOptions).toEqual(allowlistOptions);
     expect(entry.riskDirectoryScopeOptions).toEqual(directoryScopeOptions);
+  });
+
+  // ── Persisted tool activity (web_search / web_fetch) ────────────────────────
+
+  test("hydrates persisted _activityMetadata onto a tool_use block", () => {
+    // Mirrors what `annotatePersistedAssistantMessage` writes so the activity
+    // card survives a history reopen instead of degrading to plain text.
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "vellum docs",
+        provider: "brave",
+        resultCount: 1,
+        durationMs: 120,
+        results: [
+          {
+            rank: 1,
+            title: "Vellum",
+            url: "https://vellum.ai",
+            domain: "vellum.ai",
+          },
+        ],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "vellum docs" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("hydrates persisted _activityMetadata onto a server_tool_use block", () => {
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "native search",
+        provider: "anthropic-native",
+        resultCount: 0,
+        durationMs: 80,
+        results: [],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "native search" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("ignores non-object _activityMetadata annotations", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: "not an object",
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toBeUndefined();
   });
 
   test("ignores non-array _risk*Options annotations", () => {
