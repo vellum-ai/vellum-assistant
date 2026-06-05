@@ -1219,7 +1219,6 @@ export async function runAgentLoopImpl(
       });
       const label = profileEntry?.label ?? effectiveProfileKey;
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
-      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
     }
 
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
@@ -1254,6 +1253,13 @@ export async function runAgentLoopImpl(
     // pair on the graph handle for the PKB-reminder injector to read back; the
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
+
+    // Persist the profile-change notification only after retrieval succeeds, so
+    // a cancelled or failed turn does not mark the profile as notified before
+    // the model has actually received the model_profile notice.
+    if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
+      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
+    }
 
     // Capture wall-clock "now" at its point of use, after the blocking memory
     // retrieval, so the injected `<turn_context>` timestamp reflects current
