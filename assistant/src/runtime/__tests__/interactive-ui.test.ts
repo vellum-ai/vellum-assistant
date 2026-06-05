@@ -50,7 +50,7 @@ let surfaceCalls: Array<{
   surfaceId: string;
 }> = [];
 
-mock.module("../../daemon/conversation-store.js", () => ({
+mock.module("../../daemon/conversation-registry.js", () => ({
   findConversation: (_conversationId: string) => {
     return mockConversation ?? undefined;
   },

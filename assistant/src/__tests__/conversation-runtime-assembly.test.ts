@@ -35,6 +35,10 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
   },
 }));
 
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import type {
   ChannelCapabilities,
   SlackTranscriptInputRow,
@@ -59,11 +63,6 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
-import {
-  registerConversationWorkspace,
-  unregisterConversationWorkspace,
-  type WorkspaceConversationContext,
-} from "../daemon/conversation-workspace.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -108,28 +107,22 @@ function clearNowScratchpad(): void {
   rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
 }
 
-// The workspace-context injector sources its block from the per-conversation
-// workspace registry keyed by `conversationId`. Register a non-dirty context
+// The workspace-context injector sources its block off the live `Conversation`
+// looked up by `conversationId`. Seed a fake instance with a non-dirty context
 // (non-null content, not dirty) so `resolveWorkspaceTopLevelContext` returns it
-// verbatim without rescanning the filesystem; unregister between tests so
-// suites that assert the block is absent stay unaffected.
-let registeredWorkspace: WorkspaceConversationContext | null = null;
-
+// verbatim without rescanning the filesystem; `clearConversations()` between
+// tests keeps suites that assert the block is absent unaffected.
 function seedWorkspaceContext(conversationId: string, text: string): void {
-  registeredWorkspace = {
+  setConversation(conversationId, {
     conversationId,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
-  };
-  registerConversationWorkspace(registeredWorkspace);
+  } as never);
 }
 
 function clearWorkspaceContext(): void {
-  if (registeredWorkspace) {
-    unregisterConversationWorkspace(registeredWorkspace);
-    registeredWorkspace = null;
-  }
+  clearConversations();
 }
 
 // ---------------------------------------------------------------------------

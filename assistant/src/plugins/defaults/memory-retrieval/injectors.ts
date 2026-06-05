@@ -141,9 +141,7 @@ const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const conversation = ctx.conversationId
-      ? findConversation(ctx.conversationId)
-      : undefined;
+    const conversation = findConversation(ctx.conversationId);
     if (!conversation?.diskPressureCleanupModeActive) return null;
     return {
       id: "disk-pressure-warning",

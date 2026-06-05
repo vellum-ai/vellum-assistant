@@ -39,23 +39,6 @@ import {
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { buildTransportHints } from "./transport-hints.js";
 
-// The conversation registry (the live `Conversation` Map and its accessors)
-// lives in a leaf module so any layer can look up a live conversation without
-// importing this module's daemon-core creation graph. Re-export the public
-// accessors so existing `conversation-store` callers are unaffected.
-export {
-  allConversations,
-  clearConversations,
-  deleteConversation,
-  findConversation,
-  setConversation,
-};
-export {
-  conversationEntries,
-  findConversationBySurfaceId,
-  getConversationMap,
-} from "./conversation-registry.js";
-
 // ── Per-conversation persistent options ────────────────────────────
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();

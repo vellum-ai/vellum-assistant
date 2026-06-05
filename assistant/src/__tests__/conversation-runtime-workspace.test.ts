@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
 import {
-  registerConversationWorkspace,
-  unregisterConversationWorkspace,
-  type WorkspaceConversationContext,
-} from "../daemon/conversation-workspace.js";
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
+import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -21,19 +20,16 @@ function userMsg(text: string): Message {
 // live workspace block from the registry under this key.
 const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
-let registeredWorkspace: WorkspaceConversationContext | null = null;
-
-// Seed the workspace registry with a pre-rendered top-level block. The cache
-// is non-dirty with non-null content, so `resolveWorkspaceTopLevelContext`
+// Seed the live conversation registry with a pre-rendered top-level block. The
+// cache is non-dirty with non-null content, so `resolveWorkspaceTopLevelContext`
 // returns it verbatim without rescanning the filesystem.
 function seedWorkspaceContext(text: string): void {
-  registeredWorkspace = {
+  setConversation(FALLBACK_CONVERSATION_ID, {
     conversationId: FALLBACK_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
-  };
-  registerConversationWorkspace(registeredWorkspace);
+  } as never);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +47,7 @@ const sampleContext =
 
 describe("applyRuntimeInjections — workspace top-level context", () => {
   afterEach(() => {
-    if (registeredWorkspace) {
-      unregisterConversationWorkspace(registeredWorkspace);
-      registeredWorkspace = null;
-    }
+    clearConversations();
   });
 
   test("injects workspace context when registered", async () => {
@@ -128,10 +121,7 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
   afterEach(() => {
-    if (registeredWorkspace) {
-      unregisterConversationWorkspace(registeredWorkspace);
-      registeredWorkspace = null;
-    }
+    clearConversations();
   });
 
   test("minimal mode skips workspace top-level context", async () => {

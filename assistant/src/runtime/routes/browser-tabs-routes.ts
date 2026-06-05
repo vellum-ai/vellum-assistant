@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
@@ -73,11 +73,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
           ? result.clientId
           : undefined;
       if (result?.tabId !== undefined) {
-        setPinnedTab(
-          resolvedConversationId,
-          String(result.tabId),
-          clientId,
-        );
+        setPinnedTab(resolvedConversationId, String(result.tabId), clientId);
       }
       return { ok: true, tab: result };
     } finally {
@@ -88,10 +84,10 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   if (command === "new") {
     const cdp = getCdpClient(context, cdpOptions);
     try {
-      const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
-        "Vellum.createTab",
-        {},
-      );
+      const result = await cdp.send<{
+        tabId?: number | string;
+        clientId?: string;
+      }>("Vellum.createTab", {});
       // Normalise to string for internal use (setCdpSessionId / setPinnedTab)
       // and keep the numeric form for the API response.
       const newTabIdStr: string | undefined =

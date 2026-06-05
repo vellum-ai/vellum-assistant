@@ -20,7 +20,7 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "../../daemon/approval-generators.js";
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   canonicalizeTimeZone,
   resolveTurnTimezoneContext,

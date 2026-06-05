@@ -14,7 +14,7 @@
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,

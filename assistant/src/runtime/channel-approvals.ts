@@ -9,7 +9,7 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 import type {

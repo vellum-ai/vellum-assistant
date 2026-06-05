@@ -45,10 +45,9 @@ const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
 const { getInjectorChain } =
   await import("../plugins/defaults/memory-retrieval/injector-chain.js");
 import {
-  registerConversationWorkspace,
-  unregisterConversationWorkspace,
-  type WorkspaceConversationContext,
-} from "../daemon/conversation-workspace.js";
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
@@ -103,35 +102,25 @@ function clearNowScratchpad(): void {
   rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
 }
 
-// The workspace-context injector sources its block from the per-conversation
-// workspace registry keyed by `conversationId`. Register a non-dirty context
-// under the id `makeTurnContext()` uses so the injector emits the block;
-// unregister between tests so suites that assert the workspace block is absent
-// stay unaffected.
-let registeredWorkspace: WorkspaceConversationContext | null = null;
-
+// The workspace-context injector sources its block off the live `Conversation`
+// looked up by `conversationId`. Seed a fake instance carrying a non-dirty
+// workspace cache under the id `makeTurnContext()` uses so the injector emits
+// the block; `clearConversations()` between tests keeps suites that assert the
+// workspace block is absent unaffected.
 function seedWorkspaceContext(text: string): void {
-  registeredWorkspace = {
+  setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
-  };
-  registerConversationWorkspace(registeredWorkspace);
-}
-
-function clearWorkspaceContext(): void {
-  if (registeredWorkspace) {
-    unregisterConversationWorkspace(registeredWorkspace);
-    registeredWorkspace = null;
-  }
+  } as never);
 }
 
 describe("injector chain", () => {
   beforeEach(() => {
     clearPkbContent();
     clearNowScratchpad();
-    clearWorkspaceContext();
+    clearConversations();
   });
 
   test("defaultInjectors lists the defaults in the documented order", () => {

@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 
 import { inArray } from "drizzle-orm";
 
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getDb } from "../memory/db-connection.js";

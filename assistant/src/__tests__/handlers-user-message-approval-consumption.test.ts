@@ -143,7 +143,7 @@ mock.module("../util/logger.js", () => ({
 import {
   clearConversations,
   setConversation,
-} from "../daemon/conversation-store.js";
+} from "../daemon/conversation-registry.js";
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
 describe("handleConfirmationResponse canonical status sync", () => {

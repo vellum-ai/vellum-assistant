@@ -42,7 +42,7 @@ const findBySurfaceCalls: string[] = [];
 const getOrCreateCalls: string[] = [];
 const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
 
-mock.module("../../../daemon/conversation-store.js", () => ({
+mock.module("../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
     findConvCalls.push(id);
     return memoryById ?? undefined;
@@ -51,6 +51,9 @@ mock.module("../../../daemon/conversation-store.js", () => ({
     findBySurfaceCalls.push(surfaceId);
     return memoryBySurface ?? undefined;
   },
+}));
+
+mock.module("../../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (id: string) => {
     getOrCreateCalls.push(id);
     if (!rehydrated) {
@@ -183,9 +186,7 @@ describe("triggerSurfaceAction handler", () => {
     // SQL must filter the messages table by ui_surface payload pattern.
     expect(rawGetCalls[0]!.sql).toContain("FROM messages");
     expect(rawGetCalls[0]!.sql).toContain("LIKE");
-    expect(rawGetCalls[0]!.params).toEqual([
-      `%"surfaceId":"surf-evicted"%`,
-    ]);
+    expect(rawGetCalls[0]!.params).toEqual([`%"surfaceId":"surf-evicted"%`]);
     expect(getOrCreateCalls).toEqual(["conv-from-db"]);
     expect(rehydrated.surfaceActionCalls).toEqual([
       { surfaceId: "surf-evicted", actionId: "act-3", data: undefined },

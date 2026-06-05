@@ -23,8 +23,9 @@ const conversations = new Map<string, Conversation>();
 // ── Read helpers ───────────────────────────────────────────────────
 
 export function findConversation(
-  conversationId: string,
+  conversationId: string | undefined,
 ): Conversation | undefined {
+  if (!conversationId) return undefined;
   return conversations.get(conversationId);
 }
 

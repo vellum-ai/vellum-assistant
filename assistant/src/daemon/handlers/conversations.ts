@@ -8,9 +8,11 @@ import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
 import { regenerate } from "../conversation-history.js";
 import {
-  clearAllActiveConversations,
   conversationEntries,
   findConversation,
+} from "../conversation-registry.js";
+import {
+  clearAllActiveConversations,
   getOrCreateConversation,
   touchConversation,
 } from "../conversation-store.js";

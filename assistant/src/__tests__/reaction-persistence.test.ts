@@ -27,7 +27,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
