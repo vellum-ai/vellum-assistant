@@ -101,6 +101,47 @@ export type ConnectivityState =
   | "device-offline"
   | "backend-unreachable";
 
+/**
+ * Mirror of `NotificationCategory` in `apps/macos/src/main/notifications.ts`.
+ * Inlined for the same reason as the other bridge types: preload + main +
+ * renderer each have their own TS project.
+ */
+export type NotificationCategory =
+  | "activityComplete"
+  | "toolConfirmation"
+  | "voiceResponseComplete"
+  | "notificationIntent";
+
+/**
+ * Payload the renderer sends to main to post a native notification.
+ * Mirror of `ShowNotificationPayload` in `apps/macos/src/main/notifications.ts`.
+ */
+export interface ShowNotificationPayload {
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Event main broadcasts to the renderer when the user clicks a
+ * notification body or an action button. Mirror of
+ * `NotificationActionEvent` in `apps/macos/src/main/notifications.ts`.
+ */
+export interface NotificationActionEvent {
+  kind: "click" | "action";
+  category: NotificationCategory;
+  actionIndex?: number;
+  actionText?: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -323,6 +364,25 @@ export interface VellumBridge {
     /** User-triggered retry — kicks an immediate health probe. */
     retry(): void;
   };
+  notifications: {
+    /**
+     * Post a native macOS notification via `electron.Notification` in the
+     * main process. Supports category-based action buttons (View, Approve /
+     * Reject, Open) that the Web Notification API cannot provide.
+     *
+     * Resolves with `{ success, errorMessage? }` so the renderer can send
+     * the daemon ack without maintaining its own notification lookup table.
+     */
+    show(
+      payload: ShowNotificationPayload,
+    ): Promise<{ success: boolean; errorMessage?: string }>;
+    /**
+     * Subscribe to notification interaction events (body click or action
+     * button press). Returns an unsubscribe function. The renderer routes
+     * these to navigate to conversations, approve/reject tool calls, etc.
+     */
+    onAction(callback: (event: NotificationActionEvent) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -501,6 +561,27 @@ const bridge: VellumBridge = {
     },
     retry: (): void => {
       ipcRenderer.send("vellum:connectivity:retry");
+    },
+  },
+  notifications: {
+    show: (
+      payload: ShowNotificationPayload,
+    ): Promise<{ success: boolean; errorMessage?: string }> =>
+      ipcRenderer.invoke(
+        "vellum:notifications:show",
+        payload,
+      ) as Promise<{ success: boolean; errorMessage?: string }>,
+    onAction: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        event: NotificationActionEvent,
+      ) => {
+        callback(event);
+      };
+      ipcRenderer.on("vellum:notifications:action", handler);
+      return () => {
+        ipcRenderer.off("vellum:notifications:action", handler);
+      };
     },
   },
 };
