@@ -234,7 +234,6 @@ export function useStreamEventHandler(
         cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
-        confirmationToolCallMap: store.confirmationToolCallMap,
         setAssetsRefreshKey,
         dismissedSurfaceIds: store.dismissedSurfaceIds,
         contextWindowUsageByConversation: store.contextWindowUsageByConversation,

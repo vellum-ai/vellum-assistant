@@ -31,7 +31,6 @@ export interface InteractionState {
   secretSaved: boolean;
 
   pendingConfirmation: PendingConfirmationState | null;
-  isSubmittingConfirmation: boolean;
 
   pendingContactRequest: PendingContactRequestState | null;
   isSubmittingContactRequest: boolean;
@@ -42,8 +41,6 @@ export interface InteractionState {
   /** When true, the question card is hidden but `pendingQuestion` stays set
    *  so the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
-
-  inlineConfirmationToolCallId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,12 +57,9 @@ export interface InteractionActions {
 
   // Confirmation
   showConfirmation: (payload: PendingConfirmationState) => void;
-  submitConfirmationStart: () => void;
-  submitConfirmationEnd: () => void;
   dismissConfirmation: () => void;
   dismissConfirmationIfMatches: (requestId: string) => void;
   updateConfirmation: (requestId: string, patch: Partial<PendingConfirmationState>) => void;
-  setInlineConfirmationToolCallId: (toolCallId: string | null) => void;
 
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
@@ -98,7 +92,6 @@ const INITIAL_STATE: InteractionState = {
   secretSaved: false,
 
   pendingConfirmation: null,
-  isSubmittingConfirmation: false,
 
   pendingContactRequest: null,
   isSubmittingContactRequest: false,
@@ -107,8 +100,6 @@ const INITIAL_STATE: InteractionState = {
   pendingQuestion: null,
   isSubmittingQuestion: false,
   isQuestionCardDismissed: false,
-
-  inlineConfirmationToolCallId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -153,21 +144,15 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Confirmation -----
   showConfirmation: (payload) =>
-    set({ pendingConfirmation: payload, isSubmittingConfirmation: false }),
-
-  submitConfirmationStart: () =>
-    set({ isSubmittingConfirmation: true }),
-
-  submitConfirmationEnd: () =>
-    set({ isSubmittingConfirmation: false }),
+    set({ pendingConfirmation: payload }),
 
   dismissConfirmation: () =>
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false }),
+    set({ pendingConfirmation: null }),
 
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) return;
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false });
+    set({ pendingConfirmation: null });
   },
 
   updateConfirmation: (requestId, patch) => {
@@ -175,9 +160,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) return;
     set({ pendingConfirmation: { ...pendingConfirmation, ...patch } });
   },
-
-  setInlineConfirmationToolCallId: (toolCallId) =>
-    set({ inlineConfirmationToolCallId: toolCallId }),
 
   // ----- Contact request -----
   showContactRequest: (payload) =>
@@ -222,8 +204,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       isSubmittingSecret: false,
       secretSaved: false,
       pendingConfirmation: null,
-      isSubmittingConfirmation: false,
-      inlineConfirmationToolCallId: null,
       // Question state intentionally NOT cleared — the composer intercept
       // (`pendingQuestion && trimmed`) only fires for text sends; clearing
       // the question would hide the card while the daemon blocks on

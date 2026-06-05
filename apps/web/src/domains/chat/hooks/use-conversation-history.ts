@@ -202,25 +202,20 @@ export function useConversationHistory({
           );
         }
       }
-      // Restore an in-flight confirmation the snapshot carries on a tool call
+      // Reflect an in-flight confirmation the snapshot carries on a tool call
       // (stamped by the daemon from the pending-interactions registry at render
-      // time). On a cold reconnect the prompt rides the snapshot rather than a
-      // replayed `confirmation_request` event, and binding it to its tool call
-      // restores the inline card on the right chip. Skipped when a prompt is
-      // already active so a live in-progress confirmation is never clobbered.
+      // time) in the interaction store so composer gating matches the live
+      // path. The inline card itself renders directly from the tool call's
+      // `pendingConfirmation`, which the snapshot already carries. Skipped when
+      // a prompt is already active so a live in-progress confirmation is never
+      // clobbered.
       const wirePendingConfirmation =
         extractWirePendingConfirmation(filteredMessages);
       if (
         wirePendingConfirmation &&
         !useInteractionStore.getState().pendingConfirmation
       ) {
-        const interactionStore = useInteractionStore.getState();
-        interactionStore.showConfirmation(wirePendingConfirmation);
-        if (wirePendingConfirmation.toolUseId) {
-          interactionStore.setInlineConfirmationToolCallId(
-            wirePendingConfirmation.toolUseId,
-          );
-        }
+        useInteractionStore.getState().showConfirmation(wirePendingConfirmation);
       }
     } else {
       recordDiagnostic("history_tq_empty", {

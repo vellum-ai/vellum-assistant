@@ -11,7 +11,6 @@ export type TranscriptItemKind =
   | "thinking"
   | "profileAutoRouted"
   | "pendingSecret"
-  | "pendingConfirmation"
   | "pendingContactRequest"
   | "surface"
   | "error"
@@ -36,11 +35,6 @@ export interface ThinkingItem extends TranscriptItemBase {
 
 export interface PendingSecretItem extends TranscriptItemBase {
   kind: "pendingSecret";
-  requestId: string;
-}
-
-export interface PendingConfirmationItem extends TranscriptItemBase {
-  kind: "pendingConfirmation";
   requestId: string;
 }
 
@@ -79,7 +73,6 @@ export type TranscriptItem =
   | ThinkingItem
   | ProfileAutoRoutedItem
   | PendingSecretItem
-  | PendingConfirmationItem
   | PendingContactRequestItem
   | SurfaceItem
   | ErrorItem

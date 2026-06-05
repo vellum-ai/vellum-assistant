@@ -63,9 +63,6 @@ export interface StreamHandlerContext {
   cancelReconciliation: () => void;
   startReconciliationLoop: (epoch: number) => void;
 
-  // --- Interaction state ---
-  confirmationToolCallMap: Map<string, string>;
-
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
   dismissedSurfaceIds: Set<string>;

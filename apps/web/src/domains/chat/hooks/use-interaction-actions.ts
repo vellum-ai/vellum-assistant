@@ -30,6 +30,7 @@ import {
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
@@ -141,8 +142,11 @@ export interface UseInteractionActionsReturn {
   handleSecretCancel: () => void;
   handleContactPromptSubmit: (address: string, channelType: string) => Promise<void>;
   handleContactPromptCancel: () => void;
-  handleConfirmationSubmit: (decision: ConfirmationDecision) => Promise<void>;
-  handleAllowAndCreateRule: () => Promise<void>;
+  handleConfirmationSubmit: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => Promise<void>;
+  handleAllowAndCreateRule: (toolCall: ChatMessageToolCall) => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
@@ -166,8 +170,6 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   const setError = useChatSessionStore.use.setError();
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
-  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
@@ -306,15 +308,15 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   /**
    * Clean up confirmation state after a successful decision. Stamps risk
-   * metadata on the matched tool call, clears the pending confirmation from
-   * inline-attached tool calls, handles unknown-risk nudge targets, and
-   * removes the deterministic mapping entry.
+   * metadata on the resolved tool call, clears its inline `pendingConfirmation`,
+   * and handles unknown-risk nudge targets. The store's single confirmation
+   * slot is cleared only when it still holds this request, so a second
+   * concurrent prompt stays visible.
    */
   const cleanupAfterConfirmationDecision = useCallback(
-    (snapshot: NonNullable<typeof pendingConfirmation>, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
+    (snapshot: NonNullable<ChatMessageToolCall["pendingConfirmation"]>, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
-      useInteractionStore.getState().dismissConfirmation();
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+      useInteractionStore.getState().dismissConfirmationIfMatches(snapshot.requestId);
       const convKey = useConversationStore.getState().activeConversationId;
       if (convKey) {
         useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -418,75 +420,68 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         setUnknownNudgeToolCallIds((ids) => new Set([...ids, nudgeTcId]));
       }
 
-      useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
-      useInteractionStore.getState().submitConfirmationEnd();
     },
     [],
   );
 
   const handleConfirmationSubmit = useCallback(
-    async (decision: ConfirmationDecision) => {
-      const snapshot = pendingConfirmation;
-      if (!pendingConfirmation || isSubmittingConfirmation) return;
-      useInteractionStore.getState().submitConfirmationStart();
+    async (decision: ConfirmationDecision, toolCall: ChatMessageToolCall) => {
+      const snapshot = toolCall.pendingConfirmation;
+      if (!snapshot) {
+        return;
+      }
       setError(null);
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
-        useInteractionStore.getState().submitConfirmationEnd();
         return;
       }
-
-      const mappedToolCallId = snapshot ? useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId) : undefined;
 
       try {
         if (
           decision === "allow" &&
-          pendingConfirmation.persistentDecisionsAllowed !== false &&
-          (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
+          snapshot.persistentDecisionsAllowed !== false &&
+          (snapshot.allowlistOptions?.length ?? 0) > 0
         ) {
-          const firstPattern = pendingConfirmation.allowlistOptions![0]!.pattern;
+          const firstPattern = snapshot.allowlistOptions![0]!.pattern;
           const firstScope =
-            (pendingConfirmation.directoryScopeOptions?.[0]?.scope ??
-            pendingConfirmation.scopeOptions?.[0]?.scope) ||
+            (snapshot.directoryScopeOptions?.[0]?.scope ??
+            snapshot.scopeOptions?.[0]?.scope) ||
             "everywhere";
 
           const result = await submitConfirmation(
             ctx.assistantId,
-            pendingConfirmation.requestId,
+            snapshot.requestId,
             decision,
             { selectedPattern: firstPattern, selectedScope: firstScope },
           );
 
           if (!result.ok) {
             setError({ message: result.error });
-            useInteractionStore.getState().submitConfirmationEnd();
             return;
           }
-          cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+          cleanupAfterConfirmationDecision(snapshot, toolCall.id, decision);
           return;
         }
 
         const result = await submitConfirmation(
           ctx.assistantId,
-          pendingConfirmation.requestId,
+          snapshot.requestId,
           decision,
         );
 
         if (!result.ok) {
           setError({ message: result.error });
-          useInteractionStore.getState().submitConfirmationEnd();
           return;
         }
-        cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+        cleanupAfterConfirmationDecision(snapshot, toolCall.id, decision);
       } catch (err) {
         captureError(err, { context: "submit_confirmation" });
         setError({ message: "Failed to submit confirmation. Please try again." });
-        useInteractionStore.getState().submitConfirmationEnd();
       }
     },
-    [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision],
+    [cleanupAfterConfirmationDecision],
   );
 
   // -------------------------------------------------------------------------
@@ -599,18 +594,16 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   // Allow & Create Rule flow
   // -------------------------------------------------------------------------
 
-  const handleAllowAndCreateRule = useCallback(async () => {
-    if (!pendingConfirmation || isSubmittingConfirmation) return;
+  const handleAllowAndCreateRule = useCallback(async (toolCall: ChatMessageToolCall) => {
+    const snapshot = toolCall.pendingConfirmation;
+    if (!snapshot) {
+      return;
+    }
     const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
       return;
     }
-
-    const snapshot = pendingConfirmation;
-    useInteractionStore.getState().submitConfirmationStart();
-
-    const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,
@@ -650,25 +643,21 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
       if (!result.ok) {
         setError({ message: result.error });
-        useInteractionStore.getState().submitConfirmationEnd();
-        useInteractionStore.getState().setInlineConfirmationToolCallId(null);
         setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
         openCreateEditor(editorContext);
         return;
       }
 
-      cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
+      cleanupAfterConfirmationDecision(snapshot, toolCall.id, "allow");
 
       openCreateEditor({ ...editorContext, requestId: "" });
     } catch (err) {
       captureError(err, { context: "allow_and_create_rule" });
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       openCreateEditor(editorContext);
       setError({ message: "Failed to submit confirmation, but you can still create a rule." });
-      useInteractionStore.getState().submitConfirmationEnd();
     }
-  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision, fireSuggestion]);
+  }, [cleanupAfterConfirmationDecision, fireSuggestion]);
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
@@ -782,7 +771,6 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       }
 
       setIsSavingRule(true);
-      useInteractionStore.getState().submitConfirmationStart();
       try {
         const result = await submitConfirmation(
           ctx.assistantId,
@@ -805,12 +793,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         return;
       } finally {
         setIsSavingRule(false);
-        useInteractionStore.getState().submitConfirmationEnd();
       }
 
       useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       setShowRuleEditor(false);
       setRuleEditorContext(null);

@@ -80,7 +80,6 @@ const sharedProps = {
   expandedThinkingKeys: new Map<string, boolean>(),
   onSurfaceAction: noop,
   onSecretSubmit: noop,
-  onConfirmationDecision: noop,
   onRetryError: noop,
 };
 

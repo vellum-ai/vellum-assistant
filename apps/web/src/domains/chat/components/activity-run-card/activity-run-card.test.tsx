@@ -276,7 +276,7 @@ describe("ActivityRunCard — mixed group", () => {
 });
 
 describe("ActivityRunCard — confirmation short-circuit", () => {
-  test("pendingConfirmationToolCallId renders the inline approve/deny UI, not the progress card", () => {
+  test("a tool call's pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -290,8 +290,6 @@ describe("ActivityRunCard — confirmation short-circuit", () => {
       }),
     ];
     const { getByText, queryByTestId } = renderCard(toolCalls, {
-      pendingConfirmationToolCallId: "tc-1",
-      isSubmittingConfirmation: false,
       onConfirmationSubmit: () => {},
     });
     // The inline confirmation card is mounted via ToolCallChip — its title

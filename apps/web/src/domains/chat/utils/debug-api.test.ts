@@ -69,13 +69,11 @@ const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
   pendingSecret: null,
   isSubmittingSecret: false,
   pendingConfirmation: null,
-  isSubmittingConfirmation: false,
   pendingContactRequest: null,
   isSubmittingContactRequest: false,
   pendingQuestion: null,
   isSubmittingQuestion: false,
   isQuestionCardDismissed: false,
-  inlineConfirmationToolCallId: null,
 };
 
 interface MakeRefsOverrides extends Partial<ChatDebugRefs> {
@@ -257,11 +255,6 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         message: fakeDisplayMessage({ id: "msg-a" }),
       },
       { kind: "pendingSecret", key: "ps-1", requestId: "req-1" },
-      {
-        kind: "pendingConfirmation",
-        key: "pc-1",
-        requestId: "req-2",
-      },
       { kind: "thinking", key: "thinking" },
     ];
     const api = createChatDebugApi(
@@ -275,7 +268,6 @@ describe("createChatDebugApi.getTranscriptItems", () => {
     expect(result.map((i) => i.kind)).toEqual([
       "message",
       "pendingSecret",
-      "pendingConfirmation",
       "thinking",
     ]);
   });
@@ -760,13 +752,9 @@ describe("createChatDebugApi.listPendingInteractions", () => {
         description: "irreversible",
         riskLevel: "high",
       },
-      isSubmittingConfirmation: true,
-      inlineConfirmationToolCallId: "tc-42",
     };
     const second = api.listPendingInteractions();
     expect(second.pendingConfirmation?.requestId).toBe("req-confirm-1");
-    expect(second.isSubmittingConfirmation).toBe(true);
-    expect(second.inlineConfirmationToolCallId).toBe("tc-42");
   });
 });
 

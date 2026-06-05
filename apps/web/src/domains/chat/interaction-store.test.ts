@@ -70,24 +70,13 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showConfirmation(payload);
       const s = useInteractionStore.getState();
       expect(s.pendingConfirmation).toEqual(payload);
-      expect(s.isSubmittingConfirmation).toBe(false);
-    });
-
-    it("submitConfirmationStart/End cycle", () => {
-      useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(true);
-      useInteractionStore.getState().submitConfirmationEnd();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
     });
 
     it("dismissConfirmation clears state", () => {
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
       useInteractionStore.getState().dismissConfirmation();
       const s = useInteractionStore.getState();
       expect(s.pendingConfirmation).toBeNull();
-      expect(s.isSubmittingConfirmation).toBe(false);
     });
 
     it("dismissConfirmationIfMatches clears when requestId matches", () => {
@@ -112,13 +101,6 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showConfirmation({ requestId: "c1", title: "old" });
       useInteractionStore.getState().updateConfirmation("c2", { title: "new" });
       expect(useInteractionStore.getState().pendingConfirmation?.title).toBe("old");
-    });
-
-    it("setInlineConfirmationToolCallId sets the value", () => {
-      useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
-      expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe("tc-1");
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBeNull();
     });
   });
 
@@ -200,13 +182,11 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
       useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
-      useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
 
       useInteractionStore.getState().resetSecretAndConfirmation();
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toBeNull();
       expect(s.pendingConfirmation).toBeNull();
-      expect(s.inlineConfirmationToolCallId).toBeNull();
       expect(s.pendingQuestion).not.toBeNull();
     });
 

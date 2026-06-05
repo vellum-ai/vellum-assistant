@@ -34,7 +34,6 @@ function emptyInput() {
   return {
     messages: [] as DisplayMessage[],
     pendingSecret: null,
-    pendingConfirmation: null,
     isThinking: false,
     errorNotice: null,
   };
@@ -169,23 +168,17 @@ describe("buildTranscriptItems", () => {
     expect(items[0]).toEqual({ kind: "thinking", key: "thinking" });
   });
 
-  test("pendingSecret comes before pendingConfirmation", () => {
+  test("pendingSecret emits a standalone secret row", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       pendingSecret: { requestId: "req-s" },
-      pendingConfirmation: { requestId: "req-c" },
     });
 
-    expect(items.map((i) => i.kind)).toEqual(["pendingSecret", "pendingConfirmation"]);
+    expect(items.map((i) => i.kind)).toEqual(["pendingSecret"]);
     expect(items[0]).toEqual({
       kind: "pendingSecret",
       key: "secret-req-s",
       requestId: "req-s",
-    });
-    expect(items[1]).toEqual({
-      kind: "pendingConfirmation",
-      key: "confirmation-req-c",
-      requestId: "req-c",
     });
     expectDistinctNonEmptyKeys(items);
   });
@@ -198,7 +191,6 @@ describe("buildTranscriptItems", () => {
       messages: [user],
       isThinking: true,
       pendingSecret: { requestId: "req-s" },
-      pendingConfirmation: { requestId: "req-c" },
       errorNotice: "boom",
     });
 
@@ -207,12 +199,11 @@ describe("buildTranscriptItems", () => {
       key: "error-notice",
       message: "boom",
     });
-    // The full trailer order is thinking -> pendingSecret -> pendingConfirmation -> error.
+    // The full trailer order is thinking -> pendingSecret -> error.
     expect(items.map((i) => i.kind)).toEqual([
       "message",
       "thinking",
       "pendingSecret",
-      "pendingConfirmation",
       "error",
     ]);
     expectDistinctNonEmptyKeys(items);
@@ -243,7 +234,6 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       messages: [user, assistantA, assistantB],
       pendingSecret: { requestId: "req-s" },
-      pendingConfirmation: { requestId: "req-c" },
       isThinking: true,
       errorNotice: "oops",
     });
@@ -454,53 +444,6 @@ describe("buildTranscriptItems", () => {
 
     expect(items).toHaveLength(1);
     expect((items[0] as MessageItem).message).toBe(blankAssistant);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Confirmation path — inline attachment vs standalone fallback
-  // ---------------------------------------------------------------------------
-
-  test("pendingConfirmation: null suppresses the standalone confirmation row (inline attached)", () => {
-    // When inline confirmation is attached to a tool call, the page sets
-    // pendingConfirmation to null so the standalone row does not appear.
-    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hi"),  });
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [user],
-      pendingConfirmation: null,
-    });
-
-    expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("message");
-    expect(items.some((i) => i.kind === "pendingConfirmation")).toBe(false);
-  });
-
-  test("pendingConfirmation present emits standalone row (no inline attachment)", () => {
-    // When no tool call matches, the standalone confirmation row must appear.
-    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hi"),  });
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [user],
-      pendingConfirmation: { requestId: "req-standalone" },
-    });
-
-    const confItems = items.filter((i) => i.kind === "pendingConfirmation");
-    expect(confItems).toHaveLength(1);
-    expect(confItems[0]!.key).toBe("confirmation-req-standalone");
-  });
-
-  test("pendingConfirmation alone (no messages) still emits the row", () => {
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      pendingConfirmation: { requestId: "req-solo" },
-    });
-
-    expect(items).toHaveLength(1);
-    expect(items[0]).toEqual({
-      kind: "pendingConfirmation",
-      key: "confirmation-req-solo",
-      requestId: "req-solo",
-    });
   });
 
   // ---------------------------------------------------------------------------

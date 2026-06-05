@@ -27,7 +27,6 @@ import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-s
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
-import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
@@ -435,13 +434,10 @@ export function ChatRouteContent({
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
   const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
-  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
   const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
   const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
   const contactRequestAccepted = useInteractionStore.use.contactRequestAccepted();
   const secretSaved = useInteractionStore.use.secretSaved();
-  const inlineConfirmationToolCallId = useInteractionStore.use.inlineConfirmationToolCallId();
-  const inlineConfirmationAttached = inlineConfirmationToolCallId !== null;
 
   // -------------------------------------------------------------------------
   // Onboarding choice card
@@ -747,9 +743,6 @@ export function ChatRouteContent({
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
           : null,
-        pendingConfirmation: pendingConfirmation && !inlineConfirmationAttached
-          ? { requestId: pendingConfirmation.requestId }
-          : null,
         pendingContactRequest: pendingContactRequest
           ? {
               requestId: pendingContactRequest.requestId,
@@ -769,8 +762,6 @@ export function ChatRouteContent({
     [
       sanitizedMessages,
       pendingSecret,
-      pendingConfirmation,
-      inlineConfirmationAttached,
       pendingContactRequest,
       showThinking,
       thinkingLabel,
@@ -1155,15 +1146,8 @@ export function ChatRouteContent({
       );
     },
     onSecretSubmit: () => {},
-    onConfirmationDecision: () => {},
-    isSubmittingConfirmation,
     onConfirmationSubmit: handleConfirmationSubmit,
-    onAllowAndCreateRule:
-      pendingConfirmation?.persistentDecisionsAllowed !== false &&
-      (pendingConfirmation?.allowlistOptions?.length ?? 0) > 0
-        ? handleAllowAndCreateRule
-        : undefined,
-    pendingConfirmationToolCallId: inlineConfirmationToolCallId ?? undefined,
+    onAllowAndCreateRule: handleAllowAndCreateRule,
     onRetryError: () => setError(null),
     onForkConversation: (messageId) => {
       void handleForkConversation(messageId);
@@ -1178,20 +1162,6 @@ export function ChatRouteContent({
           onSave={(val) => handleSecretSubmit(val, "store")}
           onSendOnce={(val) => handleSecretSubmit(val, "transient_send")}
           onCancel={handleSecretCancel}
-        />
-      ) : null,
-    renderPendingConfirmation: () =>
-      pendingConfirmation ? (
-        <ConfirmationPromptCard
-          confirmation={pendingConfirmation}
-          isSubmitting={isSubmittingConfirmation}
-          onSubmit={handleConfirmationSubmit}
-          onAllowAndCreateRule={
-            pendingConfirmation.persistentDecisionsAllowed !== false &&
-            (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
-              ? handleAllowAndCreateRule
-              : undefined
-          }
         />
       ) : null,
     renderPendingContactRequest: () =>

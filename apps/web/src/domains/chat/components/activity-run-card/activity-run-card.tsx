@@ -82,11 +82,13 @@ export interface ActivityRunCardProps {
     directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
-  // Inline confirmation props (pass-through)
-  isSubmittingConfirmation?: boolean;
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
-  onAllowAndCreateRule?: () => void;
-  pendingConfirmationToolCallId?: string;
+  // Inline confirmation props (pass-through). Each chip tracks its own
+  // submission state and reads its prompt from `toolCall.pendingConfirmation`.
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   // Unknown nudge props (pass-through)
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -123,7 +125,7 @@ function buildDefaultItems(
  *
  * Special cases short-circuit before the shell:
  *
- * - `pendingConfirmationToolCallId` matches a tool call in this group →
+ * - a tool call in this group carries a `pendingConfirmation` →
  *   render the inline confirmation UI via {@link ToolCallChip} so the
  *   approve/deny path is preserved bit-for-bit from the legacy card.
  * - Zero renderable steps (today: a group made up entirely of
@@ -134,13 +136,12 @@ function buildDefaultItems(
 export function ActivityRunCard(props: ActivityRunCardProps) {
   const {
     toolCalls,
-    pendingConfirmationToolCallId,
     autoExpand = false,
   } = props;
 
-  const hasActiveConfirmation =
-    pendingConfirmationToolCallId != null &&
-    toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId);
+  const hasActiveConfirmation = toolCalls.some(
+    (tc) => !!tc.pendingConfirmation,
+  );
 
   // downstream branch share the same projection. When the caller supplies
   // ordered `items` (the activity-summary merged-card path) those drive the
@@ -566,10 +567,8 @@ function ConfirmationView({
   expandedToolCallIds,
   onExpandChange,
   onOpenRuleEditor,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
 }: ActivityRunCardProps) {
@@ -577,8 +576,6 @@ function ConfirmationView({
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">
         {toolCalls.map((tc) => {
-          const isConfirmationTarget =
-            tc.id === pendingConfirmationToolCallId;
           return (
             <Fragment key={tc.id}>
               <ToolCallChip
@@ -589,14 +586,8 @@ function ConfirmationView({
                 }
                 onOpenRuleEditor={onOpenRuleEditor}
                 embedded
-                {...(isConfirmationTarget
-                  ? {
-                      isSubmittingConfirmation,
-                      isActiveConfirmation: true,
-                      onConfirmationSubmit,
-                      onAllowAndCreateRule,
-                    }
-                  : {})}
+                onConfirmationSubmit={onConfirmationSubmit}
+                onAllowAndCreateRule={onAllowAndCreateRule}
               />
               {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
                 <UnknownCommandNudge

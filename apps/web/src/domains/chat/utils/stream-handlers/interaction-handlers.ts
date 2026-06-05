@@ -46,23 +46,7 @@ export function handleConfirmationRequest(
   };
   useInteractionStore.getState().showConfirmation(confData);
 
-  const result = attachConfirmationToToolCall(
-    ctx.messages,
-    confData,
-  );
-  ctx.setMessages(() => result.updatedMessages);
-
-  if (result.attachedToolCallId) {
-    useInteractionStore
-      .getState()
-      .setInlineConfirmationToolCallId(result.attachedToolCallId);
-    ctx.confirmationToolCallMap.set(
-      confData.requestId,
-      result.attachedToolCallId,
-    );
-  } else {
-    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-  }
+  ctx.setMessages(() => attachConfirmationToToolCall(ctx.messages, confData));
 }
 
 export function handleContactRequest(

@@ -240,7 +240,6 @@ beforeEach(async () => {
     pendingQueuedMessageIds: [],
     requestIdToMessageId: new Map(),
     pendingLocalDeletions: new Set(),
-    confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
   });
 });

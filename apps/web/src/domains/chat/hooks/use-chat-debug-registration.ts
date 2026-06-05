@@ -72,13 +72,11 @@ export function useChatDebugRegistration({
         pendingSecret: state.pendingSecret,
         isSubmittingSecret: state.isSubmittingSecret,
         pendingConfirmation: state.pendingConfirmation,
-        isSubmittingConfirmation: state.isSubmittingConfirmation,
         pendingContactRequest: state.pendingContactRequest,
         isSubmittingContactRequest: state.isSubmittingContactRequest,
         pendingQuestion: state.pendingQuestion,
         isSubmittingQuestion: state.isSubmittingQuestion,
         isQuestionCardDismissed: state.isQuestionCardDismissed,
-        inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
       };
     },
     getScrollPagination: () => {
