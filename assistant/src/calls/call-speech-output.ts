@@ -21,10 +21,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
-import {
-  resolveCallTtsProvider,
-  resolvePlayableCallTtsProvider,
-} from "./resolve-call-tts-provider.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
 
@@ -49,10 +46,13 @@ export function speakSystemPrompt(
   relay: CallTransport,
   text: string,
 ): Promise<void> {
-  // Media-stream transport: ALL audio is daemon-synthesized then transcoded
-  // PCM -> mu-law, so the provider MUST be able to emit playable audio. Use
-  // the playability guard, which falls back to a PCM-capable, credentialed
-  // default when the configured provider can't (avoiding a silent call).
+  // Media-stream transport: hand the prompt text directly to the transport's
+  // own synthesis path. `sendTextToken(text, true)` makes MediaStreamOutput
+  // accumulate the text and, on `last: true`, synthesize it via a
+  // playability-guarded provider, transcode PCM -> mu-law, and stream the
+  // frames straight over the media-stream WebSocket. This needs NO public
+  // base URL, so managed/Velay deployments (empty `ingress.publicBaseUrl`)
+  // are no longer silent.
   if (relay.requiresWavAudio) {
     return speakSystemPromptOverMediaStream(relay, text);
   }
@@ -73,26 +73,23 @@ export function speakSystemPrompt(
 /**
  * Speak a deterministic prompt over the media-stream transport.
  *
- * Always synthesizes through a playability-guarded provider so the prompt is
- * audible. There is no "send only an end-of-turn signal" silent path here —
- * if the configured provider can't emit playable audio, the guard has already
- * substituted a PCM-capable default.
+ * Hands the prompt text directly to the transport via
+ * `sendTextToken(text, true)`. MediaStreamOutput then synthesizes the
+ * accumulated text through its own playability-guarded provider
+ * (`resolvePlayableCallTtsProvider` inside `processSynthesizeItem`),
+ * transcodes PCM -> mu-law, and streams the frames over the WebSocket —
+ * with NO public audio URL / audio-store round-trip. This avoids the
+ * `getPublicBaseUrl()` dependency that left managed/Velay deployments
+ * (empty `ingress.publicBaseUrl`) connected-but-silent. Provider
+ * resolution, fallback, and failure logging are handled internally by
+ * MediaStreamOutput.
  */
-async function speakSystemPromptOverMediaStream(
+function speakSystemPromptOverMediaStream(
   relay: CallTransport,
   text: string,
 ): Promise<void> {
-  const { provider, audioFormat } = await resolvePlayableCallTtsProvider();
-  if (!provider) {
-    // No provider resolvable at all (e.g. registry empty in early startup).
-    // Send the end-of-turn signal so the relay transitions back to listening.
-    log.error(
-      "No playable media-stream TTS provider available for system prompt",
-    );
-    relay.sendTextToken("", true);
-    return;
-  }
-  return synthesizeAndPlay(relay, provider, text, audioFormat);
+  relay.sendTextToken(text, true);
+  return Promise.resolve();
 }
 
 // ---------------------------------------------------------------------------

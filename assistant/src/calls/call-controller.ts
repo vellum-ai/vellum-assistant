@@ -50,10 +50,7 @@ import type { CallTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
-import {
-  resolveCallTtsProvider,
-  resolvePlayableCallTtsProvider,
-} from "./resolve-call-tts-provider.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
@@ -615,20 +612,25 @@ export class CallController {
     // audio chunks to Twilio via play-URL. Native-twilio providers
     // stream text tokens to the relay for Twilio's built-in TTS.
     //
-    // When the transport requires WAV (media-stream), ALL telephony audio is
-    // daemon-synthesized then transcoded PCM -> mu-law, so we MUST use the
-    // synthesized path with a provider that can actually emit playable audio.
-    // The playability guard falls back to a PCM-capable, credentialed default
-    // when the configured provider can't, avoiding a silent call. Otherwise
-    // (native Twilio relay), use the catalog-driven call-mode resolution.
+    // When the transport requires WAV (media-stream), we route LLM text
+    // through the transport's OWN token path: `sendTextToken(chunk, false)`
+    // accumulates the response inside MediaStreamOutput, and the end-of-turn
+    // `sendTextToken("", true)` triggers a single direct synthesis
+    // (PCM -> mu-law frames over the WebSocket) via
+    // `resolvePlayableCallTtsProvider` inside the transport. This needs NO
+    // public base URL, so managed/Velay deployments (empty
+    // `ingress.publicBaseUrl`) are no longer connected-but-silent. We treat
+    // it exactly like the native token path here: `useSynthesizedPath: false`,
+    // so the existing token-emit + end-of-turn logic drives MediaStreamOutput
+    // directly. Otherwise (native Twilio relay), use the catalog-driven
+    // call-mode resolution.
     let provider: TtsProvider | null;
     let useSynthesizedPath: boolean;
     let audioFormat: "mp3" | "wav" | "opus";
     if (this.transport.requiresWavAudio) {
-      const playable = await resolvePlayableCallTtsProvider();
-      provider = playable.provider;
-      useSynthesizedPath = provider != null;
-      audioFormat = playable.audioFormat;
+      provider = null;
+      useSynthesizedPath = false;
+      audioFormat = "wav";
     } else {
       ({ provider, useSynthesizedPath, audioFormat } =
         resolveCallTtsProvider());

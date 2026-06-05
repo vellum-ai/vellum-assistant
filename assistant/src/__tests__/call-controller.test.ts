@@ -101,6 +101,28 @@ mock.module("../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join("/"),
 }));
 
+// ── Public ingress URL spy ───────────────────────────────────────────
+// Tracks getPublicBaseUrl calls so media-stream tests can prove the
+// direct-synthesis path never reaches for a public base URL. Preserves the
+// production throw-on-empty behavior so a regression that re-introduces the
+// play-URL path on an empty publicBaseUrl would surface as an error.
+let getPublicBaseUrlCallCount = 0;
+
+mock.module("../inbound/public-ingress-urls.js", () => ({
+  getPublicBaseUrl: (config: {
+    ingress?: { enabled?: boolean; publicBaseUrl?: string };
+  }) => {
+    getPublicBaseUrlCallCount++;
+    const value = config?.ingress?.publicBaseUrl;
+    if (!value || value.trim().length === 0) {
+      throw new Error(
+        "No public base URL configured. Set ingress.publicBaseUrl in config.",
+      );
+    }
+    return value.replace(/\/+$/, "");
+  },
+}));
+
 // ── Call constants mock ──────────────────────────────────────────────
 
 let mockConsultationTimeoutMs = 90_000;
@@ -319,6 +341,21 @@ function createMockTransport(): MockTransport {
   } as MockTransport;
 }
 
+/**
+ * Mock transport that mirrors MediaStreamOutput: it advertises
+ * `requiresWavAudio: true` and captures the token / play-URL calls the
+ * controller makes. The real MediaStreamOutput synthesizes audio internally
+ * on `sendTextToken(text, true)` (no public URL); here we only need to assert
+ * which transport calls the controller drives.
+ */
+function createMediaStreamMockTransport(): MockTransport {
+  const transport = createMockTransport() as MockTransport & {
+    requiresWavAudio: boolean;
+  };
+  transport.requiresWavAudio = true;
+  return transport;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 let ensuredConvIds = new Set<string>();
@@ -409,6 +446,24 @@ function setupController(
   return { session, relay: transport, controller };
 }
 
+/**
+ * Create a call session and a controller wired to a media-stream
+ * (`requiresWavAudio: true`) mock transport.
+ */
+function setupMediaStreamController() {
+  ensureConversation("conv-ctrl-test");
+  const session = createCallSession({
+    conversationId: "conv-ctrl-test",
+    provider: "twilio",
+    fromNumber: "+15550100",
+    toNumber: "+15550101",
+  });
+  updateCallSession(session.id, { status: "in_progress" });
+  const transport = createMediaStreamMockTransport();
+  const controller = new CallController(session.id, transport, null, {});
+  return { session, relay: transport, controller };
+}
+
 function getLatestAssistantText(conversationId: string): string | null {
   const msgs = getMessages(conversationId).filter(
     (m) => m.role === "assistant",
@@ -475,6 +530,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "elevenlabs";
     cfg.services.tts.providers["fish-audio"].referenceId = "";
     cfg.ingress.publicBaseUrl = "https://generic.example.com";
+    getPublicBaseUrlCallCount = 0;
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
   });
@@ -3061,6 +3117,83 @@ describe("call-controller", () => {
 
       controller.destroy();
       await turnPromise.catch(() => {});
+    });
+  });
+
+  // ── Media-stream transport: direct synthesis (no public URL) ────────
+  describe("media-stream transport (requiresWavAudio)", () => {
+    test("streams LLM text via sendTextToken and never uses play-URL/getPublicBaseUrl", async () => {
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Hello", ", how", " can I help?"]),
+      );
+      const { relay, controller } = setupMediaStreamController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      // LLM text must flow through the transport's token path so
+      // MediaStreamOutput synthesizes it directly.
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).toContain("Hello");
+      expect(allText).toContain("how");
+      expect(allText).toContain("can I help");
+
+      // End-of-turn empty token with last:true triggers MediaStreamOutput's
+      // single accumulated-buffer synthesis.
+      const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+      expect(lastToken.last).toBe(true);
+      expect(lastToken.token).toBe("");
+
+      // No play-URL path and no public base URL resolution.
+      expect(relay.sentPlayUrls.length).toBe(0);
+      expect(getPublicBaseUrlCallCount).toBe(0);
+
+      controller.destroy();
+    });
+
+    test("emits assistant audio even when ingress.publicBaseUrl is empty (managed/Velay)", async () => {
+      // Managed/Velay deployments run with an empty publicBaseUrl. The old
+      // play-URL path threw here, leaving the call connected-but-silent.
+      const cfg = loadConfig();
+      cfg.ingress.publicBaseUrl = "";
+
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Connecting", " you", " now."]),
+      );
+      const { relay, controller } = setupMediaStreamController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      // Assistant text still reaches the transport (audible), with no throw
+      // and no error-recovery fallback message.
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).toContain("Connecting");
+      expect(allText).toContain("now.");
+      expect(allText).not.toContain("technical issue");
+
+      const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+      expect(lastToken.last).toBe(true);
+
+      // Crucially: the play-URL path was never taken.
+      expect(relay.sentPlayUrls.length).toBe(0);
+      expect(getPublicBaseUrlCallCount).toBe(0);
+
+      controller.destroy();
+    });
+
+    test("strips control markers before they reach the transport", async () => {
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Let me check. ", "[ASK_GUARDIAN: Is 3pm ok?]"]),
+      );
+      const { relay, controller } = setupMediaStreamController();
+
+      await controller.handleCallerUtterance("Book a slot");
+
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).toContain("Let me check.");
+      expect(allText).not.toContain("[ASK_GUARDIAN:");
+      expect(relay.sentPlayUrls.length).toBe(0);
+
+      controller.destroy();
     });
   });
 });
