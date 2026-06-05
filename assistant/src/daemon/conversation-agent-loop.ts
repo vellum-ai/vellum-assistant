@@ -1171,41 +1171,10 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
-    // persists the retrieval's own side effects (injected-block metadata,
-    // recall log, `memory_recalled` event). Runs at the early "prompt
-    // submitted, before context assembly" moment because its outputs feed the
-    // injection and overflow-reduction transforms below. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
-    // must run early, while the canonical late `user-prompt-submit` hook
-    // (history repair, title) runs after those transforms, so the two cannot
-    // share a fire site until compaction is cleared from the gap between them.
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    const memoryCtx: MemoryRetrievalHookContext = {
-      graphMemory: ctx.graphMemory,
-      config: getConfig(),
-      onEvent,
-      isTrustedActor,
-      conversationId: ctx.conversationId,
-      userMessageId,
-      logger: rlog,
-      // An external cancel aborts `prepareMemory` instead of letting it run
-      // to completion after the turn has already been torn down.
-      signal: abortController.signal,
-      pkbContent: null,
-      nowContent: null,
-      latestMessages: ctx.messages,
-    };
-    await userPromptSubmitMemoryRetrieval(memoryCtx);
-
-    // The retriever owns its side effects (injected-block metadata, recall
-    // log, `memory_recalled` event) and records the dense/sparse PKB query
-    // pair on the graph handle for the PKB-reminder injector to read back; the
-    // loop only reuses the injected message list downstream.
-    let runMessages = memoryCtx.latestMessages;
-
-    // Build unified turn context block that replaces the separate temporal,
-    // channel, interface, and actor context blocks.
+    // Resolve the channel/interface labels and the guardian flag for this
+    // turn. These derive only from the captured turn context and the resolved
+    // actor trust class — never from retrieval — so they settle before context
+    // assembly.
     const interfaceName =
       capturedTurnInterfaceContext.userMessageInterface ?? undefined;
     const channelName =
@@ -1253,6 +1222,39 @@ export async function runAgentLoopImpl(
       setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
     }
 
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
+    // persists the retrieval's own side effects (injected-block metadata,
+    // recall log, `memory_recalled` event). Runs at the early "prompt
+    // submitted, before context assembly" moment because its outputs feed the
+    // injection and overflow-reduction transforms below. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
+    // must run early, while the canonical late `user-prompt-submit` hook
+    // (history repair, title) runs after those transforms, so the two cannot
+    // share a fire site until compaction is cleared from the gap between them.
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryCtx: MemoryRetrievalHookContext = {
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      onEvent,
+      isTrustedActor,
+      conversationId: ctx.conversationId,
+      userMessageId,
+      logger: rlog,
+      // An external cancel aborts `prepareMemory` instead of letting it run
+      // to completion after the turn has already been torn down.
+      signal: abortController.signal,
+      pkbContent: null,
+      nowContent: null,
+      latestMessages: ctx.messages,
+    };
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
+
+    // The retriever owns its side effects (injected-block metadata, recall
+    // log, `memory_recalled` event) and records the dense/sparse PKB query
+    // pair on the graph handle for the PKB-reminder injector to read back; the
+    // loop only reuses the injected message list downstream.
+    let runMessages = memoryCtx.latestMessages;
+
     // Capture wall-clock "now" at its point of use, after the blocking memory
     // retrieval, so the injected `<turn_context>` timestamp reflects current
     // time rather than the moment the turn began.
@@ -1260,6 +1262,8 @@ export async function runAgentLoopImpl(
       timeZone: timezoneContext.effectiveTimezone,
     });
 
+    // Build unified turn context block that replaces the separate temporal,
+    // channel, interface, and actor context blocks.
     const baseTurnContext = {
       timestamp,
       interfaceName,
