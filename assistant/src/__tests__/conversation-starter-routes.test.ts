@@ -339,8 +339,8 @@ describe("GET /v1/conversation-starters", () => {
 
   test("does not re-enqueue for invalid items when within cooldown period", async () => {
     const now = Date.now();
-    // Generation happened 30 seconds ago (within the 60s cooldown)
-    const recentGenAt = now - 30_000;
+    // Last attempt 30 seconds ago (within the 5-minute cooldown)
+    const recentAttemptAt = now - 30_000;
     insertStarter({
       label: "Let me check calendar",
       prompt: "Let me check what Alice has today.",
@@ -354,8 +354,12 @@ describe("GET /v1/conversation-starters", () => {
       createdAt: now - 1,
     });
     setCheckpoint(
+      "conversation_starters:last_attempt_at:default",
+      String(recentAttemptAt),
+    );
+    setCheckpoint(
       "conversation_starters:last_gen_at:default",
-      String(recentGenAt),
+      String(recentAttemptAt),
     );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
@@ -375,8 +379,8 @@ describe("GET /v1/conversation-starters", () => {
 
   test("re-enqueues for invalid items after cooldown expires", async () => {
     const now = Date.now();
-    // Generation happened 90 seconds ago (past the 60s cooldown)
-    const oldGenAt = now - 90_000;
+    // Last attempt 6 minutes ago (past the 5-minute cooldown)
+    const oldAttemptAt = now - 6 * 60_000;
     insertStarter({
       label: "Let me check calendar",
       prompt: "Let me check what Alice has today.",
@@ -390,8 +394,12 @@ describe("GET /v1/conversation-starters", () => {
       createdAt: now - 1,
     });
     setCheckpoint(
+      "conversation_starters:last_attempt_at:default",
+      String(oldAttemptAt),
+    );
+    setCheckpoint(
       "conversation_starters:last_gen_at:default",
-      String(oldGenAt),
+      String(oldAttemptAt),
     );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();

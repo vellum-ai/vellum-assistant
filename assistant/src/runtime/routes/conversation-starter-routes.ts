@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   checkpointKey,
   CK_ITEM_COUNT,
+  CK_LAST_ATTEMPT_AT,
   CK_LAST_GEN_AT,
   countActiveMemoryNodes,
   getCheckpointValue,
@@ -42,10 +43,11 @@ const starterItemSchema = z.object({
 
 type StarterItem = z.infer<typeof starterItemSchema>;
 
-export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+export const CONVERSATION_STARTERS_STALE_TTL_MS = 4 * 60 * 60 * 1000;
 
-/** Minimum interval between re-enqueue attempts triggered by invalid items. */
-const REFRESH_COOLDOWN_MS = 60_000;
+/** Minimum interval between re-enqueue attempts (prevents tight retry loops
+ *  when generation repeatedly fails or produces 0 valid starters). */
+const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 function hasActiveConversationStarterJob(
   db: ReturnType<typeof getDb>,
@@ -199,12 +201,16 @@ function handleListConversationStarters({
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
     let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
+    const lastAttemptAt = parseCheckpointInt(
+      getCheckpointValue(checkpointKey(CK_LAST_ATTEMPT_AT, scopeId)),
+    );
     const withinCooldown =
-      lastGenAt != null && Date.now() - lastGenAt < REFRESH_COOLDOWN_MS;
+      lastAttemptAt != null && Date.now() - lastAttemptAt < REFRESH_COOLDOWN_MS;
     const shouldRefresh =
-      staleByAge ||
-      checkpointAhead ||
-      (invalidItemCount > 0 && totalActive > 0 && !withinCooldown);
+      !withinCooldown &&
+      (staleByAge ||
+        checkpointAhead ||
+        (invalidItemCount > 0 && totalActive > 0));
 
     if (shouldRefresh && !hasActiveJob && isMemoryEnabled()) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
