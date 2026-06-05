@@ -61,9 +61,12 @@ type ClientFeatureFlagStore = Record<string, boolean> &
   ClientFeatureFlagMeta &
   ClientFeatureFlagActions;
 
+// See assistant-feature-flag-store.ts for why `set` is widened.
 const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
-  (set) =>
-    ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (rawSet: (...args: any[]) => void) => {
+    const set = rawSet;
+    return ({
       ...CLIENT_FLAG_DEFAULTS,
       ...localOverrides,
       stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides },
@@ -135,7 +138,8 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           },
         }));
       },
-    }) as ClientFeatureFlagStore,
+    }) as ClientFeatureFlagStore;
+  },
 );
 
 export const useClientFeatureFlagStore = createSelectors(

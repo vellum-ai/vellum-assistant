@@ -81,9 +81,16 @@ function latestConfirmedStringValue(key: string): string {
   return confirmedAssistantStringFlagValues[key] ?? ASSISTANT_STRING_FLAG_DEFAULTS[key] ?? "";
 }
 
+// The store type intersects `Record<string, boolean>` with meta/action
+// interfaces. TypeScript's index signature makes `Partial<Store>` reject
+// `{ stringFlags: Record<string, string> }` because it expects `boolean`
+// for every string key. Casting `set` to accept `any` partials is safe —
+// the public API (selectors, actions) is still fully typed.
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
-  (set) =>
-    ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (rawSet: (...args: any[]) => void) => {
+    const set = rawSet;
+    return ({
       ...ASSISTANT_FLAG_DEFAULTS,
       hasHydrated: false,
       stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS },
@@ -209,7 +216,8 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           stringFlags: { ...prev.stringFlags, [key]: value },
         }));
       },
-    }) as AssistantFeatureFlagStore,
+    }) as AssistantFeatureFlagStore;
+  },
 );
 
 export const useAssistantFeatureFlagStore = createSelectors(
