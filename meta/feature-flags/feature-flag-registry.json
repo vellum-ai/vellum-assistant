@@ -31,7 +31,8 @@
       "key": "pre-chat-onboarding-experiment-2026-06-06",
       "label": "Pre-chat Onboarding Experiment 2026-06-06",
       "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control"
+      "defaultEnabled": "control",
+      "values": ["control", "variant-a"]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
