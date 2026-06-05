@@ -6,7 +6,9 @@
  * and no session.processing mutation.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be defined before importing the module under test
@@ -76,7 +78,13 @@ mock.module("../runtime/routes/identity-intro-cache.js", () => ({
   getCachedIntro: () => null,
   readWorkspaceIdentityIntro: () => null,
   setCachedIntro: () => {},
-  computeIdentityContentHash: () => "test-hash",
+}));
+
+const assistantFeatureFlags: Record<string, boolean> = {};
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    assistantFeatureFlags[key] ?? false,
 }));
 
 // Mock getOrCreateConversation from conversation-store so the handler
@@ -123,6 +131,7 @@ import {
   ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -176,6 +185,12 @@ function makeMockSession(
 
 const route = ROUTES.find((r) => r.endpoint === "btw" && r.method === "POST");
 if (!route) throw new Error("btw route not found in ROUTES");
+
+beforeEach(() => {
+  for (const key of Object.keys(assistantFeatureFlags)) {
+    delete assistantFeatureFlags[key];
+  }
+});
 
 async function callHandler(
   body: Record<string, unknown>,
@@ -324,7 +339,25 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.modelIntent).toBeUndefined();
   });
 
-  test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
+  test("greeting requests return static fallback when the dynamic greetings flag is off", async () => {
+    mockGetOrCreateConversation.mockClear();
+
+    const { result } = await callHandler({
+      conversationKey: "greeting",
+      content: "Generate a greeting",
+    });
+    const text = await readStream(result as ReadableStream<Uint8Array>);
+
+    expect(text).toContain(
+      `event: btw_text_delta\ndata: {"text":"What are we working on?"}`,
+    );
+    expect(text).toContain("event: btw_complete\ndata: {}");
+    expect(mockGetOrCreateConversation).not.toHaveBeenCalled();
+  });
+
+  test("greeting requests pass callSite: 'emptyStateGreeting' when the dynamic greetings flag is on", async () => {
+    assistantFeatureFlags["empty-state-dynamic-greetings"] = true;
+
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
@@ -354,6 +387,32 @@ describe("POST /v1/btw", () => {
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("identityIntro");
+  });
+
+  test("identity intro requests do not synthesize a static name greeting", async () => {
+    const identityPath = join(getWorkspaceDir(), "IDENTITY.md");
+    writeFileSync(
+      identityPath,
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+
+    try {
+      const provider = makeMockProvider();
+      const session = makeMockSession(provider);
+      mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+      const { result } = await callHandler({
+        conversationKey: "identity-intro",
+        content: "Generate an intro",
+      });
+      const text = await readStream(result as ReadableStream<Uint8Array>);
+
+      expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+      expect(text).not.toContain("Hi, I'm Example Assistant!");
+    } finally {
+      rmSync(identityPath, { force: true });
+    }
   });
 
   // -- No persistence --

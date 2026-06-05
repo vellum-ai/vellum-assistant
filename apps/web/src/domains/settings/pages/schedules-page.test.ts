@@ -74,6 +74,7 @@ const {
   ScheduleRow,
   SystemTaskRow,
   SystemTaskDetailView,
+  shouldShowSystemTaskToggles,
 } = await import("./schedules-page");
 
 afterEach(() => {
@@ -116,6 +117,16 @@ function run(overrides: Partial<ScheduleRun> = {}): ScheduleRun {
     ...overrides,
   } as ScheduleRun;
 }
+
+const readySystemTaskUsage = {
+  status: "ready" as const,
+  summary: {
+    scheduleId: "system-heartbeat",
+    runCount: 2,
+    totalEstimatedCostUsd: 0.42,
+    eventCount: 7,
+  },
+};
 
 describe("canOpenScheduleSourceConversation", () => {
   test("requires an existing unarchived source conversation", () => {
@@ -442,16 +453,6 @@ describe("ScheduleRow", () => {
 });
 
 describe("SystemTaskRow", () => {
-  const readyUsage = {
-    status: "ready" as const,
-    summary: {
-      scheduleId: "system-heartbeat",
-      runCount: 2,
-      totalEstimatedCostUsd: 0.42,
-      eventCount: 7,
-    },
-  };
-
   test("opens details from the row-level control", () => {
     let detailClicks = 0;
 
@@ -462,10 +463,12 @@ describe("SystemTaskRow", () => {
         enabled: true,
         nextRunAt: 1_761_792_000_000,
         lastRunAt: 1_761_792_003_000,
-        usage: readyUsage,
+        usage: readySystemTaskUsage,
         onClick: () => {
           detailClicks += 1;
         },
+        showToggle: false,
+        onToggle: () => {},
       }),
     );
 
@@ -483,8 +486,10 @@ describe("SystemTaskRow", () => {
         enabled: true,
         nextRunAt: 1_761_792_000_000,
         lastRunAt: 1_761_792_003_000,
-        usage: readyUsage,
+        usage: readySystemTaskUsage,
         onClick: () => {},
+        showToggle: false,
+        onToggle: () => {},
       }),
     );
 
@@ -494,5 +499,57 @@ describe("SystemTaskRow", () => {
     expect(screen.getByText("$0.42")).toBeTruthy();
     expect(screen.getByText("Runs")).toBeTruthy();
     expect(screen.getByText("2 runs")).toBeTruthy();
+  });
+});
+
+describe("system task toggles", () => {
+  test("only presents system task toggles after the feature flag has hydrated on", () => {
+    expect(shouldShowSystemTaskToggles(false, true)).toBe(false);
+    expect(shouldShowSystemTaskToggles(true, false)).toBe(false);
+    expect(shouldShowSystemTaskToggles(true, true)).toBe(true);
+  });
+
+  test("hides the system task toggle when the presentation flag is off", () => {
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        usage: readySystemTaskUsage,
+        showToggle: false,
+        onClick: () => {},
+        onToggle: () => {},
+      }),
+    );
+
+    expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
+    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+  });
+
+  test("toggling a system task pauses automatic runs without restoring Run now", () => {
+    const toggleCalls: boolean[] = [];
+
+    render(
+      createElement(SystemTaskRow, {
+        name: "Consolidation",
+        subtitle: "Every 4 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        usage: readySystemTaskUsage,
+        showToggle: true,
+        onClick: () => {},
+        onToggle: (enabled: boolean) => {
+          toggleCalls.push(enabled);
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByLabelText("Toggle Consolidation"));
+
+    expect(toggleCalls).toEqual([false]);
+    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 });

@@ -279,7 +279,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(runnerLastArgs).not.toBeNull();
     expect(runnerLastArgs?.jobName).toBe("memory.consolidate");
     expect(runnerLastArgs?.source).toBe("memory_v2_consolidation");
-    expect(runnerLastArgs?.callSite).toBe("mainAgent");
+    expect(runnerLastArgs?.callSite).toBe("memoryV2Consolidation");
     expect(runnerLastArgs?.origin).toBe("memory_consolidation");
     // The whole point of this PR: opt out of activity.failed notifications
     // because consolidation runs on tight intervals and transient failures

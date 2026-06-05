@@ -67,6 +67,8 @@ import {
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
+  isAutomaticConsolidationJob,
+  MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
@@ -88,6 +90,10 @@ import { memoryV2SweepJob } from "./v2/sweep-job.js";
 import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-jobs-worker");
+
+const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {
+  trigger: MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.automatic,
+} as const;
 
 /**
  * V1 job types that read or write the v1 Qdrant collection via
@@ -609,6 +615,16 @@ async function processJob(
       await memoryV2SweepJob(job, config);
       return;
     case "memory_v2_consolidate":
+      if (
+        isAutomaticConsolidationJob(job) &&
+        !config.memory.v2.consolidation_enabled
+      ) {
+        log.info(
+          { jobId: job.id },
+          "Skipping automatic memory v2 consolidation because scheduled consolidation is disabled",
+        );
+        return;
+      }
       await memoryV2ConsolidateJob(job, config);
       return;
     case "memory_v2_migrate":
@@ -734,6 +750,8 @@ export function maybeEnqueueGraphMaintenanceJobs(
   nowMs = Date.now(),
 ): void {
   const v2Active = config.memory.v2.enabled;
+  const v2ConsolidationAutomaticEnabled =
+    v2Active && config.memory.v2.consolidation_enabled;
 
   // The single buffer-drainer entry for the v2-active branch. Referenced again
   // below by the size-based trigger.
@@ -748,7 +766,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
     intervalMs: number;
     jobType: MemoryJobType;
   }> = v2Active
-    ? [consolidateEntry]
+    ? v2ConsolidationAutomaticEnabled
+      ? [consolidateEntry]
+      : []
     : [
         {
           key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
@@ -795,7 +815,11 @@ export function maybeEnqueueGraphMaintenanceJobs(
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
     if (nowMs - lastRun >= intervalMs) {
-      enqueueMemoryJob(jobType, {});
+      const payload =
+        jobType === consolidateEntry.jobType
+          ? AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD
+          : {};
+      enqueueMemoryJob(jobType, payload);
       setMemoryCheckpoint(key, String(nowMs));
       if (jobType === consolidateEntry.jobType) enqueuedConsolidate = true;
     }
@@ -811,14 +835,17 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // buffer stays over threshold, flooding the queue with redundant LLM work.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
   if (
-    v2Active &&
+    v2ConsolidationAutomaticEnabled &&
     !enqueuedConsolidate &&
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
     const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
     if (countBufferLines(bufferPath) >= maxLines) {
-      enqueueMemoryJob(consolidateEntry.jobType, {});
+      enqueueMemoryJob(
+        consolidateEntry.jobType,
+        AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+      );
       setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
     }
   }

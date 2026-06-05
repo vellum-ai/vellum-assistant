@@ -12,6 +12,7 @@ import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
+import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
   getAppDirPath,
@@ -329,6 +330,29 @@ export function buildActiveSurfaceContext(params: {
   }
 
   return activeSurface;
+}
+
+/**
+ * Lists the conversation's active documents as the lightweight summaries the
+ * `active-documents` injector surfaces to the assistant — letting it target
+ * existing documents with `document_update` instead of issuing duplicate
+ * `document_create` calls. Returns `null` when the conversation has none.
+ */
+export function buildActiveDocuments(conversationId: string): Array<{
+  surfaceId: string;
+  title: string;
+  wordCount: number;
+  updatedAt: number;
+}> | null {
+  const conversationDocs = getDocumentsForConversation(conversationId);
+  return conversationDocs.length > 0
+    ? conversationDocs.map((d) => ({
+        surfaceId: d.surfaceId,
+        title: d.title,
+        wordCount: d.wordCount,
+        updatedAt: d.updatedAt,
+      }))
+    : null;
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
