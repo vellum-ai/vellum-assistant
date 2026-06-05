@@ -5,7 +5,7 @@ import { getLogger } from "./logger.js";
 const log = getLogger("feature-flag-defaults");
 
 export type FeatureFlagDefault = {
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
   description: string;
   label: string;
 };
@@ -85,7 +85,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
     const entry = flag as Record<string, unknown>;
     if (entry.scope !== "assistant" && entry.scope !== "both") continue;
     if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean") continue;
+    if (typeof entry.defaultEnabled !== "boolean" && typeof entry.defaultEnabled !== "string") continue;
     if (typeof entry.description !== "string") {
       log.warn(
         { key: entry.key },

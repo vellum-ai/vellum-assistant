@@ -16,7 +16,7 @@ export interface FlagDefinition {
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
 }
 
 const flags = registry.flags as FlagDefinition[];
@@ -41,6 +41,7 @@ function kebabToStoreKey(kebabKey: string): string {
 function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
   const defaults: Record<string, boolean> = {};
   for (const flag of flags) {
+    if (typeof flag.defaultEnabled !== "boolean") continue;
     if (scopeIncludes(flag.scope, scope)) {
       defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }

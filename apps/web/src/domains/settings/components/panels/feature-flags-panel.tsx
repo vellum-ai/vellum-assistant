@@ -67,6 +67,7 @@ export function FeatureFlagsPanel() {
             ? assistantVal
             : clientVal;
       if (typeof value !== "boolean") continue;
+      if (typeof flag.defaultEnabled !== "boolean") continue;
       entries.push({
         storeKey,
         scope: flag.scope as FlagScope,

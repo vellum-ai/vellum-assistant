@@ -489,14 +489,15 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("filters non-boolean values from response", async () => {
+  test("accepts boolean and string values, filters other types from response", async () => {
     fetchMock = mock(async () =>
       Response.json({
         flags: {
           browser: true,
-          contacts: "yes" as unknown,
+          "default-model": "claude-sonnet-4-6",
           other: 1 as unknown,
           valid: false,
+          nullVal: null as unknown,
         },
       }),
     );
@@ -511,6 +512,7 @@ describe("RemoteFeatureFlagSync", () => {
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({
       browser: true,
+      "default-model": "claude-sonnet-4-6",
       valid: false,
     });
   });
@@ -606,6 +608,30 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present
     expect(cached["unknown-flag"]).toBe(false);
+  });
+
+  test("GA normalization does not affect string flag values", async () => {
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          "test-ga-flag": false,
+          "a2a-channel": "custom-value",
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // Boolean false for GA flag is normalized to true
+    expect(cached["test-ga-flag"]).toBe(true);
+    // String values are never subject to GA normalization
+    expect(cached["a2a-channel"]).toBe("custom-value");
   });
 
   test("calls onChanged when remote flags change", async () => {

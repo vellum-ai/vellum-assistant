@@ -19,7 +19,7 @@
 // Mirrors `src/config/feature-flag-cache.ts`. Duplicated by design — see
 // the "No source-module imports" section above.
 type FlagSlot = {
-  overrides: Record<string, boolean> | null;
+  overrides: Record<string, boolean | string> | null;
   fromGateway: boolean;
 };
 
@@ -45,7 +45,7 @@ function flagSlot(): FlagSlot {
  * `clearFeatureFlagOverridesCache()` from `assistant-feature-flags.ts`.
  */
 export function setOverridesForTesting(
-  overrides: Record<string, boolean>,
+  overrides: Record<string, boolean | string>,
 ): void {
   const s = flagSlot();
   s.overrides = { ...overrides };
