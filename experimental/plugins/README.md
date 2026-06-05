@@ -53,6 +53,7 @@ my-plugin/
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
 │   ├── post-tool-use.ts       # Per-tool-result transform
 │   ├── stop.ts                # Per-run stop-boundary decision
+│   ├── post-compact.ts        # Re-inject/persist context after compaction
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -280,6 +281,44 @@ previous hook's `decision` and `messages` mutations. The default
 with a nudge when a turn comes back empty after tool use, or with a
 refusal nudge on a first-call refusal; because defaults register first,
 it runs ahead of user hooks.
+
+### `post-compact`
+
+Fires once after the compactor rewrites the conversation history — whether
+triggered manually (the user runs `/compact`) or automatically (the context
+window crosses its threshold) — and **before the turn resumes**. The
+compaction has already happened: this hook observes the compacted history and
+re-applies context the summary dropped; it does not veto compaction.
+
+```ts
+// hooks/post-compact.ts
+import type { PostCompactContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function postCompact(
+  ctx: PostCompactContext,
+): Promise<void> {
+  // ctx.conversationId — ID of the conversation that was compacted
+  // ctx.trigger        — "manual" (user ran /compact) | "auto" (window threshold)
+  // ctx.messages       — post-compaction history; mutate in place or return a
+  //                      new ctx to re-inject context compaction stripped
+  //                      (e.g. a scratchpad / memory block) before the turn continues
+  // ctx.summary        — the summary block the compactor produced (read-only)
+  // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+Like `post-tool-use` and `user-prompt-submit`, the hook either mutates
+`ctx.messages` in place or returns a new ctx — the runtime threads the final
+history into the continuing turn. Multiple plugins chain in registration order.
+
+This is the same post-compaction seam every major harness exposes: Claude Code
+and [Codex](https://developers.openai.com/codex/hooks) both fire a non-blocking
+[`PostCompact`](https://code.claude.com/docs/en/hooks) and OpenClaw an
+[`after_compaction`](https://docs.openclaw.ai/plugins/hooks) hook — almost
+always to re-inject or persist context the summary dropped. It's authorable
+today as a [forward-compatible hook](#forward-compatible-hooks); the runtime
+invokes it once a `runHook("post-compact", ctx)` call site lands.
 
 ### Forward-compatible hooks
 
