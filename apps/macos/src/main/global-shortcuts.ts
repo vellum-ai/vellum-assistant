@@ -27,33 +27,42 @@ const resolveGlobalAccelerator = (key: string): string => {
  */
 const registered = new Map<string, string>();
 
-const registerOne = (key: string): void => {
-  const prev = registered.get(key);
-  if (prev) {
-    globalShortcut.unregister(prev);
-    registered.delete(key);
+/**
+ * Unregister all currently held global shortcuts so the next
+ * `registerAll` pass starts from a clean slate. Without this,
+ * swapping two shortcuts (e.g. globalHotkey ↔ quickInput) would
+ * fail: the first `register` call would try to claim an accelerator
+ * still held by the second key and Electron would reject it.
+ */
+const unregisterAll = (): void => {
+  for (const [, accelerator] of registered) {
+    globalShortcut.unregister(accelerator);
   }
-
-  const accelerator = resolveGlobalAccelerator(key);
-  if (!accelerator) return;
-
-  const handler = HANDLERS[key];
-  if (!handler) return;
-
-  const ok = globalShortcut.register(accelerator, handler);
-  if (ok) {
-    registered.set(key, accelerator);
-    log.info(`[global-shortcuts] registered ${key} → ${accelerator}`);
-  } else {
-    log.warn(
-      `[global-shortcuts] failed to register ${key} → ${accelerator} (possibly held by another app)`,
-    );
-  }
+  registered.clear();
 };
 
 const registerAll = (): void => {
+  unregisterAll();
   for (const key of Object.keys(GLOBAL_SHORTCUT_DEFAULTS)) {
-    registerOne(key);
+    const accelerator = resolveGlobalAccelerator(key);
+    if (!accelerator) {
+      continue;
+    }
+
+    const handler = HANDLERS[key];
+    if (!handler) {
+      continue;
+    }
+
+    const ok = globalShortcut.register(accelerator, handler);
+    if (ok) {
+      registered.set(key, accelerator);
+      log.info(`[global-shortcuts] registered ${key} → ${accelerator}`);
+    } else {
+      log.warn(
+        `[global-shortcuts] failed to register ${key} → ${accelerator} (possibly held by another app)`,
+      );
+    }
   }
 };
 
@@ -84,8 +93,7 @@ export const installGlobalShortcuts = (): void => {
   });
 
   const onQuit = (): void => {
-    globalShortcut.unregisterAll();
-    registered.clear();
+    unregisterAll();
   };
   app.on("will-quit", onQuit);
 
