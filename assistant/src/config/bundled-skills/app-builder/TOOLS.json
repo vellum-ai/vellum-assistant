@@ -150,6 +150,24 @@
       },
       "executor": "tools/app-generate-icon.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "app_list",
+      "description": "List the persistent apps the user has built, returning each app's app_id, name, description, and timestamps (most recently updated first). Pass `query` to resolve an app the user mentions by name to its app_id before calling app_open. Use this whenever the user refers to an existing app and you don't already have its app_id in context.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Optional name (or partial name) the user mentioned. When provided, only matching apps are returned: an exact case-insensitive name match if one exists, otherwise substring matches in either direction (e.g. 'habit tracker' resolves 'Habit Tracker'). Omit to list all apps."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/app-list.ts",
+      "execution_target": "host"
     }
   ]
 }
