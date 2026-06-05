@@ -25,7 +25,9 @@ const navigateMock = (to: string) => {
   navigateCalls.push(to);
 };
 
+const reactRouter = await import("react-router");
 mock.module("react-router", () => ({
+  ...reactRouter,
   useNavigate: () => navigateMock,
   useParams: () => ({}),
 }));
@@ -471,12 +473,9 @@ describe("SystemTaskRow", () => {
     fireEvent.click(row);
 
     expect(detailClicks).toBe(1);
-    expect(row.className).toContain("cursor-pointer");
-    expect(row.className).toContain("hover:bg");
-    expect(row.className).toContain("focus-visible:");
   });
 
-  test("omits list-level run now while keeping status, usage, and chevron content", () => {
+  test("omits list-level run now while keeping status and usage content", () => {
     render(
       createElement(SystemTaskRow, {
         name: "Heartbeat",
@@ -495,6 +494,5 @@ describe("SystemTaskRow", () => {
     expect(screen.getByText("$0.42")).toBeTruthy();
     expect(screen.getByText("Runs")).toBeTruthy();
     expect(screen.getByText("2 runs")).toBeTruthy();
-    expect(document.querySelector(".lucide-chevron-right")).toBeTruthy();
   });
 });

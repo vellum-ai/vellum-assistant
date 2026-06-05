@@ -467,7 +467,6 @@ function buildSelectedScheduleLegendItems(
   return legendSources.map((schedule, colorIndex) => ({
     seriesKey: usageSeriesKeyForGroupValue(schedule.id, "schedule"),
     label: schedule.label,
-    totalEstimatedCostUsd: 0,
     colorIndex,
     state: schedule.id === selectedScheduleId ? "active" : "inactive",
   }));

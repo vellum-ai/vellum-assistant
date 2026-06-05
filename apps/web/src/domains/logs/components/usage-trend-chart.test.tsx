@@ -73,14 +73,12 @@ describe("UsageTrendChart", () => {
           {
             seriesKey: "value:schedule-123",
             label: "Morning digest",
-            totalEstimatedCostUsd: 0,
             colorIndex: 0,
             state: "active",
           },
           {
             seriesKey: "value:schedule-456",
             label: "Evening digest",
-            totalEstimatedCostUsd: 0,
             colorIndex: 1,
             state: "inactive",
           },
@@ -162,14 +160,12 @@ describe("UsageTrendChart", () => {
           {
             seriesKey: inactiveSeriesKey,
             label: "Beta schedule",
-            totalEstimatedCostUsd: 0,
             colorIndex: 0,
             state: "inactive",
           },
           {
             seriesKey: activeSeriesKey,
             label: "Alpha schedule",
-            totalEstimatedCostUsd: 0.01,
             colorIndex: 1,
             state: "active",
           },
@@ -224,14 +220,12 @@ describe("UsageTrendChart", () => {
           {
             seriesKey: inactiveSeriesKey,
             label: "Beta schedule",
-            totalEstimatedCostUsd: 0,
             colorIndex: 0,
             state: "inactive",
           },
           {
             seriesKey: activeSeriesKey,
             label: "Alpha schedule",
-            totalEstimatedCostUsd: 0,
             colorIndex: 1,
             state: "active",
           },

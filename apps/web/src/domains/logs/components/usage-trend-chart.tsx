@@ -43,9 +43,12 @@ type SegmentTooltip = {
 type SegmentTooltipContent = Omit<SegmentTooltip, "x" | "y">;
 type UsageLegendState = "active" | "inactive";
 
-export interface UsageTrendChartLegendItem extends UsageSeriesLegendItem {
+export type UsageTrendChartLegendItem = Pick<
+  UsageSeriesLegendItem,
+  "seriesKey" | "label" | "colorIndex"
+> & {
   state?: UsageLegendState;
-}
+};
 
 interface UsageTrendChartProps {
   buckets: UsageSeriesBucket[];
