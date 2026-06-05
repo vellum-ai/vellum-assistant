@@ -616,3 +616,38 @@ describe("AdjustPlanModal credit bundle — '*Credits not included' note", () =>
     expect(queryByTestId("modal-credits-not-included")).not.toBeNull();
   });
 });
+
+describe("AdjustPlanModal credit bundle — selector order", () => {
+  function creditAndMachineTriggers(): {
+    credit: HTMLButtonElement;
+    machine: HTMLButtonElement;
+  } {
+    const credit = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Credit bundle"]',
+    );
+    const machine = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Machine tier"]',
+    );
+    if (!credit) throw new Error("expected a Credit bundle dropdown trigger");
+    if (!machine) throw new Error("expected a Machine tier dropdown trigger");
+    return { credit, machine };
+  }
+
+  test("renders the credit bundle picker before the machine tier (upgrade)", () => {
+    renderModal(subscription("base", null), proPlansResponse(CREDIT_TIERS));
+    const { credit, machine } = creditAndMachineTriggers();
+    expect(
+      credit.compareDocumentPosition(machine) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("renders the credit bundle picker before the machine tier (change)", () => {
+    renderModal(subscription("pro", null), proPlansResponse(CREDIT_TIERS));
+    const { credit, machine } = creditAndMachineTriggers();
+    expect(
+      credit.compareDocumentPosition(machine) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});

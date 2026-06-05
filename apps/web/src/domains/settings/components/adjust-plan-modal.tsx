@@ -862,14 +862,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                           {!isCurrent && isProCard && (
                             <>
                               <hr className="border-t border-[var(--border-base)]" />
-                              <TierPicker
-                                machineTiers={plan.machine_tiers}
-                                storageTiers={plan.storage_tiers}
-                                selectedMachineTier={selectedMachineTier}
-                                selectedStorageTier={selectedStorageTier}
-                                onMachineTierChange={setSelectedMachineTier}
-                                onStorageTierChange={setSelectedStorageTier}
-                              />
                               {creditTiersEnabled && (
                                 <CreditBundlePicker
                                   creditTiers={creditTiers}
@@ -878,6 +870,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   disabled={upgradeMutation.isPending}
                                 />
                               )}
+                              <TierPicker
+                                machineTiers={plan.machine_tiers}
+                                storageTiers={plan.storage_tiers}
+                                selectedMachineTier={selectedMachineTier}
+                                selectedStorageTier={selectedStorageTier}
+                                onMachineTierChange={setSelectedMachineTier}
+                                onStorageTierChange={setSelectedStorageTier}
+                              />
                               <Button
                                 variant="primary"
                                 className="w-full"
@@ -907,16 +907,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             ) : (
                               <>
                                 <hr className="border-t border-[var(--border-base)]" />
-                                <TierPicker
-                                  machineTiers={machineTiersForPicker}
-                                  storageTiers={storageTiersForPicker}
-                                  selectedMachineTier={selectedMachineTier}
-                                  selectedStorageTier={selectedStorageTier}
-                                  onMachineTierChange={setSelectedMachineTier}
-                                  onStorageTierChange={setSelectedStorageTier}
-                                  currentMachinePriceCents={currentMachinePrice}
-                                  currentStoragePriceCents={currentStoragePrice}
-                                />
                                 {creditTiersEnabled && (
                                   <CreditBundlePicker
                                     creditTiers={creditTiers}
@@ -928,6 +918,16 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                     disabled={tierChangePending}
                                   />
                                 )}
+                                <TierPicker
+                                  machineTiers={machineTiersForPicker}
+                                  storageTiers={storageTiersForPicker}
+                                  selectedMachineTier={selectedMachineTier}
+                                  selectedStorageTier={selectedStorageTier}
+                                  onMachineTierChange={setSelectedMachineTier}
+                                  onStorageTierChange={setSelectedStorageTier}
+                                  currentMachinePriceCents={currentMachinePrice}
+                                  currentStoragePriceCents={currentStoragePrice}
+                                />
                                 {(changeMachineTierMutation.isError ||
                                   changeStorageTierMutation.isError ||
                                   changeCreditTierMutation.isError) && (
