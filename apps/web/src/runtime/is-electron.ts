@@ -145,10 +145,7 @@ declare global {
       };
       feedback?: {
         diagnostics(): Promise<Record<string, unknown>>;
-        logs(timeRange: {
-          startMs: number | null;
-          endMs: number;
-        }): Promise<string>;
+        logs(): Promise<string>;
       };
     };
   }

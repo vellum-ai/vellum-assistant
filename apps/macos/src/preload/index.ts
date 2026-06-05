@@ -290,8 +290,8 @@ export interface VellumBridge {
   feedback: {
     /** Collect Electron-specific diagnostics (versions, platform, metrics). */
     diagnostics(): Promise<Record<string, unknown>>;
-    /** Read redacted log file content for the given time range. */
-    logs(timeRange: { startMs: number | null; endMs: number }): Promise<string>;
+    /** Read redacted log file content. */
+    logs(): Promise<string>;
   };
 }
 
@@ -441,8 +441,8 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
         Record<string, unknown>
       >,
-    logs: (timeRange: { startMs: number | null; endMs: number }) =>
-      ipcRenderer.invoke("vellum:feedback:logs", timeRange) as Promise<string>,
+    logs: () =>
+      ipcRenderer.invoke("vellum:feedback:logs") as Promise<string>,
   },
 };
 
