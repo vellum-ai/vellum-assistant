@@ -16,10 +16,10 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
-  - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
+  - Inbound Twilio voice setup (the media-stream setup flow in `call-setup-flow.ts`, driven by `media-stream-server.ts`) to seed call-time actor context.
 - Runtime channel runs pass this as `trustContext`, and conversation runtime assembly includes actor context in the unified `<turn_context>` block (via `buildUnifiedTurnContextBlock()`) injected into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
-- Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
+- Voice-specific behavior (DTMF/speech verification flow, the media-stream call-setup state machine) remains voice-local; only actor-role resolution is shared.
 
 ### Safe Storage Limits
 
@@ -500,9 +500,9 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
 
-1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
+1. Unknown caller dials in. The media-stream setup flow (`call-setup-flow.ts`, driven by `media-stream-server.ts`) resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
+2. The setup flow checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
+3. If active, non-expired invites exist, the setup flow enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, the contact is activated and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
@@ -526,13 +526,13 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by HTTP routes)                                                  |
 | `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
-| `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
+| `src/calls/call-setup-flow.ts`                      | Media-stream call-setup state machine — `invite_redemption_pending` subflow (always-on canonical behavior)         |
 | `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
 | `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
 
 ### Voice Inbound Security Model (Canonical)
 
-The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `relay-server.ts` during the `handleSetup` phase. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
+The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by the shared setup router (`routeSetup` in `relay-setup-router.ts`, invoked by the media-stream setup flow) during call setup. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
 
 **Decision tree for inbound unknown callers:**
 
@@ -560,17 +560,17 @@ resolveActorTrust() → trustClass
 
 **Path 1: Voice invite code redemption (guardian-initiated)**
 
-The guardian proactively creates a voice invite bound to the caller's E.164 phone number. When the unknown caller dials in and has an active, non-expired invite, the relay enters the `invite_redemption_pending` subflow with personalized prompts using the friend's and guardian's names. This is always-on canonical behavior (no feature flag). See [Voice Invite Flow](#voice-invite-flow-invite_redemption_pending) above.
+The guardian proactively creates a voice invite bound to the caller's E.164 phone number. When the unknown caller dials in and has an active, non-expired invite, the setup flow enters the `invite_redemption_pending` subflow with personalized prompts using the friend's and guardian's names. This is always-on canonical behavior (no feature flag). See [Voice Invite Flow](#voice-invite-flow-invite_redemption_pending) above.
 
 **Path 2: Live in-call guardian approval (friend-initiated)**
 
-When no invite exists and no pending guardian challenge is active, the relay enters the name capture + guardian approval wait flow:
+When no invite exists and no pending guardian challenge is active, the setup flow enters the name capture + guardian approval wait flow:
 
-1. The relay transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
+1. The setup flow transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
 2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
-3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
+3. The setup flow transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
 4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
-5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
+5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the setup flow transitions to the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Path 3: Inbound guardian verification (pending challenge)**
@@ -590,7 +590,8 @@ All guardian decisions for voice access requests flow through:
 
 | File                                           | Purpose                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/calls/relay-server.ts`                    | Inbound call decision tree, name capture, guardian approval wait polling               |
+| `src/calls/relay-setup-router.ts`              | Inbound call decision tree (`routeSetup`)                                              |
+| `src/calls/call-setup-flow.ts`                 | Media-stream setup state machine — name capture, guardian approval wait polling        |
 | `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
 | `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
@@ -605,22 +606,20 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                   |
-| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                        |
-| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation) via gateway WS proxy                  |
-| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`              |
-| **Client service-first**     | macOS via gateway → daemon                                                    | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS on-device                                                               | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`                                                                                                                                                                                                          | Fallback when STT service is unconfigured or fails                             |
+| Boundary                     | Runtime                                                                         | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **Telephony (media-stream)** | Daemon media-stream (Twilio `<Connect><Stream>` → daemon STT for all providers) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                   |
+| **Daemon batch**             | Daemon process (REST API to provider)                                           | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                        |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                                                | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation) via gateway WS proxy                  |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                             | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`              |
+| **Client service-first**     | macOS via gateway → daemon                                                      | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS on-device                                                                 | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`                                                                                                                                                                                                          | Fallback when STT service is unconfigured or fails                             |
 
-**Telephony boundary (hybrid routing):**
+**Telephony boundary (media-stream routing):**
 
-Telephony STT uses a provider-conditional hybrid model driven by `services.stt.provider`. The routing resolver (`src/calls/telephony-stt-routing.ts`) maps the configured provider to a discriminated strategy at call setup time:
+All phone calls use the media-stream transport. The routing resolver (`src/calls/telephony-stt-routing.ts`) maps the configured `services.stt.provider` to the single `media-stream-custom` strategy at call setup time — there are no longer multiple telephony strategies:
 
-- **`conversation-relay-native`** (Deepgram, Google) — TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription natively; the daemon receives transcribed text via the relay WebSocket. The Twilio-native provider name and default speech model are read from the provider catalog entry's `telephonyRouting.twilioNativeMapping` (e.g. Deepgram maps to `provider: "Deepgram"` with `defaultSpeechModel: "nova-3"`; Google maps to `provider: "Google"` with `defaultSpeechModel: undefined`).
-
-- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy. The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon, which transcribes server-side via the provider's batch API.
+- **`media-stream-custom`** (all providers) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy (`/webhooks/twilio/media-stream` → daemon `/v1/calls/media-stream`). The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon, which transcribes the streamed audio itself. Providers that expose a daemon-streaming boundary (`telephonyMode: "realtime-ws"`, e.g. Deepgram, Google) transcribe incrementally in real time; the rest (`telephonyMode: "batch-only"`, e.g. OpenAI Whisper) batch-transcribe each detected audio turn.
 
 Key modules:
 
@@ -638,7 +637,7 @@ Key modules:
 
 Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that TwiML generation matches the provider-conditional strategy for each supported provider.
 
-To add a new telephony STT provider: add a `telephonyRouting` entry to the provider's catalog entry in `provider-catalog.ts`. Set `strategyKind` to `"conversation-relay-native"` for Twilio-native providers (and include a `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`), or `"media-stream-custom"` for providers that require daemon-side transcription. The routing resolver reads these fields from the catalog — no hardcoded maps to update.
+To add a new telephony STT provider: add a `telephonyRouting` entry to the provider's catalog entry in `provider-catalog.ts`. Set `strategyKind` to `"media-stream-custom"` (the only strategy — all calls stream audio to the daemon for transcription). Whether the daemon transcribes that audio in real time or in batch is governed by the provider's `telephonyMode` / `supportedBoundaries`, not by the routing strategy. The routing resolver reads these fields from the catalog — no hardcoded maps to update.
 
 **Daemon batch boundary:**
 
@@ -2220,9 +2219,9 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 
 **Synthesis orchestrator (`synthesize-text.ts`):** `synthesizeText()` is the top-level entry point. It resolves the globally configured provider via the config resolver, looks up the adapter in the registry, and delegates synthesis. Provider selection is always global — per-use-case policy only gates capabilities (e.g. format checks), never overrides the chosen provider.
 
-**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the Twilio ConversationRelay telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
+**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the Twilio telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
 
-- **`native-twilio`** — Twilio handles TTS natively via ConversationRelay. The profile needs a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string. New native providers plug in by registering a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` — no edits to core call routing logic required.
+- **`native-twilio`** — the profile carries a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string for Twilio-native synthesis. New native providers plug in by registering a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` — no edits to core call routing logic required.
 - **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams chunks to Twilio via `play` messages. Uses a placeholder TTS provider (`"Google"`) and an empty voice string because Twilio never drives TTS itself on this path.
 
 **Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses `resolveCallStrategy()` to determine the call mode, then dispatches to the appropriate path. For `native-twilio`, it looks up the registered `NativeTwilioVoiceSpec` to build the voice string. For `synthesized-play`, it uses the placeholder profile. This replaces the previous `supportsStreaming`-based branching with explicit catalog-declared modes.

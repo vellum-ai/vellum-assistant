@@ -56,8 +56,8 @@ let pointerMessageProcessor: PointerMessageProcessor | undefined;
 
 /**
  * Inject the daemon-provided pointer message processor.
- * Called from daemon/lifecycle.ts at startup, following the same pattern
- * as setRelayBroadcast.
+ * Called from daemon/lifecycle.ts at startup, following the same
+ * module-level setter injection pattern used elsewhere in the calls layer.
  */
 export function setPointerMessageProcessor(
   processor: PointerMessageProcessor,

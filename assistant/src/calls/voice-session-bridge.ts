@@ -5,9 +5,8 @@
  * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
  *
- * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
- * dependencies at startup via `setVoiceBridgeDeps()`.
+ * Dependency injection follows a module-level setter pattern: the daemon
+ * lifecycle injects dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
