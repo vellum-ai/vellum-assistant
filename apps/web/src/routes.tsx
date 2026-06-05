@@ -105,6 +105,11 @@ export const routeTree = [
     // Vite's SPA fallback in dev (which is scoped to the `base`).
     { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
 
+    // Bundle confirmation — standalone page rendered inside the Electron
+    // bundle-confirmation BrowserWindow. No auth required so bundles can
+    // be opened before the user logs in. Same sibling pattern as About.
+    { path: "/assistant/bundle/confirm", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",

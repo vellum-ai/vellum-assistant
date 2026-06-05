@@ -142,6 +142,42 @@ export interface NotificationActionEvent {
   deepLinkMetadata?: Record<string, unknown>;
 }
 
+/**
+ * Mirror of `BundleScanData` in `apps/macos/src/main/bundle-manager.ts`.
+ * Inlined for the same reason as the other bridge types: preload + main +
+ * renderer each have their own TS project. Drift surfaces as a renderer
+ * field that's `undefined` at runtime rather than a build error.
+ */
+export interface BundleScanData {
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    capabilities: string[];
+    created_by: string;
+    created_at: string;
+  };
+  scanResult: {
+    passed: boolean;
+    findings: Array<{
+      category: string;
+      code: string;
+      message: string;
+      level: "block" | "warn";
+    }>;
+  };
+  signatureResult: {
+    trustTier: "verified" | "signed" | "unsigned" | "tampered";
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+    message?: string;
+  };
+  bundleSizeBytes: number;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -398,6 +434,12 @@ export interface VellumBridge {
      */
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
   };
+  bundleConfirm: {
+    /** Fetch the scan data for the bundle awaiting confirmation. */
+    getData(): Promise<BundleScanData | null>;
+    /** Accept or cancel the pending bundle installation. */
+    respond(accepted: boolean): void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -612,6 +654,15 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
+    },
+  },
+  bundleConfirm: {
+    getData: () =>
+      ipcRenderer.invoke(
+        "vellum:bundleConfirm:getData",
+      ) as Promise<BundleScanData | null>,
+    respond: (accepted: boolean): void => {
+      ipcRenderer.send("vellum:bundleConfirm:respond", accepted);
     },
   },
 };

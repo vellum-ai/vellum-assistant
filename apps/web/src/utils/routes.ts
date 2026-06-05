@@ -30,6 +30,14 @@ export const routes = {
    * the web build, where the runtime wrapper degrades to a "—" fallback.
    */
   about: r("/assistant/about"),
+  /**
+   * Bundle confirmation page. Standalone like About — sits under
+   * `/assistant/*` for Vite SPA fallback but outside the auth tree so
+   * bundles can be confirmed before sign-in. Mounted by the Electron
+   * host (`apps/macos/src/main/bundle-confirmation.ts`) into a
+   * dedicated BrowserWindow.
+   */
+  bundleConfirm: r("/assistant/bundle/confirm"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id
