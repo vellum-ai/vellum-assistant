@@ -550,12 +550,19 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         ? alternative.confidence
         : undefined;
 
-    if (frame.is_final) {
-      // Committed transcript — emit as final. `speech_final` marks Deepgram's
-      // natural utterance boundary (endpointed pause); a bare `is_final`
-      // without `speech_final` is a mid-utterance committed segment. We carry
-      // this through `endOfUtterance` so the consumer can accumulate
-      // mid-utterance segments and only act on the true boundary.
+    if (frame.is_final || frame.speech_final === true) {
+      // Committed transcript or endpointed boundary — emit as final.
+      // `speech_final` marks Deepgram's natural utterance boundary
+      // (endpointed pause). Deepgram can set `speech_final: true` while
+      // `is_final` is still false; the words in such a frame are the
+      // finalized endpoint, so we must still emit a `final` with
+      // `endOfUtterance: true` — otherwise the boundary is missed and an
+      // accumulating consumer never flushes the completed utterance. A bare
+      // `is_final` without `speech_final` is a mid-utterance committed
+      // segment (endOfUtterance=false). We carry the boundary through
+      // `endOfUtterance` so the consumer can accumulate mid-utterance
+      // segments and only act on the true boundary. When both flags are
+      // true this branch fires exactly once (no double-emit).
       this.emitEvent({
         type: "final",
         text,

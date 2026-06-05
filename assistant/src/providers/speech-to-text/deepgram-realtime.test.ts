@@ -334,6 +334,75 @@ describe("DeepgramRealtimeTranscriber", () => {
     });
   });
 
+  test("emits final with endOfUtterance for speech_final even when is_final is false", async () => {
+    const { events } = await startSession();
+
+    // Deepgram can endpoint an utterance (speech_final:true) on a frame whose
+    // is_final is still false. The words in such a frame are the finalized
+    // endpoint, so it must surface as a `final` with endOfUtterance:true —
+    // NOT be swallowed as a partial — or the accumulation buffer never flushes.
+    mockWs.simulateMessage(
+      resultsFrame("hello world", { is_final: false, speech_final: true }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      endOfUtterance: true,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits exactly one final when both is_final and speech_final are true", async () => {
+    const { events } = await startSession();
+
+    mockWs.simulateMessage(
+      resultsFrame("hello world", { is_final: true, speech_final: true }),
+    );
+
+    // No double-emit: the single final/boundary branch fires once.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      endOfUtterance: true,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits final with endOfUtterance:false for is_final without speech_final", async () => {
+    const { events } = await startSession();
+
+    // Mid-utterance committed segment — final, but not an utterance boundary.
+    mockWs.simulateMessage(
+      resultsFrame("hello", { is_final: true, speech_final: false }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello",
+      endOfUtterance: false,
+      confidence: 0.95,
+    });
+  });
+
+  test("emits partial for a pure interim frame (is_final and speech_final both false)", async () => {
+    const { events } = await startSession();
+
+    mockWs.simulateMessage(
+      resultsFrame("hel", { is_final: false, speech_final: false }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hel",
+      confidence: 0.95,
+    });
+  });
+
   test("handles missing channel field gracefully", async () => {
     const { events } = await startSession();
 
