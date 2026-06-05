@@ -40,13 +40,14 @@ interface HistoryRow {
   stop_reason: string | null;
   error: string | null;
   event_log_json: string;
+  cwd: string | null;
 }
 
 function readHistoryRow(id: string): HistoryRow | null {
   return getSqlite()
     .query(
       `SELECT id, agent_id, acp_session_id, parent_conversation_id,
-              started_at, completed_at, status, stop_reason, error, event_log_json
+              started_at, completed_at, status, stop_reason, error, event_log_json, cwd
        FROM acp_session_history WHERE id = ?`,
     )
     .get(id) as HistoryRow | null;
@@ -61,6 +62,7 @@ function buildSessionWithFakeProcess(opts: {
   agentId: string;
   protocolSessionId: string;
   parentConversationId: string;
+  cwd?: string;
 }): {
   manager: AcpSessionManager;
   resolvePrompt: (v: { stopReason: string }) => void;
@@ -126,7 +128,7 @@ function buildSessionWithFakeProcess(opts: {
     sendToVellum: wrappedSend,
     currentPrompt: null as Promise<unknown> | null,
     parentConversationId: opts.parentConversationId,
-    cwd: "/tmp",
+    cwd: opts.cwd ?? "/tmp",
     command: "claude-agent-acp",
   };
   sessions.set(opts.id, entry);
@@ -343,6 +345,38 @@ describe("AcpSessionManager — terminal persistence", () => {
     // Persisted JSON must respect the 256 KB cap (allowing a small margin
     // for the surrounding `[…]` and inter-element commas).
     expect(row!.event_log_json.length).toBeLessThan(256 * 1024 + 1024);
+  });
+
+  test("persists the spawn cwd on terminal transition", async () => {
+    const id = "session-cwd-1";
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-cwd",
+      protocolSessionId: "proto-cwd",
+      parentConversationId: "conv-cwd",
+      cwd: "/Users/me/projects/widget",
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.cwd).toBe("/Users/me/projects/widget");
+  });
+
+  test("legacy rows without a cwd read back as null", () => {
+    getSqlite().run(
+      `INSERT INTO acp_session_history (
+         id, agent_id, acp_session_id, parent_conversation_id,
+         started_at, status
+       ) VALUES ('legacy-row-1', 'agent-legacy', 'proto-legacy', 'conv-legacy', 1000, 'completed')`,
+    );
+
+    const row = readHistoryRow("legacy-row-1");
+    expect(row).not.toBeNull();
+    expect(row!.cwd).toBeNull();
   });
 
   test("persists empty event log when no updates were emitted", async () => {

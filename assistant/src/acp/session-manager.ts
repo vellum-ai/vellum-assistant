@@ -391,6 +391,7 @@ export class AcpSessionManager {
           stopReason: entry.state.stopReason ?? null,
           error: entry.state.error ?? null,
           eventLogJson: JSON.stringify(wireUpdates),
+          cwd: entry.cwd,
         })
         .onConflictDoNothing()
         .run();
