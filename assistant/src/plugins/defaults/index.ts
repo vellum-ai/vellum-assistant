@@ -29,6 +29,7 @@ import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
 import { defaultCompactionPlugin } from "./compaction/register.js";
 import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
 import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
+import { memoryV3ShadowPlugin } from "./memory-v3-shadow/register.js";
 import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
 import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
 import { defaultToolErrorPlugin } from "./tool-error/register.js";
@@ -54,6 +55,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultCompactionPlugin,
     defaultCircuitBreakerPlugin,
     defaultTitleGeneratePlugin,
+    memoryV3ShadowPlugin,
   ];
 }
 

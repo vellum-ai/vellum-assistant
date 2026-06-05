@@ -296,15 +296,6 @@ export interface EventHandlerState {
    */
   lastPersistedContentSeq: number | undefined;
   /**
-   * Whether the workspace top-level block should be (re)injected on this
-   * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
-   * blocks off the tail, so it is set after any successful compaction to
-   * force the workspace overview back in. On an ordinary turn the block is
-   * already present in history, so it defaults `false` to avoid burning
-   * tokens re-injecting it redundantly.
-   */
-  shouldInjectWorkspace: boolean;
-  /**
    * Whether the reducer has compacted `ctx.messages`, gating the Slack
    * chronological-transcript override on re-injection. The captured
    * transcript is the full persisted history; blindly replaying it after
@@ -392,7 +383,6 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     lastPersistedContentSeq: undefined,
-    shouldInjectWorkspace: false,
     reducerCompacted: false,
   };
 }
@@ -2312,7 +2302,6 @@ export async function dispatchAgentEvent(
         if (event.result.compacted) {
           await deps.applyCompaction(event.result, event.basis);
           state.reducerCompacted = true;
-          state.shouldInjectWorkspace = true;
         }
         break;
       case "history_stripped":

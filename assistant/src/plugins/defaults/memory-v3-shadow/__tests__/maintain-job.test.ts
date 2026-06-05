@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-helpers.js";
-import type { AssistantConfig } from "../../../config/types.js";
-import type { MemoryJob } from "../../jobs-store.js";
-import { readPage, writePage } from "../../v2/page-store.js";
-import type { ConceptPage } from "../../v2/types.js";
+import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
+import type { AssistantConfig } from "../../../../config/types.js";
+import type { MemoryJob } from "../../../../memory/jobs-store.js";
+import { readPage, writePage } from "../../../../memory/v2/page-store.js";
+import type { ConceptPage } from "../../../../memory/v2/types.js";
 import type { AssignPageResult, AssignPagesOptions } from "../assign.js";
 import {
   type ClassifyCandidate,

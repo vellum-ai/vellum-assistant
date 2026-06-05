@@ -8,15 +8,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { readPage, writePage } from "../../../../memory/v2/page-store.js";
+import type { ConceptPageFrontmatter } from "../../../../memory/v2/types.js";
 import type {
   Message,
   Provider,
   ProviderResponse,
   SendMessageOptions,
   ToolUseContent,
-} from "../../../providers/types.js";
-import { readPage, writePage } from "../../v2/page-store.js";
-import type { ConceptPageFrontmatter } from "../../v2/types.js";
+} from "../../../../providers/types.js";
 import type { LeafNode, LeafTree } from "../types.js";
 
 // Stub the provider layer before importing `assign.js` so its static import
@@ -24,7 +24,7 @@ import type { LeafNode, LeafTree } from "../types.js";
 // aren't built in a fresh worktree) never loads. The classifier is
 // provider-injectable, so every test passes its own stub provider — the real
 // `getConfiguredProvider` is never exercised here.
-mock.module("../../../providers/provider-send-message.js", () => ({
+mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => null,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),

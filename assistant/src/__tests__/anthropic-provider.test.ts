@@ -102,7 +102,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
-import { cachedTextBlock } from "../memory/v3/provider-blocks.js";
+import { cachedTextBlock } from "../plugins/defaults/memory-v3-shadow/provider-blocks.js";
 import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
   isPlaceholderSentinelText,

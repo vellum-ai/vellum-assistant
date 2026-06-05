@@ -8,6 +8,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
@@ -87,7 +88,6 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
-import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-jobs-worker");
 

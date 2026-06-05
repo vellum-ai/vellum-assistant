@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
+import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+  type WorkspaceConversationContext,
+} from "../daemon/conversation-workspace.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +16,26 @@ function userMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
 }
 
+// `applyRuntimeInjections` synthesizes this conversation id when no
+// `turnContext` is supplied, so the `workspace-context` injector resolves the
+// live workspace block from the registry under this key.
+const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
+
+let registeredWorkspace: WorkspaceConversationContext | null = null;
+
+// Seed the workspace registry with a pre-rendered top-level block. The cache
+// is non-dirty with non-null content, so `resolveWorkspaceTopLevelContext`
+// returns it verbatim without rescanning the filesystem.
+function seedWorkspaceContext(text: string): void {
+  registeredWorkspace = {
+    conversationId: FALLBACK_CONVERSATION_ID,
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: text,
+    workspaceTopLevelDirty: false,
+  };
+  registerConversationWorkspace(registeredWorkspace);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -19,15 +44,23 @@ const sampleContext =
   "<workspace>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace>";
 
 // The workspace-context default injector emits the workspace block as a
-// `prepend-user-tail` placement during `applyRuntimeInjections`. The suite
-// below exercises that end-to-end path.
+// `prepend-user-tail` placement during `applyRuntimeInjections`. It sources
+// the rendered block from the per-conversation workspace registry and
+// (re)injects only when the block is absent from the working messages, so the
+// suite seeds the registry and exercises that end-to-end path.
 
 describe("applyRuntimeInjections — workspace top-level context", () => {
-  test("injects workspace context when provided", async () => {
+  afterEach(() => {
+    if (registeredWorkspace) {
+      unregisterConversationWorkspace(registeredWorkspace);
+      registeredWorkspace = null;
+    }
+  });
+
+  test("injects workspace context when registered", async () => {
+    seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {
-      workspaceTopLevelContext: sampleContext,
-    });
+    const { messages: result } = await applyRuntimeInjections(messages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
@@ -35,21 +68,34 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
     expect((result[0].content[1] as { text: string }).text).toBe("Hello");
   });
 
-  test("does not inject when workspace context is null", async () => {
+  test("does not inject when no workspace context is registered", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {
-      workspaceTopLevelContext: null,
-    });
+    const { messages: result } = await applyRuntimeInjections(messages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
   });
 
+  test("does not re-inject when the workspace block is already present", async () => {
+    // GIVEN the registry holds a workspace block AND the working messages
+    // already carry that block (a normal cached turn, post-injection).
+    seedWorkspaceContext(sampleContext);
+    const messages: Message[] = [userMsg(sampleContext), userMsg("Hello")];
+
+    // WHEN injections are applied
+    const { messages: result } = await applyRuntimeInjections(messages, {});
+
+    // THEN presence detection skips the block to keep the prefix stable.
+    expect(result).toHaveLength(2);
+    expect(result[1].content).toHaveLength(1);
+    expect((result[1].content[0] as { text: string }).text).toBe("Hello");
+  });
+
   test("workspace context appears before active surface context in content", async () => {
+    seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
       activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
-      workspaceTopLevelContext: sampleContext,
     });
 
     // Workspace is injected last (in applyRuntimeInjections order) so it
@@ -72,7 +118,6 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
         appId: "app-1",
         appName: "Example App",
       },
-      workspaceTopLevelContext: null,
     });
 
     const activeWorkspaceText = (result[0].content[0] as { text: string }).text;
@@ -82,10 +127,17 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 });
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
+  afterEach(() => {
+    if (registeredWorkspace) {
+      unregisterConversationWorkspace(registeredWorkspace);
+      registeredWorkspace = null;
+    }
+  });
+
   test("minimal mode skips workspace top-level context", async () => {
+    seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
-      workspaceTopLevelContext: sampleContext,
       mode: "minimal",
     });
 
@@ -107,9 +159,9 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
   });
 
   test("full mode (default) still includes workspace blocks", async () => {
+    seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
-      workspaceTopLevelContext: sampleContext,
       activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     });
 

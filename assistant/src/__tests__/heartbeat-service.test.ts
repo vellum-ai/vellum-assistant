@@ -32,6 +32,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   listHeartbeatRuns: mockListHeartbeatRuns,
   countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
+  countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
 }));
 

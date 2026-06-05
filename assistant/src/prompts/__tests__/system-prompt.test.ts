@@ -148,5 +148,11 @@ describe("maybeReseedBootstrap — activation rail template", () => {
     // Propose: the extract-shape vs infer-shape example block.
     expect(content).toContain("extract-shape");
     expect(content).toContain("infer-shape");
+
+    // Port: prompt-writing guidance (JARVIS-1124).
+    expect(content).toContain("portable context brief, not a self-summary");
+    expect(content).toContain("load-bearing work in the next month");
+    expect(content).toContain("what to help with first");
+    expect(content).toContain("another tool or collaborator");
   });
 });

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { Provider } from "../../../providers/types.js";
-import { readPage, writePage } from "../../v2/page-store.js";
+import { readPage, writePage } from "../../../../memory/v2/page-store.js";
+import type { Provider } from "../../../../providers/types.js";
 import { type LeafRef, reconcileTree } from "../reconcile.js";
 
 /**

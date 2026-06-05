@@ -128,7 +128,10 @@ import {
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
-import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
+import {
+  registerConversationWorkspace,
+  unregisterConversationWorkspace,
+} from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -391,6 +394,7 @@ export class Conversation {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
+    registerConversationWorkspace(this);
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
@@ -819,6 +823,7 @@ export class Conversation {
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.graphMemory.persistState();
     this.graphMemory.dispose();
+    unregisterConversationWorkspace(this);
     disposeConversation(this);
   }
 
@@ -1345,10 +1350,6 @@ export class Conversation {
   }
 
   // ── Workspace ────────────────────────────────────────────────────
-
-  refreshWorkspaceTopLevelContextIfNeeded(): void {
-    refreshWorkspaceImpl(this);
-  }
 
   markWorkspaceTopLevelDirty(): void {
     this.workspaceTopLevelDirty = true;

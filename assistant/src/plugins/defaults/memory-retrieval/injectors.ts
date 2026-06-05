@@ -47,6 +47,7 @@ import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
+import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -151,25 +152,51 @@ function isPkbInjectionSilencedByV2(): boolean {
 }
 
 /**
+ * Matchers that mark a persisted `<workspace>` top-level injection. Uses the
+ * `{ prefix, suffix }` wrapper shape so user-authored text merely starting with
+ * `<workspace>\n` is never mistaken for an injection — matching the full-wrapper
+ * requirement the compaction strip uses for this block. The legacy
+ * `<workspace_top_level>` tag (pre-rename history) counts as present too.
+ */
+const WORKSPACE_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
+  { prefix: "<workspace>\n", suffix: "\n</workspace>" },
+  "<workspace_top_level>",
+];
+
+/**
  * `workspace-context` injector — order 10, prepend-user-tail.
  *
  * Injects the workspace top-level directory context at the very top of the
- * user tail's content so the assistant sees a workspace grounding block
- * before any other per-turn context.
+ * user tail's content so the assistant sees a workspace grounding block before
+ * any other per-turn context.
+ *
+ * Sources the dirty-guarded top-level cache itself via
+ * {@link resolveWorkspaceTopLevelContext} (keyed by conversation id) rather than
+ * having the agent loop compute and thread it. Decides inject/skip by presence
+ * detection: the block is (re)injected only when it is absent from the working
+ * messages — true on the first turn and right after compaction strips it — and
+ * skipped on normal cached turns where it already persists in history. This
+ * keeps the conversation prefix stable for Anthropic's prefix caching.
  *
  * Gating:
  *  - `mode === "full"` (skipped in minimal mode).
- *  - `workspaceTopLevelContext` is a non-null, non-empty string.
+ *  - the rendered workspace context is a non-null, non-empty string.
+ *  - no `<workspace>` block is already present in `runMessages`.
  */
 const workspaceContextInjector: Injector = {
   name: "workspace-context",
   order: DEFAULT_INJECTOR_ORDER.workspaceContext,
-  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    const text = inputs.workspaceTopLevelContext;
+    const text = resolveWorkspaceTopLevelContext(ctx.conversationId);
     if (!text) return null;
+    if (hasInjectedUserTextBlock(runMessages, WORKSPACE_BLOCK_MATCHERS))
+      return null;
     return {
       id: "workspace-context",
       text,

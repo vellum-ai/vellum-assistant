@@ -87,8 +87,14 @@ const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   { prefix: "<info>\n", suffix: "\n</info>" },
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
-  // NOTE: <workspace> is intentionally NOT stripped — workspace context
-  // persists in history so the assistant retains workspace grounding.
+  // The `<workspace>` top-level block is stripped so each compaction re-injects
+  // a fresh directory snapshot rather than carrying a stale listing into the
+  // summary — matching the `<knowledge_base>`/`<NOW.md>` cadence and keeping the
+  // `workspace-context` injector's presence detection in lockstep (the block is
+  // present exactly when compaction would strip it). The full `{ prefix, suffix }`
+  // wrapper shape ensures user-authored text merely starting with `<workspace>\n`
+  // is never mistaken for an injected block.
+  { prefix: "<workspace>\n", suffix: "\n</workspace>" },
   "<temporal_context>\nToday:", // backward-compat: strip legacy temporal blocks
   "<active_subagents>",
   "<active_workspace>",

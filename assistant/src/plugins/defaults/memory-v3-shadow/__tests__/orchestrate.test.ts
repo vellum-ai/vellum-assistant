@@ -17,7 +17,7 @@ import type {
   Message,
   Provider,
   ProviderResponse,
-} from "../../../providers/types.js";
+} from "../../../../providers/types.js";
 import type { NeedleIndex } from "../needle.js";
 import type {
   LeafNode,
@@ -35,13 +35,13 @@ import evalTurns from "./fixtures/eval-turns.json" with { type: "json" };
 
 let providerStub: Provider | null = null;
 
-mock.module("../../../providers/provider-send-message.js", () => ({
+mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b) => b.type === "tool_use"),
 }));
 
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => (prop === "child" ? () => ({}) : () => {}),

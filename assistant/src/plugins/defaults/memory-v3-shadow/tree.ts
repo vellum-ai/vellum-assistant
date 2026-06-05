@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { parse as parseYaml } from "yaml";
 
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
 import type {
   LeafFrontmatter,
   LeafNode,

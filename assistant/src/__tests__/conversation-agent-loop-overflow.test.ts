@@ -515,8 +515,6 @@ function makeCtx(
     currentTurnSurfaces: [],
 
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -553,7 +551,6 @@ function makeCtx(
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
