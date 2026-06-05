@@ -782,14 +782,21 @@ export class MediaStreamSttSession {
     // batch, losing the caller's final utterance on short calls / slow
     // handshakes.
     if (this.mode === "streaming") {
-      // Streaming mode: signal end-of-audio. The transcriber may emit a
-      // final transcript and then a `closed` event (which drives onStop).
-      // Treat the stop as an implicit utterance boundary and flush any
-      // buffered accumulated finals first — the provider may close without
-      // emitting a real boundary for the caller's last partial utterance.
-      // flushStreamingUtterance resets the buffer, so the subsequent `closed`
-      // event won't double-flush.
-      this.handleStreamingClose();
+      // Streaming mode: signal end-of-audio. Do NOT pre-flush the buffered
+      // accumulated finals here — when Twilio `stop` arrives the provider may
+      // still hold unprocessed audio. Calling stop() makes the provider
+      // finalize it and emit additional post-stop `final` (and boundary)
+      // results, so flushing before stop() would emit the buffered transcript
+      // too early and split the utterance (an early partial reply, then the
+      // leftover finals arriving afterward).
+      //
+      // Instead, let stop() drain: the post-stop finals flow through the
+      // normal handleStreamingFinal accumulation path, and the provider's
+      // `closed` event (which the Deepgram adapter emits after CloseStream
+      // drains, with a grace-timer backstop) performs the single final flush
+      // of the complete utterance. flushStreamingUtterance resets the buffer,
+      // so a normal boundary that already flushed leaves nothing for the
+      // closed-path flush to double-emit. dispose() is the final backstop.
       this.streamingTranscriber?.stop();
       this.callbacks.onStop?.();
       return;
