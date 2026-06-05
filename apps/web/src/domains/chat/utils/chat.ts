@@ -9,10 +9,8 @@ import type {
   PendingConfirmationState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
-import type {
-  ChatMessageToolCall,
-  PendingToolConfirmation,
-} from "@/domains/chat/api/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/hooks/use-interaction-actions";
 
 export const ERROR_MESSAGES: Record<string, string> = {
