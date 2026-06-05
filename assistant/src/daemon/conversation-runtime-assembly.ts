@@ -44,7 +44,6 @@ import {
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import { MEMORY_V3_BLOCK_ID } from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
-  DiskPressureInjectionContext,
   InjectionBlock,
   InjectionPlacement,
   TurnContext,
@@ -1828,7 +1827,6 @@ function applyInjectionBlock(
  * plugin-overridable default injectors.
  */
 export interface RuntimeInjectionOptions {
-  diskPressureContext?: DiskPressureInjectionContext | null;
   /**
    * Active dashboard-surface context (read from `<active_workspace>`). Kept
    * on the options bag rather than an injector because it is a
@@ -1915,7 +1913,6 @@ function buildTurnInjectionInputs(
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
-    diskPressureContext: options.diskPressureContext,
     unifiedTurnContext: options.unifiedTurnContext,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,

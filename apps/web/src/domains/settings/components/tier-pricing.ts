@@ -9,12 +9,15 @@
  * than rounding to `$10/mo` in one place and `$9.95/mo` in another.
  */
 
+/** "$50" for whole-dollar amounts; "$50.50" only when cents are present. */
+export function formatDollars(cents: number): string {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
 /** "$50/mo" for whole-dollar amounts; "$50.50/mo" only when cents are present. */
 export function formatMonthly(cents: number): string {
-  const dollars = cents / 100;
-  return Number.isInteger(dollars)
-    ? `$${dollars}/mo`
-    : `$${dollars.toFixed(2)}/mo`;
+  return `${formatDollars(cents)}/mo`;
 }
 
 /**
@@ -23,9 +26,5 @@ export function formatMonthly(cents: number): string {
  */
 export function formatDelta(deltaCents: number): string {
   const prefix = deltaCents > 0 ? "+" : "−";
-  const absDollars = Math.abs(deltaCents) / 100;
-  const formatted = Number.isInteger(absDollars)
-    ? `$${absDollars}`
-    : `$${absDollars.toFixed(2)}`;
-  return `${prefix}${formatted}/mo`;
+  return `${prefix}${formatDollars(Math.abs(deltaCents))}/mo`;
 }

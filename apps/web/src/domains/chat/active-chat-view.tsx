@@ -78,10 +78,8 @@ import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversat
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 
-import {
-  ChatRouteContent,
-  type ChatRouteContentProps,
-} from "@/domains/chat/components/chat-route-content";
+import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
+import type { ChatRouteContentProps } from "@/domains/chat/components/chat-route-content";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -446,7 +444,7 @@ export function ActiveChatView() {
 
   return (
     <>
-      <ChatRouteContent {...chatRouteProps} />
+      <ChatContentLayout {...chatRouteProps} />
       {showAddCreditsModal ? (
         <LazyBoundary>
           <AddCreditsModal

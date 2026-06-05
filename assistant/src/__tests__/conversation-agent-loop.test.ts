@@ -316,12 +316,14 @@ const buildUnifiedTurnContextBlockMock = mock(
   (options: Record<string, unknown>) =>
     `<turn_context>\ncurrent_time: ${String(options.timestamp)}\n</turn_context>`,
 );
-const applyRuntimeInjectionsMock = mock(
-  async (msgs: Message[], _options?: unknown) => ({
-    messages: msgs,
-    blocks: { ...mockInjectionBlocks },
-  }),
-);
+const defaultApplyRuntimeInjectionsImpl = async (
+  msgs: Message[],
+  _options?: unknown,
+) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+});
+const applyRuntimeInjectionsMock = mock(defaultApplyRuntimeInjectionsImpl);
 let mockSlackChronologicalContext: {
   renderedMessages: Array<{
     message: Message;
@@ -741,6 +743,9 @@ beforeEach(() => {
   setConversationHistoryStrippedAtMock.mockClear();
   setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
+  applyRuntimeInjectionsMock.mockImplementation(
+    defaultApplyRuntimeInjectionsImpl,
+  );
   buildUnifiedTurnContextBlockMock.mockClear();
   resolveTurnTimezoneContextMock.mockClear();
   formatTurnTimestampMock.mockClear();
@@ -877,7 +882,23 @@ describe("session-agent-loop", () => {
   });
 
   describe("disk pressure injection context", () => {
-    test("passes cleanup context into runtime injections for cleanup-mode turns", async () => {
+    // The loop sets `ctx.diskPressureCleanupModeActive` for the duration of the
+    // turn (the disk-pressure-warning injector reads it via the per-conversation
+    // registry) and resets it in the turn-end cleanup path. Snapshot the flag at
+    // each `applyRuntimeInjections` call so assertions observe its value while
+    // injection runs, not the post-turn reset.
+    function captureCleanupFlagDuringInjection(ctx: {
+      diskPressureCleanupModeActive?: boolean;
+    }): () => Array<boolean | undefined> {
+      const observed: Array<boolean | undefined> = [];
+      applyRuntimeInjectionsMock.mockImplementation(async (msgs: Message[]) => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+        return { messages: msgs, blocks: { ...mockInjectionBlocks } };
+      });
+      return () => observed;
+    }
+
+    test("sets the cleanup-mode flag on the conversation for cleanup-mode turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -900,6 +921,7 @@ describe("session-agent-loop", () => {
           trustClass: "guardian",
         } as AgentLoopConversationContext["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -918,21 +940,16 @@ describe("session-agent-loop", () => {
           },
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("passes cleanup context into runtime injections for local-owner turns", async () => {
+    test("sets the cleanup-mode flag on the conversation for local-owner turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "local-owner",
       };
       const ctx = makeCtx();
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -944,16 +961,10 @@ describe("session-agent-loop", () => {
           trustContext: null,
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("keeps cleanup context on overflow recovery reinjection", async () => {
+    test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -975,18 +986,14 @@ describe("session-agent-loop", () => {
           trustClass: "guardian",
         } as AgentLoopConversationContext["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
       expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
-      for (const call of applyRuntimeInjectionsMock.mock.calls) {
-        const options = call[1] as {
-          diskPressureContext?: { cleanupModeActive: boolean } | null;
-        };
-        expect(options.diskPressureContext).toEqual({
-          cleanupModeActive: true,
-        });
-      }
+      const flags = cleanupFlagDuringInjection();
+      expect(flags.length).toBeGreaterThan(1);
+      expect(flags.every((flag) => flag === true)).toBe(true);
     });
 
     test("blocks policy-denied turns before runtime injection or model execution", async () => {

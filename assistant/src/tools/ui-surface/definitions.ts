@@ -19,7 +19,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const APP_BUILDER_ARTIFACT_RE =
-  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|tool|tools|utility|utilities|counter|counters)\b/i;
+  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|visualize|visualise|artifact|artifacts|chart|charts|graph|graphs|tool|tools|utility|utilities|counter|counters)\b/i;
 const APP_BUILDER_BUILD_RE =
   /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
 
@@ -58,11 +58,32 @@ function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
   }
 
   const text = collectRoutingText(input).join(" ");
-  if (!APP_BUILDER_ARTIFACT_RE.test(text)) {
-    return false;
+  if (
+    APP_BUILDER_ARTIFACT_RE.test(text) &&
+    (APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text))
+  ) {
+    return true;
   }
 
-  return APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text);
+  // Second signal: even when the model gives the surface a clean,
+  // non-app-sounding title (dodging the text regex above), substantial
+  // interactive HTML is an app being smuggled in as a transient surface.
+  // A genuinely transient page is small and static; an app has real
+  // scripted markup. Keep the bar high so simple snippets still pass.
+  return isSubstantialInteractiveHtml(input);
+}
+
+const INTERACTIVE_HTML_RE = /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
+
+function isSubstantialInteractiveHtml(
+  input: Record<string, unknown>,
+): boolean {
+  const data = asRecord(input.data);
+  const html = data?.html;
+  if (typeof html !== "string") {
+    return false;
+  }
+  return html.length > 2000 && INTERACTIVE_HTML_RE.test(html);
 }
 
 function collectRoutingText(input: Record<string, unknown>): string[] {

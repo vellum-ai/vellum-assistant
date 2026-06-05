@@ -768,10 +768,6 @@ export async function runAgentLoopImpl(
         : null,
     },
   );
-  const diskPressureContext =
-    diskPressureDecision.action === "allow-cleanup-mode"
-      ? { cleanupModeActive: true }
-      : null;
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
 
@@ -1340,7 +1336,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      diskPressureContext,
       // Resolved from the conversation's surface state here, where the
       // runtime injector is the only consumer of the active-surface block.
       activeSurface: buildActiveSurfaceContext({

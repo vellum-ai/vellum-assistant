@@ -50,7 +50,7 @@ import { CreditBundlePicker } from "./credit-bundle-picker";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanFeatureList } from "./plan-feature-list";
 import { TierPicker, isTierDisabled } from "./tier-picker";
-import { formatDelta, formatMonthly } from "./tier-pricing";
+import { formatDelta, formatDollars, formatMonthly } from "./tier-pricing";
 
 
 /**
@@ -899,17 +899,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   as="p"
                                   variant="body-small-default"
                                   className="text-[var(--content-tertiary)]"
-                                >
-                                  Billed monthly
-                                </Typography>
-                                <Typography
-                                  as="p"
-                                  variant="body-small-default"
-                                  className="text-[var(--content-tertiary)]"
                                   data-testid="modal-pro-base-fee"
                                 >
-                                  Includes a {formatMonthly(plan.base_price_cents)}{" "}
-                                  base fee for Pro features.
+                                  {formatDollars(plan.base_price_cents)} base fee
                                 </Typography>
                               </>
                             )}

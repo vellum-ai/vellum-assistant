@@ -1,5 +1,6 @@
 import { join, resolve, sep } from "node:path";
 
+import { getAppsDir } from "../../memory/app-store.js";
 import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -16,6 +17,29 @@ import type {
 } from "../types.js";
 
 const logger = getLogger("file-write");
+
+/**
+ * Detects an attempt to write a self-contained interactive HTML document —
+ * the signature of a "visualization" / "artifact" the model should be
+ * building as a real app via the app-builder skill, not dumping as a loose
+ * file. We deliberately trip ONLY on standalone docs with a substantial
+ * INLINE script (the data + rendering live in the file). app-builder's own
+ * scaffold writes a thin shell whose only script is an external module
+ * (`<script type="module" src="/src/main.tsx">`) with an empty body, so this
+ * never blocks the app-builder workflow it redirects to.
+ */
+const STANDALONE_HTML_RE = /<!doctype\s+html|<html[\s>]/i;
+const INLINE_SCRIPT_RE = /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
+
+function isSelfContainedArtifactHtml(path: string, content: string): boolean {
+  if (!/\.html?$/i.test(path)) return false;
+  if (content.length < 3000) return false;
+  if (!STANDALONE_HTML_RE.test(content)) return false;
+  return INLINE_SCRIPT_RE.test(content);
+}
+
+const ARTIFACT_REDIRECT_MESSAGE =
+  'Error: This looks like a self-contained interactive visualization/artifact written as a loose HTML file. Do not build these as standalone .html files. Load the app-builder skill first with `skill_load` using `skill: "app-builder"`, then build it as a real persistent app with `app_create` (the skill loads frontend-design for the visual pass and provides chart widgets). If this genuinely needs to be a raw HTML file inside an existing code project, write it under that project folder.';
 
 /**
  * Returns `true` iff `absPath` is an absolute path that resolves strictly
@@ -80,6 +104,16 @@ export const fileWriteTool = {
         content: "Error: content is required and must be a string",
         isError: true,
       };
+    }
+
+    // Redirect self-contained interactive HTML artifacts to app-builder.
+    // Exempt writes that land inside the apps directory (app-builder's own
+    // scaffold/iteration writes) so we never block the workflow we point to.
+    if (isSelfContainedArtifactHtml(rawPath, fileContent)) {
+      const candidate = resolve(context.workingDir, rawPath);
+      if (!isInsidePkbRoot(candidate, getAppsDir())) {
+        return { content: ARTIFACT_REDIRECT_MESSAGE, isError: true };
+      }
     }
 
     const ops = new FileSystemOps((path, opts) =>

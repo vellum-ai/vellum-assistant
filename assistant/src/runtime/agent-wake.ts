@@ -432,9 +432,6 @@ function buildWakeTurnContext(
         sourceChannel: opts.sourceChannel ?? "vellum",
         trustClass: "guardian",
       } satisfies TrustContext),
-    injectionInputs: {
-      diskPressureContext: { cleanupModeActive: true },
-    },
   };
 }
 

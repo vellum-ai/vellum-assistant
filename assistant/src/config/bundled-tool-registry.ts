@@ -23,6 +23,7 @@ import * as acpSteer from "./bundled-skills/acp/tools/acp-steer.js";
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
+import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
 // ── app-control ────────────────────────────────────────────────────────────────
 import * as appControlClick from "./bundled-skills/app-control/tools/app-control-click.js";
@@ -142,6 +143,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
+  ["app-builder:tools/app-list.ts", appList],
 
   // app-control
   ["app-control:tools/app-control-start.ts", appControlStart],

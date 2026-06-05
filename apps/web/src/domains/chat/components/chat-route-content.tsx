@@ -1,6 +1,10 @@
 /**
- * Chat route content — renders the chat body, document panel,
- * app-editing side panel, and all chat-specific UI slots inside `ChatLayout`.
+ * Chat route content — renders `ChatBody` with all chat-specific UI slots
+ * (banners, composer, interaction prompts, modals).
+ *
+ * Layout routing (side panels, resizable splits) lives in
+ * `ChatContentLayout`, which renders this component inside the
+ * appropriate panel arrangement based on `mainView`.
  *
  * Reads per-conversation state from Zustand stores directly and owns
  * UI-scoped hooks (avatar, disk pressure, nudges, voice input, interaction
@@ -9,11 +13,8 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type FormEvent, lazy, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
-
-import { AppViewerContainer } from "@/components/app-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
@@ -32,7 +33,6 @@ import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
@@ -48,21 +48,10 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import { conversationsByIdUndoPost, subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
-import { Button, Notice, ResizablePanel } from "@vellumai/design-library";
-import { Loader2 } from "lucide-react";
-const SubagentDetailPanel = lazy(() =>
-  import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
-    default: m.SubagentDetailPanel,
-  })),
-);
-const ToolDetailPanel = lazy(() =>
-  import("@/domains/chat/components/tool-detail-panel").then((m) => ({
-    default: m.ToolDetailPanel,
-  })),
-);
+import { Button, Notice } from "@vellumai/design-library";
 
 import { Link, useNavigate } from "react-router";
 
@@ -72,10 +61,8 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useDeployStore } from "@/stores/deploy-store";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -95,6 +82,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/di
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -114,8 +102,6 @@ import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat"
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useEditApp } from "@/hooks/use-edit-app";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -206,8 +192,6 @@ export function ChatRouteContent({
   const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
   const attachmentUploadedIds = useMemo(() => selectUploadedIds(chatAttachments), [chatAttachments]);
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
-
   // -------------------------------------------------------------------------
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
@@ -219,7 +203,6 @@ export function ChatRouteContent({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
   // -------------------------------------------------------------------------
@@ -238,13 +221,9 @@ export function ChatRouteContent({
   // Store reads — conversation, viewer
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const editingConversationId = useConversationStore.use.editingConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
-  const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const activeSubagentId = useViewerStore.use.activeSubagentId();
-  const subagentById = useSubagentStore((s) => s.byId);
 
   // Active conversation (TanStack Query — deduped with ActiveChatView's call)
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
@@ -303,61 +282,14 @@ export function ChatRouteContent({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const handleCloseDocument = useCallback(() => {
-    useViewerStore.getState().closeDocument();
-  }, []);
-
-  const handleCloseApp = useCallback(() => {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
-  }, []);
-
-  const handleCloseEditPanel = useCallback(() => {
-    useConversationStore.getState().setEditingConversationId(null);
-    useViewerStore.getState().exitAppEditing();
-  }, []);
-
-  const editApp = useEditApp();
-  const handleEditApp = useCallback(() => {
-    const oas = useViewerStore.getState().openedAppState;
-    if (oas) editApp(oas);
-  }, [editApp]);
-
-  const handleShareApp = useCallback(() => {
-    const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
-  }, [assistantId]);
-
-  const handleDeployApp = useCallback(() => {
-    const app = useViewerStore.getState().openedAppState;
-    if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
-  }, [assistantId]);
-
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
   }, []);
 
-  const onCloseSubagentDetail = useCallback(() => {
-    useViewerStore.getState().closeSubagentDetail();
-  }, []);
-
-  const onStopSubagent = useCallback(async (subagentId: string) => {
-    if (!assistantId || !activeConversationId) return;
-    try {
-      await subagentsByIdAbortPost({
-        path: { assistant_id: assistantId, id: subagentId },
-        body: { conversationId: activeConversationId },
-        throwOnError: true,
-      });
-    } catch {
-      // Best-effort abort
-    }
-  }, [assistantId, activeConversationId]);
-
-  const onRequestSubagentDetail = useCallback((subagentId: string) => {
-    if (!assistantId) return;
-    void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
-  }, [assistantId]);
+  const onStopSubagent = useCallback(
+    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
 
   const pushToAiSettings = useCallback(() => {
     void navigate(routes.settings.ai);
@@ -379,32 +311,19 @@ export function ChatRouteContent({
   const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity, autoRoutedProfileLabel };
 
   // -------------------------------------------------------------------------
-  // Deploy / share state (from Zustand store)
+  // Tool-call rule editor (signalled via viewer store seq counter)
   // -------------------------------------------------------------------------
-
-  const isSharing = useDeployStore.use.isSharing();
-  const isDeploying = useDeployStore.use.isDeploying();
-
-  // -------------------------------------------------------------------------
-  // Tool-call detail drawer (from Zustand viewer store)
-  // -------------------------------------------------------------------------
-
-  const activeToolDetail = useViewerStore.use.activeToolDetail();
-  const closeToolDetail = useViewerStore.use.closeToolDetail();
 
   /** Open the rule editor for the tool call shown in the detail panel. */
   const handleToolDetailRiskBadgeClick = useCallback(() => {
-    if (!activeToolDetail) {
-      return;
-    }
+    const detail = useViewerStore.getState().activeToolDetail;
+    if (!detail) return;
     const tc = messages
       .flatMap((m) => m.toolCalls ?? [])
-      .find((t) => t.id === activeToolDetail.toolCallId);
-    if (!tc) {
-      return;
-    }
+      .find((t) => t.id === detail.toolCallId);
+    if (!tc) return;
     handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
-  }, [activeToolDetail, messages, handleOpenRuleEditorForToolCall]);
+  }, [messages, handleOpenRuleEditorForToolCall]);
 
   // The mobile tool-detail overlay lives in a separate portal subtree
   // (`MobileChatOverlays`) and can't reach the rule-editor state owned here, so
@@ -718,9 +637,7 @@ export function ChatRouteContent({
   // Load older messages
   // -------------------------------------------------------------------------
 
-  const loadOlder = useCallback(() => {
-    historyPagination.fetchOlderPage();
-  }, [historyPagination.fetchOlderPage]);
+  const loadOlder = historyPagination.fetchOlderPage;
 
   // -------------------------------------------------------------------------
   // Transcript items (projection of chat state onto flat list)
@@ -885,13 +802,13 @@ export function ChatRouteContent({
     await sendMessage(trimmed, attachmentsToSend);
   }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator, isEditing, editingMessageId, assistantId, cancelEditing]);
 
-  const handleSelectStarter = (starter: { prompt: string }) => {
+  const handleSelectStarter = useCallback((starter: { prompt: string }) => {
     setInput(starter.prompt);
     void handleSubmit(
       { preventDefault: () => {} } as unknown as FormEvent,
       starter.prompt,
     );
-  };
+  }, [setInput, handleSubmit]);
 
   // -------------------------------------------------------------------------
   // Dismiss pending question
@@ -1389,204 +1306,41 @@ export function ChatRouteContent({
   // Render
   // -------------------------------------------------------------------------
 
-  if (mainView === "app-editing" && openedAppState && editingConversationId) {
-    return (
-      <ResizablePanel
-        storageKey="appEditPanelWidth"
-        defaultRightWidth={400}
-        minLeftWidth={300}
-        minRightWidth={400}
-        left={
-          <ChatBody
-            variant="side-panel"
-            scrollAreaProps={{
-              ...chatBodyScrollAreaPropsBase,
-              showMaintenanceRecoveryCard: false,
-            }}
-            composerProps={chatBodyComposerProps}
-            dragHandlers={attachmentDropHandlers}
-            isAttachmentDragOver={isAttachmentDragOver}
-            showScrollToLatest={
-              scrollCoordinator.showScrollToLatest && messages.length > 0
-            }
-            onScrollToLatest={handleScrollToLatest}
-            isStreaming={isAssistantStreaming}
-            refreshFeedback={refreshFeedback}
-            onDismissRefreshFeedback={handleDismissRefreshFeedback}
-            onRetryRefresh={handleRetryRefreshFromPill}
-            genericChatError={genericChatError}
-            isChannelReadonly={isChannelReadonly}
-            canStopGenerating={canStopGenerating}
-            questionPromptSlot={questionPromptSlot}
-            readonlyBannerSlot={slackReadonlyBannerSlot}
-            startersSlot={startersSlot}
-          />
-        }
-        right={
-          <AppViewerContainer
-            appId={openedAppState.appId}
-            appName={openedAppState.name}
-            html={openedAppState.html}
-            assistantId={assistantId ?? ""}
-            onClose={handleCloseApp}
-            onEdit={handleCloseEditPanel}
-            onShare={handleShareApp}
-            isSharing={isSharing}
-            onDeploy={deployToVercel ? handleDeployApp : undefined}
-            isDeploying={isDeploying}
-            isEditing
-          />
-        }
-      />
-    );
-  }
-
-  // Desktop full-width app viewer (non-editing). Mobile uses the portal-based
-  // MobileAppOverlay instead — this branch is desktop-only.
-  if (mainView === "app" && !isMobile) {
-    if (!openedAppState) {
-      return (
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-        </div>
-      );
-    }
-    return (
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={handleCloseApp}
-        onEdit={handleEditApp}
-        onShare={handleShareApp}
-        isSharing={isSharing}
-        onDeploy={deployToVercel ? handleDeployApp : undefined}
-        isDeploying={isDeploying}
-      />
-    );
-  }
-
-  // Default: main chat content (with optional document panel)
-  const chatContent = (
-    <ChatBody
-      variant="main"
-      scrollAreaProps={{
-        ...chatBodyScrollAreaPropsBase,
-        showMaintenanceRecoveryCard: isInMaintenanceWithNoMessages,
-      }}
-      composerProps={chatBodyComposerProps}
-      dragHandlers={attachmentDropHandlers}
-      isAttachmentDragOver={isAttachmentDragOver}
-      showScrollToLatest={
-        scrollCoordinator.showScrollToLatest && messages.length > 0
-      }
-      onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
-      refreshFeedback={refreshFeedback}
-      onDismissRefreshFeedback={handleDismissRefreshFeedback}
-      onRetryRefresh={handleRetryRefreshFromPill}
-      genericChatError={genericChatError}
-      isChannelReadonly={isChannelReadonly}
-      canStopGenerating={canStopGenerating}
-      bannerSlot={mainBannerSlot}
-      queuedDrawerSlot={mainQueuedDrawerSlot}
-      questionPromptSlot={questionPromptSlot}
-      readonlyBannerSlot={slackReadonlyBannerSlot}
-      startersSlot={startersSlot}
-    />
-  );
-
-  if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
-    return (
-      <>
-        <ResizablePanel
-          storageKey="documentPanelWidth"
-          defaultRightWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <DocumentViewerContainer
-              documentName={openedDocumentState.documentName}
-              content={openedDocumentState.content}
-              onClose={handleCloseDocument}
-              assistantId={assistantId}
-              surfaceId={openedDocumentState.surfaceId}
-              conversationId={openedDocumentState.conversationId}
-              onSubmitFeedback={() => {
-                const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-                navigate(
-                  `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-                );
-              }}
-            />
-          }
-        />
-        {sendErrorModalNode}
-        {ruleEditorModalNode}
-      </>
-    );
-  }
-
-  if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {
-    const activeEntry = subagentById[activeSubagentId];
-    if (activeEntry) {
-      return (
-        <>
-          <ResizablePanel
-            storageKey="subagentDetailPanelWidth"
-            defaultRightWidth={400}
-            minLeftWidth={300}
-            minRightWidth={400}
-            left={chatContent}
-            right={
-              <LazyBoundary>
-                <SubagentDetailPanel
-                  entry={activeEntry}
-                  onClose={onCloseSubagentDetail}
-                  onStop={onStopSubagent}
-                  onRequestDetail={onRequestSubagentDetail}
-                />
-              </LazyBoundary>
-            }
-          />
-          {sendErrorModalNode}
-          {ruleEditorModalNode}
-        </>
-      );
-    }
-  }
-
-  if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
-    return (
-      <>
-        <ResizablePanel
-          storageKey="toolDetailPanelWidth"
-          defaultRightWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          hideDivider
-          left={chatContent}
-          right={
-            <LazyBoundary>
-              <ToolDetailPanel
-                detail={activeToolDetail}
-                onClose={closeToolDetail}
-                onRiskBadgeClick={handleToolDetailRiskBadgeClick}
-              />
-            </LazyBoundary>
-          }
-        />
-        {sendErrorModalNode}
-        {ruleEditorModalNode}
-      </>
-    );
-  }
+  // Determine variant: app-editing mode renders as a compact side panel.
+  // Must match ChatContentLayout's three-way guard (mainView + openedAppState
+  // + editingConversationId) so the variant stays consistent with the layout.
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
+  const variant = isSidePanel ? "side-panel" : "main";
 
   return (
     <>
-      {chatContent}
+      <ChatBody
+        variant={variant}
+        scrollAreaProps={{
+          ...chatBodyScrollAreaPropsBase,
+          showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
+        }}
+        composerProps={chatBodyComposerProps}
+        dragHandlers={attachmentDropHandlers}
+        isAttachmentDragOver={isAttachmentDragOver}
+        showScrollToLatest={
+          scrollCoordinator.showScrollToLatest && messages.length > 0
+        }
+        onScrollToLatest={handleScrollToLatest}
+        isStreaming={isAssistantStreaming}
+        refreshFeedback={refreshFeedback}
+        onDismissRefreshFeedback={handleDismissRefreshFeedback}
+        onRetryRefresh={handleRetryRefreshFromPill}
+        genericChatError={genericChatError}
+        isChannelReadonly={isChannelReadonly}
+        canStopGenerating={canStopGenerating}
+        bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+        queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
+        questionPromptSlot={questionPromptSlot}
+        readonlyBannerSlot={slackReadonlyBannerSlot}
+        startersSlot={startersSlot}
+      />
       {sendErrorModalNode}
       {ruleEditorModalNode}
     </>
