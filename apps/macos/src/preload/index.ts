@@ -23,7 +23,8 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "quickInputSubmit"; message: string };
 
 // Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
@@ -384,6 +385,14 @@ export interface VellumBridge {
      */
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
   };
+  quickInput: {
+    /** Submit a message from the quick input panel. Main closes the panel,
+     * ensures the main window is visible, and dispatches a `quickInputSubmit`
+     * command so the chat domain creates a new conversation and auto-sends. */
+    submit(message: string): Promise<void>;
+    /** Dismiss the quick input panel without submitting. */
+    dismiss(): Promise<void>;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -586,6 +595,12 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+  },
+  quickInput: {
+    submit: (message: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
+    dismiss: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
   },
 };
 

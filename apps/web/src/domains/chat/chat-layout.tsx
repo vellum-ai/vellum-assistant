@@ -566,6 +566,17 @@ export function ChatLayout() {
       const next = conversations[idx + 1];
       if (next) handleSelectConversation(next.conversationId);
     },
+    quickInputSubmit: (command) => {
+      if (command.kind !== "quickInputSubmit") {
+        return;
+      }
+      const draftId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      useViewerStore.getState().setMainView("chat");
+      void navigate(
+        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
+      );
+    },
   });
 
   const handleOpenLibrary = useCallback(() => {

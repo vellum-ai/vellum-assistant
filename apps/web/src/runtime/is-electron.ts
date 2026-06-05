@@ -46,7 +46,8 @@ export type VellumCommand =
   | { kind: "commandPalette" }
   | { kind: "selectAssistant"; assistantId: string }
   | { kind: "createAssistant" }
-  | { kind: "retireAssistant"; assistantId: string };
+  | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "quickInputSubmit"; message: string };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in
@@ -224,6 +225,11 @@ declare global {
         ): () => void;
         setDevice(online: boolean): void;
         retry(): void;
+      };
+      // Optional: older Electron shells predate the quick input channel.
+      quickInput?: {
+        submit(message: string): Promise<void>;
+        dismiss(): Promise<void>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {
