@@ -95,6 +95,7 @@ export function ActiveChatView() {
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const turnPhase = useTurnStore.use.phase();
 
   // -------------------------------------------------------------------------
   // Chat session store — reactive selectors for per-conversation state
@@ -380,7 +381,7 @@ export function ActiveChatView() {
   // gate clears when the first message arrives.
   // -------------------------------------------------------------------------
   if (autoGreet.show) {
-    const turnActive = isSending(useTurnStore.getState());
+    const turnActive = turnPhase !== "idle";
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-[var(--text-secondary)]">
