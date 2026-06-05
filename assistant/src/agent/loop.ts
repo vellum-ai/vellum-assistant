@@ -12,17 +12,14 @@ import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import {
+  DEFAULT_COMPACTION_PLUGIN_NAME,
+  defaultCompact,
+} from "../plugins/defaults/compaction/compact.js";
 import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionCircuitEvent,
-  CompactionResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
+import { runHook } from "../plugins/pipeline.js";
+import type { CompactionCircuitEvent, TurnContext } from "../plugins/types.js";
+import { PluginExecutionError } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -457,7 +454,7 @@ export interface ResolvedSystemPrompt {
 /**
  * Orchestrator-supplied hook the loop invokes when the mid-loop budget gate
  * trips and inline compaction runs. The loop owns the trigger, the
- * `compaction` pipeline call, the result interpretation (circuit-breaker
+ * compaction call, the result interpretation (circuit-breaker
  * bookkeeping + the exhaustion decision), and the inline continue; this hook
  * bridges the injection state the loop is intentionally blind to. Durable
  * persistence is signalled out-of-band via the `history_stripped` (marker)
@@ -692,11 +689,10 @@ export class AgentLoop {
   /**
    * Compact the running history in place when the mid-loop budget gate trips.
    *
-   * Runs the `compaction` pipeline natively (like {@link estimateTokens}) on
-   * the stripped history, then re-applies injections via the supplied hooks.
-   * Returns the history to continue from, or `null` when the compactor timed
-   * out or exhausted its retry budget so the caller yields
-   * `exitReason = "budget"` and the orchestrator escalates.
+   * Calls the default compaction plugin on the stripped history, then
+   * re-applies injections via the supplied hooks. Returns the history to
+   * continue from, or `null` when the compactor exhausted its retry budget so
+   * the caller yields `exitReason = "budget"` and the orchestrator escalates.
    */
   private async compact(
     history: Message[],
@@ -713,42 +709,27 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
-    let result: CompactionResult;
-    try {
-      result = await runPipeline<CompactionArgs, CompactionResult>(
-        "compaction",
-        getMiddlewaresFor("compaction"),
-        (args) => defaultCompactionTerminal(args, turnContext),
-        // The mid-loop budget gate is reached only when this turn decides to
-        // compact in place, so `force` the pipeline past its auto-threshold
-        // check. `actorTrustClass` comes from the turn context (the actor whose
-        // turn triggered compaction) so the compactor's image manifest excludes
-        // guardian-only attachments for untrusted actors. `overrideProfile` is
-        // the turn's resolved inference-profile override for the summary call.
-        {
-          messages: rawHistory,
-          signal,
-          options: {
-            force: true,
-            actorTrustClass: turnContext.trust.trustClass,
-            overrideProfile,
-          },
-        },
-        turnContext,
-        DEFAULT_TIMEOUTS.compaction,
+    const manager = turnContext.contextWindowManager;
+    if (manager == null) {
+      throw new PluginExecutionError(
+        "default-compaction: turnContext.contextWindowManager is missing — orchestrator must attach it before invoking compaction",
+        DEFAULT_COMPACTION_PLUGIN_NAME,
       );
-    } catch (error) {
-      if (error instanceof PluginTimeoutError) {
-        // A timeout counts as a compaction failure against the circuit breaker.
-        await this.recordCompactionOutcome(turnContext, true, onEvent);
-        return null;
-      }
-      throw error;
     }
-    // `CompactionResult` is intentionally `unknown` at the plugin boundary so
-    // plugin consumers don't import the window manager; the loop ran the
-    // pipeline, so it interprets the concrete result here.
-    const compactResult = result as ContextWindowResult;
+    // The mid-loop budget gate is reached only when this turn decides to
+    // compact in place, so `force` past the auto-threshold check.
+    // `actorTrustClass` comes from the turn context (the actor whose turn
+    // triggered compaction) so the compactor's image manifest excludes
+    // guardian-only attachments for untrusted actors. `overrideProfile` is the
+    // turn's resolved inference-profile override for the summary call.
+    const compactResult = await defaultCompact({
+      manager,
+      messages: rawHistory,
+      signal,
+      force: true,
+      actorTrustClass: turnContext.trust.trustClass,
+      overrideProfile,
+    });
     // `force: true` bypasses the auto-threshold gate, but early returns
     // for "no eligible messages" / "insufficient messages" still leave
     // `summaryFailed` undefined. Only record an outcome when the summary LLM

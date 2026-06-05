@@ -1,7 +1,7 @@
 {
   "name": "default-compaction",
   "version": "1.0.0",
-  "description": "First-party default plugin wrapping the assistant's built-in compaction pipeline with a passthrough implementation.",
+  "description": "First-party default plugin providing the assistant's built-in conversation-history compaction.",
   "private": true,
   "license": "MIT",
   "type": "module",
