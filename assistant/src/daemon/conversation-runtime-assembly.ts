@@ -28,7 +28,6 @@ import {
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "../memory/pkb/autoinject.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
@@ -1917,15 +1916,6 @@ export interface RuntimeInjectionOptions {
   pkbContext?: string | null;
   pkbActive?: boolean;
   /**
-   * Dense query vector surfaced from the graph memory retriever.
-   * When present together with `pkbActive`, used to run `searchPkbFiles`
-   * to surface relevance hints in the PKB system reminder. When missing,
-   * the reminder falls back to the flat static text.
-   */
-  pkbQueryVector?: number[];
-  /** Optional sparse vector accompanying `pkbQueryVector`. */
-  pkbSparseVector?: QdrantSparseVector;
-  /**
    * The live conversation (or a minimal shape containing `messages`) used
    * to compute which PKB paths are already "in context" and therefore
    * suppressed from hint suggestions.
@@ -2040,8 +2030,6 @@ function buildTurnInjectionInputs(
     unifiedTurnContext: options.unifiedTurnContext,
     pkbContext: options.pkbContext,
     pkbActive: options.pkbActive,
-    pkbQueryVector: options.pkbQueryVector,
-    pkbSparseVector: options.pkbSparseVector,
     pkbConversation: options.pkbConversation,
     pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,

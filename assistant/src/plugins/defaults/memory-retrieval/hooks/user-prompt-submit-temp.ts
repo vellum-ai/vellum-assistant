@@ -14,7 +14,8 @@
  * block onto the user message's metadata, writing the recall log, and emitting
  * the `memory_recalled` event — so the loop only consumes the turn-scoped
  * outputs written back onto the context (`pkbContent`, `nowContent`,
- * `latestMessages`, and the PKB query vectors).
+ * `latestMessages`). The PKB query-vector pair is recorded on the
+ * conversation's graph handle for the PKB-reminder injector to read back.
  *
  * This fires at the early "prompt submitted, before context assembly" moment,
  * distinct from the canonical late `user-prompt-submit` hook (history repair,
@@ -37,7 +38,6 @@ import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js"
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
-import type { QdrantSparseVector } from "../../../../memory/qdrant-client.js";
 import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
@@ -87,17 +87,6 @@ export interface MemoryRetrievalHookContext {
    * retrieval). Read back by the loop.
    */
   latestMessages: Message[];
-  /**
-   * Dense query vector for downstream PKB hybrid search, selected as a matched
-   * pair with `pkbSparseVector`. `undefined` when no graph retrieval ran.
-   * Written by the hook.
-   */
-  pkbQueryVector?: number[];
-  /**
-   * Sparse (TF-IDF) query vector paired with `pkbQueryVector` for PKB hybrid
-   * search. `undefined` when no graph retrieval ran. Written by the hook.
-   */
-  pkbSparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -189,9 +178,10 @@ function recordRecallSideEffects(
 
 /**
  * Run the default retrieval, writing `pkbContent` / `nowContent` /
- * `latestMessages` and the PKB query vectors back onto the context. Skips the
- * memory-graph call entirely (leaving `latestMessages` as the seeded input
- * messages and the query vectors `undefined`) when the actor is not trusted.
+ * `latestMessages` back onto the context and recording the PKB query-vector
+ * pair on the graph handle. Skips the memory-graph call entirely (leaving
+ * `latestMessages` as the seeded input messages and no query pair recorded)
+ * when the actor is not trusted.
  *
  * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
  * critical context, and silently dropping it produces a worse outcome than a
@@ -230,12 +220,19 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   //      themselves co-aligned (both summary-derived in context-load, both
   //      user-last-message-derived in per-turn).
   // Never pair a user-query dense with a summary-aligned sparse.
+  // The PKB-reminder injector reads this pair back off the same graph handle
+  // (looked up by conversation id) rather than receiving it threaded through
+  // the agent loop.
   if (graphResult.userQueryVector) {
-    ctx.pkbQueryVector = graphResult.userQueryVector;
-    ctx.pkbSparseVector = graphResult.userQuerySparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.userQueryVector,
+      graphResult.userQuerySparseVector,
+    );
   } else {
-    ctx.pkbQueryVector = graphResult.queryVector;
-    ctx.pkbSparseVector = graphResult.sparseVector;
+    ctx.graphMemory.recordPkbQueryVectors(
+      graphResult.queryVector,
+      graphResult.sparseVector,
+    );
   }
 };
 

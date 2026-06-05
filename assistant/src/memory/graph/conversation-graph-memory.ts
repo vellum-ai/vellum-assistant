@@ -100,6 +100,8 @@ export class ConversationGraphMemory {
   private lastInjectedBlock: string | null = null;
   private lastInjectedNodeIds: string[] = [];
   private lastInjectedImages: Map<string, ResolvedImage> = new Map();
+  private lastPkbQueryVector: number[] | undefined;
+  private lastPkbSparseVector: QdrantSparseVector | undefined;
 
   constructor(conversationId: string) {
     this.conversationId = conversationId;
@@ -341,6 +343,31 @@ export class ConversationGraphMemory {
   retrackCachedNodes(): void {
     if (this.lastInjectedNodeIds.length === 0) return;
     this.tracker.add(this.lastInjectedNodeIds);
+  }
+
+  /**
+   * Record the dense/sparse query-vector pair this turn's retrieval produced
+   * for PKB hybrid search. The PKB-reminder injector reuses the same
+   * embedding (looked up by conversation id via {@link getLiveGraphMemory})
+   * rather than receiving it threaded through the agent loop, so the vectors
+   * stay owned by the memory-retrieval domain that computes them.
+   */
+  recordPkbQueryVectors(
+    dense: number[] | undefined,
+    sparse: QdrantSparseVector | undefined,
+  ): void {
+    this.lastPkbQueryVector = dense;
+    this.lastPkbSparseVector = sparse;
+  }
+
+  /** Dense PKB query vector from this turn's retrieval, or `undefined`. */
+  get pkbQueryVector(): number[] | undefined {
+    return this.lastPkbQueryVector;
+  }
+
+  /** Sparse PKB query vector paired with {@link pkbQueryVector}. */
+  get pkbSparseVector(): QdrantSparseVector | undefined {
+    return this.lastPkbSparseVector;
   }
 
   /**

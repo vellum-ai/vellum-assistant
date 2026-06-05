@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
 // `true`) makes the PKB injector go silent — force it off here so the v1
@@ -60,6 +60,7 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   type SlackMessageMetadata,
@@ -2040,10 +2041,23 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   const pkbWorkingDir = getWorkspaceDir();
   const pkbRoot = getPkbRoot();
 
+  // The pkb-reminder injector reads the dense/sparse PKB query pair off the
+  // conversation's live graph handle (the memory-retrieval hook records it
+  // there during retrieval), not from the injection options. Register a handle
+  // for the fallback conversation id `applyRuntimeInjections` synthesizes and
+  // seed it with a query vector so the hint-search branch runs.
+  let graphHandle: ConversationGraphMemory;
+  beforeEach(() => {
+    graphHandle = new ConversationGraphMemory("runtime-assembly-fallback");
+    graphHandle.recordPkbQueryVectors([0.1, 0.2, 0.3], undefined);
+  });
+  afterEach(() => {
+    graphHandle.dispose();
+  });
+
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
       pkbActive: true,
-      pkbQueryVector: [0.1, 0.2, 0.3],
       pkbConversation: { messages: baseMessages },
       pkbWorkingDir,
       ...overrides,
@@ -2192,10 +2206,13 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
+    // No dense vector was recorded on the graph handle this turn, so the
+    // injector must skip the hint search entirely.
+    graphHandle.recordPkbQueryVectors(undefined, undefined);
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({ pkbQueryVector: undefined }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2333,7 +2350,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       baseMessages,
       {
         pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
         pkbConversation: preCompactionConversation,
         pkbWorkingDir,
       },
@@ -2376,7 +2392,6 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       postCompactionMessages,
       {
         pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
         pkbConversation: postCompactionConversation,
         pkbWorkingDir,
       },
