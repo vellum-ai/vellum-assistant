@@ -66,7 +66,6 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
   updateMessageMetadata,
@@ -1219,7 +1218,15 @@ export async function runAgentLoopImpl(
       });
       const label = profileEntry?.label ?? effectiveProfileKey;
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
-      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
+      // Record the notification for persistence on delivery rather than here:
+      // the model only "learns" the profile once it receives this turn
+      // context, signalled by the first `message_complete`. Persisting inline
+      // would mark the profile notified even if the turn is cancelled or fails
+      // before the model ever sees the notice.
+      state.pendingProfileNotification = {
+        conversationId: ctx.conversationId,
+        profileKey: effectiveProfileKey,
+      };
     }
 
     // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
