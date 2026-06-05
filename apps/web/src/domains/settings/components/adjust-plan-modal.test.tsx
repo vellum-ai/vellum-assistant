@@ -151,6 +151,7 @@ function proPlansResponse(creditTiers?: CreditTier[]): PlanListResponse {
 function subscription(
   planId: "base" | "pro",
   selectedCreditTier: string | null,
+  overrides: Partial<SubscriptionResponse> = {},
 ): SubscriptionResponse {
   return {
     plan_id: planId,
@@ -161,13 +162,27 @@ function subscription(
     cancel_at: null,
     selected_credit_tier: selectedCreditTier,
     entitlements: { managed_email: false, phone_number: false },
+    ...overrides,
   } as unknown as SubscriptionResponse;
 }
+
+type OnboardingData = {
+  max_machine_tier: string;
+  selected_storage_tier: string;
+  selected_storage_gib: number;
+};
+
+const DEFAULT_ONBOARDING: OnboardingData = {
+  max_machine_tier: "machine_small",
+  selected_storage_tier: "storage_10",
+  selected_storage_gib: 10,
+};
 
 function renderModal(
   sub: SubscriptionResponse,
   plans: PlanListResponse,
   onTierUpgraded?: () => void,
+  onboarding: OnboardingData = DEFAULT_ONBOARDING,
 ): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
     // `staleTime: Infinity` stops the pre-seeded reads from being marked stale
@@ -182,11 +197,7 @@ function renderModal(
   // Onboarding carries the current machine/storage tiers for the change flow.
   client.setQueryData(
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    {
-      max_machine_tier: "machine_small",
-      selected_storage_tier: "storage_10",
-      selected_storage_gib: 10,
-    },
+    onboarding,
   );
   const result = render(
     <QueryClientProvider client={client}>
@@ -196,20 +207,20 @@ function renderModal(
   return { ...result, client };
 }
 
-function openCreditDropdown(): void {
+function getDropdownTrigger(label: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="Credit bundle"]',
+    `button[role="combobox"][aria-label="${label}"]`,
   );
-  if (!trigger) throw new Error("expected a Credit bundle dropdown trigger");
-  fireEvent.click(trigger);
+  if (!trigger) throw new Error(`expected a ${label} dropdown trigger`);
+  return trigger;
+}
+
+function openCreditDropdown(): void {
+  fireEvent.click(getDropdownTrigger("Credit bundle"));
 }
 
 function openMachineDropdown(): void {
-  const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="Machine tier"]',
-  );
-  if (!trigger) throw new Error("expected a Machine tier dropdown trigger");
-  fireEvent.click(trigger);
+  fireEvent.click(getDropdownTrigger("Machine tier"));
 }
 
 function clickOptionStartingWith(prefix: string): void {
@@ -579,6 +590,43 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
   });
 });
 
+describe("AdjustPlanModal Pro header total — no picker shown", () => {
+  test("a cancellation-pending Pro card shows the current total, not the cheapest seeded one", async () => {
+    // A current Pro subscriber with a pending cancellation: no tier picker
+    // renders (only the "Keep your Plan" reactivation CTA). The header must show
+    // the user's CURRENT total, not the cheapest seeded total. Current tiers are
+    // deliberately more expensive than the cheapest so the two are observably
+    // different: base $20 + Large machine $30 + 20 GiB storage $9 = $59/mo,
+    // versus the cheapest base $20 + Small $10 + 10 GiB $5 = $35/mo.
+    const { getByTestId, queryByTestId } = renderModal(
+      subscription("pro", null, { cancel_at_period_end: true }),
+      proPlansResponse(CREDIT_TIERS),
+      undefined,
+      {
+        max_machine_tier: "machine_large",
+        selected_storage_tier: "storage_20",
+        selected_storage_gib: 20,
+      },
+    );
+
+    await waitFor(() => {
+      const text = getByTestId("modal-pro-price").textContent ?? "";
+      if (text.includes("Currently") && text.includes("$59/mo")) return;
+      throw new Error("current total not rendered yet");
+    });
+
+    const text = getByTestId("modal-pro-price").textContent ?? "";
+    expect(text).not.toContain("$35/mo");
+
+    // No tier picker and no "Update Plan" button render in this flow.
+    expect(
+      document.querySelector('button[role="combobox"][aria-label="Machine tier"]'),
+    ).toBeNull();
+    expect(queryByTestId("modal-change-tier-button")).toBeNull();
+    expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
+  });
+});
+
 describe("AdjustPlanModal credit bundle — catalog gate", () => {
   test("hides the credit UI when the plan has no credit_tiers (upgrade)", () => {
     renderModal(subscription("base", null), proPlansResponse(undefined));
@@ -622,15 +670,10 @@ describe("AdjustPlanModal credit bundle — selector order", () => {
     credit: HTMLButtonElement;
     machine: HTMLButtonElement;
   } {
-    const credit = document.querySelector<HTMLButtonElement>(
-      'button[role="combobox"][aria-label="Credit bundle"]',
-    );
-    const machine = document.querySelector<HTMLButtonElement>(
-      'button[role="combobox"][aria-label="Machine tier"]',
-    );
-    if (!credit) throw new Error("expected a Credit bundle dropdown trigger");
-    if (!machine) throw new Error("expected a Machine tier dropdown trigger");
-    return { credit, machine };
+    return {
+      credit: getDropdownTrigger("Credit bundle"),
+      machine: getDropdownTrigger("Machine tier"),
+    };
   }
 
   test("renders the credit bundle picker before the machine tier (upgrade)", () => {
