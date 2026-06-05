@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
 import {
@@ -6,11 +6,6 @@ import {
   unregisterConversationWorkspace,
   type WorkspaceConversationContext,
 } from "../daemon/conversation-workspace.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -48,22 +43,13 @@ function seedWorkspaceContext(text: string): void {
 const sampleContext =
   "<workspace>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace>";
 
-// The workspace-context default injector (registered by
-// `defaultInjectorsPlugin`) emits the workspace block as a
+// The workspace-context default injector emits the workspace block as a
 // `prepend-user-tail` placement during `applyRuntimeInjections`. It sources
 // the rendered block from the per-conversation workspace registry and
 // (re)injects only when the block is absent from the working messages, so the
 // suite seeds the registry and exercises that end-to-end path.
 
 describe("applyRuntimeInjections — workspace top-level context", () => {
-  beforeEach(() => {
-    // Workspace injection is driven by the `workspace-context` default
-    // injector, so the plugin must be registered for the chain to produce a
-    // block. Each test gets a clean registry.
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
-  });
-
   afterEach(() => {
     if (registeredWorkspace) {
       unregisterConversationWorkspace(registeredWorkspace);
@@ -141,11 +127,6 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 });
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
-  beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
-  });
-
   afterEach(() => {
     if (registeredWorkspace) {
       unregisterConversationWorkspace(registeredWorkspace);

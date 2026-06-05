@@ -209,7 +209,7 @@ const {
   runShadowObservation,
   resetShadowLanesForTests,
   invalidateLanes,
-  memoryV3ShadowPlugin,
+  memoryV3Injector,
 } = await import("../shadow-plugin.js");
 
 // The module stubs above stay installed for the rest of the process (Bun can't
@@ -246,10 +246,9 @@ beforeEach(() => {
   resetShadowLanesForTests();
 });
 
-/** Invoke the plugin's single injector's `produce()` for a turn. */
+/** Invoke the memory-v3 injector's `produce()` for a turn. */
 function produce(conversationId: string, turnIndex: number) {
-  const injector = memoryV3ShadowPlugin.injectors![0]!;
-  return injector.produce({
+  return memoryV3Injector.produce({
     requestId: "r1",
     conversationId,
     turnIndex,

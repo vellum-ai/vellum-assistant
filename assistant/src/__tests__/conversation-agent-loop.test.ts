@@ -360,8 +360,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
   buildUnifiedTurnContextBlock: buildUnifiedTurnContextBlockMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,

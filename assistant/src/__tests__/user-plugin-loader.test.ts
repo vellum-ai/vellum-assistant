@@ -181,8 +181,8 @@ registerPlugin({
     // continues running in the background and would otherwise call
     // `registerPlugin()` after `loadUserPlugins()` has returned (and after
     // `bootstrapPlugins()` has potentially already walked the registry),
-    // leaving the plugin visible to `getMiddlewaresFor()` / `getInjectors()`
-    // with its `init()` hook never invoked.
+    // leaving the plugin visible to `getMiddlewaresFor()` with its `init()`
+    // hook never invoked.
     //
     // The `closeRegistration()` latch must reject that late arrival so the
     // registry stays consistent with the bootstrap invariant.

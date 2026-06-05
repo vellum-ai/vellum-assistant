@@ -5,8 +5,8 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -29,7 +29,6 @@ import {
   extractMemoryPrefixBlocks,
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
-import { getPkbAutoInjectList } from "../memory/pkb/autoinject.js";
 import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
@@ -43,7 +42,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
-import { getInjectors } from "../plugins/registry.js";
+import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import type {
   DiskPressureInjectionContext,
   InjectionBlock,
@@ -61,8 +60,6 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
-import { stripCommentLines } from "../util/strip-comment-lines.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
@@ -570,7 +567,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/injectors/register.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
 // placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
@@ -594,31 +591,7 @@ function injectVoiceCallControlContext(
 // NOW.md scratchpad injection
 // ---------------------------------------------------------------------------
 
-/**
- * Read the NOW.md scratchpad from the workspace prompt directory.
- *
- * Returns the trimmed content with `_`-prefixed comment lines stripped,
- * or `null` if the file is missing, empty, or unreadable.
- */
-export function readNowScratchpad(): string | null {
-  const nowPath = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(nowPath)) return null;
-  try {
-    const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
-    return stripped.length > 0 ? stripped : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The `<NOW.md>` block is emitted by the `now-md` default injector
- * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix`
- * placement. The injector sources its content directly via
- * {@link readNowScratchpad} behind the personal-memory trust gate.
- */
-
-/** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
+/** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
     // Shared prefix catches both the current tag and any pre-line-limit
@@ -626,54 +599,6 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
     "<NOW.md Always keep this up to date",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
-}
-
-// ---------------------------------------------------------------------------
-// PKB (Personal Knowledge Base) injection
-// ---------------------------------------------------------------------------
-
-/** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
-const MAX_BUFFER_LINES = 50;
-
-/**
- * Read the always-loaded PKB files and append a nudge encouraging the
- * assistant to proactively read topic files and use `remember` aggressively.
- *
- * Which files are loaded is determined by `pkb/_autoinject.md` (one filename
- * per line). Falls back to the built-in defaults when that file is absent.
- *
- * Returns the concatenated content ready for injection, or `null` if all
- * files are missing or empty.
- */
-export function readPkbContext(): string | null {
-  const pkbDir = join(getWorkspaceDir(), "pkb");
-  if (!existsSync(pkbDir)) return null;
-
-  const filesToInject = getPkbAutoInjectList(pkbDir);
-
-  const parts: string[] = [];
-  for (const file of filesToInject) {
-    // Path traversal guard: reject entries that escape the pkb directory
-    const filePath = resolve(pkbDir, file);
-    if (!filePath.startsWith(pkbDir + "/")) continue;
-
-    if (!existsSync(filePath)) continue;
-    try {
-      let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
-      if (file === "buffer.md" && content.length > 0) {
-        // Cap buffer entries to prevent unbounded growth when filing is disabled
-        const lines = content.split("\n");
-        if (lines.length > MAX_BUFFER_LINES) {
-          content = lines.slice(-MAX_BUFFER_LINES).join("\n");
-        }
-      }
-      if (content.length > 0) parts.push(content);
-    } catch {
-      // Skip unreadable files
-    }
-  }
-
-  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 /**
@@ -1759,8 +1684,8 @@ export interface RuntimeInjectionResult {
 }
 
 /**
- * Run every registered {@link Injector}'s `produce()` in ascending `order`
- * and return every non-null block the chain produced.
+ * Run every {@link Injector} in the chain ({@link getInjectorChain}, already
+ * sorted by ascending `order`) and return every non-null block it produced.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1777,10 +1702,8 @@ async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
-  const injectors = getInjectors();
-  if (injectors.length === 0) return [];
   const out: InjectionBlock[] = [];
-  for (const injector of injectors) {
+  for (const injector of getInjectorChain()) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }

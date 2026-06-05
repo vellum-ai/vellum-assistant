@@ -181,6 +181,7 @@ jobs:
       - name: Install package dependencies
         run: |
           for pkg in packages/*/; do
+            [ -f "$pkg/package.json" ] || continue
             (cd "$pkg" && bun install --frozen-lockfile)
           done
 

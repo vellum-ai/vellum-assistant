@@ -274,8 +274,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     blocks: {},
   }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix: () => null,
   loadSlackChronologicalContext: () => null,

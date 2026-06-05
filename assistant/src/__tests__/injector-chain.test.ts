@@ -1,27 +1,21 @@
 /**
- * Tests for the plugin-driven runtime-injection chain (PR 21 of the
- * `agent-plugin-system` plan).
+ * Tests for the static runtime-injection chain.
  *
  * Covers:
  *
- * 1. The ten default injectors registered by `defaultInjectorsPlugin` come
- *    back from `getInjectors()` in the documented order
- *    (disk-pressure-warning → workspace-context → unified-turn-context →
- *    pkb-context → pkb-reminder → memory-v2-static → now-md →
+ * 1. The default injectors ({@link defaultInjectors}) are listed in the
+ *    documented order (disk-pressure-warning → workspace-context →
+ *    background-turn → unified-turn-context → pkb-context → pkb-reminder →
+ *    memory-v2-static → now-md → active-documents → document-comments →
  *    subagent-status → slack-messages → thread-focus).
- * 2. A third-party-registered injector at `order: 25` slots between
- *    `unified-turn-context` (order 20) and `pkb` (order 30), proving the
- *    extensibility contract.
- * 3. `composeInjectorChain` concatenates non-null blocks with a blank-line
- *    separator and yields an empty string when every injector opts out — the
- *    latter matches pre-PR behavior for the golden-path conversation state
- *    (all defaults return `null` in this PR).
- * 4. `applyRuntimeInjections` with an empty `turnContext` chain leaves
- *    `blocks.injectorChainBlock` undefined, preserving the existing snapshot
- *    for conversations that don't opt into the chain.
- * 5. `applyRuntimeInjections` surfaces the composed chain output on
- *    `blocks.injectorChainBlock` when a third-party injector contributes
- *    content.
+ * 2. The assembled {@link injectorChain} sorts the defaults together with the
+ *    memory-v3 injector by ascending `order`, so memory-v3 (order 1000) lands
+ *    last.
+ * 3. `composeInjectorChain` yields an empty string when every injector opts out
+ *    — the golden-path conversation state where all defaults return `null`.
+ * 4. `applyRuntimeInjections` splices each default injector's block into the
+ *    correct position in the per-turn message array, and gates blocks by
+ *    injection mode.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -46,8 +40,10 @@ mock.module("../config/loader.js", () => ({
 
 const { applyRuntimeInjections, composeInjectorChain } =
   await import("../daemon/conversation-runtime-assembly.js");
-const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
-  await import("../plugins/defaults/injectors/register.js");
+const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
+  await import("../plugins/defaults/memory-retrieval/injectors.js");
+const { getInjectorChain } =
+  await import("../plugins/defaults/memory-retrieval/injector-chain.js");
 import {
   registerConversationWorkspace,
   unregisterConversationWorkspace,
@@ -55,17 +51,7 @@ import {
 } from "../daemon/conversation-workspace.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
-import {
-  getInjectors,
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
-import type {
-  InjectionBlock,
-  Injector,
-  Plugin,
-  TurnContext,
-} from "../plugins/types.js";
+import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -83,17 +69,6 @@ function makeTurnContext(): TurnContext {
       sourceChannel: "vellum",
       trustClass: "guardian",
     },
-  };
-}
-
-/** Build a tiny valid plugin wrapping an array of injectors. */
-function wrapInPlugin(name: string, injectors: Injector[]): Plugin {
-  return {
-    manifest: {
-      name,
-      version: "0.0.1",
-    },
-    injectors,
   };
 }
 
@@ -154,16 +129,13 @@ function clearWorkspaceContext(): void {
 
 describe("injector chain", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
     clearPkbContent();
     clearNowScratchpad();
     clearWorkspaceContext();
   });
 
-  test("defaultInjectorsPlugin registers the defaults in the documented order", () => {
-    registerPlugin(defaultInjectorsPlugin);
-
-    const names = getInjectors().map((i) => i.name);
+  test("defaultInjectors lists the defaults in the documented order", () => {
+    const names = defaultInjectors.map((i) => i.name);
     expect(names).toEqual([
       "disk-pressure-warning",
       "workspace-context",
@@ -181,10 +153,8 @@ describe("injector chain", () => {
     ]);
   });
 
-  test("default injector order constants match the registered order values", () => {
-    registerPlugin(defaultInjectorsPlugin);
-
-    const byName = new Map(getInjectors().map((i) => [i.name, i.order]));
+  test("default injector order constants match the listed order values", () => {
+    const byName = new Map(defaultInjectors.map((i) => [i.name, i.order]));
     expect(byName.get("disk-pressure-warning")).toBe(
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
@@ -215,114 +185,38 @@ describe("injector chain", () => {
     expect(byName.get("thread-focus")).toBe(DEFAULT_INJECTOR_ORDER.threadFocus);
   });
 
-  test("a third-party injector at order 25 slots between unified-turn-context (20) and pkb-context (30)", () => {
-    registerPlugin(defaultInjectorsPlugin);
-
-    const middleInjector: Injector = {
-      name: "plugin-25",
-      order: 25,
-      async produce() {
-        return null;
-      },
-    };
-    registerPlugin(wrapInPlugin("third-party", [middleInjector]));
-
-    const names = getInjectors().map((i) => i.name);
-    expect(names).toEqual([
-      "disk-pressure-warning", // 5
-      "workspace-context", // 10
-      "background-turn", // 15
-      "unified-turn-context", // 20
-      "plugin-25", // 25 — slots in
-      "pkb-context", // 30
-      "pkb-reminder", // 35
-      "memory-v2-static", // 38
-      "now-md", // 40
-      "active-documents", // 45
-      "document-comments", // 46
-      "subagent-status", // 50
-      "slack-messages", // 60
-      "thread-focus", // 70
+  test("the injector chain sorts the defaults plus memory-v3 by ascending order", () => {
+    // The assembled chain merges the defaults with the memory-v3 injector and
+    // sorts by `order`, so memory-v3 (order 1000) sits last.
+    const chain = getInjectorChain();
+    const orders = chain.map((i) => i.order);
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(chain[chain.length - 1]?.name).toBe("memory-v3-shadow");
+    expect(chain.map((i) => i.name)).toEqual([
+      ...defaultInjectors.map((i) => i.name),
+      "memory-v3-shadow",
     ]);
   });
 
   test("composeInjectorChain returns empty string when every injector opts out", async () => {
-    // The default chain is the golden-path: all ten defaults return `null`
-    // on an empty turn context, so the composed block is an empty string.
-    registerPlugin(defaultInjectorsPlugin);
-
+    // The default chain is the golden-path: every default returns `null` on an
+    // empty turn context, so the composed block is an empty string.
     const composed = await composeInjectorChain(makeTurnContext());
     expect(composed).toBe("");
   });
 
-  test("composeInjectorChain returns empty string when registry is empty", async () => {
-    // No plugins registered — the chain is a no-op and must return an empty
-    // string (not throw, not undefined). Callers rely on this to treat the
-    // chain as purely additive.
-    const composed = await composeInjectorChain(makeTurnContext());
-    expect(composed).toBe("");
-  });
-
-  test("composeInjectorChain concatenates non-null blocks in order with blank-line separators", async () => {
-    const first: Injector = {
-      name: "a",
-      order: 5,
-      async produce(): Promise<InjectionBlock> {
-        return { id: "a", text: "BLOCK_A" };
-      },
-    };
-    const second: Injector = {
-      name: "b",
-      order: 15,
-      async produce(): Promise<InjectionBlock> {
-        return { id: "b", text: "BLOCK_B" };
-      },
-    };
-    const skipped: Injector = {
-      name: "c",
-      order: 25,
-      async produce() {
-        return null;
-      },
-    };
-    // Register the higher-order one first to prove the chain sorts by `order`
-    // rather than registration order.
-    registerPlugin(wrapInPlugin("higher", [second]));
-    registerPlugin(wrapInPlugin("lower", [first]));
-    registerPlugin(wrapInPlugin("opts-out", [skipped]));
-
-    const composed = await composeInjectorChain(makeTurnContext());
-    expect(composed).toBe("BLOCK_A\n\nBLOCK_B");
-  });
-
-  test("composeInjectorChain skips blocks with empty text", async () => {
-    const emitEmpty: Injector = {
-      name: "empty",
-      order: 10,
-      async produce(): Promise<InjectionBlock> {
-        return { id: "empty", text: "" };
-      },
-    };
-    const emitReal: Injector = {
-      name: "real",
-      order: 20,
-      async produce(): Promise<InjectionBlock> {
-        return { id: "real", text: "CONTENT" };
-      },
-    };
-    registerPlugin(wrapInPlugin("plugin", [emitEmpty, emitReal]));
-
-    const composed = await composeInjectorChain(makeTurnContext());
-    expect(composed).toBe("CONTENT");
-  });
+  // ── Integration tests ───────────────────────────────────────────────
+  //
+  // These assertions exercise the real per-turn injection pipeline with
+  // the static chain active, verifying that each default injector emits
+  // the expected content in the correct position in the final user-tail
+  // content.
 
   test("applyRuntimeInjections leaves injectorChainBlock undefined when defaults opt out", async () => {
-    // Golden-path snapshot: with only default injectors (all returning
+    // Golden-path snapshot: with the static chain (all defaults returning
     // `null`), `applyRuntimeInjections` reports no chain output, so the
     // historical `blocks` shape is preserved byte-for-byte for any
-    // conversation that doesn't involve third-party injectors.
-    registerPlugin(defaultInjectorsPlugin);
-
+    // conversation that doesn't drive a known injector.
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hello" }] },
     ];
@@ -337,67 +231,26 @@ describe("injector chain", () => {
     expect(result.messages).toEqual(runMessages);
   });
 
-  test("applyRuntimeInjections surfaces third-party injector output on blocks.injectorChainBlock", async () => {
-    registerPlugin(defaultInjectorsPlugin);
-    registerPlugin(
-      wrapInPlugin("third-party-25", [
-        {
-          name: "plugin-25",
-          order: 25,
-          async produce(): Promise<InjectionBlock> {
-            return { id: "plugin-25", text: "THIRD_PARTY_BLOCK" };
-          },
-        },
-      ]),
-    );
-
+  test("applyRuntimeInjections without turnContext still runs the chain under a synthesized context", async () => {
+    // The static chain is the canonical injection path, so
+    // `applyRuntimeInjections` must drive it even when the caller doesn't
+    // pass a `turnContext`. Call sites that rely on option fields to opt
+    // into injections continue to work because the synthesized fallback
+    // exposes `injectionInputs` built from `options`.
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      unifiedTurnContext: "<turn_context>\nsynthesized\n</turn_context>",
     });
 
-    expect(result.blocks.injectorChainBlock).toBe("THIRD_PARTY_BLOCK");
-  });
-
-  test("applyRuntimeInjections without turnContext still runs the chain under a synthesized context", async () => {
-    // Post-G2.1 semantics: the default chain is the canonical injection
-    // path, so `applyRuntimeInjections` must drive it even when the caller
-    // doesn't pass a `turnContext`. Test/legacy call sites that rely on
-    // option fields to opt into injections continue to work because the
-    // synthesized fallback exposes `injectionInputs` built from `options`.
-    registerPlugin(defaultInjectorsPlugin);
-    registerPlugin(
-      wrapInPlugin("third-party-25", [
-        {
-          name: "plugin-25",
-          order: 25,
-          async produce(): Promise<InjectionBlock> {
-            return { id: "plugin-25", text: "THIRD_PARTY_BLOCK" };
-          },
-        },
-      ]),
+    // The unified-turn-context injector fires even without a caller-supplied
+    // turnContext, proving the chain runs under the synthesized context.
+    expect(result.blocks.unifiedTurnContext).toBe(
+      "<turn_context>\nsynthesized\n</turn_context>",
     );
-
-    const runMessages: Message[] = [
-      { role: "user", content: [{ type: "text", text: "hi" }] },
-    ];
-
-    const result = await applyRuntimeInjections(runMessages, {});
-
-    // Third-party injector runs even without a caller-supplied turnContext.
-    expect(result.blocks.injectorChainBlock).toBe("THIRD_PARTY_BLOCK");
   });
-
-  // ── Integration tests ───────────────────────────────────────────────
-  //
-  // These assertions exercise the real per-turn injection pipeline with
-  // the default chain active, verifying that each default injector emits
-  // the expected content and that a third-party injector registered at a
-  // fractional `order` slots into the correct position in the final
-  // user-tail content.
 
   test("golden-path: default chain injects workspace + unified-turn + PKB + NOW + subagent in the correct positions", async () => {
     // Canonical golden-path conversation state: full mode, non-Slack
@@ -418,8 +271,6 @@ describe("injector chain", () => {
     // guardian trust on `makeTurnContext()` — pkb-context renders the seeded
     // `<knowledge_base>` body, pkb-reminder the flat `<system_reminder>`
     // (no graph handle is registered, so it has no search hints).
-    registerPlugin(defaultInjectorsPlugin);
-
     const pkbContent = "essentials of the project";
     seedPkbContent(pkbContent);
     const nowContent = "Current focus: shipping G2.1";
@@ -478,59 +329,6 @@ describe("injector chain", () => {
     );
   });
 
-  test("third-party prepend injector at order 15 lands between workspace (10) and unified-turn-context (20) in the final message", async () => {
-    // Proves the extensibility contract end-to-end: a plugin-registered
-    // injector at `order: 15` with `placement: "prepend-user-tail"` slots
-    // between the workspace prepend (order 10) and the unified-turn
-    // prepend (order 20). Because descending-order application for
-    // prepends puts the lowest-`order` injector topmost, workspace ends
-    // up on top, then plugin@15, then unified-turn.
-    registerPlugin(defaultInjectorsPlugin);
-    registerPlugin(
-      wrapInPlugin("third-party-15-prepend", [
-        {
-          name: "plugin-15",
-          order: 15, // between workspace (10) and unified-turn (20)
-          async produce(): Promise<InjectionBlock> {
-            return {
-              id: "plugin-15",
-              text: "<plugin_block_15/>",
-              placement: "prepend-user-tail",
-            };
-          },
-        },
-      ]),
-    );
-
-    const runMessages: Message[] = [
-      { role: "user", content: [{ type: "text", text: "hi" }] },
-    ];
-
-    const workspaceText = "<workspace>\nRoot: /sandbox\n</workspace>";
-    const unifiedTurn =
-      "<turn_context>\ncurrent_time: 2026-04-22\n</turn_context>";
-
-    seedWorkspaceContext(workspaceText);
-    const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      unifiedTurnContext: unifiedTurn,
-    });
-
-    const tail = result.messages[result.messages.length - 1];
-    expect(tail.role).toBe("user");
-    const texts = tail.content
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => b.text);
-
-    // Descending-order application for prepends puts the lowest-`order`
-    // injector topmost, so order 10 (workspace) ends up on top, then
-    // plugin@15 below it, then unified-turn (order 20) below that.
-    expect(texts[0]).toBe(workspaceText);
-    expect(texts[1]).toBe("<plugin_block_15/>");
-    expect(texts[2]).toBe(unifiedTurn);
-    expect(texts[3]).toBe("hi");
-  });
-
   test("slack-messages injector replaces runMessages when a chronological transcript is provided", async () => {
     // End-to-end verification for the `replace-run-messages` placement:
     // a Slack channel turn with a pre-rendered chronological transcript
@@ -538,8 +336,6 @@ describe("injector chain", () => {
     // after-memory/append placements run. Memory-prefix blocks from the
     // original tail are re-prepended onto the new tail so PKB / NOW
     // splices still find them.
-    registerPlugin(defaultInjectorsPlugin);
-
     const originalRun: Message[] = [
       {
         role: "user",
@@ -601,8 +397,6 @@ describe("injector chain", () => {
     // opts out in minimal mode, so the tail should carry only the turn
     // context prepend plus any non-injector hardcoded content (none
     // here).
-    registerPlugin(defaultInjectorsPlugin);
-
     const result = await applyRuntimeInjections(
       [
         {

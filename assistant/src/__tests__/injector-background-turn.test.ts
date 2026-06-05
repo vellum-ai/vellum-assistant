@@ -22,16 +22,12 @@ mock.module("../config/loader.js", () => ({
 
 import {
   DEFAULT_INJECTOR_ORDER,
-  defaultInjectorsPlugin,
-} from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+  defaultInjectors,
+} from "../plugins/defaults/memory-retrieval/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
+  const injector = defaultInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
@@ -57,8 +53,6 @@ const DEFAULT_INJECTION_TEXT =
 
 describe("background-turn injector", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
     configBackgroundInjection = DEFAULT_INJECTION_TEXT;
   });
 

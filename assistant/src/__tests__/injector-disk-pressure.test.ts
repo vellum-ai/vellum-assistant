@@ -11,13 +11,9 @@ import {
 } from "../daemon/conversation-workspace.js";
 import {
   DEFAULT_INJECTOR_ORDER,
-  defaultInjectorsPlugin,
+  defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+} from "../plugins/defaults/memory-retrieval/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
@@ -26,7 +22,7 @@ import type { Message } from "../providers/types.js";
 const TEST_CONVERSATION_ID = "conv-test";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
+  const injector = defaultInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
@@ -84,8 +80,6 @@ function clearWorkspaceContext(): void {
 
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
     clearWorkspaceContext();
   });
 
