@@ -2,7 +2,6 @@ import packageJson from "../package.json" with { type: "json" };
 import {
   TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -426,7 +425,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio connect-action webhook",
           description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+            "Receives Twilio connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioConnectActionWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -963,46 +962,6 @@ export function buildSchema(): Record<string, unknown> {
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      [TWILIO_RELAY_WEBHOOK_PATH]: {
-        get: {
-          summary: "Twilio ConversationRelay WebSocket",
-          description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
-          operationId: "twilioRelayWebsocket",
-          parameters: [
-            {
-              name: "callSessionId",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description:
-                "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
-            },
-          ],
-          responses: {
-            "101": {
-              description:
-                "WebSocket upgrade successful — bidirectional frame proxying begins.",
-            },
-            "400": {
-              description: "Missing callSessionId query parameter",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
-                },
-              },
-            },
-            "500": {
-              description: "WebSocket upgrade failed",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
                 },
               },
             },
@@ -3330,8 +3289,14 @@ export function buildSchema(): Record<string, unknown> {
               name: "n",
               in: "query",
               required: false,
-              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
-              description: "Number of log entries to return (1–1000, default: 10)",
+              schema: {
+                type: "integer",
+                minimum: 1,
+                maximum: 1000,
+                default: 10,
+              },
+              description:
+                "Number of log entries to return (1–1000, default: 10)",
             },
             {
               name: "level",
@@ -3364,11 +3329,13 @@ export function buildSchema(): Record<string, unknown> {
                       lines: {
                         type: "array",
                         items: { type: "object" },
-                        description: "Matching log entries in chronological order",
+                        description:
+                          "Matching log entries in chronological order",
                       },
                       truncated: {
                         type: "boolean",
-                        description: "True if earlier matching entries exist beyond n",
+                        description:
+                          "True if earlier matching entries exist beyond n",
                       },
                     },
                   },
@@ -4022,7 +3989,8 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     type: {
                       type: "string",
-                      description: "Email provider type (e.g. resend, mailgun, vellum)",
+                      description:
+                        "Email provider type (e.g. resend, mailgun, vellum)",
                     },
                     guardian_email: {
                       type: "string",
@@ -4314,7 +4282,13 @@ export function buildSchema(): Record<string, unknown> {
       schemas: {
         BackupSnapshot: {
           type: "object",
-          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          required: [
+            "path",
+            "filename",
+            "created_at",
+            "size_bytes",
+            "encrypted",
+          ],
           properties: {
             path: { type: "string" },
             filename: { type: "string" },
