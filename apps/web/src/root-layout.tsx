@@ -41,6 +41,7 @@ import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { retireAssistant } from "@/assistant/retire-service";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -167,7 +168,10 @@ export function RootLayout() {
     shareFeedback: () => setFeedbackOpen(true),
     selectAssistant: (command) => {
       if (command.kind === "selectAssistant") {
-        void useAuthStore.getState().connectLocalAssistant(command.assistantId);
+        // The tray lists managed (platform-hosted) assistants, so switching
+        // goes through the platform selection path — not connectLocalAssistant,
+        // which primes a local gateway and no-ops for managed assistants.
+        void selectPlatformAssistant(command.assistantId);
       }
     },
     createAssistant: () => {
