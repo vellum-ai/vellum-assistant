@@ -58,24 +58,24 @@ const spawnMock = mock(async () => ({
   protocolSessionId: "proto-route-session",
 }));
 
-const defaultSteerImpl = async (_id: string, _instruction: string) => {};
-let steerImpl: (id: string, instruction: string) => Promise<void> =
-  defaultSteerImpl;
-const steerMock = mock((id: string, instruction: string) =>
-  steerImpl(id, instruction),
-);
-
-let resumeImpl: (id: string) => Promise<void> = async () => {};
-const resumeFromHistoryMock = mock((id: string, _send: unknown) =>
-  resumeImpl(id),
+const defaultSteerOrResumeImpl = async (
+  _id: string,
+  _instruction: string,
+): Promise<{ resumed: boolean }> => ({ resumed: false });
+let steerOrResumeImpl: (
+  id: string,
+  instruction: string,
+) => Promise<{ resumed: boolean }> = defaultSteerOrResumeImpl;
+const steerOrResumeMock = mock(
+  (id: string, instruction: string, _send: unknown) =>
+    steerOrResumeImpl(id, instruction),
 );
 
 mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
     spawn: spawnMock,
-    steer: steerMock,
-    resumeFromHistory: resumeFromHistoryMock,
+    steerOrResume: steerOrResumeMock,
   }),
 }));
 
@@ -88,7 +88,14 @@ mock.module("../../../acp/prepare-agent-env.js", () => ({
 const config = await installAcpConfigStub();
 const which = installWhichStub();
 
-import { getSqlite } from "../../../memory/db-connection.js";
+import {
+  clearHistory,
+  insertHistoryRow,
+} from "../../../acp/__tests__/helpers/acp-history-db.js";
+import {
+  AcpResumeError,
+  AcpSessionNotFoundError,
+} from "../../../acp/session-manager.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { FailedDependencyError, NotFoundError } from "../errors.js";
 
@@ -101,53 +108,6 @@ initializeDb();
 afterAll(() => {
   which.restore();
 });
-
-function clearHistory(): void {
-  getSqlite().run("DELETE FROM acp_session_history");
-}
-
-function insertHistoryRow(row: {
-  id: string;
-  agentId: string;
-  acpSessionId: string;
-  parentConversationId: string;
-  startedAt: number;
-  completedAt?: number | null;
-  status: string;
-  stopReason?: string | null;
-  error?: string | null;
-  eventLogJson?: string;
-}): void {
-  getSqlite()
-    .query(
-      /*sql*/ `
-      INSERT INTO acp_session_history (
-        id,
-        agent_id,
-        acp_session_id,
-        parent_conversation_id,
-        started_at,
-        completed_at,
-        status,
-        stop_reason,
-        error,
-        event_log_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-    )
-    .run(
-      row.id,
-      row.agentId,
-      row.acpSessionId,
-      row.parentConversationId,
-      row.startedAt,
-      row.completedAt ?? null,
-      row.status,
-      row.stopReason ?? null,
-      row.error ?? null,
-      row.eventLogJson ?? "[]",
-    );
-}
 
 function getSessionsHandler() {
   const route = ROUTES.find(
@@ -177,10 +137,8 @@ beforeEach(() => {
   clearHistory();
   resetExecFileStub();
   spawnMock.mockClear();
-  steerMock.mockClear();
-  steerImpl = defaultSteerImpl;
-  resumeFromHistoryMock.mockClear();
-  resumeImpl = async () => {};
+  steerOrResumeMock.mockClear();
+  steerOrResumeImpl = defaultSteerOrResumeImpl;
   _resetAdapterInstallCacheForTests();
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
@@ -561,18 +519,14 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
     });
 
     expect(body).toEqual({ acpSessionId: "live-1", steered: true });
-    expect(steerMock).toHaveBeenCalledTimes(1);
-    expect(resumeFromHistoryMock).not.toHaveBeenCalled();
+    expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+    expect(steerOrResumeMock.mock.calls[0][0]).toBe("live-1");
+    expect(steerOrResumeMock.mock.calls[0][1]).toBe("redirect");
+    expect(typeof steerOrResumeMock.mock.calls[0][2]).toBe("function");
   });
 
-  test("not-found session resumes from history then retries the steer", async () => {
-    let firstCall = true;
-    steerImpl = async (id) => {
-      if (firstCall) {
-        firstCall = false;
-        throw new Error(`ACP session "${id}" not found`);
-      }
-    };
+  test("resumed session reports the resumed flag", async () => {
+    steerOrResumeImpl = async () => ({ resumed: true });
 
     const handler = getSteerHandler();
     const body = await handler({
@@ -585,18 +539,11 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
       steered: true,
       resumed: true,
     });
-    expect(resumeFromHistoryMock).toHaveBeenCalledTimes(1);
-    expect(resumeFromHistoryMock.mock.calls[0][0]).toBe("gone-1");
-    expect(typeof resumeFromHistoryMock.mock.calls[0][1]).toBe("function");
-    expect(steerMock).toHaveBeenCalledTimes(2);
   });
 
-  test("resume failing with not-found maps to NotFoundError", async () => {
-    steerImpl = async (id) => {
-      throw new Error(`ACP session "${id}" not found`);
-    };
-    resumeImpl = async (id) => {
-      throw new Error(`ACP session "${id}" not found`);
+  test("typed not-found (no session, no history row) maps to NotFoundError", async () => {
+    steerOrResumeImpl = async (id) => {
+      throw new AcpSessionNotFoundError(id);
     };
 
     const handler = getSteerHandler();
@@ -607,15 +554,14 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
     await expect(promise).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  test("resume failing with an actionable hint surfaces as FailedDependencyError", async () => {
-    steerImpl = async (id) => {
-      throw new Error(`ACP session "${id}" not found`);
-    };
-    resumeImpl = async (id) => {
-      throw new Error(
-        `ACP session "${id}" was recorded before resume support ` +
-          `(no working directory persisted) and cannot be resumed. ` +
-          `Spawn a new session instead.`,
+  test("resume failure surfaces as FailedDependencyError with the actionable hint", async () => {
+    steerOrResumeImpl = async (id) => {
+      throw new AcpResumeError(
+        new Error(
+          `ACP session "${id}" was recorded before resume support ` +
+            `(no working directory persisted) and cannot be resumed. ` +
+            `Spawn a new session instead.`,
+        ),
       );
     };
 
@@ -628,8 +574,8 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
     await expect(promise).rejects.toThrow(/recorded before resume support/);
   });
 
-  test("non-not-found steer errors map to NotFoundError without a resume", async () => {
-    steerImpl = async (id) => {
+  test("plain steer errors map to NotFoundError", async () => {
+    steerOrResumeImpl = async (id) => {
       throw new Error(
         `ACP session "${id}" is not running (status: initializing)`,
       );
@@ -641,6 +587,5 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
       body: { instruction: "go" },
     });
     await expect(promise).rejects.toBeInstanceOf(NotFoundError);
-    expect(resumeFromHistoryMock).not.toHaveBeenCalled();
   });
 });

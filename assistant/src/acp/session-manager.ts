@@ -17,28 +17,36 @@ import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
-import { resolveAcpAgent } from "./resolve-agent.js";
+import { formatResolveFailure, resolveAcpAgent } from "./resolve-agent.js";
+import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
 
-/** Single source of truth for the "unknown session id" error message. */
-function sessionNotFoundMessage(acpSessionId: string): string {
-  return `ACP session "${acpSessionId}" not found`;
+/**
+ * The manager's "unknown session id" error. Thrown whenever an operation
+ * references an acpSessionId with no in-memory entry (and, for resume, no
+ * persisted history row). Callers (acp_steer tool, /v1/acp/:id/steer route)
+ * use `instanceof` checks to map this to their transport's not-found shape.
+ */
+export class AcpSessionNotFoundError extends Error {
+  constructor(public readonly acpSessionId: string) {
+    super(`ACP session "${acpSessionId}" not found`);
+    this.name = "AcpSessionNotFoundError";
+  }
 }
 
 /**
- * Whether `err` is the manager's "unknown session id" error for
- * `acpSessionId`. Callers (acp_steer tool, /v1/acp/:id/steer route) use this
- * to decide when a failed steer should fall back to resumeFromHistory.
+ * Wraps failures from the resume-then-steer phase of `steerOrResume` so
+ * transport callers can distinguish them (HTTP 424 with the actionable
+ * resume hint) from plain steer failures (404). The message mirrors the
+ * underlying error's message; the original error rides on `cause`.
  */
-export function isAcpSessionNotFoundError(
-  err: unknown,
-  acpSessionId: string,
-): boolean {
-  return (
-    err instanceof Error && err.message === sessionNotFoundMessage(acpSessionId)
-  );
+export class AcpResumeError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "AcpResumeError";
+  }
 }
 
 /** Maximum number of update events kept in a session's ring buffer. */
@@ -76,6 +84,16 @@ export class AcpSessionManager {
    * `acp_session_history` on terminal transition, then cleared.
    */
   private eventBuffers = new Map<string, BufferedAcpUpdate[]>();
+  /**
+   * Ids whose resumeFromHistory has passed its guards but not yet
+   * registered a SessionEntry (it is awaiting prepareAgentEnv). Reserved
+   * SYNCHRONOUSLY before the first await so concurrent resumes of the same
+   * id cannot both pass the guards (the loser would overwrite the winner's
+   * map entry and leak its child process), and so N concurrent resumes of
+   * distinct ids cannot exceed maxConcurrent. The spawn path needs no such
+   * reservation: its check-then-register is synchronous.
+   */
+  private pendingResumes = new Set<string>();
 
   constructor(private readonly maxConcurrent: number) {
     this.cleanupStaleRunningRows();
@@ -113,6 +131,20 @@ export class AcpSessionManager {
   }
 
   /**
+   * Concurrency guard shared by spawn() and resumeFromHistory(). Counts
+   * both registered sessions and in-flight resume reservations so the cap
+   * holds even while a resume is still awaiting prepareAgentEnv.
+   */
+  private assertCapacity(): void {
+    if (this.sessions.size + this.pendingResumes.size >= this.maxConcurrent) {
+      throw new Error(
+        `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
+          `Close an existing session before spawning a new one.`,
+      );
+    }
+  }
+
+  /**
    * Spawns a new ACP agent session. Returns the generated acpSessionId.
    *
    * The prompt is fired in the background — results stream via sessionUpdate
@@ -126,12 +158,7 @@ export class AcpSessionManager {
     parentConversationId: string,
     sendToVellum: (msg: ServerMessage) => void,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
-    if (this.sessions.size >= this.maxConcurrent) {
-      throw new Error(
-        `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
-          `Close an existing session before spawning a new one.`,
-      );
-    }
+    this.assertCapacity();
 
     const acpSessionId = randomUUID();
     log.info(
@@ -286,15 +313,13 @@ export class AcpSessionManager {
     acpSessionId: string,
     sendToVellum: (msg: ServerMessage) => void,
   ): Promise<void> {
-    if (this.sessions.has(acpSessionId)) {
+    if (
+      this.sessions.has(acpSessionId) ||
+      this.pendingResumes.has(acpSessionId)
+    ) {
       throw new Error(`ACP session "${acpSessionId}" is already active`);
     }
-    if (this.sessions.size >= this.maxConcurrent) {
-      throw new Error(
-        `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
-          `Close an existing session before spawning a new one.`,
-      );
-    }
+    this.assertCapacity();
 
     const row = getDb()
       .select()
@@ -302,7 +327,7 @@ export class AcpSessionManager {
       .where(eq(acpSessionHistory.id, acpSessionId))
       .get();
     if (!row) {
-      throw new Error(sessionNotFoundMessage(acpSessionId));
+      throw new AcpSessionNotFoundError(acpSessionId);
     }
     if (!row.cwd) {
       throw new Error(
@@ -320,41 +345,36 @@ export class AcpSessionManager {
 
     const resolved = resolveAcpAgent(row.agentId);
     if (!resolved.ok) {
-      switch (resolved.reason) {
-        case "acp_disabled":
-          throw new Error(resolved.hint);
-        case "unknown_agent":
-          throw new Error(
-            `Unknown agent "${row.agentId}". Available: ${resolved.available.join(", ")}.`,
-          );
-        case "binary_not_found":
-          throw new Error(
-            `${resolved.command} is not on PATH. ${resolved.hint}`,
-          );
-        default: {
-          const _exhaustive: never = resolved;
-          throw new Error(
-            `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
-          );
-        }
-      }
+      throw new Error(formatResolveFailure(row.agentId, resolved));
     }
-    const agentConfig = await prepareAgentEnv(resolved.agent);
+
+    // Everything up to here is synchronous. Reserve the id + concurrency
+    // slot BEFORE the first await so a concurrent resume of the same id
+    // (or a spawn racing the cap) fails the guards above instead of
+    // double-registering and leaking the first child process.
+    this.pendingResumes.add(acpSessionId);
+    let entry: SessionEntry;
+    try {
+      const agentConfig = await prepareAgentEnv(resolved.agent);
+      entry = this.registerSession({
+        acpSessionId,
+        agentId: row.agentId,
+        agentConfig,
+        parentConversationId: row.parentConversationId,
+        cwd: row.cwd,
+        startedAt: row.startedAt,
+        sendToVellum,
+      });
+    } finally {
+      // The reservation is either transferred to the sessions map by
+      // registerSession or released on prepareAgentEnv failure.
+      this.pendingResumes.delete(acpSessionId);
+    }
 
     log.info(
       { acpSessionId, agentId: row.agentId, cwd: row.cwd },
       "ACP resume from history requested",
     );
-
-    const entry = this.registerSession({
-      acpSessionId,
-      agentId: row.agentId,
-      agentConfig,
-      parentConversationId: row.parentConversationId,
-      cwd: row.cwd,
-      startedAt: row.startedAt,
-      sendToVellum,
-    });
     const { process: agentProcess, state, sendToVellum: wrappedSend } = entry;
 
     // Re-seed the ring buffer from the persisted event log, routed through
@@ -441,7 +461,7 @@ export class AcpSessionManager {
   async steer(acpSessionId: string, instruction: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(sessionNotFoundMessage(acpSessionId));
+      throw new AcpSessionNotFoundError(acpSessionId);
     }
 
     if (entry.state.status !== "running") {
@@ -475,21 +495,88 @@ export class AcpSessionManager {
   }
 
   /**
+   * Steers a session, transparently resuming it from persisted history
+   * first when it is no longer in memory (it completed, or the daemon
+   * restarted). The resume and the instruction prompt are atomic from the
+   * caller's perspective: a successfully resumed session immediately gets
+   * the instruction fired, so it never sits running-idle with no in-flight
+   * prompt (and therefore no teardown owner). If the post-resume steer
+   * fails, the freshly resumed session is closed (process killed, terminal
+   * row persisted, maps cleared) instead of being leaked.
+   *
+   * Error contract for transport callers (acp_steer tool, steer route):
+   * - `AcpSessionNotFoundError`: no in-memory session AND no history row.
+   * - `AcpResumeError`: the resume (or the steer immediately after it)
+   *   failed; the message carries the actionable hint.
+   * - any other error: the plain steer on an in-memory session failed.
+   */
+  async steerOrResume(
+    acpSessionId: string,
+    instruction: string,
+    sendToVellum: (msg: ServerMessage) => void,
+  ): Promise<{ resumed: boolean }> {
+    try {
+      await this.steer(acpSessionId, instruction);
+      return { resumed: false };
+    } catch (err) {
+      if (!(err instanceof AcpSessionNotFoundError)) throw err;
+    }
+
+    try {
+      await this.resumeFromHistory(acpSessionId, sendToVellum);
+    } catch (err) {
+      // A missing history row keeps its not-found shape; everything else
+      // (legacy row without cwd, resolver failure, capability missing)
+      // is a resume failure with an actionable message.
+      if (err instanceof AcpSessionNotFoundError) throw err;
+      throw new AcpResumeError(err);
+    }
+
+    try {
+      await this.steer(acpSessionId, instruction);
+    } catch (err) {
+      // Tear down the just-resumed session rather than leaving it
+      // running-idle with no prompt handler to own its cleanup.
+      try {
+        this.close(acpSessionId);
+      } catch (closeErr) {
+        log.warn(
+          { acpSessionId, err: closeErr },
+          "Failed to close ACP session after post-resume steer failure",
+        );
+      }
+      throw new AcpResumeError(err);
+    }
+    return { resumed: true };
+  }
+
+  /**
    * Cancels an ongoing prompt in the specified session.
    *
-   * The session's in-flight `prompt()` will reject in response, and the
-   * catch handler in `firePromptInBackground` performs the terminal
-   * persistence + teardown. We just flip the status here so that handler
-   * preserves "cancelled" instead of overwriting with "failed".
+   * When a prompt is in flight, its `prompt()` call rejects in response
+   * and the catch handler in `firePromptInBackground` performs the
+   * terminal persistence + teardown; we just flip the status here so that
+   * handler preserves "cancelled" instead of overwriting with "failed".
+   *
+   * When NO prompt is in flight there is no handler to own cleanup, so
+   * cancel persists and tears down the session itself. (Sessions normally
+   * always have a prompt in flight, but a cancel can race the window in
+   * steer() between clearing the old prompt and firing the new one.)
    */
   async cancel(acpSessionId: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(sessionNotFoundMessage(acpSessionId));
+      throw new AcpSessionNotFoundError(acpSessionId);
     }
     await entry.process.cancel(entry.state.acpSessionId);
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
+    // Re-check the map after the await: the in-flight prompt's handler may
+    // have already torn the session down while process.cancel was pending.
+    if (!entry.currentPrompt && this.sessions.get(acpSessionId) === entry) {
+      this.persistTerminal(acpSessionId, entry);
+      this.teardownSession(acpSessionId, entry);
+    }
   }
 
   /**
@@ -504,7 +591,7 @@ export class AcpSessionManager {
   close(acpSessionId: string): void {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
-      throw new Error(sessionNotFoundMessage(acpSessionId));
+      throw new AcpSessionNotFoundError(acpSessionId);
     }
     if (
       entry.state.status === "running" ||
@@ -551,7 +638,7 @@ export class AcpSessionManager {
     if (acpSessionId) {
       const entry = this.sessions.get(acpSessionId);
       if (!entry) {
-        throw new Error(sessionNotFoundMessage(acpSessionId));
+        throw new AcpSessionNotFoundError(acpSessionId);
       }
       return entry.state;
     }
@@ -681,10 +768,12 @@ export class AcpSessionManager {
           const agentLabel = current.state.agentId;
           const responseText = current.clientHandler.responseText;
           const sessionId = current.state.acpSessionId;
-          const resumeHint =
-            current.command === "claude-agent-acp"
-              ? `\n\nTo resume: cd ${current.cwd} && claude --resume ${sessionId}`
-              : "";
+          const hint = claudeResumeHint(
+            current.command,
+            current.cwd,
+            sessionId,
+          );
+          const resumeHint = hint ? `\n\n${hint}` : "";
           const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
           const parentConversation = findConversation(
             current.parentConversationId,

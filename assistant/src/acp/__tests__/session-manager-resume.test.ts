@@ -29,6 +29,8 @@ interface FakeClient {
 const fakeCaps = { loadSession: false, resume: false };
 /** Chunks the fake replays through the client handler during loadSession. */
 let replayChunks: string[] = [];
+/** When set, prompt() throws synchronously (steerOrResume teardown tests). */
+let promptThrowsSync = false;
 const fakeInstances: FakeAcpAgentProcess[] = [];
 
 class FakeAcpAgentProcess {
@@ -90,6 +92,9 @@ class FakeAcpAgentProcess {
   }
 
   prompt(sessionId: string, text: string): Promise<{ stopReason: string }> {
+    if (promptThrowsSync) {
+      throw new Error("prompt transport dead");
+    }
     this.promptCalls.push({ sessionId, text });
     return new Promise((res) => {
       this.resolvePrompt = res;
@@ -131,69 +136,16 @@ import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import type { AcpSessionState } from "../types.js";
+import {
+  clearHistory,
+  insertHistoryRow,
+  readHistoryRow,
+} from "./helpers/acp-history-db.js";
 
-const { AcpSessionManager } = await import("../session-manager.js");
+const { AcpResumeError, AcpSessionManager, AcpSessionNotFoundError } =
+  await import("../session-manager.js");
 
 initializeDb();
-
-// ---------------------------------------------------------------------------
-// DB helpers
-// ---------------------------------------------------------------------------
-
-function clearHistory(): void {
-  getSqlite().run("DELETE FROM acp_session_history");
-}
-
-function insertHistoryRow(row: {
-  id: string;
-  agentId?: string;
-  acpSessionId?: string;
-  parentConversationId?: string;
-  startedAt?: number;
-  status?: string;
-  cwd?: string | null;
-  eventLogJson?: string;
-}): void {
-  getSqlite()
-    .query(
-      `INSERT INTO acp_session_history (
-         id, agent_id, acp_session_id, parent_conversation_id,
-         started_at, completed_at, status, stop_reason, error,
-         event_log_json, cwd
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      row.id,
-      row.agentId ?? "claude",
-      row.acpSessionId ?? "proto-old",
-      row.parentConversationId ?? "conv-1",
-      row.startedAt ?? 1234,
-      5678,
-      row.status ?? "completed",
-      "end_turn",
-      null,
-      row.eventLogJson ?? "[]",
-      row.cwd === undefined ? "/tmp/proj" : row.cwd,
-    );
-}
-
-interface HistoryRow {
-  id: string;
-  started_at: number;
-  status: string;
-  stop_reason: string | null;
-  event_log_json: string;
-  cwd: string | null;
-}
-
-function readHistoryRow(id: string): HistoryRow | null {
-  return getSqlite()
-    .query(
-      `SELECT id, started_at, status, stop_reason, event_log_json, cwd
-       FROM acp_session_history WHERE id = ?`,
-    )
-    .get(id) as HistoryRow | null;
-}
 
 function countHistoryRows(): number {
   const row = getSqlite()
@@ -223,6 +175,7 @@ beforeEach(() => {
   fakeCaps.loadSession = false;
   fakeCaps.resume = false;
   replayChunks = [];
+  promptThrowsSync = false;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
@@ -422,5 +375,164 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(log).toHaveLength(2);
     expect(log[0]!.content).toBe("original-run-chunk");
     expect(log[1]!.content).toBe("resumed-run-chunk");
+  });
+
+  test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "race-1" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: ServerMessage[] = [];
+    const [a, b] = await Promise.allSettled([
+      manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
+      manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
+    ]);
+
+    // Exactly one resume wins; the other fails the synchronous guard.
+    expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
+    const rejected = (a.status === "rejected" ? a : b) as PromiseRejectedResult;
+    expect(String(rejected.reason)).toContain("is already active");
+
+    // Only one child process was ever constructed and it is still alive
+    // (the loser never got far enough to spawn-and-leak a second one).
+    expect(fakeInstances).toHaveLength(1);
+    expect(fakeInstances[0]!.killed).toBe(false);
+    expect((manager.getStatus("race-1") as AcpSessionState).status).toBe(
+      "running",
+    );
+    // Exactly one spawned event went out (single stream, not doubled).
+    expect(sent.filter((m) => m.type === "acp_session_spawned")).toHaveLength(
+      1,
+    );
+  });
+
+  test("concurrent resumes of distinct ids cannot exceed maxConcurrent", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "cap-1" });
+    insertHistoryRow({ id: "cap-2" });
+
+    const manager = new AcpSessionManager(1);
+    const [a, b] = await Promise.allSettled([
+      manager.resumeFromHistory("cap-1", () => {}),
+      manager.resumeFromHistory("cap-2", () => {}),
+    ]);
+
+    expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
+    const rejected = (a.status === "rejected" ? a : b) as PromiseRejectedResult;
+    expect(String(rejected.reason)).toMatch(
+      /ACP concurrency limit reached \(max 1\)/,
+    );
+    expect(fakeInstances).toHaveLength(1);
+    expect(manager.getStatus() as AcpSessionState[]).toHaveLength(1);
+  });
+
+  test("cancel on a resumed session with no in-flight prompt persists and tears down", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "idle-1",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("idle-1", () => {});
+
+    // No prompt is in flight, so cancel() itself must own the terminal
+    // persistence + teardown (there is no prompt handler to do it).
+    await manager.cancel("idle-1");
+
+    expect(fakeInstances[0]!.killed).toBe(true);
+    expect(internals(manager).sessions.has("idle-1")).toBe(false);
+    expect(internals(manager).eventBuffers.has("idle-1")).toBe(false);
+
+    const row = readHistoryRow("idle-1")!;
+    expect(row.status).toBe("cancelled");
+    expect(row.completed_at).not.toBeNull();
+    // The re-seeded event log survived the cancel-side persistence.
+    const log = JSON.parse(row.event_log_json) as Array<{ content?: string }>;
+    expect(log).toHaveLength(1);
+    expect(log[0]!.content).toBe("original-run-chunk");
+  });
+});
+
+describe("AcpSessionManager.steerOrResume", () => {
+  test("steers an in-memory session directly without a resume", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "sor-live-1" });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("sor-live-1", () => {});
+    expect(fakeInstances).toHaveLength(1);
+
+    const result = await manager.steerOrResume(
+      "sor-live-1",
+      "go faster",
+      () => {},
+    );
+    expect(result).toEqual({ resumed: false });
+    // No second process was constructed.
+    expect(fakeInstances).toHaveLength(1);
+    expect(fakeInstances[0]!.promptCalls).toEqual([
+      { sessionId: "proto-old", text: "go faster" },
+    ]);
+  });
+
+  test("session not in memory: resumes from history and fires the instruction atomically", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "sor-resume-1" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: ServerMessage[] = [];
+    const result = await manager.steerOrResume(
+      "sor-resume-1",
+      "continue the work",
+      (msg) => sent.push(msg),
+    );
+
+    expect(result).toEqual({ resumed: true });
+    const fake = fakeInstances[0]!;
+    expect(fake.resumeSessionCalls).toEqual([
+      { sessionId: "proto-old", cwd: "/tmp/proj" },
+    ]);
+    // The instruction prompt fired immediately after the resume - the
+    // session never sat running-idle with no in-flight prompt.
+    expect(fake.promptCalls).toEqual([
+      { sessionId: "proto-old", text: "continue the work" },
+    ]);
+    expect(sent.filter((m) => m.type === "acp_session_spawned")).toHaveLength(
+      1,
+    );
+  });
+
+  test("missing history row keeps the typed not-found error", async () => {
+    const manager = new AcpSessionManager(4);
+    const promise = manager.steerOrResume("sor-missing-1", "go", () => {});
+    await expect(promise).rejects.toBeInstanceOf(AcpSessionNotFoundError);
+  });
+
+  test("resume failure surfaces as AcpResumeError with the actionable hint", async () => {
+    insertHistoryRow({ id: "sor-legacy-1", cwd: null });
+
+    const manager = new AcpSessionManager(4);
+    const promise = manager.steerOrResume("sor-legacy-1", "go", () => {});
+    await expect(promise).rejects.toBeInstanceOf(AcpResumeError);
+    await expect(promise).rejects.toThrow(/recorded before resume support/);
+  });
+
+  test("post-resume steer failure tears the resumed session down instead of leaving it idle", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "sor-fail-1" });
+
+    const manager = new AcpSessionManager(4);
+    promptThrowsSync = true;
+    const promise = manager.steerOrResume("sor-fail-1", "go", () => {});
+    await expect(promise).rejects.toBeInstanceOf(AcpResumeError);
+    await expect(promise).rejects.toThrow("prompt transport dead");
+
+    // The resumed session did not leak: process killed, maps cleared,
+    // terminal row persisted.
+    expect(fakeInstances[0]!.killed).toBe(true);
+    expect(internals(manager).sessions.has("sor-fail-1")).toBe(false);
+    expect(internals(manager).eventBuffers.has("sor-fail-1")).toBe(false);
+    expect(readHistoryRow("sor-fail-1")!.status).toBe("cancelled");
   });
 });

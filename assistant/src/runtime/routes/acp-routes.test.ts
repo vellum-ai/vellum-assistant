@@ -243,8 +243,8 @@ describe("POST /v1/acp/spawn", () => {
     which.setWhich({});
     // codex-acp is an allowlisted adapter, so the route attempts a silent
     // `npm i -g @zed-industries/codex-acp` before failing. Script that
-    // install to fail so the augmented hint path is exercised without ever
-    // shelling out to real npm.
+    // install to fail; the full auto-install failure surface is covered in
+    // __tests__/acp-routes.test.ts.
     execScripts.set("npm i", {
       error: new Error("EACCES: permission denied"),
     });
@@ -258,9 +258,7 @@ describe("POST /v1/acp/spawn", () => {
           conversationId: "conv-1",
         },
       }),
-    ).rejects.toThrow(
-      /codex-acp is not on PATH.*auto-install failed.*EACCES/,
-    );
+    ).rejects.toThrow("codex-acp is not on PATH");
   });
 
   test("body-shape guard short-circuits before the resolver runs", async () => {
@@ -478,6 +476,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
   });
 
   beforeEach(() => {
+    inMemoryStates.clear();
     getSqlite().run("DELETE FROM acp_session_history");
   });
 
@@ -501,6 +500,34 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
       "initializing",
       "running",
     ]);
+  });
+
+  test("excludes terminal rows whose session is active in memory (resumed sessions)", async () => {
+    // A resumed session reuses its original id: the in-memory state is
+    // `running` while its history row still carries the old terminal
+    // status until the next terminal upsert. The bulk delete must not
+    // remove that row out from under the live session.
+    seedHistoryRow("row-resumed", "completed", 1000);
+    seedHistoryRow("row-completed", "completed", 2000);
+    inMemoryStates.set("row-resumed", {
+      id: "row-resumed",
+      agentId: "claude",
+      acpSessionId: "proto-resumed",
+      parentConversationId: "conv-test",
+      status: "running",
+      startedAt: 1000,
+    });
+
+    const handler = getBulkDeleteHandler();
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(1);
+
+    const remaining = listRows();
+    expect(remaining).toEqual([{ id: "row-resumed", status: "completed" }]);
   });
 
   test("returns deleted=0 when no terminal rows are present", async () => {

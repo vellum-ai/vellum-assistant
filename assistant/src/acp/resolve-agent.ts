@@ -33,8 +33,11 @@ import { isAcpEnabled } from "./feature-gate.js";
  */
 type AcpAgentSource = "config" | "default";
 
-type ResolveAcpAgentResult =
+export type ResolveAcpAgentResult =
   | { ok: true; agent: AcpAgentConfig }
+  | ResolveAcpAgentFailure;
+
+export type ResolveAcpAgentFailure =
   | { ok: false; reason: "acp_disabled"; hint: string }
   | { ok: false; reason: "unknown_agent"; available: string[] }
   | {
@@ -43,6 +46,33 @@ type ResolveAcpAgentResult =
       hint: string;
       command: string;
     };
+
+/**
+ * Single source of truth for the user-facing message of each resolver
+ * failure reason. Every caller that surfaces a resolve failure (acp_spawn
+ * tool, /v1/acp/spawn route, AcpSessionManager.resumeFromHistory) renders
+ * the same copy through this helper; only the transport wrapping (tool
+ * error result vs. HTTP error class vs. thrown Error) differs per caller.
+ */
+export function formatResolveFailure(
+  agentId: string,
+  failure: ResolveAcpAgentFailure,
+): string {
+  switch (failure.reason) {
+    case "acp_disabled":
+      return failure.hint;
+    case "unknown_agent":
+      return `Unknown agent "${agentId}". Available: ${failure.available.join(", ")}.`;
+    case "binary_not_found":
+      return `${failure.command} is not on PATH. ${failure.hint}`;
+    default: {
+      const _exhaustive: never = failure;
+      throw new Error(
+        `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
+      );
+    }
+  }
+}
 
 interface AcpAgentEntry {
   id: string;

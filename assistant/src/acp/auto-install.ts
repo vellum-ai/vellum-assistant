@@ -3,9 +3,9 @@
  *
  * When a spawn fails preflight with `binary_not_found`, callers (the
  * `acp_spawn` tool and the `/v1/acp/spawn` route) call
- * `ensureAdapterInstalled(command)` to try a global npm install of the
- * mapped adapter package, then re-resolve and continue. On failure they
- * fall back to the existing actionable install hint.
+ * `resolveAgentWithAutoInstall(agentId)`, which tries a global npm install
+ * of the mapped adapter package, then re-resolves and continues. On failure
+ * they fall back to the existing actionable install hint.
  *
  * Security boundary: only commands present in `DEFAULT_AGENT_NPM_PACKAGES`
  * are ever installed. The package names are vendored constants, NOT user
@@ -17,6 +17,10 @@ import { execFile } from "node:child_process";
 
 import { DEFAULT_AGENT_NPM_PACKAGES } from "../config/acp-defaults.js";
 import { getLogger } from "../util/logger.js";
+import {
+  resolveAcpAgent,
+  type ResolveAcpAgentResult,
+} from "./resolve-agent.js";
 
 const log = getLogger("acp:auto-install");
 
@@ -111,6 +115,57 @@ async function runInstall(
     );
     return { installed: false, error };
   }
+}
+
+export interface ResolveWithAutoInstallResult {
+  /** The final resolver outcome (post-install re-resolve when applicable). */
+  resolved: ResolveAcpAgentResult;
+  /** Set when a missing adapter binary was silently installed via npm. */
+  autoInstalledPackage?: string;
+  /**
+   * Set when the auto-install itself failed: the original install hint
+   * augmented with the npm failure reason. Callers should surface this
+   * instead of re-deriving a message from `resolved`.
+   */
+  failureMessage?: string;
+}
+
+/**
+ * Resolve an ACP agent id, silently auto-installing the mapped adapter
+ * package when (and only when) the failure is a missing allowlisted binary.
+ * Shared by the `acp_spawn` tool and the `/v1/acp/spawn` route so the
+ * resolve-install-re-resolve flow has a single implementation; callers map
+ * the result to their transport (tool error result vs. HTTP error class).
+ */
+export async function resolveAgentWithAutoInstall(
+  agentId: string,
+): Promise<ResolveWithAutoInstallResult> {
+  const resolved = resolveAcpAgent(agentId);
+  if (resolved.ok || resolved.reason !== "binary_not_found") {
+    return { resolved };
+  }
+
+  const { command, hint } = resolved;
+  const install = await ensureAdapterInstalled(command);
+  if (install.installed) {
+    const retried = resolveAcpAgent(agentId);
+    if (retried.ok) {
+      log.info(
+        { agentId, command },
+        "Auto-installed missing ACP adapter binary",
+      );
+      return {
+        resolved: retried,
+        autoInstalledPackage: DEFAULT_AGENT_NPM_PACKAGES[command],
+      };
+    }
+  } else if (install.error) {
+    return {
+      resolved,
+      failureMessage: `${command} is not on PATH. ${hint} (auto-install failed: ${install.error})`,
+    };
+  }
+  return { resolved };
 }
 
 /** @internal: exposed for tests only. */

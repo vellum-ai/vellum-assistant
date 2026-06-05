@@ -1,6 +1,6 @@
 import { getAcpSessionManager } from "../../acp/index.js";
-import { isAcpSessionNotFoundError } from "../../acp/session-manager.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { getSendToClient } from "./context.js";
 
 export async function executeAcpSteer(
   input: Record<string, unknown>,
@@ -17,38 +17,30 @@ export async function executeAcpSteer(
   }
 
   const manager = getAcpSessionManager();
+  const sendToClient = getSendToClient(context);
 
   try {
-    await manager.steer(acpSessionId, instruction);
-    return steeredResult(acpSessionId, { resumed: false });
+    if (!sendToClient) {
+      // Without a connected client there is no one to receive a resumed
+      // session's events, so skip the transparent resume fallback and
+      // steer the in-memory session only.
+      await manager.steer(acpSessionId, instruction);
+      return steeredResult(acpSessionId, { resumed: false });
+    }
+    // Sessions no longer in memory (completed, or lost to a daemon
+    // restart) are transparently resumed from persisted history and the
+    // instruction fired in the same call. Failure messages carry the
+    // actionable hint (e.g. "recorded before resume support", agent
+    // capability missing).
+    const { resumed } = await manager.steerOrResume(
+      acpSessionId,
+      instruction,
+      sendToClient,
+    );
+    return steeredResult(acpSessionId, { resumed });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-
-    // "Not found" means the session is no longer in memory (it completed,
-    // or the daemon restarted). Transparently resume it from persisted
-    // history and retry, when a client is connected to receive the
-    // resumed session's events.
-    const sendToClient = context.sendToClient as
-      | ((msg: { type: string; [key: string]: unknown }) => void)
-      | undefined;
-    if (!isAcpSessionNotFoundError(err, acpSessionId) || !sendToClient) {
-      return steerError(acpSessionId, msg);
-    }
-
-    try {
-      await manager.resumeFromHistory(
-        acpSessionId,
-        sendToClient as (msg: unknown) => void,
-      );
-      await manager.steer(acpSessionId, instruction);
-    } catch (resumeErr) {
-      // The resume error carries the actionable hint (e.g. "recorded
-      // before resume support", agent capability missing).
-      const resumeMsg =
-        resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
-      return steerError(acpSessionId, resumeMsg);
-    }
-    return steeredResult(acpSessionId, { resumed: true });
+    return steerError(acpSessionId, msg);
   }
 }
 
