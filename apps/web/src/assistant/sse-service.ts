@@ -86,8 +86,13 @@ export const sseService: SseService = {
     // self-dedups against its own action's recency.
     let lastAppResumeAt = 0;
     let lastPowerActionAt = 0;
-    let nextOpenCause: "fresh" | "error" | "watchdog" | "resume" | "debug" =
-      "fresh";
+    let nextOpenCause:
+      | "fresh"
+      | "error"
+      | "watchdog"
+      | "resume"
+      | "debug"
+      | "anchor" = "fresh";
     // Pending timer for a delayed debug-triggered reconnect, so detach
     // can cancel a reconnect that hasn't fired yet.
     let debugReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -233,6 +238,23 @@ export const sseService: SseService = {
         open();
       },
     );
+    // Cold-start anchored replay (see `cold-anchor.ts`): the cold
+    // connect opened cursor-less before the `/messages` snapshot
+    // watermark `S` was known. The cursor is now seeded at `S`, so
+    // bounce the connection to re-open carrying `lastSeenSeq = S` and
+    // let the daemon ring-replay the snapshot→attach gap. Labeled
+    // `"anchor"` so `reconcile-on-reopen` skips a redundant `/messages`
+    // reconcile — the ring replay is the catch-up. If no connection is
+    // attached yet the upcoming cold connect carries the cursor itself,
+    // so there is nothing to bounce.
+    const unsubAnchorRequested = subscribe("sse.anchor-requested", () => {
+      if (!current) {
+        return;
+      }
+      teardown();
+      nextOpenCause = "anchor";
+      open();
+    });
 
     return () => {
       cancelled = true;
@@ -247,6 +269,7 @@ export const sseService: SseService = {
       unsubPowerResume();
       unsubPowerUnlock();
       unsubReachabilityRetry();
+      unsubAnchorRequested();
       current?.cancel();
       setCurrent(null);
       setConnected(false);

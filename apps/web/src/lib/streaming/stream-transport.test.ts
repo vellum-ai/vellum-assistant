@@ -899,15 +899,41 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
     return requestedUrls;
   };
 
-  test("first connect omits lastSeenSeq even when a cursor exists", async () => {
-    // GIVEN a non-null cursor and the flag enabled
+  test("cold connect sends lastSeenSeq when anchored at a snapshot watermark", async () => {
+    // GIVEN the cursor has been seeded at a snapshot watermark S on a cold
+    // session (cold-start anchored replay) and the flag is enabled
     mockReconnectCursor = 42;
 
     // WHEN the stream connects for the first time
     const urls = await captureReconnectUrls();
 
-    // THEN the initial (cold) connect carries no resume cursor — a
-    // fresh connection has nothing buffered to replay.
+    // THEN the cold connect carries lastSeenSeq=S so the daemon ring-replays
+    // events emitted between the /messages snapshot and the stream attaching
+    expect(urls.length).toBeGreaterThanOrEqual(1);
+    expect(urls[0]).toContain("lastSeenSeq=42");
+  });
+
+  test("cold connect omits lastSeenSeq when no cursor has been seeded", async () => {
+    // GIVEN the flag enabled but no watermark has anchored the cursor yet
+    mockReconnectCursor = null;
+
+    // WHEN the stream connects for the first time
+    const urls = await captureReconnectUrls();
+
+    // THEN the cold connect is cursor-less, byte-identical to legacy behavior
+    expect(urls.length).toBeGreaterThanOrEqual(1);
+    expect(urls[0]).not.toContain("lastSeenSeq");
+  });
+
+  test("cold connect omits lastSeenSeq when the flag is disabled", async () => {
+    // GIVEN a seeded cursor but the seq-gap feature disabled
+    mockReconnectCursor = 42;
+    mockSeqGapEnabled = false;
+
+    // WHEN the stream connects for the first time
+    const urls = await captureReconnectUrls();
+
+    // THEN no resume cursor is sent (replay stays inert behind the flag)
     expect(urls.length).toBeGreaterThanOrEqual(1);
     expect(urls[0]).not.toContain("lastSeenSeq");
   });

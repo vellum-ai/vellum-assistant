@@ -61,10 +61,17 @@ export interface BusEventMap {
    * recovery, or a manual `_vellumDebug.events.reconnectClient()`
    * trigger. Conversation-scoped consumers use this to schedule a
    * post-reconnect reconciliation pass.
+   *
+   * `"anchor"` is the cold-start anchored-replay reopen (see
+   * `cold-anchor.ts`): the connection re-attaches carrying
+   * `lastSeenSeq = S` so the daemon ring-replays the snapshot→attach
+   * gap. It deliberately does NOT trigger a post-reopen `/messages`
+   * reconcile — the ring replay is the catch-up mechanism, and ring
+   * eviction is handled by the consumer's seq-gap detector.
    */
   "sse.opened": {
     assistantId: string;
-    cause: "fresh" | "error" | "watchdog" | "resume" | "debug";
+    cause: "fresh" | "error" | "watchdog" | "resume" | "debug" | "anchor";
   };
   /**
    * The bus-owned SSE connection closed for a non-cancel reason
@@ -81,6 +88,16 @@ export interface BusEventMap {
    * reconcile pass can run.
    */
   "reachability.retry-requested": Record<string, never>;
+  /**
+   * Published by `cold-anchor.ts` once `/messages` has resolved with a
+   * snapshot watermark `S` on a cold session. Tells the bus to bounce
+   * its SSE connection so the reopen carries `lastSeenSeq = S` and the
+   * daemon ring-replays the snapshot→attach gap. The cursor is already
+   * seeded at `S` before this fires; if no connection is attached yet
+   * the bounce is a no-op and the upcoming cold connect carries the
+   * cursor directly.
+   */
+  "sse.anchor-requested": Record<string, never>;
   /** Page visible / app foregrounded / network came back online. */
   "app.resume": { signal: AppResumeSignal };
   /** Page hidden / app backgrounded. */

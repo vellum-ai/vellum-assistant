@@ -149,6 +149,45 @@ describe("sseService.attach — connection lifecycle", () => {
     );
     expect(closedCalls).toHaveLength(0);
   });
+
+  test("bounces the connection with cause=anchor on sse.anchor-requested", () => {
+    // GIVEN an attached, open SSE connection
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+    publishSpy.mockClear();
+    cancelMock.mockClear();
+
+    // WHEN cold-start anchoring requests a re-anchor (cursor now seeded at S)
+    eventBus.publish("sse.anchor-requested", {});
+
+    // THEN the cursor-less connection is torn down and reopened
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    // AND the reopen is labeled cause=anchor so reconcile-on-reopen skips a
+    // redundant /messages reconcile (the ring replay is the catch-up)
+    expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
+      assistantId: "asst-1",
+      cause: "anchor",
+    });
+  });
+
+  test("ignores sse.anchor-requested when no connection is attached", () => {
+    // GIVEN an attached connection that is then detached
+    const detach = sseService.attach("asst-1");
+    detach();
+    subscribeEventsMock.mockClear();
+    publishSpy.mockClear();
+
+    // WHEN a re-anchor is requested with nothing attached
+    eventBus.publish("sse.anchor-requested", {});
+
+    // THEN nothing reopens — the upcoming cold connect carries the cursor
+    expect(subscribeEventsMock).not.toHaveBeenCalled();
+    const openedCalls = publishSpy.mock.calls.filter(
+      ([name]) => name === "sse.opened",
+    );
+    expect(openedCalls).toHaveLength(0);
+  });
 });
 
 // Locks the wire that drives the menu-bar status dot: `deriveAssistantStatus`
