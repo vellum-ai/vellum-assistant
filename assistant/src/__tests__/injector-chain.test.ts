@@ -41,7 +41,7 @@ mock.module("../config/loader.js", () => ({
 const { applyRuntimeInjections, composeInjectorChain } =
   await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
-  await import("../plugins/defaults/injectors/register.js");
+  await import("../plugins/defaults/memory-retrieval/injectors.js");
 const { getInjectorChain } =
   await import("../plugins/defaults/memory-retrieval/injector-chain.js");
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";

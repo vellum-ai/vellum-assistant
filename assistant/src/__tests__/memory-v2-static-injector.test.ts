@@ -35,7 +35,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 const { defaultInjectors } =
-  await import("../plugins/defaults/injectors/register.js");
+  await import("../plugins/defaults/memory-retrieval/injectors.js");
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";

@@ -20,7 +20,7 @@
 
 import { memoryV3Injector } from "../../../memory/v3/shadow-plugin.js";
 import type { Injector } from "../../types.js";
-import { defaultInjectors } from "../injectors/register.js";
+import { defaultInjectors } from "./injectors.js";
 
 let cachedChain: Injector[] | null = null;
 

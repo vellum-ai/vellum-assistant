@@ -23,7 +23,7 @@ mock.module("../config/loader.js", () => ({
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
-} from "../plugins/defaults/injectors/register.js";
+} from "../plugins/defaults/memory-retrieval/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
