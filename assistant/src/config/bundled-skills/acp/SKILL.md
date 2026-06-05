@@ -6,6 +6,7 @@ metadata:
   emoji: "🔗"
   vellum:
     display-name: "ACP"
+    feature-flag: acp
     activation-hints:
       - "User wants to delegate a coding task to Claude Code, Codex, or another ACP agent"
       - "User wants to spawn an external coding agent that runs autonomously and streams results back"
@@ -29,7 +30,7 @@ When the user first tries to use ACP and it's not configured, set it up automati
    npm i -g @agentclientprotocol/claude-agent-acp
    ```
 
-2. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the daemon - no restart needed.
+2. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the assistant - no restart needed.
 
    As a supported alternative, edit the workspace config file to add the `acp` section. Default profiles for `claude` and `codex` ship out-of-box, so the minimal config is just:
    ```json
