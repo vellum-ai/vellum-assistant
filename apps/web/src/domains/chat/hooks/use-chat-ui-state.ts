@@ -60,14 +60,14 @@ export function useChatUIState(): ChatUIState {
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
 
+  // The selector functions (shouldShowThinkingIndicator, canStopGeneration,
+  // isSendDisabled, getThinkingStatusText) only access `phase`,
+  // `activeToolCallCount`, and `statusText` from TurnState. Subscribe only
+  // to those three; remaining TurnState fields are filled from the store
+  // snapshot to satisfy the type without creating extra subscriptions.
   const phase = useTurnStore.use.phase();
-  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
   const activeToolCallCount = useTurnStore.use.activeToolCallCount();
-  const activeTurnId = useTurnStore.use.activeTurnId();
-  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
   const statusText = useTurnStore.use.statusText();
-  const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
 
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
@@ -79,14 +79,10 @@ export function useChatUIState(): ChatUIState {
   // --- Derived values (memoized) ------------------------------------------
 
   const turnState: TurnState = {
+    ...useTurnStore.getState(),
     phase,
-    pendingQueuedCount,
     activeToolCallCount,
-    activeTurnId,
-    lastTerminalReason,
     statusText,
-    liveWebActivity,
-    autoRoutedProfileLabel,
   };
 
   // Conversation processing — OR of local optimistic set and server snapshot.
