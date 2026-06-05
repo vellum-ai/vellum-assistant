@@ -22,6 +22,7 @@ import {
   checkpointKey,
   CK_BATCH,
   CK_ITEM_COUNT,
+  CK_LAST_ATTEMPT_AT,
   CK_LAST_GEN_AT,
   countActiveMemoryNodes,
   getCheckpointValue,
@@ -336,6 +337,7 @@ Bad → Good (incomplete phrase → complete):
         config: {
           callSite: "conversationStarters" as const,
           max_tokens: 2048,
+          temperature: 0.7,
           tool_choice: {
             type: "tool" as const,
             name: "store_conversation_starters",
@@ -395,18 +397,27 @@ export async function generateConversationStartersJob(
   const db = getDb();
   const now = Date.now();
 
+  // Record attempt time so the route handler's cooldown prevents rapid retries
+  // even when generation produces 0 valid starters.
+  upsertCheckpoint(
+    checkpointKey(CK_LAST_ATTEMPT_AT, scopeId),
+    String(now),
+    now,
+  );
+
   const starters = await generateStarters(scopeId);
   if (starters.length === 0) {
     log.info({ scopeId }, "No conversation starters generated");
 
-    // Sync checkpoints so both `staleByAge` and `checkpointAhead` clear.
+    // Sync the item count checkpoint so `checkpointAhead` clears, but do NOT
+    // update `CK_LAST_GEN_AT` — the stale TTL should trigger a retry on the
+    // next GET rather than blocking retries for the full TTL window.
     const totalActive = countActiveMemoryNodes(scopeId);
     upsertCheckpoint(
       checkpointKey(CK_ITEM_COUNT, scopeId),
       String(totalActive),
       now,
     );
-    upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now), now);
     return;
   }
 

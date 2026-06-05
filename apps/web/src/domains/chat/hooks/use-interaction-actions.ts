@@ -33,7 +33,7 @@ import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, PendingConfirmationState, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
-import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
+import type { ChatMessageToolCall, QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 
@@ -142,8 +142,11 @@ export interface UseInteractionActionsReturn {
   handleSecretCancel: () => void;
   handleContactPromptSubmit: (address: string, channelType: string) => Promise<void>;
   handleContactPromptCancel: () => void;
-  handleConfirmationSubmit: (decision: ConfirmationDecision) => Promise<void>;
-  handleAllowAndCreateRule: () => Promise<void>;
+  handleConfirmationSubmit: (
+    decision: ConfirmationDecision,
+    toolCall?: ChatMessageToolCall,
+  ) => Promise<void>;
+  handleAllowAndCreateRule: (toolCall?: ChatMessageToolCall) => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
@@ -408,9 +411,18 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   const handleConfirmationSubmit = useCallback(
-    async (decision: ConfirmationDecision) => {
-      const { pendingConfirmation: snapshot, isSubmittingConfirmation } = useInteractionStore.getState();
-      if (!snapshot || isSubmittingConfirmation) return;
+    async (decision: ConfirmationDecision, toolCall?: ChatMessageToolCall) => {
+      // The prompt is sourced from the originating tool call when an inline
+      // chip submits, falling back to the store for the standalone
+      // (directive) card. This lets overlapping confirmations resolve
+      // independently instead of all keying off the single store slot.
+      const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+      const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
+      if (!snapshot) return;
+      // The standalone card shares the global submitting flag; inline chips
+      // track their own per-chip state and pass a toolCall, so they are not
+      // blocked here when another confirmation is mid-submit.
+      if (!toolCall && isSubmittingConfirmation) return;
       useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
@@ -421,7 +433,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         return;
       }
 
-      const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
+      const mappedToolCallId =
+        toolCall?.id ??
+        useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
       try {
         if (
@@ -605,9 +619,11 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   // Allow & Create Rule flow
   // -------------------------------------------------------------------------
 
-  const handleAllowAndCreateRule = useCallback(async () => {
-    const { pendingConfirmation: snapshot, isSubmittingConfirmation } = useInteractionStore.getState();
-    if (!snapshot || isSubmittingConfirmation) return;
+  const handleAllowAndCreateRule = useCallback(async (toolCall?: ChatMessageToolCall) => {
+    const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+    const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
+    if (!snapshot) return;
+    if (!toolCall && isSubmittingConfirmation) return;
     const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
@@ -616,7 +632,9 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
     useInteractionStore.getState().submitConfirmationStart();
 
-    const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
+    const mappedToolCallId =
+      toolCall?.id ??
+      useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,

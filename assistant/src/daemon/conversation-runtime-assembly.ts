@@ -59,6 +59,7 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
@@ -269,8 +270,8 @@ export function isGroupChatType(chatType?: string): boolean {
   }
 }
 
-/** Context about the active workspace surface, passed to applyRuntimeInjections. */
-export interface ActiveSurfaceContext {
+/** Context about the active workspace surface, rendered into the `<active_workspace>` block. */
+interface ActiveSurfaceContext {
   surfaceId: string;
   html: string;
   /** When set, the surface is backed by a persisted app. */
@@ -1821,20 +1822,17 @@ function applyInjectionBlock(
  * bag attached to the {@link TurnContext} the caller provides (or to an
  * ephemeral {@link TurnContext} synthesized for test call sites). A small
  * number of fields drive hardcoded branches that live outside the injector
- * chain — `activeSurface`, `channelCapabilities`, `channelCommandContext`,
- * `voiceCallControlPrompt`, `transportHints`, and `isNonInteractive` —
- * because they are orchestrator-owned content that never made sense as
- * plugin-overridable default injectors.
+ * chain — `channelCommandContext`, `voiceCallControlPrompt`,
+ * `transportHints`, and `isNonInteractive` — because they are
+ * orchestrator-owned content that never made sense as plugin-overridable
+ * default injectors.
+ *
+ * Neither the active workspace surface nor the channel capabilities live on
+ * this bag: `applyRuntimeInjections` resolves both from the live conversation
+ * itself (its surface state and `channelCapabilities` respectively), so the
+ * orchestrator does not compute or thread them per turn.
  */
 export interface RuntimeInjectionOptions {
-  /**
-   * Active dashboard-surface context (read from `<active_workspace>`). Kept
-   * on the options bag rather than an injector because it is a
-   * channel-capability concern that has never been gated as a default
-   * injector.
-   */
-  activeSurface?: ActiveSurfaceContext | null;
-  channelCapabilities?: ChannelCapabilities | null;
   channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
   voiceCallControlPrompt?: string | null;
@@ -1910,15 +1908,15 @@ export interface RuntimeInjectionOptions {
  */
 function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
+  channelCapabilities: ChannelCapabilities | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
     unifiedTurnContext: options.unifiedTurnContext,
     subagentStatusBlock: options.subagentStatusBlock,
-    channelCapabilities: options.channelCapabilities,
+    channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    activeSurface: options.activeSurface,
     channelCommandContext: options.channelCommandContext,
     voiceCallControlPrompt: options.voiceCallControlPrompt,
     transportHints: options.transportHints,
@@ -1928,13 +1926,19 @@ function buildTurnInjectionInputs(
   };
 }
 
+/**
+ * Conversation id used for the synthetic fallback {@link TurnContext} and the
+ * live-conversation lookup when the caller omits a context (test call sites).
+ */
+const RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
+
 /** Minimal synthetic TurnContext used when the caller omits one. */
 function synthesizeFallbackTurnContext(
   inputs: TurnInjectionInputs,
 ): TurnContext {
   return {
-    requestId: "runtime-assembly-fallback",
-    conversationId: "runtime-assembly-fallback",
+    requestId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
+    conversationId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
     turnIndex: 0,
     trust: {
       sourceChannel: inputs.channelCapabilities?.channel
@@ -1975,6 +1979,8 @@ function synthesizeFallbackTurnContext(
  *  6. Run the remaining hardcoded branches (`isNonInteractive`,
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, `transportHints`) in their historical order.
+ *     `activeSurface` and `channelCapabilities` are sourced from the live
+ *     conversation rather than `options`.
  *  7. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
@@ -1989,14 +1995,27 @@ export async function applyRuntimeInjections(
   options: RuntimeInjectionOptions,
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
-  const slackConversation = options.channelCapabilities?.channel === "slack";
+
+  // Source the channel capabilities from the live conversation rather than a
+  // per-turn option computed by the orchestrator. The same value drives the
+  // Slack-conversation gate, the `<channel_capabilities>` branch, and the
+  // per-injector inputs the Slack injectors read.
+  const conversationId =
+    options.turnContext?.conversationId ??
+    RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID;
+  const channelCapabilities =
+    findConversationOrSubagent(conversationId)?.channelCapabilities ?? null;
+  const slackConversation = channelCapabilities?.channel === "slack";
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
   // that drive injection via `options` without constructing a full context
   // continue to work.
-  const injectionInputs = buildTurnInjectionInputs(options);
+  const injectionInputs = buildTurnInjectionInputs(
+    options,
+    channelCapabilities,
+  );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
     : synthesizeFallbackTurnContext(injectionInputs);
@@ -2180,22 +2199,36 @@ export async function applyRuntimeInjections(
     }
   }
 
-  if (mode === "full" && options.activeSurface) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectActiveSurfaceContext(userTail, options.activeSurface),
-      ];
+  if (mode === "full") {
+    // Source the active workspace surface from the live conversation's surface
+    // state rather than from a per-turn option computed by the orchestrator.
+    const surfaceConversation = findConversationOrSubagent(
+      turnCtx.conversationId,
+    );
+    const activeSurface = surfaceConversation
+      ? buildActiveSurfaceContext({
+          currentActiveSurfaceId: surfaceConversation.currentActiveSurfaceId,
+          currentPage: surfaceConversation.currentPage,
+          surfaceState: surfaceConversation.surfaceState,
+        })
+      : null;
+    if (activeSurface) {
+      const userTail = result[result.length - 1];
+      if (userTail && userTail.role === "user") {
+        result = [
+          ...result.slice(0, -1),
+          injectActiveSurfaceContext(userTail, activeSurface),
+        ];
+      }
     }
   }
 
-  if (options.channelCapabilities) {
+  if (channelCapabilities) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
         ...result.slice(0, -1),
-        injectChannelCapabilityContext(userTail, options.channelCapabilities),
+        injectChannelCapabilityContext(userTail, channelCapabilities),
       ];
     }
   }

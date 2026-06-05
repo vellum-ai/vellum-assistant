@@ -6,6 +6,7 @@ import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/type
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items
@@ -45,14 +46,13 @@ export interface LatestTurnRowProps {
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;
@@ -78,10 +78,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
@@ -110,10 +108,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
-        isSubmittingConfirmation={isSubmittingConfirmation}
         onConfirmationSubmit={onConfirmationSubmit}
         onAllowAndCreateRule={onAllowAndCreateRule}
-        pendingConfirmationToolCallId={pendingConfirmationToolCallId}
         onOpenApp={onOpenApp}
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
@@ -136,10 +132,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}
-            isSubmittingConfirmation={isSubmittingConfirmation}
             onConfirmationSubmit={onConfirmationSubmit}
             onAllowAndCreateRule={onAllowAndCreateRule}
-            pendingConfirmationToolCallId={pendingConfirmationToolCallId}
             onOpenApp={onOpenApp}
             onOpenDocument={onOpenDocument}
             assistantId={assistantId}

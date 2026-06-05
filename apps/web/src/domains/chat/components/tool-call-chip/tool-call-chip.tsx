@@ -48,10 +48,11 @@ export interface ToolCallChipProps {
     directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
-  isSubmittingConfirmation?: boolean;
-  isActiveConfirmation?: boolean;
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
-  onAllowAndCreateRule?: () => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   /** When true, skip the outer header row ("Running 1 step") and render
    *  the sub-item row + details directly. Used inside ActivityRunCard
    *  to avoid double-nesting. */
@@ -255,13 +256,17 @@ export function ToolCallChip({
   defaultExpanded,
   onExpandChange,
   onOpenRuleEditor,
-  isSubmittingConfirmation = false,
-  isActiveConfirmation = false,
   onConfirmationSubmit,
   onAllowAndCreateRule,
   embedded = false,
 }: ToolCallChipProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  // Per-chip submission state. Each tool call that is awaiting a confirmation
+  // renders its own inline card and tracks its own in-flight Allow/Deny, so a
+  // second confirmation outstanding in the same turn stays independently
+  // actionable (tools run via Promise.all — two prompts can overlap).
+  const [isSubmittingConfirmation, setIsSubmittingConfirmation] =
+    useState(false);
   // `status` is not stored; the chip only needs the two booleans it branches
   // on. An errored call resolves to error; otherwise a call is still running
   // until it has either a result payload or a (force-)completion timestamp.
@@ -281,16 +286,40 @@ export function ToolCallChip({
       : friendlyToolLabel(toolCall.name, inputSummary));
 
   const canExpand =
-    (hasPendingConfirmation && isActiveConfirmation) ||
+    hasPendingConfirmation ||
     (!isRunning && (toolCall.result !== undefined || Object.keys(toolCall.input).length > 0));
 
-  // Auto-expand when a pending confirmation appears for the active tool call
+  // Auto-expand whenever this chip has a pending confirmation so its inline
+  // approve/deny card is immediately visible.
   useEffect(() => {
-    if (toolCall.pendingConfirmation && isActiveConfirmation && !expanded) {
+    if (toolCall.pendingConfirmation && !expanded) {
       setExpanded(true);
       onExpandChange(true);
     }
-  }, [toolCall.pendingConfirmation, isActiveConfirmation, onExpandChange]);
+  }, [toolCall.pendingConfirmation, onExpandChange]);
+
+  const handleConfirmationSubmit = useCallback(
+    async (decision: ConfirmationDecision) => {
+      if (!onConfirmationSubmit) return;
+      setIsSubmittingConfirmation(true);
+      try {
+        await onConfirmationSubmit(decision, toolCall);
+      } finally {
+        setIsSubmittingConfirmation(false);
+      }
+    },
+    [onConfirmationSubmit, toolCall],
+  );
+
+  const handleAllowAndCreateRule = useCallback(async () => {
+    if (!onAllowAndCreateRule) return;
+    setIsSubmittingConfirmation(true);
+    try {
+      await onAllowAndCreateRule(toolCall);
+    } finally {
+      setIsSubmittingConfirmation(false);
+    }
+  }, [onAllowAndCreateRule, toolCall]);
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
@@ -309,7 +338,7 @@ export function ToolCallChip({
       <StatusIcon isRunning={isRunning} isError={isError} />
       {!embedded && getIcon(toolCall.name, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
-      {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
+      {toolCall.riskLevel && !isRunning && !hasPendingConfirmation && (() => {
         const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
         const badge = getRiskBadgeStyle(displayLevel);
         const isWorkspace = displayLevel === "workspace";
@@ -369,13 +398,14 @@ export function ToolCallChip({
 
   const detailsPanel = (
     <>
-      {/* Inline confirmation card when pending and this is the active confirmation */}
-      {hasPendingConfirmation && isActiveConfirmation && (
+      {/* Inline confirmation card — rendered per-chip directly from
+          tc.pendingConfirmation so overlapping confirmations are each visible. */}
+      {hasPendingConfirmation && (
         <InlineConfirmationCard
           toolCall={toolCall}
           isSubmitting={isSubmittingConfirmation}
-          onSubmit={onConfirmationSubmit}
-          onAllowAndCreateRule={onAllowAndCreateRule}
+          onSubmit={handleConfirmationSubmit}
+          onAllowAndCreateRule={handleAllowAndCreateRule}
         />
       )}
 
@@ -475,14 +505,14 @@ export function ToolCallChip({
           {subItemRow}
         </div>
         {expanded && canExpand && (
-          hasPendingConfirmation && isActiveConfirmation ? (
+          hasPendingConfirmation ? (
             // Confirmation card gets full-width (px-3) to match macOS PermissionPromptView
             <div className="px-3 pt-1 pb-2">
               <InlineConfirmationCard
                 toolCall={toolCall}
                 isSubmitting={isSubmittingConfirmation}
-                onSubmit={onConfirmationSubmit}
-                onAllowAndCreateRule={onAllowAndCreateRule}
+                onSubmit={handleConfirmationSubmit}
+                onAllowAndCreateRule={handleAllowAndCreateRule}
               />
             </div>
           ) : (

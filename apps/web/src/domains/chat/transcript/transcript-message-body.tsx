@@ -100,15 +100,13 @@ export interface TranscriptMessageBodyProps {
    *  nudge. Optional — when undefined no nudge ever shows. */
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation.
-   *  Only the matching chip renders the inline confirmation UI. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -330,10 +328,8 @@ export function TranscriptMessageBody({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
@@ -716,10 +712,8 @@ export function TranscriptMessageBody({
                   toolCalls: renderableToolCalls,
                 })}
                 onOpenRuleEditor={onOpenRuleEditor}
-                isSubmittingConfirmation={isSubmittingConfirmation}
                 onConfirmationSubmit={onConfirmationSubmit}
                 onAllowAndCreateRule={onAllowAndCreateRule}
-                pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                 unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                 onDismissUnknownNudge={onDismissUnknownNudge}
               />
@@ -916,10 +910,8 @@ export function TranscriptMessageBody({
                     toolCalls: legacyToolCalls,
                   })}
                   onOpenRuleEditor={onOpenRuleEditor}
-                  isSubmittingConfirmation={isSubmittingConfirmation}
                   onConfirmationSubmit={onConfirmationSubmit}
                   onAllowAndCreateRule={onAllowAndCreateRule}
-                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                   unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                   onDismissUnknownNudge={onDismissUnknownNudge}
                 />

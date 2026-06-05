@@ -148,7 +148,6 @@ import type {
 import {
   applyRuntimeInjections,
   buildActiveDocuments,
-  buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
@@ -1338,17 +1337,9 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      // Resolved from the conversation's surface state here, where the
-      // runtime injector is the only consumer of the active-surface block.
-      activeSurface: buildActiveSurfaceContext({
-        currentActiveSurfaceId: ctx.currentActiveSurfaceId,
-        currentPage: ctx.currentPage,
-        surfaceState: ctx.surfaceState,
-      }),
       // Resolved here, where the runtime injector is the only consumer of the
       // active-documents block.
       activeDocuments: buildActiveDocuments(ctx.conversationId),
-      channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,

@@ -63,6 +63,7 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -108,21 +109,55 @@ function clearNowScratchpad(): void {
 }
 
 // The workspace-context injector sources its block off the live `Conversation`
-// looked up by `conversationId`. Seed a fake instance with a non-dirty context
-// (non-null content, not dirty) so `resolveWorkspaceTopLevelContext` returns it
-// verbatim without rescanning the filesystem; `clearConversations()` between
-// tests keeps suites that assert the block is absent unaffected.
-function seedWorkspaceContext(conversationId: string, text: string): void {
+// looked up by `conversationId`. Register a fake instance carrying both a
+// non-dirty workspace context (non-null content, not dirty) so
+// `resolveWorkspaceTopLevelContext` returns it verbatim without rescanning the
+// filesystem, and an active dynamic-page surface, so `applyRuntimeInjections`
+// resolves the `<workspace>` and `<active_workspace>` blocks from it;
+// `clearConversations()` between tests keeps suites that assert the blocks are
+// absent unaffected.
+function seedActiveSurfaceConversation(
+  conversationId: string,
+  workspaceText: string,
+  surfaceId: string,
+  data: SurfaceData,
+  channelCapabilities?: ChannelCapabilities,
+): void {
   setConversation(conversationId, {
     conversationId,
     workingDir: "/sandbox",
-    workspaceTopLevelContext: text,
+    workspaceTopLevelContext: workspaceText,
     workspaceTopLevelDirty: false,
+    currentActiveSurfaceId: surfaceId,
+    surfaceState: new Map<
+      string,
+      { surfaceType: SurfaceType; data: SurfaceData }
+    >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
+    channelCapabilities: channelCapabilities ?? undefined,
   } as never);
 }
 
 function clearWorkspaceContext(): void {
   clearConversations();
+}
+
+// The `<channel_capabilities>` branch and the Slack gates source the channel
+// capabilities off the live `Conversation` looked up by `conversationId`.
+// Register a fake fallback instance carrying the given capabilities (and a
+// non-dirty empty workspace + empty surface so the other live-sourced branches
+// stay inert) so `applyRuntimeInjections` resolves them; `clearConversations()`
+// between tests keeps suites asserting absence unaffected.
+function seedChannelCapabilitiesConversation(
+  caps: ChannelCapabilities | null,
+): void {
+  setConversation("runtime-assembly-fallback", {
+    conversationId: "runtime-assembly-fallback",
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: "",
+    workspaceTopLevelDirty: false,
+    surfaceState: new Map(),
+    channelCapabilities: caps ?? undefined,
+  } as never);
 }
 
 // ---------------------------------------------------------------------------
@@ -597,6 +632,8 @@ describe("stripChannelCapabilityContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections with channelCapabilities", () => {
+  afterEach(clearConversations);
+
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -612,9 +649,8 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: caps,
-    });
+    seedChannelCapabilitiesConversation(caps);
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
@@ -625,9 +661,8 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is null", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: null,
-    });
+    seedChannelCapabilitiesConversation(null);
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -648,9 +683,8 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: caps,
-    });
+    seedChannelCapabilitiesConversation(caps);
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     // channelCapabilities prepends
@@ -777,15 +811,15 @@ describe("applyRuntimeInjections — injection mode", () => {
     },
   ];
 
+  const channelCapabilities: ChannelCapabilities = {
+    channel: "telegram",
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
+  };
+
   const fullOptions = {
     channelCommandContext: { type: "start" } as const,
-    activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
-    channelCapabilities: {
-      channel: "telegram",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-    } as ChannelCapabilities,
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     isNonInteractive: true,
@@ -809,9 +843,12 @@ describe("applyRuntimeInjections — injection mode", () => {
   beforeEach(() => {
     seedPkbContent();
     seedNowScratchpad("Current focus: shipping PR 3");
-    seedWorkspaceContext(
+    seedActiveSurfaceConversation(
       "injection-mode-conv",
       "<workspace>\nRoot: /sandbox\n</workspace>",
+      "sf_1",
+      { html: "<div>test</div>" },
+      channelCapabilities,
     );
   });
   afterEach(() => {
@@ -2378,6 +2415,8 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 // ---------------------------------------------------------------------------
 
 describe("Slack channel chronological rendering — multi-thread", () => {
+  afterEach(clearConversations);
+
   // Slack ts values are seconds-since-epoch with microsecond precision.
   // Pick a few stable anchors so thread aliases (sha-derived) stay
   // predictable across the scenarios.
@@ -2463,8 +2502,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
+    seedChannelCapabilitiesConversation(slackChannelCaps);
     const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
     });
     return messages;
@@ -2752,15 +2791,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "vellum question" }],
     };
+    seedChannelCapabilitiesConversation({
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    });
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
       {
-        channelCapabilities: {
-          channel: "vellum",
-          dashboardCapable: true,
-          supportsDynamicUi: true,
-          supportsVoiceInput: true,
-        },
         // Even if we accidentally pass a chronological transcript, the
         // branch must be a no-op for non-slack channels.
         slackChronologicalMessages: [
@@ -2790,16 +2829,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
     };
+    seedChannelCapabilitiesConversation({
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    });
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
       {
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "im",
-        },
         slackChronologicalMessages: [
           {
             role: "user",
@@ -2858,10 +2897,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
+    seedChannelCapabilitiesConversation(slackCaps);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
       {
-        channelCapabilities: slackCaps,
         slackChronologicalMessages: [
           {
             role: "user",
@@ -2922,10 +2961,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
+    seedChannelCapabilitiesConversation(slackCaps);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
       {
-        channelCapabilities: slackCaps,
         slackChronologicalMessages: [
           {
             role: "user",
@@ -2961,10 +3000,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "im",
     };
+    seedChannelCapabilitiesConversation(slackCaps);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
       {
-        channelCapabilities: slackCaps,
         slackChronologicalMessages: [
           {
             role: "user",
@@ -3005,10 +3044,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       { loader: () => rows, trustClass: "guardian" },
     );
 
+    seedChannelCapabilitiesConversation(slackChannelCaps);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
       {
-        channelCapabilities: slackChannelCaps,
         slackChronologicalMessages,
         transportHints: ["thread context: ..."],
       },
@@ -3035,10 +3074,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "im",
     };
 
+    seedChannelCapabilitiesConversation(slackDmCaps);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
       {
-        channelCapabilities: slackDmCaps,
         transportHints: ["dm context: ..."],
       },
     );
@@ -3054,16 +3093,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
 
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
+    seedChannelCapabilitiesConversation({
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "private",
+    });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       {
-        channelCapabilities: {
-          channel: "telegram",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "private",
-        },
         transportHints: ["please answer concisely"],
       },
     );
@@ -3390,8 +3429,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
+    seedChannelCapabilitiesConversation(slackChannelCaps);
     const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock: focusBlock,
     });
@@ -3660,8 +3699,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "channel",
     };
     const newFocus = "<active_thread>\nnewly built\n</active_thread>";
+    seedChannelCapabilitiesConversation(slackChannelCaps);
     const { messages: reInjected } = await applyRuntimeInjections(stripped, {
-      channelCapabilities: slackChannelCaps,
       slackActiveThreadFocusBlock: newFocus,
     });
     const reInjectedTexts = reInjected
@@ -3681,15 +3720,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Defensive: the focus injection is gated on `slackChannel` (i.e.
     // `isSlackChannelConversation`). Even if a caller mistakenly forwards
     // a focus block on a non-Slack channel, it must NOT be appended.
+    seedChannelCapabilitiesConversation({
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
       {
-        channelCapabilities: {
-          channel: "vellum",
-          dashboardCapable: true,
-          supportsDynamicUi: true,
-          supportsVoiceInput: true,
-        },
         slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
       },
     );
@@ -3706,16 +3745,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Same as above but for Slack DMs (chatType === "im"). The focus
     // injection is keyed on `isSlackChannelConversation` which excludes
     // DMs, so the block must not appear.
+    seedChannelCapabilitiesConversation({
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
       {
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "im",
-        },
         slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
       },
     );

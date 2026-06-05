@@ -10,6 +10,7 @@ import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-cont
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -50,14 +51,13 @@ export interface TranscriptRowProps {
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -87,10 +87,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
@@ -113,10 +111,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}
           onDismissUnknownNudge={onDismissUnknownNudge}
-          isSubmittingConfirmation={isSubmittingConfirmation}
           onConfirmationSubmit={onConfirmationSubmit}
           onAllowAndCreateRule={onAllowAndCreateRule}
-          pendingConfirmationToolCallId={pendingConfirmationToolCallId}
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
