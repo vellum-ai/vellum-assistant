@@ -488,6 +488,14 @@
       "label": "Provider-First Profile Creation",
       "description": "New profile creation flow: pick (or inline-create) a provider first, then a model, with pre-filled provider and profile name/key, plus a quick-add \"+\" in the chat composer's Model Profile menu. When off, profile creation uses the previous field order and there is no composer quick-add.",
       "defaultEnabled": false
+    },
+    {
+      "id": "acp",
+      "scope": "assistant",
+      "key": "acp",
+      "label": "ACP Coding Agents",
+      "description": "Enable spawning and steering external coding agents (Claude Code, Codex, Gemini) via the Agent Client Protocol. Alternative gate to the acp.enabled workspace config field; either enables the subsystem.",
+      "defaultEnabled": false
     }
   ]
 }

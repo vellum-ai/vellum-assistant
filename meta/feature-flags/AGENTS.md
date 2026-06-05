@@ -71,6 +71,8 @@ featureFlag: my-new-flag
 
 Skills without a `featureFlag` field are always available. Skills that declare one are gated at six independent enforcement points — when the flag is OFF the skill is unavailable everywhere.
 
+All enforcement points resolve the skill's flag through `isSkillFeatureFlagEnabled` in `assistant/src/config/skill-state.ts`. Most flags resolve directly through the flag system, but flags listed in `SKILL_FLAG_PREDICATES` route through the subsystem's own feature gate instead (e.g. `acp` resolves via `isAcpEnabled`, which is flag OR `config.acp.enabled`). Add an entry there when a subsystem has enablement semantics beyond the bare flag, so its skill stays available whenever the subsystem itself is enabled.
+
 ## Auth Scopes Are Unrelated
 
 The OAuth/API scopes `feature_flags.read` and `feature_flags.write` control access to the feature-flag management API. They are **not** flag keys and should not be modified when adding or renaming flags.

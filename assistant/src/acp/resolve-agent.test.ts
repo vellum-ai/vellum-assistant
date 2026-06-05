@@ -1,19 +1,25 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { installAcpConfigStub } from "./__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "./__tests__/helpers/which-stub.js";
+import { ACP_FLAG_KEY } from "./feature-gate.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
 
 afterAll(() => {
   which.restore();
+  setOverridesForTesting({});
 });
 
 const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
+  // Default: no flag overrides, so the `acp` flag falls back to its registry
+  // default (false) and enablement comes from the config stub alone.
+  setOverridesForTesting({});
   // Default: every command on PATH so binary preflight passes unless a test
   // explicitly says otherwise.
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
@@ -24,7 +30,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("resolveAcpAgent", () => {
-  test("returns acp_disabled when config.acp.enabled is false", () => {
+  test("returns acp_disabled when both the feature flag and config.acp.enabled are off", () => {
     config.setConfig({ enabled: false });
 
     const result = resolveAcpAgent("claude");
@@ -33,8 +39,21 @@ describe("resolveAcpAgent", () => {
     if (result.ok) return;
     expect(result.reason).toBe("acp_disabled");
     if (result.reason !== "acp_disabled") return;
+    expect(result.hint).toContain("ACP Coding Agents");
+    expect(result.hint).toContain("feature flag");
     expect(result.hint).toContain("acp.enabled");
     expect(result.hint).toContain("config.json");
+  });
+
+  test("resolution proceeds when the acp feature flag is on and config.acp.enabled is false", () => {
+    config.setConfig({ enabled: false });
+    setOverridesForTesting({ [ACP_FLAG_KEY]: true });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent.command).toBe("claude-agent-acp");
   });
 
   test("user config wins over default profile", () => {
@@ -207,13 +226,23 @@ describe("resolveAcpAgent", () => {
 // ---------------------------------------------------------------------------
 
 describe("listAcpAgents", () => {
-  test("returns enabled: false with empty agents when ACP is disabled", () => {
+  test("returns enabled: false with empty agents when both the flag and config are off", () => {
     config.setConfig({ enabled: false });
 
     const result = listAcpAgents();
 
     expect(result.enabled).toBe(false);
     expect(result.agents).toEqual([]);
+  });
+
+  test("returns the catalog when the acp feature flag is on and config.acp.enabled is false", () => {
+    config.setConfig({ enabled: false });
+    setOverridesForTesting({ [ACP_FLAG_KEY]: true });
+
+    const result = listAcpAgents();
+
+    expect(result.enabled).toBe(true);
+    expect(result.agents.map((a) => a.id)).toEqual(["claude", "codex"]);
   });
 
   test("includes both bundled defaults when user config is empty", () => {
