@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 import { z } from "zod";
 
-import { on } from "./ipc";
+import { handle, on } from "./ipc";
 
 /**
  * Assistant connection status driving the menu-bar (Tray) indicator.
@@ -224,6 +224,8 @@ export const installConnectivityIpc = (
 ): void => {
   if (connectivityInstalled) return;
   connectivityInstalled = true;
+
+  handle("vellum:connectivity:get", z.tuple([]), () => currentConnectivity);
 
   on(
     "vellum:connectivity:device",

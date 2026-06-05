@@ -472,6 +472,11 @@ const bridge: VellumBridge = {
         callback(state);
       };
       ipcRenderer.on("vellum:connectivity:state", handler);
+      // Emit the current state so late subscribers (window loaded after
+      // the first probe) don't wait for the next state transition.
+      void (
+        ipcRenderer.invoke("vellum:connectivity:get") as Promise<ConnectivityState>
+      ).then(callback);
       return () => {
         ipcRenderer.off("vellum:connectivity:state", handler);
       };

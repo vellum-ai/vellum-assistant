@@ -33,7 +33,19 @@ const onMock = mock(
     registrations.push({ channel, schema, fn });
   },
 );
-mock.module("./ipc", () => ({ on: onMock }));
+
+type HandleRegistration = {
+  channel: string;
+  schema: z.ZodType<unknown[]>;
+  fn: (args: unknown[]) => unknown;
+};
+const handleRegistrations: HandleRegistration[] = [];
+const handleMock = mock(
+  (channel: string, schema: z.ZodType<unknown[]>, fn: (args: unknown[]) => unknown) => {
+    handleRegistrations.push({ channel, schema, fn });
+  },
+);
+mock.module("./ipc", () => ({ on: onMock, handle: handleMock }));
 
 const {
   ASSISTANT_STATUSES,
@@ -60,8 +72,10 @@ const {
 beforeEach(() => {
   __resetForTesting();
   registrations.length = 0;
+  handleRegistrations.length = 0;
   sentMessages.length = 0;
   onMock.mockClear();
+  handleMock.mockClear();
 });
 
 describe("statusMenuTitle", () => {
@@ -272,6 +286,24 @@ describe("installConnectivityIpc", () => {
     )!;
     retryReg.fn([]);
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test("registers the get channel for current state queries", () => {
+    installConnectivityIpc();
+    const getReg = handleRegistrations.find(
+      (r) => r.channel === "vellum:connectivity:get",
+    );
+    expect(getReg).toBeDefined();
+  });
+
+  test("get channel returns the current connectivity state", () => {
+    installConnectivityIpc();
+    const getReg = handleRegistrations.find(
+      (r) => r.channel === "vellum:connectivity:get",
+    )!;
+    expect(getReg.fn([])).toBe("online");
+    setDeviceOnline(false);
+    expect(getReg.fn([])).toBe("device-offline");
   });
 
   test("CONNECTIVITY_STATES contains the three expected values", () => {

@@ -19,6 +19,10 @@ import {
  * Off Electron both halves are no-ops.
  */
 export function publishElectronConnectivitySource(): () => void {
+  // Seed main with the current device online state so it doesn't
+  // assume online when the app launched while the device was offline.
+  reportDeviceOnline(navigator.onLine);
+
   const unsubConnectivity = subscribeToConnectivity((state) => {
     publish("connectivity.state", { state });
   });
