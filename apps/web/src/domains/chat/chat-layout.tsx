@@ -503,9 +503,9 @@ export function ChatLayout() {
       switchConversation: handleSelectConversation,
     });
 
-  // Electron host commands (File menu / future global hotkeys). The hook
-  // is a no-op on the web host. Handlers close over the latest state via
-  // an internal ref, so we don't need to memoize them. Composer focus is
+  // Electron host commands (File menu / global hotkeys). The hook is a
+  // no-op on the web host. Handlers close over the latest state via an
+  // internal ref, so we don't need to memoize them. Composer focus is
   // routed via `requestComposerFocus` (see `./composer-focus.ts`) so it
   // works whether ChatPage is already mounted (event listener) or the
   // command comes from another `/assistant/*` route (pending flag drained
@@ -540,6 +540,31 @@ export function ChatLayout() {
     },
     find: () => {
       useCommandPaletteStore.getState().toggle();
+    },
+    sidebarToggle: () => {
+      toggleSidebar();
+    },
+    home: () => {
+      void navigate(routes.home);
+    },
+    commandPalette: () => {
+      useCommandPaletteStore.getState().toggle();
+    },
+    previousConversation: () => {
+      if (!activeConversationId || conversations.length === 0) return;
+      const idx = conversations.findIndex(
+        (c) => c.conversationId === activeConversationId,
+      );
+      const prev = conversations[idx - 1];
+      if (prev) handleSelectConversation(prev.conversationId);
+    },
+    nextConversation: () => {
+      if (!activeConversationId || conversations.length === 0) return;
+      const idx = conversations.findIndex(
+        (c) => c.conversationId === activeConversationId,
+      );
+      const next = conversations[idx + 1];
+      if (next) handleSelectConversation(next.conversationId);
     },
   });
 

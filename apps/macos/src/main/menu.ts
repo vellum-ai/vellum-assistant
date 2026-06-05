@@ -8,6 +8,7 @@ import {
   type VellumCommand,
 } from "./commands";
 import { handle } from "./ipc";
+import { onSettingChange } from "./settings";
 import { readOnboardingActive } from "./window-state";
 
 interface MenuState {
@@ -70,6 +71,9 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         fileItem("Current Conversation", { kind: "currentConversation" }),
         { type: "separator" },
         fileItem("Mark Current as Unread", { kind: "markCurrentUnread" }),
+        { type: "separator" },
+        fileItem("Previous Conversation", { kind: "previousConversation" }),
+        fileItem("Next Conversation", { kind: "nextConversation" }),
       ],
     },
     {
@@ -93,6 +97,10 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
     {
       label: "View",
       submenu: [
+        fileItem("Toggle Sidebar", { kind: "sidebarToggle" }),
+        fileItem("Home", { kind: "home" }),
+        fileItem("Command Palette\u2026", { kind: "commandPalette" }),
+        { type: "separator" },
         { role: "reload" },
         { role: "forceReload" },
         ...(isDev ? [{ role: "toggleDevTools" as const }] : []),
@@ -105,7 +113,15 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       ],
     },
     {
-      role: "windowMenu",
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { type: "separator" },
+        fileItem("Pop Out Conversation", { kind: "popOut" }),
+        { type: "separator" },
+        { role: "front" },
+      ],
     },
     {
       role: "help",
@@ -156,6 +172,12 @@ export const installApplicationMenu = (): void => {
       applyMenu();
     },
   );
+
+  // Rebuild the menu when hotkey settings change so accelerators update
+  // immediately without requiring an app restart.
+  onSettingChange("hotkeys", () => {
+    applyMenu();
+  });
 
   applyMenu();
 };

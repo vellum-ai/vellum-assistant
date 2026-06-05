@@ -37,7 +37,13 @@ export type VellumCommand =
   | { kind: "find" }
   | { kind: "markAllRead" }
   | { kind: "logout" }
-  | { kind: "rePair" };
+  | { kind: "rePair" }
+  | { kind: "sidebarToggle" }
+  | { kind: "home" }
+  | { kind: "popOut" }
+  | { kind: "previousConversation" }
+  | { kind: "nextConversation" }
+  | { kind: "commandPalette" };
 
 /**
  * Renderer-side mirror of `AssistantStatus` in
