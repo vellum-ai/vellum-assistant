@@ -185,7 +185,7 @@ export function useAssistantReachability(
             const res = await fetch(`${ingressUrl}/readyz`);
             response = res.ok
               ? ({ state: "ready" } as AssistantsConnectionStatusResponse)
-              : null;
+              : ({ state: "waking" } as AssistantsConnectionStatusResponse);
           } catch {
             response = null;
           }
