@@ -37,60 +37,24 @@ export function isTierDisabled(tier: MachineTier | StorageTier): boolean {
 export interface TierPickerProps {
   machineTiers: MachineTier[];
   storageTiers: StorageTier[];
-  basePriceCents: number;
   selectedMachineTier: MachineTierEnum | null;
   selectedStorageTier: StorageTierEnum | null;
   onMachineTierChange: (tier: MachineTierEnum) => void;
   onStorageTierChange: (tier: StorageTierEnum) => void;
   currentMachinePriceCents?: number | null;
   currentStoragePriceCents?: number | null;
-  // The credit bundle is a changed "dimension" alongside machine/storage: its
-  // monthly price folds into the headline Total (and its delta) so the figure
-  // reflects the chosen bundle and reconciles with the modal's "Currently $X"
-  // baseline (which already includes the current bundle). Default 0 leaves
-  // non-credit callers byte-identical to before.
-  creditPriceCents?: number | null;
-  currentCreditPriceCents?: number | null;
 }
 
 export function TierPicker({
   machineTiers,
   storageTiers,
-  basePriceCents,
   selectedMachineTier,
   selectedStorageTier,
   onMachineTierChange,
   onStorageTierChange,
   currentMachinePriceCents,
   currentStoragePriceCents,
-  creditPriceCents,
-  currentCreditPriceCents,
 }: TierPickerProps) {
-  const selectedMachine = machineTiers.find(
-    (t) => t.tier === selectedMachineTier,
-  );
-  const selectedStorage = storageTiers.find(
-    (t) => t.tier === selectedStorageTier,
-  );
-  const totalCents =
-    selectedMachine && selectedStorage
-      ? basePriceCents +
-        selectedMachine.price_cents +
-        selectedStorage.price_cents +
-        (creditPriceCents ?? 0)
-      : null;
-  const currentTotalCents =
-    currentMachinePriceCents != null && currentStoragePriceCents != null
-      ? basePriceCents +
-        currentMachinePriceCents +
-        currentStoragePriceCents +
-        (currentCreditPriceCents ?? 0)
-      : null;
-  const totalDelta =
-    totalCents != null && currentTotalCents != null
-      ? totalCents - currentTotalCents
-      : null;
-
   const machineOptions = useMemo(
     () =>
       machineTiers.map((t) => {
@@ -172,32 +136,6 @@ export function TierPicker({
           options={storageOptions}
         />
       </div>
-      {totalCents !== null && (
-        <div className="flex items-center gap-1">
-          <Typography
-            as="p"
-            variant="body-small-emphasised"
-            data-testid="tier-picker-total"
-            className="text-[var(--content-default)]"
-          >
-            Total: {formatMonthly(totalCents)}
-            {totalDelta != null && totalDelta !== 0 && (
-              <span className="ml-1 text-[var(--content-tertiary)]">
-                ({formatDelta(totalDelta)})
-              </span>
-            )}
-          </Typography>
-          <span
-            title={
-              totalDelta != null && totalDelta !== 0
-                ? `Your Pro Plan subscription will change from ${formatMonthly(currentTotalCents!)} to ${formatMonthly(totalCents!)}. Includes a $10/month flat fee for Pro Features.`
-                : "Includes a $10/month flat fee for Pro Features."
-            }
-          >
-            <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
-          </span>
-        </div>
-      )}
     </div>
   );
 }

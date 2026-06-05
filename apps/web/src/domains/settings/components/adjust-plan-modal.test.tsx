@@ -64,6 +64,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
     changeStorageTierCall = opts;
     return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
   },
+  // The onboarding query carries the current tiers. Tests that need it pre-seed
+  // the cache (so this never runs). When a test deliberately leaves it unseeded
+  // to exercise the error path, this rejection keeps it hermetic.
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.reject(new Error("onboarding unavailable")),
 }));
 
 // Avoid pulling the real billing-portal hook's network fan-out; the downgrade /
@@ -151,6 +156,7 @@ function proPlansResponse(creditTiers?: CreditTier[]): PlanListResponse {
 function subscription(
   planId: "base" | "pro",
   selectedCreditTier: string | null,
+  overrides: Partial<SubscriptionResponse> = {},
 ): SubscriptionResponse {
   return {
     plan_id: planId,
@@ -161,13 +167,27 @@ function subscription(
     cancel_at: null,
     selected_credit_tier: selectedCreditTier,
     entitlements: { managed_email: false, phone_number: false },
+    ...overrides,
   } as unknown as SubscriptionResponse;
 }
+
+type OnboardingData = {
+  max_machine_tier: string;
+  selected_storage_tier: string;
+  selected_storage_gib: number;
+};
+
+const DEFAULT_ONBOARDING: OnboardingData = {
+  max_machine_tier: "machine_small",
+  selected_storage_tier: "storage_10",
+  selected_storage_gib: 10,
+};
 
 function renderModal(
   sub: SubscriptionResponse,
   plans: PlanListResponse,
   onTierUpgraded?: () => void,
+  onboarding: OnboardingData = DEFAULT_ONBOARDING,
 ): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
     // `staleTime: Infinity` stops the pre-seeded reads from being marked stale
@@ -182,11 +202,7 @@ function renderModal(
   // Onboarding carries the current machine/storage tiers for the change flow.
   client.setQueryData(
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    {
-      max_machine_tier: "machine_small",
-      selected_storage_tier: "storage_10",
-      selected_storage_gib: 10,
-    },
+    onboarding,
   );
   const result = render(
     <QueryClientProvider client={client}>
@@ -196,20 +212,20 @@ function renderModal(
   return { ...result, client };
 }
 
-function openCreditDropdown(): void {
+function getDropdownTrigger(label: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="Credit bundle"]',
+    `button[role="combobox"][aria-label="${label}"]`,
   );
-  if (!trigger) throw new Error("expected a Credit bundle dropdown trigger");
-  fireEvent.click(trigger);
+  if (!trigger) throw new Error(`expected a ${label} dropdown trigger`);
+  return trigger;
+}
+
+function openCreditDropdown(): void {
+  fireEvent.click(getDropdownTrigger("Credit bundle"));
 }
 
 function openMachineDropdown(): void {
-  const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="Machine tier"]',
-  );
-  if (!trigger) throw new Error("expected a Machine tier dropdown trigger");
-  fireEvent.click(trigger);
+  fireEvent.click(getDropdownTrigger("Machine tier"));
 }
 
 function clickOptionStartingWith(prefix: string): void {
@@ -539,7 +555,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
         return;
       throw new Error("base total not rendered yet");
     });
@@ -548,7 +564,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("50 credits — $50/mo");
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$85/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo"))
         return;
       throw new Error("total did not include the selected bundle");
     });
@@ -563,7 +579,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("tier-picker-total").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
         return;
       throw new Error("current total not rendered yet");
     });
@@ -572,10 +588,104 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("25 credits — $25/mo");
 
     await waitFor(() => {
-      const text = getByTestId("tier-picker-total").textContent ?? "";
+      const text = getByTestId("modal-pro-price").textContent ?? "";
       if (text.includes("$60/mo") && text.includes("+$25/mo")) return;
       throw new Error("total/delta did not reflect the swapped bundle");
     });
+  });
+});
+
+describe("AdjustPlanModal Pro header total — no picker shown", () => {
+  test("a cancellation-pending Pro card shows the current total, not the cheapest seeded one", async () => {
+    // A current Pro subscriber with a pending cancellation: no tier picker
+    // renders (only the "Keep your Plan" reactivation CTA). The header must show
+    // the user's CURRENT total, not the cheapest seeded total. Current tiers are
+    // deliberately more expensive than the cheapest so the two are observably
+    // different: base $20 + Large machine $30 + 20 GiB storage $9 = $59/mo,
+    // versus the cheapest base $20 + Small $10 + 10 GiB $5 = $35/mo.
+    const { getByTestId, queryByTestId } = renderModal(
+      subscription("pro", null, { cancel_at_period_end: true }),
+      proPlansResponse(CREDIT_TIERS),
+      undefined,
+      {
+        max_machine_tier: "machine_large",
+        selected_storage_tier: "storage_20",
+        selected_storage_gib: 20,
+      },
+    );
+
+    await waitFor(() => {
+      const text = getByTestId("modal-pro-price").textContent ?? "";
+      if (text.includes("Currently") && text.includes("$59/mo")) return;
+      throw new Error("current total not rendered yet");
+    });
+
+    const text = getByTestId("modal-pro-price").textContent ?? "";
+    expect(text).not.toContain("$35/mo");
+
+    // No tier picker and no "Update Plan" button render in this flow.
+    expect(
+      document.querySelector('button[role="combobox"][aria-label="Machine tier"]'),
+    ).toBeNull();
+    expect(queryByTestId("modal-change-tier-button")).toBeNull();
+    expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
+  });
+
+  test("a current Pro card shows a distinct fallback (not a perpetual spinner, not the cheapest price) when onboarding errors", async () => {
+    // A cancellation-pending Pro subscriber whose onboarding query errors (so
+    // the current total is never available). The header must NOT fall back to
+    // the cheapest seeded `From $35/mo` (it understates what the subscriber
+    // pays), and must NOT show a perpetual "Loading your plan..." spinner for a
+    // settled error — it shows a distinct "pricing unavailable" fallback.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("pro", null, { cancel_at_period_end: true }),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    // Deliberately leave the onboarding query unseeded: it fires, the mocked
+    // SDK fn rejects, and with retry:false it settles into an error state.
+    const { findByTestId, queryByText, queryByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    // Settled error → distinct fallback, not the infinite spinner.
+    await findByTestId("modal-pro-price-unavailable");
+    expect(queryByText("Loading your plan...")).toBeNull();
+
+    // The cheapest fallback price must never render for a current Pro card.
+    const price = queryByTestId("modal-pro-price");
+    expect(price).toBeNull();
+  });
+
+  test("a current Pro card whose held bundle is no longer in the catalog shows unavailable, not an understated Currently total", async () => {
+    // A cancellation-pending Pro subscriber holding a bundle that the live
+    // catalog no longer lists. `priceForCredit` can't resolve its price (0), so
+    // the authoritative no-picker "Currently $X" would understate what the user
+    // pays. With onboarding fully resolved (so machine/storage are known), the
+    // header must show the "unavailable" fallback rather than a wrong, lower
+    // "Currently $X".
+    const { findByTestId, queryByTestId } = renderModal(
+      subscription("pro", "credits_legacy", { cancel_at_period_end: true }),
+      proPlansResponse(CREDIT_TIERS),
+      undefined,
+      {
+        max_machine_tier: "machine_large",
+        selected_storage_tier: "storage_20",
+        selected_storage_gib: 20,
+      },
+    );
+
+    await findByTestId("modal-pro-price-unavailable");
+    // No authoritative price is shown when the held bundle isn't priceable.
+    expect(queryByTestId("modal-pro-price")).toBeNull();
   });
 });
 
@@ -596,5 +706,53 @@ describe("AdjustPlanModal credit bundle — catalog gate", () => {
         'button[role="combobox"][aria-label="Credit bundle"]',
       ),
     ).toBeNull();
+  });
+});
+
+describe("AdjustPlanModal credit bundle — '*Credits not included' note", () => {
+  test("omits the note on the Pro card when credit_tiers are available", () => {
+    const { queryByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    expect(queryByTestId("modal-credits-not-included")).toBeNull();
+  });
+
+  test("shows the note on the Pro card when no credit_tiers are available", () => {
+    const { queryByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(undefined),
+    );
+    expect(queryByTestId("modal-credits-not-included")).not.toBeNull();
+  });
+});
+
+describe("AdjustPlanModal credit bundle — selector order", () => {
+  function creditAndMachineTriggers(): {
+    credit: HTMLButtonElement;
+    machine: HTMLButtonElement;
+  } {
+    return {
+      credit: getDropdownTrigger("Credit bundle"),
+      machine: getDropdownTrigger("Machine tier"),
+    };
+  }
+
+  test("renders the credit bundle picker before the machine tier (upgrade)", () => {
+    renderModal(subscription("base", null), proPlansResponse(CREDIT_TIERS));
+    const { credit, machine } = creditAndMachineTriggers();
+    expect(
+      credit.compareDocumentPosition(machine) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("renders the credit bundle picker before the machine tier (change)", () => {
+    renderModal(subscription("pro", null), proPlansResponse(CREDIT_TIERS));
+    const { credit, machine } = creditAndMachineTriggers();
+    expect(
+      credit.compareDocumentPosition(machine) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
