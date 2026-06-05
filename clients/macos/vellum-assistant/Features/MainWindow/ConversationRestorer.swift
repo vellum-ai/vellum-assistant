@@ -676,8 +676,10 @@ final class ConversationRestorer {
 
     /// Trailing-edge debounce for `conversation_list_invalidated` events.
     /// Cancels any pending refetch and schedules a new one after 250 ms,
-    /// reusing the existing page-1 fetch + merge path so that selection,
-    /// scroll position, and per-conversation history are preserved.
+    /// then does a cheap page-1-only refetch (`refetchRecentConversations`)
+    /// that merges into the loaded list, preserving selection, scroll
+    /// position, and per-conversation history. This deliberately does NOT
+    /// re-drain the full paginated list — see `refetchRecentConversations`.
     /// If pagination is in flight, defers the refetch until pagination settles
     /// to avoid misrouting the page-1 response through the append path.
     func scheduleInvalidationRefetch() {
@@ -695,13 +697,19 @@ final class ConversationRestorer {
                 guard !Task.isCancelled else { return }
             }
             self.fetchConversationListTask?.cancel()
-            self.fetchConversationList()
+            self.refetchRecentConversations()
         }
     }
 
     // MARK: - Private
 
-    private func fetchConversationList() {
+    /// Full cold-start drain: fetches **every** conversation across the three
+    /// streams (foreground/background/archived), each paginated to exhaustion.
+    /// Used only on first connect and reconnect (see `startObserving`). The
+    /// frequent invalidation path uses `refetchRecentConversations` instead —
+    /// this drain is ~`pages × 3` requests and must not run on every
+    /// `conversation_list_invalidated` event.
+    func fetchConversationList() {
         fetchConversationListTask = Task { [weak self] in
             guard let self else { return }
             // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
@@ -764,6 +772,67 @@ final class ConversationRestorer {
             }
             log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
             self.delegate?.restoreLastActiveConversation()
+        }
+    }
+
+    /// Cheap refetch for `conversation_list_invalidated` events: fetches only
+    /// **page 1** of each stream (foreground/background/archived) — three
+    /// requests, no pagination loop — and merges into the loaded list.
+    ///
+    /// This relies on `handleConversationListResponse` being a merge (not a
+    /// replace) for an established user: it updates matched rows in place by
+    /// daemon id, prepends only brand-new rows, and keeps every already-loaded
+    /// row that isn't in the response. New conversations (the dominant shape
+    /// change) are most-recent and therefore on page 1, so they're picked up;
+    /// reorders/renames within the recent window are refreshed too.
+    ///
+    /// Pagination state is deliberately preserved: the merged response carries
+    /// `hasMore: nil` (so `hasMoreConversations` is not clobbered) and
+    /// `updateServerOffset: false` (so the "load more" cursor is untouched).
+    ///
+    /// Accepted tradeoff: a conversation deleted or reordered on another device
+    /// that sits OUTSIDE page 1 of all three streams won't be reflected until
+    /// the next cold-start/reconnect full drain (`fetchConversationList`).
+    /// That's fine — creation lands on page 1, single deletes are usually
+    /// optimistic-local on the deleting client, and reconnect re-drains fully.
+    private func refetchRecentConversations() {
+        fetchConversationListTask = Task { [weak self] in
+            guard let self else { return }
+            let pageSize = Self.conversationListPageSize
+            async let foregroundResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: nil, archiveStatus: nil
+            )
+            async let backgroundResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: "background", archiveStatus: nil
+            )
+            async let archivedResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: nil, archiveStatus: "archived"
+            )
+            let foreground = await foregroundResult
+            let background = await backgroundResult
+            let archived = await archivedResult
+
+            // Best-effort: if the foreground page fails, leave the loaded list
+            // untouched. A subsequent invalidation or reconnect will retry.
+            guard let foreground else { return }
+
+            // Same dedup as the full drain: foreground ids win, then filter
+            // background/archived against them so overlapping rows from daemons
+            // that ignore the query params don't duplicate.
+            var seenIds = Set(foreground.conversations.map(\.id))
+            let uniqueBackground = (background?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
+            }
+            let uniqueArchived = (archived?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
+            }
+            let merged = ConversationListResponse(
+                type: foreground.type,
+                conversations: foreground.conversations + uniqueBackground + uniqueArchived,
+                hasMore: nil,
+                groups: foreground.groups
+            )
+            self.handleConversationListResponse(merged, updateServerOffset: false)
         }
     }
 
