@@ -204,14 +204,27 @@ const forwardGatewayRequest = async (
   }
 };
 
+const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
+
+// `app://` is not a cookieable scheme, so the renderer can't read the CSRF
+// token via `document.cookie`. Main caches it here and injects it into
+// forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
+let cachedCsrfToken: string | null = null;
+
+const captureCsrfToken = (response: Response): void => {
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  for (const raw of setCookies) {
+    const match = CSRF_COOKIE_RE.exec(raw);
+    if (match?.[1]) {
+      cachedCsrfToken = match[1];
+    }
+  }
+};
+
 /**
  * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
  * the cloud platform, or return `null` for non-platform paths. Mirrors the
  * gateway forward: `net.fetch` runs in main so the renderer stays same-origin.
- *
- * After a successful response, CSRF cookies from the platform are mirrored
- * into the renderer's session so `document.cookie` can read the token for
- * mutating requests.
  */
 const forwardPlatformRequest = async (
   request: GlobalRequest,
@@ -219,6 +232,10 @@ const forwardPlatformRequest = async (
 ): Promise<Response | null> => {
   const plan = planPlatformForward(request, platformUrl);
   if (plan.kind === "pass") return null;
+
+  if (cachedCsrfToken && !plan.headers.has("X-CSRFToken")) {
+    plan.headers.set("X-CSRFToken", cachedCsrfToken);
+  }
 
   let response: Response;
   try {
@@ -234,34 +251,8 @@ const forwardPlatformRequest = async (
     return new Response(message, { status: 502 });
   }
 
-  await mirrorCsrfCookie(response);
+  captureCsrfToken(response);
   return response;
-};
-
-const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
-
-/**
- * Mirror the CSRF token cookie from a platform response into the renderer's
- * session cookie store so `document.cookie` can read it. The session cookie
- * (`sessionid`) stays in `net.fetch`'s own jar for the platform domain —
- * only the CSRF token needs to be visible to the renderer's JS interceptor.
- */
-const mirrorCsrfCookie = async (response: Response): Promise<void> => {
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  for (const raw of setCookies) {
-    const match = CSRF_COOKIE_RE.exec(raw);
-    if (match?.[1]) {
-      const name = raw.startsWith("__Secure-")
-        ? "__Secure-csrftoken"
-        : "csrftoken";
-      await session.defaultSession.cookies.set({
-        url: `app://${APP_HOST}`,
-        name,
-        value: match[1],
-        secure: true,
-      });
-    }
-  }
 };
 
 // Deny renderer permission requests by default. Specific permissions
