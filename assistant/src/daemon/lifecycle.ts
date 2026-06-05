@@ -6,7 +6,6 @@ import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
@@ -1000,7 +999,7 @@ export async function runDaemon(): Promise<void> {
     // Wire up the runtime HTTP server's deferred dependencies. The server
     // itself was bound early in runDaemon (right after the auth signing key
     // was loaded) so /healthz and /readyz already answer 200 OK; these
-    // registrations attach the live DaemonServer / CES / relay handlers to
+    // registrations attach the live DaemonServer / CES / call handlers to
     // the running routes. They're module-level state, so they're effective
     // even when the HTTP server failed to bind (IPC clients still work).
     registerSecretsDeps({
@@ -1019,8 +1018,8 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Background Qdrant init failed"),
     );
 
-    // Inject voice bridge deps so route handlers + the relay pipeline can
-    // resolve a conversation by ID once a call lands. Module-level state,
+    // Inject voice bridge deps so route handlers + the media-stream pipeline
+    // can resolve a conversation by ID once a call lands. Module-level state,
     // so available even when the HTTP server failed to bind.
     setVoiceBridgeDeps({
       getOrCreateConversation: (conversationId, _transport) =>
@@ -1040,7 +1039,6 @@ export async function runDaemon(): Promise<void> {
       },
     });
     try {
-      setRelayBroadcast((msg) => broadcastMessage(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
           const conversation =
