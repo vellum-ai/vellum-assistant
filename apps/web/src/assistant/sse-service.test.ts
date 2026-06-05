@@ -48,6 +48,17 @@ mock.module("@/assistant/lifecycle-service", () => ({
   },
 }));
 
+// `seq` is per-assistant, so `attach` clears the resumable cursor to start
+// each assistant-scoped stream cold. Spy on the reset to assert that wiring;
+// the other exports are stubbed so the module's surface stays complete.
+const resetReconnectCursorMock = mock(() => {});
+mock.module("@/lib/streaming/reconnect-cursor", () => ({
+  getReconnectCursor: () => null,
+  advanceReconnectCursor: () => {},
+  replaceReconnectCursor: () => {},
+  resetReconnectCursor: resetReconnectCursorMock,
+}));
+
 const { sseService } = await import("@/assistant/sse-service");
 
 // The real bus has the pub/sub semantics we need to exercise — no
@@ -68,6 +79,7 @@ beforeEach(() => {
   cancelMock.mockClear();
   subscribeEventsMock.mockClear();
   checkAssistantMock.mockClear();
+  resetReconnectCursorMock.mockClear();
   publishSpy.mockClear();
 });
 
@@ -79,6 +91,18 @@ describe("sseService.attach — connection lifecycle", () => {
     expect(lastSubscribeArgs).toEqual({
       assistantId: "asst-1",
     });
+  });
+
+  test("resets the resumable cursor so a switched-to assistant starts cold", () => {
+    // GIVEN a prior assistant left a non-null `seq` cursor in the global
+    // module state (the cursor is per-assistant and never persisted)
+    // WHEN a connection is attached for an assistant
+    sseService.attach("asst-2");
+
+    // THEN the cursor is cleared before the first connect, so the stale
+    // previous-assistant seq is never sent as `lastSeenSeq` and
+    // cold-start anchoring can re-seed it from this assistant's snapshot
+    expect(resetReconnectCursorMock).toHaveBeenCalledTimes(1);
   });
 
   test("re-broadcasts every SSE envelope on bus.sse.event", () => {

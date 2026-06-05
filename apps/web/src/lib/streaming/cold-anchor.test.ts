@@ -21,7 +21,7 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   replaceReconnectCursor: (seq: number) => {
     globalCursor = seq;
   },
-  __resetReconnectCursorForTesting: () => {
+  resetReconnectCursor: () => {
     globalCursor = null;
   },
 }));

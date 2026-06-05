@@ -28,6 +28,7 @@ import * as Sentry from "@sentry/react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { publish, subscribe } from "@/lib/event-bus";
+import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import {
   clearSseReconnectHandler,
   setSseReconnectHandler,
@@ -54,6 +55,15 @@ export interface SseService {
 
 export const sseService: SseService = {
   attach(assistantId) {
+    // `seq` is per-assistant, so the resumable cursor from a previous
+    // assistant is meaningless on this connection's seq space. Clear it
+    // so this attachment starts cold (like a fresh page load): the first
+    // connect omits `lastSeenSeq` and the conversation's snapshot
+    // watermark re-anchors the cursor via `anchorColdStartReplay`. A
+    // transport reconnect within this attachment goes through `open()`,
+    // not `attach()`, so a live cursor is preserved across reconnects.
+    resetReconnectCursor();
+
     let current: EventStream | null = null;
     let cancelled = false;
     // Track the live stream handle for cancellation and the resume/bounce

@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  __resetReconnectCursorForTesting,
   advanceReconnectCursor,
   getReconnectCursor,
   replaceReconnectCursor,
+  resetReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
 
 beforeEach(() => {
-  __resetReconnectCursorForTesting();
+  resetReconnectCursor();
 });
 
 describe("reconnect-cursor", () => {
@@ -57,10 +57,10 @@ describe("reconnect-cursor", () => {
     // GIVEN a cursor with a value
     advanceReconnectCursor(42);
 
-    // WHEN it is reset
-    __resetReconnectCursorForTesting();
+    // WHEN it is reset (e.g. attaching a connection for a new assistant)
+    resetReconnectCursor();
 
-    // THEN it reads null again
+    // THEN it reads null again — the next connect starts cold
     expect(getReconnectCursor()).toBeNull();
   });
 });
