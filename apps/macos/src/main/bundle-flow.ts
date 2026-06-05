@@ -85,14 +85,13 @@ export async function scanBundleViaDaemon(
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
-    const response = await net.fetch(
-      `http://127.0.0.1:${port}/v1/apps/open-bundle`,
-      {
-        method: "POST",
-        body: JSON.stringify({ filePath }),
-        headers,
-      },
-    );
+    // Local gateway base URL (gatewayPort from the lockfile, not the runtime port).
+    const gatewayBaseUrl = `http://127.0.0.1:${port}`;
+    const response = await net.fetch(`${gatewayBaseUrl}/v1/apps/open-bundle`, {
+      method: "POST",
+      body: JSON.stringify({ filePath }),
+      headers,
+    });
     if (!response.ok) return null;
     return (await response.json()) as BundleScanData;
   } catch {
