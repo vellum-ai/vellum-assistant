@@ -147,7 +147,6 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildActiveDocuments,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
@@ -1337,9 +1336,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      // Resolved here, where the runtime injector is the only consumer of the
-      // active-documents block.
-      activeDocuments: buildActiveDocuments(ctx.conversationId),
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,

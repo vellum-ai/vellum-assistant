@@ -1827,9 +1827,10 @@ function applyInjectionBlock(
  * orchestrator-owned content that never made sense as plugin-overridable
  * default injectors.
  *
- * Neither the active workspace surface nor the channel capabilities live on
- * this bag: `applyRuntimeInjections` resolves both from the live conversation
- * itself (its surface state and `channelCapabilities` respectively), so the
+ * The active workspace surface, the channel capabilities, and the active
+ * document list are not on this bag: `applyRuntimeInjections` resolves them
+ * from the live conversation itself (its surface state, `channelCapabilities`,
+ * and the document store keyed by `conversationId` respectively), so the
  * orchestrator does not compute or thread them per turn.
  */
 export interface RuntimeInjectionOptions {
@@ -1880,7 +1881,6 @@ export interface RuntimeInjectionOptions {
    * `undefined` when the inbound is a top-level (non-thread) post.
    */
   slackActiveThreadFocusBlock?: string | null;
-  activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
@@ -1909,6 +1909,7 @@ export interface RuntimeInjectionOptions {
 function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
   channelCapabilities: ChannelCapabilities | null,
+  activeDocuments: TurnInjectionInputs["activeDocuments"],
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1922,7 +1923,7 @@ function buildTurnInjectionInputs(
     transportHints: options.transportHints,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation: options.isBackgroundConversation,
-    activeDocuments: options.activeDocuments,
+    activeDocuments,
   };
 }
 
@@ -2007,6 +2008,12 @@ export async function applyRuntimeInjections(
     findConversationOrSubagent(conversationId)?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
+  // Source the active documents from the document store keyed by the same
+  // conversation id rather than a per-turn option computed by the
+  // orchestrator; the `active-documents` and `document-comments` injectors
+  // read the result off their per-injector inputs.
+  const activeDocuments = buildActiveDocuments(conversationId);
+
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
@@ -2015,6 +2022,7 @@ export async function applyRuntimeInjections(
   const injectionInputs = buildTurnInjectionInputs(
     options,
     channelCapabilities,
+    activeDocuments,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
