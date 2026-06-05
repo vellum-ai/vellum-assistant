@@ -236,3 +236,22 @@ with because every plugin tool *is* an MCP tool.
   / plugin) — the bundle adds distribution, not new capability. Sources:
   [MCP](https://code.claude.com/docs/en/mcp),
   [Skills](https://code.claude.com/docs/en/skills).
+
+---
+
+## Install & versioning
+
+- **Install.** Add a marketplace catalog then `/plugin install
+  <plugin>@<marketplace>`; for local authoring, `claude --plugin-dir <path>` (or
+  `pluginDirs` in settings) loads in place without a marketplace.
+- **Versioning.** `plugin.json` `version` pins the plugin, so users only get
+  updates when you bump it; **omit it and Claude Code falls back to the git
+  commit SHA**, treating every commit as a new version. A marketplace entry can
+  also set the version, but `plugin.json` wins.
+  ([reference](https://code.claude.com/docs/en/plugins-reference))
+- **Editing the installed copy.** Installs are **copied into a versioned cache**
+  (`~/.claude/plugins/cache/<…>/<version>/`); edits to that copy are **lost on
+  reinstall/update**, which explicitly breaks self-modifying plugins
+  ([#17663](https://github.com/anthropics/claude-code/issues/17663)).
+  `${CLAUDE_PLUGIN_ROOT}` changes each update (the old dir lingers ~7 days), so
+  durable state must live in `${CLAUDE_PLUGIN_DATA}`, which survives updates.

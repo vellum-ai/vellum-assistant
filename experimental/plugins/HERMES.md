@@ -257,3 +257,22 @@ namespaced (`mcp__<server>__<tool>`) but skills are not. Source:
   hooks live in `config.yaml` — none of these is a `register(ctx)` plugin. A
   plugin is the path for Python-imperative tools/hooks/commands/backends.
   Source: [Plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
+
+---
+
+## Install & versioning
+
+- **Install.** Drop a directory into `~/.hermes/plugins/<name>/` (user) or
+  `.hermes/plugins/<name>/` (project, opt-in via `HERMES_ENABLE_PROJECT_PLUGINS`);
+  or distribute as a pip package via the `hermes_agent.plugins` entry-point group,
+  or declaratively on NixOS. Plugins are opt-in through `plugins.enabled`.
+  ([plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins))
+- **Versioning.** `plugin.yaml` `version` is informational; pip and Nix own
+  upgrades for packaged plugins. There is no cache layer — Hermes loads from the
+  source directory, and later sources override earlier ones on a name collision
+  (user/project replace bundled).
+- **Editing the installed copy.** For directory plugins the **installed copy
+  *is* the source** — edit it in place and it just reloads, with nothing to
+  clobber; only pip-installed plugins are overwritten by `pip install -U`. This
+  is the one harness where hand-editing the installed plugin is the normal,
+  durable workflow.

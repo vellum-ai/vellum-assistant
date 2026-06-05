@@ -420,3 +420,20 @@ and core-tool collisions — see
   catalog under the `mcp__<server>__<tool>` namespace — see
   [`assistant/src/mcp`](../../assistant/src/mcp) and
   [`mcp-tool-factory.ts`](../../assistant/src/tools/mcp/mcp-tool-factory.ts).
+
+---
+
+## Install & versioning
+
+- **Install.** `assistant plugins install <name>` drops the plugin at
+  `<workspace>/plugins/<name>/` and it registers on the next start. There is no
+  marketplace or central registry today.
+- **Versioning.** `peerDependencies["@vellumai/plugin-api"]` is a semver range
+  checked against the running assistant, but a mismatch is **logged, not
+  enforced** (the install path is still in flux); `version` is informational
+  (defaults `0.0.0`). There is no pinning, lockfile, or update command yet.
+- **Editing the installed copy.** Plugins load **in place** from the workspace
+  directory — there is no cache copy — so edits to the installed files take
+  effect on the next load and are not clobbered. Durable runtime state belongs
+  in `ctx.pluginStorageDir` (`<workspace>/plugins-data/<plugin>/`), not in the
+  plugin's own files.

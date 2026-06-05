@@ -264,3 +264,23 @@ from the declared tools. This differs from our (and Claude Code's / Codex's)
   roots (and the auto-detected foreign bundles above). Plugins are reserved for
   the richer capability surfaces (providers, channels, harnesses, generation
   backends). Source: [MCP](https://docs.openclaw.ai/cli/mcp).
+
+---
+
+## Install & versioning
+
+- **Install.** `openclaw plugins install` with an explicit source selector —
+  `clawhub:<pkg>`, `npm:<pkg>`, `git:github.com/<owner>/<repo>@<ref>`,
+  `npm-pack:<tgz>`, a local `<path>`, or `<plugin>@<marketplace>`; ClawHub is the
+  primary surface. ([CLI](https://docs.openclaw.ai/cli/plugins),
+  [manage](https://docs.openclaw.ai/plugins/manage-plugins))
+- **Versioning.** The most complete of the five: `@1.2.3` exact pins, `@beta`
+  dist-tags, and `--pin`; the tracked install spec is stored and reused by
+  `openclaw plugins update <id>` / `--all`. Dependency resolution happens **only
+  at install/update time** — runtime never runs a package manager.
+  ([dependency resolution](https://docs.openclaw.ai/plugins/dependency-resolution))
+- **Editing the installed copy.** npm/git/ClawHub installs land in
+  **OpenClaw-owned package roots the runtime never mutates**, so a hand-edit
+  there is overwritten by `update` (or `--force`); local-path/dev installs load
+  your own source in place. Uninstall removes managed install dirs unless
+  `--keep-files`.

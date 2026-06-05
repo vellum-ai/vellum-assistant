@@ -249,3 +249,23 @@ tools. Source: [MCP](https://developers.openai.com/codex/mcp).
   for distribution. Sources:
   [Skills](https://developers.openai.com/codex/skills),
   [MCP](https://developers.openai.com/codex/mcp).
+
+---
+
+## Install & versioning
+
+- **Install.** Register a `marketplace.json` catalog (repo `.agents/plugins/` or
+  personal `~/.agents/plugins/`, plus the in-app "Curated by OpenAI" source) then
+  `codex plugin add`; local marketplaces persist as `[marketplaces.*]` in
+  `~/.codex/config.toml`.
+  ([build](https://developers.openai.com/codex/plugins/build))
+- **Versioning.** The `.codex-plugin/plugin.json` `version` keys the cache
+  directory (`~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/`), and
+  **cache freshness is decided by that version string alone**.
+- **Editing the installed copy.** Same copy-to-cache model as Claude Code:
+  editing source **without bumping `version` makes Codex keep loading the stale
+  cached copy**
+  ([#21138](https://github.com/openai/codex/issues/21138)), and a config-defined
+  local-marketplace bump can silently no-op so the only fix is wiping the cache
+  directory ([#23902](https://github.com/openai/codex/issues/23902)). Editing the
+  cached copy directly is overwritten the next time a refresh fires.
