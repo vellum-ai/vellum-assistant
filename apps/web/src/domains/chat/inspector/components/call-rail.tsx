@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import {
   displayProvider,
   displayText,
+  formatCost,
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
@@ -97,6 +98,7 @@ function CallRow({
 }: CallRowProps): ReactNode {
   const isSynthetic = isSyntheticAgentErrorMessage(entry);
   const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
+  const estimatedCost = formatCost(entry.summary?.estimatedCostUsd ?? null);
 
   // Synthetic rows (e.g. budget_yield_unrecovered) represent agent-loop
   // error messages with no LLM call backing them. Render with a
@@ -114,7 +116,7 @@ function CallRow({
       to={href}
       onClick={onSelect}
       aria-current={isSelected ? "page" : undefined}
-      className="flex flex-col gap-1 rounded-md p-3 text-left no-underline transition-colors hover:opacity-90"
+      className="flex flex-col gap-2 rounded-md p-3 text-left no-underline transition-colors hover:opacity-90"
       style={{
         background: isSelected
           ? "var(--surface-active)"
@@ -142,8 +144,11 @@ function CallRow({
         </span>
         {isLatest ? (
           <span
-            className="text-label-default"
-            style={{ color: "var(--primary-default, var(--content-default))" }}
+            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            style={{
+              background: "var(--surface-base)",
+              color: "var(--primary-default, var(--content-default))",
+            }}
           >
             Latest
           </span>
@@ -160,10 +165,22 @@ function CallRow({
         {subtitle}
       </div>
       <div
-        className="text-label-default"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-default"
         style={{ color: "var(--content-tertiary)" }}
       >
-        {formattedCreatedAt(entry.createdAt)}
+        <span
+          className="inline-flex items-baseline gap-1 rounded-[4px] px-1.5 py-0.5"
+          style={{
+            background: "var(--surface-base)",
+            color: "var(--content-default)",
+          }}
+        >
+          <span style={{ color: "var(--content-secondary)" }}>Cost</span>
+          <span className="font-medium">{estimatedCost}</span>
+        </span>
+        <span className="min-w-0 flex-1 text-right">
+          {formattedCreatedAt(entry.createdAt)}
+        </span>
       </div>
     </Link>
   );
