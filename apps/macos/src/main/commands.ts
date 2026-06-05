@@ -14,6 +14,7 @@ export type VellumCommand =
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
   | { kind: "openSettings" }
+  | { kind: "shareFeedback" }
   | { kind: "logout" };
 
 export type VellumCommandKind = VellumCommand["kind"];
@@ -32,6 +33,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   currentConversation: "CmdOrCtrl+Shift+N",
   markCurrentUnread: "CmdOrCtrl+Shift+U",
   openSettings: "CmdOrCtrl+,",
+  shareFeedback: "",
   logout: "",
 };
 
