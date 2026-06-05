@@ -2,8 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { hatchAssistant } from "@/assistant/api";
+import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { DetailCard } from "@/components/detail-card";
+import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import {
     assistantsActiveRetrieveOptions,
     assistantsListOptions,
@@ -39,6 +40,23 @@ export function AssistantLifecyclePanel() {
       // existing assistant — the button then looked like a no-op.
       const result = await hatchAssistant(undefined, "create");
       if (result.ok) {
+        // Mirror the freshly hatched assistant into the lockfile so the macOS
+        // tray and CLI pick it up immediately. Unlike onboarding / the tray
+        // "New Assistant" flow, this developer button is otherwise the one
+        // managed-assistant creation path that never reconciled the lockfile —
+        // newly hatched assistants stayed invisible to the tray until the next
+        // session refresh. Best-effort and local-mode only; the hatch already
+        // succeeded regardless of the sync outcome.
+        if (isLocalMode()) {
+          try {
+            const list = await listAssistants();
+            if (list.ok) {
+              await syncPlatformAssistantsToLockfile(list.data);
+            }
+          } catch {
+            // Sync failed — the assistant was still created.
+          }
+        }
         // 201 = newly created; 200 = server returned the existing assistant
         // (multi-assistant hatching disabled / deduped). Report honestly
         // instead of always claiming a new one was made.
