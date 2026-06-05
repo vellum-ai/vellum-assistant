@@ -39,11 +39,7 @@ export function NameExchangeScreen({
   return (
     <OnboardingLayout>
       <div
-        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8" : "px-6"} pb-40 text-[var(--content-default)]`}
-        style={{
-          paddingTop:
-            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
-        }}
+        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}
       >
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}

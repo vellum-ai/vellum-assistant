@@ -19,6 +19,7 @@ import {
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
+import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -72,6 +73,7 @@ export function PrivacyScreen() {
   const [searchParams] = useSearchParams();
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
+  const electron = isElectron();
   const isNative = useIsNativePlatform();
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
@@ -169,11 +171,15 @@ export function PrivacyScreen() {
   return (
     <OnboardingLayout>
       <div
-        className="mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-16 text-[var(--content-default)]"
-        style={{
-          paddingTop:
-            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
-        }}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "pb-16" : "py-16"} text-[var(--content-default)]`}
+        style={
+          electron
+            ? {
+                paddingTop:
+                  "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
+              }
+            : undefined
+        }
       >
         {isNative && (
           <div
