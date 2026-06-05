@@ -1,43 +1,36 @@
 ---
 name: document-editor
-description: Rich text document editor with collaborative editing tools — create, read, update, and annotate documents
+description: Use whenever the user wants to write or draft an article, blog post, essay, report, or any long-form content. Creates the content in a rich text editor instead of dumping it in chat, so it can be streamed, reviewed, edited, and exported.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "📄"
+  emoji: "✍️"
   vellum:
-    display-name: "Document Editor"
+    display-name: "Document Writer"
     activation-hints:
-      - "User asks to write, draft, or collaborate on long-form content — use the document editor for a better editing experience"
-      - "When content will be iterated on, reviewed, or exported, prefer the document editor over inline markdown"
-      - "When a file attachment contains a draft or document the user wants to iterate on, open it in the editor"
+      - "User asks to write, draft, or compose an article, blog post, essay, report, story, or any long-form content — always create it in the document editor, not as a chat reply"
+      - "User wants written content they will iterate on, review, or export — use the editor instead of inline markdown"
+      - "A file attachment contains a draft or document the user wants to revise — open it in the editor"
+    avoid-when:
+      - "The user wants an interactive app, dashboard, calculator, game, or anything with state or data — use app-builder instead"
+      - "A one or two sentence answer is enough — just reply in chat"
 ---
 
-Create and edit long-form documents using the built-in rich text editor. Documents open in workspace mode with chat docked to the side.
+Write and edit long-form documents using the built-in rich text editor. Documents open in workspace mode with chat docked to the side. When a request is about writing prose (an article, blog post, report, essay, story, or similar), create it here rather than writing it into the chat response.
 
 ## Tools
 
-- **document_open** - Opens an existing document in the editor panel by `surface_id`. Use this when a document exists but isn't visible in the editor — for example after the user switches devices, refreshes the page, or when the editor panel was closed. Fetches the document from storage and sends it to the client.
-- **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates.
+- **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates. This is the entry point for any new piece of writing.
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
 - **document_read** - Reads the current content of a document by `surface_id` when it belongs to the current conversation, or when the current actor is the guardian/local user. Use to verify content before editing.
-- **document_list** - Lists documents. Without `query`, lists the current conversation's documents. With `query`, searches by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.
 - **document_find** - Searches a document for text or regex patterns. Returns matching lines with line numbers, match positions, and matched text.
 - **document_replace_text** - Targeted find-and-replace within a document. Supports literal and regex patterns (with backreferences). Optionally limit the number of replacements.
+- **document_list** - Lists documents. Without `query`, lists the current conversation's documents. With `query`, searches by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.
+- **document_open** - Opens an existing document in the editor panel by `surface_id`. Use this when a document exists but isn't visible in the editor — for example after the user switches devices, refreshes the page, or when the editor panel was closed. Fetches the document from storage and sends it to the client.
 - **document_delete** - Deletes a document by `surface_id`. Use to clean up unwanted documents.
 
-## Retrieving existing documents
-
-When the user asks to see, open, or pull up a document:
-
-1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
-2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. For guardian/local users, this searches across previous conversations and sessions.
-3. Once you have the `surface_id`, call `document_open` to open the editor panel. This surfaces the editor on the client and returns document metadata (`surface_id`, `title`, `word_count`) — not the full content. If you need the actual document text, follow up with `document_read`.
-
-**Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
-
-**If the user says they can't see a document you know exists** (e.g. after switching from macOS to web, or after a page refresh), call `document_open` with the `surface_id` to re-surface the editor panel on their current client.
-
 ## Creating a new document
+
+This is the default path when the user asks you to write something.
 
 1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble. Capture the `surface_id` from the response — every subsequent `document_update` call must reference it.
 2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, _italic_, code blocks, tables, lists, blockquotes as appropriate.
@@ -58,6 +51,18 @@ When the user requests changes to a document:
    - `document_update` with `mode: "replace"` — ONLY for full rewrites where the majority of the document is changing.
    - `document_find` + `document_replace_text` — **for everything else**. Fixing typos, renaming terms, swapping sections, reordering content, adjusting formatting, or any edit that touches only part of the document. This is the default choice for edits. It avoids rewriting the entire document and eliminates the risk of accidentally dropping content.
 4. **Do NOT use `document_update` with `mode: "replace"` for targeted edits.** Rewriting the entire document to change a few words or rearrange sections is wasteful and error-prone.
+
+## Retrieving existing documents
+
+When the user asks to see, open, or pull up a document:
+
+1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
+2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. For guardian/local users, this searches across previous conversations and sessions.
+3. Once you have the `surface_id`, call `document_open` to open the editor panel. This surfaces the editor on the client and returns document metadata (`surface_id`, `title`, `word_count`) — not the full content. If you need the actual document text, follow up with `document_read`.
+
+**Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
+
+**If the user says they can't see a document you know exists** (e.g. after switching from macOS to web, or after a page refresh), call `document_open` with the `surface_id` to re-surface the editor panel on their current client.
 
 ## Find & Replace
 
@@ -117,7 +122,7 @@ Users can leave inline comments on documents. Open comments are surfaced in a `<
 ## Anti-Patterns
 
 - **Don't use `app_create` for blog posts, articles, or written content.** Use `document_create` — apps are for interactive content with state/data.
-- **Don't output the full content in chat.** The content goes in the document editor, not in the chat response. Acknowledge what you're doing and stream to the editor.
+- **Don't write the article into the chat response.** Long-form prose goes in the document editor via `document_create`, not in chat and not into a `.md` file in the workspace. Acknowledge what you're doing and stream to the editor.
 - **Don't wait to generate everything before sending.** Stream content in chunks via `document_update` with `mode: "append"` so users see progress in real time.
 
 ## Usage Notes
