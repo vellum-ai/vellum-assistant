@@ -79,7 +79,7 @@ import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard"
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
-import type { ChatRouteContentProps } from "@/domains/chat/components/chat-route-content";
+import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -138,10 +138,10 @@ export function ActiveChatView() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
   const transcriptItemsRef = useRef<TranscriptItem[]>([]);
-  // Threaded down to ChatRouteContent and bound on the `<Transcript />`
+  // Threaded down to ChatMainPanel and bound on the `<Transcript />`
   // instance there. Also read by useChatDebugRegistration for scroll state.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
-  // Written by ChatRouteContent every render with the exact `UIContext` it
+  // Written by ChatMainPanel every render with the exact `UIContext` it
   // renders from; read by useChatDebugRegistration so the debug snapshot
   // reflects on-screen state rather than a separate recomputation.
   const uiContextRef = useRef<UIContext | null>(null);
@@ -214,7 +214,7 @@ export function ActiveChatView() {
     true,
   );
 
-  // Avatar — called here for sync-router invalidation; ChatRouteContent
+  // Avatar — called here for sync-router invalidation; ChatMainPanel
   // has its own call (TanStack Query deduplicates the fetch).
   const avatar = useAssistantAvatar(assistantId);
 
@@ -403,9 +403,9 @@ export function ActiveChatView() {
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly — only values ChatRouteContent can't own locally
+  // Props assembly — only values ChatMainPanel can't own locally
   // -------------------------------------------------------------------------
-  const chatRouteProps: ChatRouteContentProps = {
+  const chatRouteProps: ChatMainPanelProps = {
     // Send message (orchestration owns SSE / queue lifecycle)
     sendMessage,
     handleStopGenerating,

@@ -3,7 +3,7 @@
  * panel arrangement.
  *
  * Single responsibility: reads `mainView` from the viewer store, renders
- * `ChatRouteContent` inside the correct layout shell (standalone, or
+ * `ChatMainPanel` inside the correct layout shell (standalone, or
  * as the left pane of a `ResizablePanel` with a side panel on the right).
  *
  * Side-panel state (app, document, subagent, tool-detail) is read directly
@@ -18,7 +18,7 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
-import { ChatRouteContent, type ChatRouteContentProps } from "@/domains/chat/components/chat-route-content";
+import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -44,7 +44,7 @@ const ToolDetailPanel = lazy(() =>
 // Component
 // ---------------------------------------------------------------------------
 
-export function ChatContentLayout(props: ChatRouteContentProps) {
+export function ChatContentLayout(props: ChatMainPanelProps) {
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
@@ -125,7 +125,7 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
         defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
-        left={<ChatRouteContent {...props} />}
+        left={<ChatMainPanel {...props} />}
         right={
           <AppViewerContainer
             appId={openedAppState.appId}
@@ -171,7 +171,7 @@ export function ChatContentLayout(props: ChatRouteContentProps) {
     );
   }
 
-  const chatContent = <ChatRouteContent {...props} />;
+  const chatContent = <ChatMainPanel {...props} />;
 
   // Document viewer side panel
   if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {

@@ -1,88 +1,67 @@
 /**
- * Chat route content — renders `ChatBody` with all chat-specific UI slots
- * (banners, composer, interaction prompts, modals).
+ * Chat main panel — thin orchestrator that calls focused hooks and
+ * renders {@link ChatBody} with all chat-specific UI slots (banners,
+ * composer, interaction prompts, modals).
  *
  * Layout routing (side panels, resizable splits) lives in
  * `ChatContentLayout`, which renders this component inside the
  * appropriate panel arrangement based on `mainView`.
  *
- * Reads per-conversation state from Zustand stores directly and owns
- * UI-scoped hooks (avatar, disk pressure, nudges, voice input, interaction
- * actions, ghost text) so the parent (`ActiveChatView`) stays focused on
- * orchestration (SSE, reconciliation, send message, conversation loading).
+ * Hook delegation:
+ * - `useChatUIState` — turn/interaction/conversation-derived UI flags
+ * - `useTranscriptData` — message sanitisation → transcript items
+ * - `useChatEmptyState` — greeting, starters, avatar
+ * - `useComposerSubmit` — submit logic, focus management
+ * - `useDiskPressureBanner` — localStorage-backed dismiss/suppress
+ * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
+ * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
+import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
+import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import { useDiskPressureBanner } from "@/domains/chat/hooks/use-disk-pressure-banner";
+import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
+import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 
-import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
-import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
-import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
-import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
 import { ChatBody } from "@/domains/chat/components/chat-body";
-import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
-
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
-import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
-
-import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
-
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
 import { Button, Notice } from "@vellumai/design-library";
-
 import { Link, useNavigate } from "react-router";
-
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
-import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
-import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
-
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
-
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
-
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
-import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
-
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
@@ -104,7 +83,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 // Props — only values that cannot be owned locally
 // ---------------------------------------------------------------------------
 
-export interface ChatRouteContentProps {
+export interface ChatMainPanelProps {
   // Send message (orchestration owns the SSE / queue lifecycle)
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
@@ -120,7 +99,6 @@ export interface ChatRouteContentProps {
 
   // History pagination (from useConversationLoader in ActiveChatView)
   historyPagination: HistoryPaginationResult;
-
 
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
@@ -143,11 +121,14 @@ export interface ChatRouteContentProps {
   onboardingConversationId: string | null;
 }
 
+/** @deprecated Use {@link ChatMainPanelProps} — kept as a re-export for migration. */
+export type ChatRouteContentProps = ChatMainPanelProps;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ChatRouteContent({
+export function ChatMainPanel({
   sendMessage,
   handleStopGenerating,
   queuedMessages,
@@ -169,23 +150,25 @@ export function ChatRouteContent({
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationId,
-}: ChatRouteContentProps) {
-  // --- Composer store (replaces 14 prop-drilled values) ---
+}: ChatMainPanelProps) {
+  const navigate = useNavigate();
+
+  // -------------------------------------------------------------------------
+  // Store reads — composer
+  // -------------------------------------------------------------------------
   const input = useComposerStore.use.input();
   const setInput = useComposerStore.use.setInput();
   const saveDraft = useComposerStore.use.saveDraft();
-  const clearDraft = useComposerStore.use.clearDraft();
   const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
   const clearRestoredDraftNotice = useComposerStore.use.clearRestoredDraftNotice();
   const chatAttachments = useComposerStore.use.attachments();
   const attachmentLastError = useComposerStore.use.attachmentLastError();
   const addFilesRaw = useComposerStore.use.addFiles();
   const removeChatAttachment = useComposerStore.use.removeAttachment();
-  const resetChatAttachments = useComposerStore.use.resetAttachments();
   const dismissChatAttachmentError = useComposerStore.use.dismissAttachmentError();
   const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
   const attachmentUploadedIds = useMemo(() => selectUploadedIds(chatAttachments), [chatAttachments]);
-  const navigate = useNavigate();
+
   // -------------------------------------------------------------------------
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
@@ -204,11 +187,9 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   const messages = useChatSessionStore.use.messages();
   const error = useChatSessionStore.use.error();
-  const setError = useChatSessionStore.use.setError();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
-  const setCompactionCircuitOpenUntil = useChatSessionStore.use.setCompactionCircuitOpenUntil();
   const transcriptPagination = useChatSessionStore.use.transcriptPagination();
 
   // -------------------------------------------------------------------------
@@ -226,12 +207,9 @@ export function ChatRouteContent({
   const { conversations } = useConversationListQuery(assistantId, true);
 
   // -------------------------------------------------------------------------
-  // UI-scoped hooks (moved from ActiveChatView — no prop relay needed)
+  // UI-scoped hooks
   // -------------------------------------------------------------------------
   const avatar = useAssistantAvatar(assistantId);
-  const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
-
-
 
   const {
     voiceInputRef,
@@ -262,7 +240,7 @@ export function ChatRouteContent({
   const handleOpenApp = useOpenAppFromChat();
 
   // -------------------------------------------------------------------------
-  // App / document / subagent action callbacks
+  // Action callbacks
   // -------------------------------------------------------------------------
   const handleOpenDocument = useCallback((surfaceId: string) => {
     haptic.light();
@@ -286,50 +264,18 @@ export function ChatRouteContent({
 
   // -------------------------------------------------------------------------
   // Turn state — only `phase` is read directly (recall-last-message guard).
-  // All other turn derivations (thinking indicator, send-disabled,
-  // stop-generation) live in `useChatUIState`.
+  // All other turn derivations live in `useChatUIState`.
   // -------------------------------------------------------------------------
   const phase = useTurnStore.use.phase();
 
   // -------------------------------------------------------------------------
-  // Tool-call rule editor (signalled via viewer store seq counter)
-  // -------------------------------------------------------------------------
-
-  /** Open the rule editor for the tool call shown in the detail panel. */
-  const handleToolDetailRiskBadgeClick = useCallback(() => {
-    const detail = useViewerStore.getState().activeToolDetail;
-    if (!detail) return;
-    const tc = messages
-      .flatMap((m) => m.toolCalls ?? [])
-      .find((t) => t.id === detail.toolCallId);
-    if (!tc) return;
-    handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
-  }, [messages, handleOpenRuleEditorForToolCall]);
-
-  // The mobile tool-detail overlay lives in a separate portal subtree
-  // (`MobileChatOverlays`) and can't reach the rule-editor state owned here, so
-  // it signals through the viewer store. Open the editor whenever the request
-  // seq advances past the last one we handled.
-  const ruleEditorRequestSeq = useViewerStore.use.ruleEditorRequestSeq();
-  const handledRuleEditorSeqRef = useRef(ruleEditorRequestSeq);
-  useEffect(() => {
-    if (ruleEditorRequestSeq === handledRuleEditorSeqRef.current) {
-      return;
-    }
-    handledRuleEditorSeqRef.current = ruleEditorRequestSeq;
-    handleToolDetailRiskBadgeClick();
-  }, [ruleEditorRequestSeq, handleToolDetailRiskBadgeClick]);
-
-  // -------------------------------------------------------------------------
   // Feature flags
   // -------------------------------------------------------------------------
-
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
-  // Derived UI state + transcript data (extracted from inline derivations)
+  // Derived UI state + transcript data (extracted hooks)
   // -------------------------------------------------------------------------
-
   const {
     uiContext,
     showThinking,
@@ -344,7 +290,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Onboarding choice card
   // -------------------------------------------------------------------------
-
   const isNative = useIsNativePlatform();
   const {
     showOnboardingChoice,
@@ -364,13 +309,11 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Edit-message recall (up-arrow)
   // -------------------------------------------------------------------------
-
   const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
 
   // -------------------------------------------------------------------------
-  // Nudges + ghost text (depend on liveAssistantMessageId from useChatUIState)
+  // Nudges + ghost text
   // -------------------------------------------------------------------------
-
   const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId);
 
   const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
@@ -391,7 +334,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
-
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     showThinking,
     thinkingLabel,
@@ -412,7 +354,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Remaining derived values
   // -------------------------------------------------------------------------
-
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.mode !== null,
     hasResolvedStatus: diskPressure.hasResolvedStatus,
@@ -434,13 +375,6 @@ export function ChatRouteContent({
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
-  // Conversation starters power the empty-state chips only. Gate the fetch
-  // by `isEmptyConversation` so non-empty chats stop polling the daemon for
-  // data that's never rendered.
-  const { starters: conversationStarters } = useConversationStarters(
-    isEmptyConversation ? assistantId : null,
-  );
-
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
@@ -454,9 +388,6 @@ export function ChatRouteContent({
       }
     : null;
 
-  // Modal-mode errors (e.g. secret_blocked from a fresh new-conversation
-  // POST) interrupt with a dialog and restore the user's text back into the
-  // composer on dismiss so they can edit and resend without retyping.
   const sendErrorModalNode =
     error?.displayAs === "modal" ? (
       <SendErrorModal
@@ -466,7 +397,7 @@ export function ChatRouteContent({
           if (typeof error.restoreContent === "string") {
             setInput(error.restoreContent);
           }
-          setError(null);
+          useChatSessionStore.getState().setError(null);
         }}
       />
     ) : null;
@@ -485,20 +416,10 @@ export function ChatRouteContent({
   const canSendAttachments =
     attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
 
-  // Vision capability gate for the AttachFileButton. The daemon's
-  // chat-completions adapter does not strip image parts, so providers
-  // without vision (MiniMax, Fireworks Kimi, several OpenRouter models)
-  // return confusing errors when the UI sends an image. The daemon's
-  // config API is the source of truth — fall back to the permissive
-  // client-side helper only when the daemon hasn't surfaced the flag.
   const activeProfileModel = useActiveProfileModel(
     assistantId,
     activeConversation?.conversationId,
   );
-  // `modelSupportsVision` from `assistant/model-capabilities` would pull the
-  // entire LLM model catalog (~12 kB) into the chat-critical bundle just to
-  // return `true` as a permissive fallback. The daemon's `supportsVision` is
-  // the source of truth; fail-open here when it isn't surfaced yet.
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
 
   const showUploadBlockedNotice =
@@ -516,15 +437,8 @@ export function ChatRouteContent({
     assistantState.maintenanceMode?.enabled === true;
 
   // -------------------------------------------------------------------------
-  // Child-owned refs
-  // -------------------------------------------------------------------------
-
-  const shouldFocusInputRef = useRef(false);
-
-  // -------------------------------------------------------------------------
   // Attachment drop zone
   // -------------------------------------------------------------------------
-
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
@@ -536,7 +450,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Refresh conversation (destructive)
   // -------------------------------------------------------------------------
-
   const onRefreshEpoch = useCallback(() => {
     if (activeConversationId) {
       const currentInput = inputRef.current?.value ?? "";
@@ -548,7 +461,6 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Pull-to-refresh
   // -------------------------------------------------------------------------
-
   const {
     refreshFeedback,
     touchSupported,
@@ -562,22 +474,15 @@ export function ChatRouteContent({
   });
 
   // -------------------------------------------------------------------------
-  // Load older messages
-  // -------------------------------------------------------------------------
-
-  const loadOlder = historyPagination.fetchOlderPage;
-
-  // -------------------------------------------------------------------------
   // Scroll coordination
   // -------------------------------------------------------------------------
-
   const scrollCoordinator = useTranscriptScroll({
     transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
-    onLoadOlder: loadOlder,
+    onLoadOlder: historyPagination.fetchOlderPage,
   });
 
   const handleScrollToLatest = useCallback(() => {
@@ -585,20 +490,8 @@ export function ChatRouteContent({
   }, [scrollCoordinator]);
 
   // -------------------------------------------------------------------------
-  // Focus effect
-  // -------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!typingDisabled && !sendDisabled && shouldFocusInputRef.current) {
-      shouldFocusInputRef.current = false;
-      inputRef.current?.focus();
-    }
-  }, [typingDisabled, sendDisabled, inputRef]);
-
-  // -------------------------------------------------------------------------
   // Draft notice auto-dismiss
   // -------------------------------------------------------------------------
-
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
@@ -617,152 +510,78 @@ export function ChatRouteContent({
   }, [activeConversationId, restoredDraftConversationId, clearRestoredDraftNotice]);
 
   // -------------------------------------------------------------------------
-  // Composer submit
+  // Composer submit (extracted hook — fixes fake FormEvent pattern)
   // -------------------------------------------------------------------------
-
-  const handleSubmit = useCallback(async (e: FormEvent, inputOverride?: string) => {
-    e.preventDefault();
-    const trimmed = (inputOverride ?? input).trim();
-    if (sendDisabled) return;
-    if (!trimmed && attachmentUploadedIds.length === 0) return;
-    if (attachmentsUploadingCount > 0) return;
-    const attachmentsToSend: DisplayAttachment[] = chatAttachments
-      .filter(
-        (att): att is Extract<typeof att, { kind: "uploaded" }> => att.kind === "uploaded",
-      )
-      .map((att) => ({
-        id: att.id,
-        filename: att.filename,
-        mimeType: att.mimeType,
-        sizeBytes: att.sizeBytes,
-        previewUrl: att.previewUrl ?? null,
-      }));
-    setInput("");
-    // (The ghost-text suggestion clears automatically — once the user
-    // message lands in `messages` the suggestion query key derives
-    // `lastCompleteAssistantMsgId = null` and the cached value is no
-    // longer matched. See `useGhostTextSuggestion`. — LUM-2009)
-    if (activeConversationId) {
-      clearDraft(activeConversationId);
-    }
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
-    resetChatAttachments();
-    if (!isPointerCoarse()) {
-      shouldFocusInputRef.current = true;
-    }
-    haptic.medium();
-    // Engage the auto-pin window so the new turn lands at the bottom
-    // — even if the user had scrolled up while composing — and so the
-    // initial response render (which expands LatestTurnRow via
-    // useViewportMinHeight) stays anchored at the latest message.
-    scrollCoordinator.scrollToLatest({ behavior: "auto" });
-    if (isEditing && editingMessageId && assistantId && activeConversationId) {
-      cancelEditing();
-      try {
-        await conversationsByIdUndoPost({
-          path: { assistant_id: assistantId, id: activeConversationId },
-        });
-      } catch {
-        // If undo fails, still send the message as a new one
-      }
-    }
-    await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator, isEditing, editingMessageId, assistantId, cancelEditing]);
+  const { submitMessage, handleFormSubmit } = useComposerSubmit({
+    sendMessage,
+    inputRef,
+    scrollToLatest: scrollCoordinator.scrollToLatest,
+    isEditing,
+    editingMessageId,
+    cancelEditing,
+    sendDisabled,
+    typingDisabled,
+    assistantId,
+    activeConversationId,
+  });
 
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {
     setInput(starter.prompt);
-    void handleSubmit(
-      { preventDefault: () => {} } as unknown as FormEvent,
-      starter.prompt,
-    );
-  }, [setInput, handleSubmit]);
+    void submitMessage(starter.prompt);
+  }, [setInput, submitMessage]);
 
   // -------------------------------------------------------------------------
-  // Empty state placeholder (stable per mount)
+  // Rule editor bridge (viewer-store seq → rule editor open)
   // -------------------------------------------------------------------------
-
-  const emptyStatePlaceholder = useMemo(() => pickRandomPlaceholder(), []);
-
-  const emptyStateGreeting = useEmptyStateGreeting(assistantId);
+  useRuleEditorBridge(messages, handleOpenRuleEditorForToolCall);
 
   // -------------------------------------------------------------------------
-  // Disk pressure banner
+  // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
-
-  // `dismissed` clears when disk pressure exits the warning state; `suppressed`
-  // is the "Don't show again" choice and persists across state transitions.
-  const dismissedKey = assistantId
-    ? `vellum:diskPressureDismissed:${assistantId}`
-    : null;
-  const suppressedKey = assistantId
-    ? `vellum:diskPressureSuppressed:${assistantId}`
-    : null;
-
-  const [warningDismissed, setWarningDismissed] = useState(() => {
-    if (!dismissedKey) return false;
-    return getLocalBool(dismissedKey, false);
-  });
-  const [warningSuppressed, setWarningSuppressed] = useState(() => {
-    if (!suppressedKey) return false;
-    return getLocalBool(suppressedKey, false);
+  const renderDiskPressureBanner = useDiskPressureBanner({
+    diskPressure,
+    assistantId,
+    assistantStateKind: assistantState.kind,
   });
 
-  const dismissWarning = useCallback(
-    (permanent: boolean) => {
-      if (permanent) {
-        if (suppressedKey) {
-          setLocalBool(suppressedKey, true);
-        }
-        setWarningSuppressed(true);
-        return;
-      }
-      if (dismissedKey) {
-        setLocalBool(dismissedKey, true);
-      }
-      setWarningDismissed(true);
-    },
-    [dismissedKey, suppressedKey],
-  );
+  // -------------------------------------------------------------------------
+  // Empty state (greeting, starters, avatar)
+  // -------------------------------------------------------------------------
+  const {
+    emptyStateProps: chatEmptyStateProps,
+    startersSlot,
+    renderAvatar,
+    emptyStatePlaceholder,
+  } = useChatEmptyState({
+    assistantId,
+    isEmptyConversation,
+    avatar,
+    mainView,
+    openedAppState: openedAppState ? { name: openedAppState.name, dirName: openedAppState.dirName } : null,
+    isAssistantStreaming,
+    activeConversationIsProcessing,
+    onSelectStarter: handleSelectStarter,
+  });
 
-  // Clear the per-episode dismiss on state change; the suppressed flag is
-  // intentionally not cleared here so "Don't show again" actually sticks.
-  useEffect(() => {
-    const st = diskPressure.status?.state;
-    if (st && st !== "warning" && warningDismissed) {
-      if (dismissedKey) {
-        removeLocalSetting(dismissedKey);
-      }
-      setWarningDismissed(false);
-    }
-  }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
-
-  const renderDiskPressureBanner = useCallback((): ReactNode => {
-    if (!diskPressure.status) return null;
-    const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
-    if (!mode) return null;
-    if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
-    return (
-      <DiskPressureBanner
-        status={diskPressure.status}
-        mode={mode}
-        isAcknowledging={diskPressure.isAcknowledging}
-        acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
-        onAcknowledge={() => void diskPressure.acknowledge()}
-        onDismissWarning={dismissWarning}
-        onReviewWorkspaceData={() => void navigate(routes.workspace)}
-        // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
-        // No dedicated hosting-topology store exists yet, so we read from the assistantState prop.
-        onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
-      />
-    );
-  }, [diskPressure, navigate, assistantState.kind, warningDismissed, warningSuppressed, dismissWarning]);
+  // -------------------------------------------------------------------------
+  // Banner slots (nudge, queued, slack)
+  // -------------------------------------------------------------------------
+  const { mainBannerSlot, mainQueuedDrawerSlot, slackReadonlyBannerSlot } = useChatBannerSlots({
+    nudges,
+    queuedMessages,
+    onCancelQueuedMessage: handleCancelQueuedMessage,
+    onCancelAllQueued: handleCancelAllQueued,
+    onSteerMessage: handleSteerMessage,
+    onEditQueueTail: handleEditQueueTail,
+    queueSteering,
+    activeConversation,
+    sanitizedMessages,
+    assistantId,
+  });
 
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
-
   const billingBannerDecision = getChatBillingBannerDecision(error);
 
   const renderBillingComposerBanner = (): ReactNode => {
@@ -784,9 +603,8 @@ export function ChatRouteContent({
   };
 
   // -------------------------------------------------------------------------
-  // JSX construction variables
+  // JSX construction
   // -------------------------------------------------------------------------
-
   const textStateNoticesJsx = (
     <>
       {showUploadBlockedNotice && (
@@ -811,86 +629,11 @@ export function ChatRouteContent({
     </>
   );
 
-  // When the chat is rendered for editing an opened app, override the empty
-  // state greeting + starters so the first impression is app-specific. Each
-  // starter's `prompt` embeds the app reference so the assistant knows which
-  // app to load on the first message.
-  const editingApp =
-    mainView === "app-editing" && openedAppState
-      ? { name: openedAppState.name, dirName: openedAppState.dirName }
-      : null;
-
-  const chatEmptyStateProps: ChatEmptyStateProps = {
-    avatarSlot:
-      avatarComponents || avatarImageUrl ? (
-        <ChatAvatar
-          components={avatarComponents}
-          traits={avatarTraits}
-          customImageUrl={avatarImageUrl}
-          size={40}
-          interactive
-          isProcessing={activeConversationIsProcessing}
-        />
-      ) : null,
-    greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
-  };
-
-  /**
-   * Conversation-starter chips rendered below the composer on the empty
-   * state. Passed as a `startersSlot` to {@link ChatBody} so the chips
-   * appear after the composer while the greeting + composer + starters
-   * center as one visual group (LUM-1566).
-   */
-  const emptyStateStarters = editingApp
-    ? buildEditAppStarters(editingApp)
-    : conversationStarters;
-
-  const startersSlot =
-    isEmptyConversation && emptyStateStarters.length > 0 ? (
-      <div className="mt-4">
-        <ConversationStarterGrid
-          starters={emptyStateStarters}
-          onSelect={handleSelectStarter}
-        />
-      </div>
-    ) : undefined;
-
-  // Stable callback so the latest-turn avatar slot isn't rebuilt on every
-  // transcript render. Paired with `memo(ChatAvatar)`, the avatar re-renders
-  // only when its inputs actually change (avatar data, or the streaming /
-  // processing flags) rather than on each parent render.
-  const renderAvatar = useMemo(
-    () =>
-      avatarComponents || avatarImageUrl
-        ? () => (
-            <ChatAvatar
-              components={avatarComponents}
-              traits={avatarTraits}
-              customImageUrl={avatarImageUrl}
-              size={56}
-              interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
-            />
-          )
-        : undefined,
-    [
-      avatarComponents,
-      avatarImageUrl,
-      avatarTraits,
-      isAssistantStreaming,
-      activeConversationIsProcessing,
-    ],
-  );
-
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
     assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
-    // Store-owned so card/thinking expansion survives the transcript remount
-    // when the tool-detail drawer opens/closes (otherwise clicking a pill
-    // would collapse the activity card).
     expandedCardIds: useChatSessionStore.getState().expandedCardIds,
     expandedThinkingKeys: useChatSessionStore.getState().expandedThinkingKeys,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
@@ -918,7 +661,7 @@ export function ChatRouteContent({
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {
       showScrollToLatest: scrollCoordinator.showScrollToLatest,
-      shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
+      shouldLoadOlder: false,
     },
     onSubagentClick,
     onStopSubagent,
@@ -937,9 +680,9 @@ export function ChatRouteContent({
       error?.code === "PROVIDER_NOT_CONFIGURED" ||
       error?.code === "MANAGED_KEY_INVALID",
     onOpenAiSettings: pushToAiSettings,
-    onDismissApiKeyError: () => setError(null),
+    onDismissApiKeyError: () => useChatSessionStore.getState().setError(null),
     compactionCircuitOpenUntil,
-    onCompactionCircuitExpired: () => setCompactionCircuitOpenUntil(null),
+    onCompactionCircuitExpired: () => useChatSessionStore.getState().setCompactionCircuitOpenUntil(null),
     showMaintenanceBanner:
       assistantState.kind === "active" &&
       assistantState.maintenanceMode?.enabled === true,
@@ -953,7 +696,7 @@ export function ChatRouteContent({
     placeholder: isEmptyConversation
       ? emptyStatePlaceholder
       : "What would you like to do?",
-    onSubmit: (e: FormEvent) => void handleSubmit(e),
+    onSubmit: handleFormSubmit,
     inputRef,
     typingDisabled,
     sendDisabled,
@@ -1025,69 +768,9 @@ export function ChatRouteContent({
     transcriptProps: chatTranscriptProps,
   };
 
-  const mainBannerSlot = nudges.showBanner ? (
-    <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
-      {nudges.isOnIOS ? (
-        <IOSAppBanner
-          onDownload={nudges.nudge.handleDownload}
-          onDismiss={nudges.nudge.handleBannerDismiss}
-        />
-      ) : (
-        <MacOSAppBanner
-          onDownload={nudges.nudge.handleDownload}
-          onDismiss={nudges.nudge.handleBannerDismiss}
-        />
-      )}
-    </div>
-  ) : nudges.showGitHubBanner ? (
-    <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
-      <GitHubNudgeBanner
-        onStar={nudges.githubNudge.handleStar}
-        onDismiss={nudges.githubNudge.handleBannerDismiss}
-      />
-    </div>
-  ) : nudges.showDiscordBanner ? (
-    <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
-      <DiscordNudgeBanner
-        onJoin={nudges.discordNudge.handleJoin}
-        onDismiss={nudges.discordNudge.handleBannerDismiss}
-      />
-    </div>
-  ) : null;
-
-  const mainQueuedDrawerSlot = (
-    <QueuedMessagesDrawer
-      queuedMessages={queuedMessages}
-      onCancelMessage={handleCancelQueuedMessage}
-      onCancelAll={handleCancelAllQueued}
-      onSteer={handleSteerMessage}
-      showSteer={queueSteering}
-      onEditTail={handleEditQueueTail}
-    />
-  );
-
-  const slackReadonlyBannerDisplay =
-    activeConversation?.originChannel === "slack"
-      ? getSlackConversationDisplay({
-          conversation: activeConversation,
-          messages: sanitizedMessages,
-        })
-      : null;
-  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
-    <SlackChannelFooter
-      assistantId={assistantId ?? undefined}
-      conversation={activeConversation}
-      messages={sanitizedMessages}
-    />
-  ) : null;
-
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
-
-  // Determine variant: app-editing mode renders as a compact side panel.
-  // Must match ChatContentLayout's three-way guard (mainView + openedAppState
-  // + editingConversationId) so the variant stays consistent with the layout.
   const editingConversationId = useConversationStore.use.editingConversationId();
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
@@ -1124,3 +807,6 @@ export function ChatRouteContent({
     </>
   );
 }
+
+/** @deprecated Use {@link ChatMainPanel} — kept for migration. */
+export const ChatRouteContent = ChatMainPanel;

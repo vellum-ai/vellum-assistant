@@ -8,7 +8,7 @@
  * - LLM suggestion pre-population with `hasUserInteracted` guard
  * - Suggestion annotation in edit mode ("Suggested: {risk}")
  *
- * Rendered by `ChatRouteContent` when `showRuleEditor` is `true`. Driven by
+ * Rendered by `ChatMainPanel` when `showRuleEditor` is `true`. Driven by
  * `RuleEditorContext` from `useInteractionActions`.
  */
 

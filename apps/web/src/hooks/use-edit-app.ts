@@ -18,13 +18,13 @@ import { routes } from "@/utils/routes";
  * Resolves (and persists) the edit conversation for this `(assistant, app)`
  * pair so repeated edits land back in the same thread, loads the app into the
  * viewer if it isn't already there, and navigates to that conversation so
- * `ChatRouteContent` renders the `app-editing` split.
+ * `ChatMainPanel` renders the `app-editing` split.
  *
  * On a mobile viewport the split layout doesn't fit, so the viewer stays
  * full-screen (`app`) while still binding the edit conversation — matching
  * `useOpenAppFromChat`.
  *
- * Shared by the in-chat app viewer (`ChatRouteContent`) and the standalone
+ * Shared by the in-chat app viewer (`ChatMainPanel`) and the standalone
  * Library app view (`LibraryDetailPage`).
  */
 export function useEditApp(): (app: OpenedAppState) => void {

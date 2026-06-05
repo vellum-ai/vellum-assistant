@@ -4,7 +4,7 @@
  *
  * Getters read the same state the render path uses: turn state from the
  * turn store, and the `UIContext` straight from `uiContextRef` — the exact
- * object `ChatRouteContent` computes and renders from each frame. Reading
+ * object `ChatMainPanel` computes and renders from each frame. Reading
  * the rendered value (rather than recomputing it from raw stores) keeps the
  * debug snapshot tightly coupled to what's actually on screen, so e.g.
  * `thinkingIndicator().progressBadge.visible` can never disagree with the
@@ -29,14 +29,14 @@ export interface UseChatDebugRegistrationOptions {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   transcriptRef: MutableRefObject<TranscriptHandle | null>;
-  /** The `UIContext` `ChatRouteContent` computed and rendered from last
+  /** The `UIContext` `ChatMainPanel` computed and rendered from last
    *  frame. `null` until the chat view has rendered once. */
   uiContextRef: MutableRefObject<UIContext | null>;
   reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
 }
 
 /**
- * UIContext reported before `ChatRouteContent` has rendered (or while it is
+ * UIContext reported before `ChatMainPanel` has rendered (or while it is
  * unmounted, e.g. the auto-greet overlay). Nothing is processing or pending
  * in that state, so every gate is off.
  */

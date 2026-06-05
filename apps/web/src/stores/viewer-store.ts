@@ -163,7 +163,7 @@ export interface ViewerState {
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
-   * rule editor for `activeToolDetail`. `ChatRouteContent` owns the rule-editor
+   * rule editor for `activeToolDetail`. `ChatMainPanel` owns the rule-editor
    * state, so it watches this seq and performs the open against `messages`.
    */
   ruleEditorRequestSeq: number;

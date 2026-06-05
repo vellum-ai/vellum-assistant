@@ -6,7 +6,7 @@
  * - File attachments (upload lifecycle, error state, blob URL management)
  * - "Draft restored" notice signal
  *
- * Both `ActiveChatView` (orchestration) and `ChatRouteContent` (rendering)
+ * Both `ActiveChatView` (orchestration) and `ChatMainPanel` (rendering)
  * access this store directly — eliminating the 14-prop relay that previously
  * threaded draft + attachment state between them.
  *

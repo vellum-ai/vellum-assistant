@@ -4,7 +4,7 @@
  * Owns `showRuleEditor`, `ruleEditorContext`, and `isSavingRule` — the UI
  * state that controls visibility and content of `ChatRuleEditorModal`.
  * A Zustand store ensures all consumers share the same state, so any
- * component can open the rule editor and `ChatRouteContent` (which
+ * component can open the rule editor and `ChatMainPanel` (which
  * renders the modal) always sees the update.
  *
  * Also manages the suggestion abort controller to cancel in-flight LLM
