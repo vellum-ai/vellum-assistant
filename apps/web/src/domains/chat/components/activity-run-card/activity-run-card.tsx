@@ -116,6 +116,87 @@ function buildDefaultItems(
 }
 
 /**
+ * Tally of how many terminal, non-thinking steps a run produced and how many
+ * of those failed. Thinking steps are excluded — they carry no success/failure
+ * semantics — so a `thinking → failed-bash` run reads as "every tool failed",
+ * not "half failed".
+ */
+function countStepOutcomes(steps: ToolCallCardStep[]): {
+  total: number;
+  failed: number;
+} {
+  let total = 0;
+  let failed = 0;
+  for (const step of steps) {
+    if (step.kind === "thinking") continue;
+    total += 1;
+    if (
+      step.kind === "tool_error" ||
+      step.kind === "web_search_error" ||
+      (step.kind === "tool" &&
+        (step.status === "error" || step.status === "denied"))
+    ) {
+      failed += 1;
+    }
+  }
+  return { total, failed };
+}
+
+/**
+ * Collapse the card's base state plus the per-step failure tally into the
+ * summary chrome shown on the header status icon:
+ *
+ * - every tool succeeded → `complete` (green check)
+ * - some — but not all — tools failed → `warning` (amber triangle); the run
+ *   still produced useful work, so a full red error overstates it
+ * - every tool failed → `error` (red); a true failure
+ *
+ * `loading` always wins while anything is still running. Thinking steps never
+ * count toward the tally (see {@link countStepOutcomes}).
+ */
+function deriveSummaryState(
+  baseState: ToolCallCardData["state"],
+  steps: ToolCallCardStep[],
+): ToolProgressCardState {
+  if (baseState === "loading" || baseState === "complete") return baseState;
+  // baseState is `error` / `denied` → at least one failure is present.
+  const { total, failed } = countStepOutcomes(steps);
+  if (failed > 0 && failed < total) return "warning";
+  return "error";
+}
+
+/**
+ * Stable header label shown in place of the live per-step title once the card
+ * is expanded. The status icon to its left already encodes the outcome, so
+ * this stays a short heading for the steps timeline rather than echoing the
+ * latest step.
+ *
+ * Once the run is terminal and we have timing data, the summary reports how
+ * long the agent worked ("Worked for 16s") regardless of outcome — the icon
+ * still carries success / partial / failure. Without timing data it falls back
+ * to an outcome label, and the `warning` fallback spells out how many tools
+ * failed.
+ */
+function expandedHeaderLabel(
+  state: ToolProgressCardState,
+  totalDurationLabel: string,
+  failedCount: number,
+): string {
+  if (state === "loading") return "Working";
+  if (totalDurationLabel) return `Worked for ${totalDurationLabel}`;
+  switch (state) {
+    case "warning":
+      return `${failedCount} ${failedCount === 1 ? "tool" : "tools"} failed`;
+    case "error":
+    case "denied":
+      return "Failed";
+    case "complete":
+    default:
+      return "Completed";
+  }
+}
+
+/**
  * Activity-run card. Renders a contiguous run of interleaved thinking + tool
  * steps as a single combined card. All tool groups — web search, bash, file
  * ops, MCP, computer use, skills — render through the shared
@@ -297,18 +378,39 @@ function UnifiedActivityRunCard({
   // currently open renders selected. `null` when the drawer is closed or
   // showing another view, so no pill reads as active.
   const openToolDetailId = activeDetail?.toolCallId ?? null;
-  const shellState: ToolProgressCardState = cardData.state;
+  // A partial failure (some tools failed, some succeeded) reads as an amber
+  // `warning` rather than a full red `error`; an all-failed run stays `error`.
+  const outcomes = countStepOutcomes(cardData.steps);
+  const shellState: ToolProgressCardState = deriveSummaryState(
+    cardData.state,
+    cardData.steps,
+  );
 
   // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
   // isn't carried on the step descriptor. The pill's click handler also
   // reads the raw call to build the tool-detail drawer payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
+  // Expanded, the full step timeline is visible below, so echoing the latest
+  // step's title + info in the header is pure repetition. Swap the live
+  // per-step title for a stable overall-status label ("Working" / "Completed" /
+  // "Failed") and drop the info entirely — the header then reads as a section
+  // heading for the expanded steps rather than a duplicate of the last row.
+  const headerTitle = expanded
+    ? expandedHeaderLabel(
+        shellState,
+        cardData.totalDurationLabel ?? "",
+        outcomes.failed,
+      )
+    : cardData.currentStepTitle;
+
   // When the latest step is a thinking segment, the collapsed header pairs a
-  // brain glyph with the thinking text. Memoized so the carousel (which
-  // compares the info node by reference via `Object.is`) doesn't re-animate on
-  // every parent render — only when the (kind, info) tuple actually changes.
+  // brain glyph with the thinking text. Suppressed when expanded (the timeline
+  // below already shows every step). Memoized so the carousel (which compares
+  // the info node by reference via `Object.is`) doesn't re-animate on every
+  // parent render — only when the (expanded, kind, info) tuple actually changes.
   const headerInfo = useMemo(() => {
+    if (expanded) return null;
     if (cardData.currentStepKind === "thinking") {
       return (
         // Fill the carousel's flex slot (`flex w-full min-w-0`) so the inner
@@ -330,7 +432,7 @@ function UnifiedActivityRunCard({
       );
     }
     return cardData.currentStepInfo;
-  }, [cardData.currentStepKind, cardData.currentStepInfo]);
+  }, [expanded, cardData.currentStepKind, cardData.currentStepInfo]);
 
   return (
     <ToolProgressCardShell
@@ -341,20 +443,19 @@ function UnifiedActivityRunCard({
       // (`WebSearchView`) and the subagent inline card stay boxed.
       bare
       state={shellState}
-      currentStepTitle={cardData.currentStepTitle}
+      currentStepTitle={headerTitle}
       currentStepInfo={headerInfo}
       stepCount={cardData.stepCount}
       expanded={expanded}
       onExpandChange={onCardExpandChange}
     >
-      {/* Bare body in TIMELINE mode. Left padding is ZERO so the timeline node
-          icons' left edge lines up EXACTLY with the bare header's status icon
-          (which sits at the card content-left, x≈0, via the header Button's
-          `-ml-1.5 px-1.5` net-zero offset). `pt-2` (8px) plus the connector
-          lead-in bridges the gap up to the header icon; `pr-3 pb-2` keep the
-          right/bottom breathing room. The body wrapper owns no `gap` — each
-          timeline section owns its own spacing via `pb-3`. */}
-      <div className="flex w-full flex-col pb-2 pl-px pr-3 pt-4">
+      {/* Bare body in TIMELINE mode. `pl-[18px]` indents the whole expanded
+          timeline in from the bare header's status icon so the steps read as
+          children nested under the header rather than flush with it. `pt-4`
+          plus the connector lead-in bridges the gap up to the header; `pr-3
+          pb-2` keep the right/bottom breathing room. The body wrapper owns no
+          `gap` — each timeline section owns its own spacing via `pb-3`. */}
+      <div className="flex w-full flex-col pb-2 pl-[18px] pr-3 pt-4">
         <PhaseGroupedStepList
           steps={cardData.steps}
           timeline

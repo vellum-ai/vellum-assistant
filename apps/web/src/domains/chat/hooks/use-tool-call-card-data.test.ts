@@ -77,6 +77,7 @@ describe("computeToolCallCardData — step kinds", () => {
     expect(data.steps[0]).toEqual({
       kind: "tool",
       durationLabel: "2s",
+      startedAt: 1000,
       title: "Working (bash)",
       info: "echo hello",
       activity: "",
