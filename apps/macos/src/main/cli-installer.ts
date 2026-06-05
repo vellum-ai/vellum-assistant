@@ -9,7 +9,7 @@ import {
 import path from "node:path";
 
 // Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.8.7";
+export const PINNED_CLI_VERSION = "0.8.8";
 
 /** Directory where the pinned CLI version is installed. */
 export function getCliInstallDir(): string {
