@@ -72,12 +72,20 @@ const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
   v2Enabled?: boolean;
+  consolidationEnabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.v2Enabled !== undefined) {
     partial.memory.v2.enabled = overrides.v2Enabled;
+  }
+  if (overrides.consolidationEnabled !== undefined) {
+    (
+      partial.memory.v2 as typeof partial.memory.v2 & {
+        consolidation_enabled?: boolean;
+      }
+    ).consolidation_enabled = overrides.consolidationEnabled;
   }
   if (overrides.intervalHours !== undefined) {
     partial.memory.v2.consolidation_interval_hours = overrides.intervalHours;
@@ -110,6 +118,15 @@ function countPendingJobs(type: string): number {
     .all().length;
 }
 
+function consolidationJobPayloads(): Record<string, unknown>[] {
+  return getDb()
+    .select({ payload: memoryJobs.payload })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.type, "memory_v2_consolidate"))
+    .all()
+    .map((row) => JSON.parse(row.payload) as Record<string, unknown>);
+}
+
 // Initialize the DB once for the file; clear per-test tables in beforeEach
 // rather than tearing down the singleton, which is slow because it re-runs
 // every migration on the next access.
@@ -138,6 +155,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(consolidationJobPayloads()).toEqual([{ trigger: "automatic" }]);
     // v1 entries are suppressed when v2 is active.
     expect(countPendingJobs("graph_decay")).toBe(0);
     expect(countPendingJobs("graph_consolidate")).toBe(0);
@@ -170,6 +188,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     maybeEnqueueGraphMaintenanceJobs(config, now);
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(consolidationJobPayloads()).toEqual([{ trigger: "automatic" }]);
   });
 
   test("respects a custom consolidation_interval_hours value", () => {
@@ -230,6 +249,28 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_pattern_scan")).toBe(1);
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("automatic consolidation off suppresses the v2 schedule without re-enabling v1 maintenance", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      consolidationEnabled: false,
+      intervalHours: 1,
+    });
+
+    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
+    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_decay")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(0);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(0);
   });
 });
 
@@ -359,6 +400,21 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
   test("size trigger inert when v2 is disabled", () => {
     const config = buildConfig({
       v2Enabled: false,
+      intervalHours: 1,
+      maxBufferLines: 1,
+    });
+
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("size trigger inert when automatic consolidation is disabled", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      consolidationEnabled: false,
       intervalHours: 1,
       maxBufferLines: 1,
     });

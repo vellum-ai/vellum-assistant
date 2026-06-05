@@ -427,6 +427,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.applyAssistantAttention(from: item, into: &conversation)
     }
 
+    func mergeConversationRow(from item: ConversationListResponseItem) {
+        listStore.mergeConversationRow(from: item)
+    }
+
     func handleSyncRoutes(_ routes: [SyncTagRoute]) {
         conversationRestorer.handleSyncRoutes(
             routes,

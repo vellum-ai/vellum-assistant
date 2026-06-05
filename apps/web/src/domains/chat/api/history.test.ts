@@ -207,22 +207,6 @@ describe("response parsing", () => {
     expect(older.oldestMessageId).toBeNull();
   });
 
-  test("filters out messages with roles other than user/assistant", async () => {
-    nextResponse = makeJsonResponse({
-      messages: [
-        { id: "m1", role: "user", ...textBody("hello") },
-        { id: "m2", role: "system", ...textBody("internal") },
-      ],
-      hasMore: false,
-      oldestTimestamp: 0,
-      oldestMessageId: "m1",
-    });
-
-    const result = await fetchLatestHistoryPage("asst-1", "K");
-    expect(result.messages).toHaveLength(1);
-    expect(result.messages[0]!.id).toBe("m1");
-  });
-
   test("deduplicates duplicate message ids in a history page", async () => {
     nextResponse = makeJsonResponse({
       messages: [

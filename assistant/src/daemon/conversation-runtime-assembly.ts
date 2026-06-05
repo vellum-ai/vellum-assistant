@@ -5,13 +5,15 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
+import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
   getAppDirPath,
@@ -27,7 +29,6 @@ import {
   extractMemoryPrefixBlocks,
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
-import { getPkbAutoInjectList } from "../memory/pkb/autoinject.js";
 import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
@@ -41,7 +42,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
-import { getInjectors } from "../plugins/registry.js";
+import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import type {
   DiskPressureInjectionContext,
   InjectionBlock,
@@ -59,15 +60,12 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
-import { stripCommentLines } from "../util/strip-comment-lines.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
   SurfaceType,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
@@ -331,6 +329,47 @@ export function buildActiveSurfaceContext(params: {
   return activeSurface;
 }
 
+/**
+ * Lists the conversation's active documents as the lightweight summaries the
+ * `active-documents` injector surfaces to the assistant — letting it target
+ * existing documents with `document_update` instead of issuing duplicate
+ * `document_create` calls. Returns `null` when the conversation has none.
+ */
+export function buildActiveDocuments(conversationId: string): Array<{
+  surfaceId: string;
+  title: string;
+  wordCount: number;
+  updatedAt: number;
+}> | null {
+  const conversationDocs = getDocumentsForConversation(conversationId);
+  return conversationDocs.length > 0
+    ? conversationDocs.map((d) => ({
+        surfaceId: d.surfaceId,
+        title: d.title,
+        wordCount: d.wordCount,
+        updatedAt: d.updatedAt,
+      }))
+    : null;
+}
+
+/**
+ * Resolves the `<workspace>` top-level block for the runtime injector, or
+ * `null` when the turn isn't injecting it. The refresh runs every turn so a
+ * workspace-mutating tool's `markWorkspaceTopLevelDirty` is picked up on the
+ * following turn; it is dirty-guarded, so it only rescans when the cache is
+ * stale.
+ */
+export function buildWorkspaceTopLevelContext(
+  ctx: {
+    refreshWorkspaceTopLevelContextIfNeeded(): void;
+    workspaceTopLevelContext: string | null;
+  },
+  shouldInject: boolean,
+): string | null {
+  ctx.refreshWorkspaceTopLevelContextIfNeeded();
+  return shouldInject ? ctx.workspaceTopLevelContext : null;
+}
+
 const MAX_CONTEXT_LENGTH = 100_000;
 
 function truncateHtml(html: string, budget: number): string {
@@ -546,7 +585,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/injectors/register.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
 // placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
@@ -570,30 +609,7 @@ function injectVoiceCallControlContext(
 // NOW.md scratchpad injection
 // ---------------------------------------------------------------------------
 
-/**
- * Read the NOW.md scratchpad from the workspace prompt directory.
- *
- * Returns the trimmed content with `_`-prefixed comment lines stripped,
- * or `null` if the file is missing, empty, or unreadable.
- */
-export function readNowScratchpad(): string | null {
-  const nowPath = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(nowPath)) return null;
-  try {
-    const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
-    return stripped.length > 0 ? stripped : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The `<NOW.md>` block is emitted by the `now-md` default injector
- * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix` placement.
- * Use {@link applyRuntimeInjections} with `options.nowScratchpad` set.
- */
-
-/** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
+/** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
     // Shared prefix catches both the current tag and any pre-line-limit
@@ -601,54 +617,6 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
     "<NOW.md Always keep this up to date",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
-}
-
-// ---------------------------------------------------------------------------
-// PKB (Personal Knowledge Base) injection
-// ---------------------------------------------------------------------------
-
-/** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
-const MAX_BUFFER_LINES = 50;
-
-/**
- * Read the always-loaded PKB files and append a nudge encouraging the
- * assistant to proactively read topic files and use `remember` aggressively.
- *
- * Which files are loaded is determined by `pkb/_autoinject.md` (one filename
- * per line). Falls back to the built-in defaults when that file is absent.
- *
- * Returns the concatenated content ready for injection, or `null` if all
- * files are missing or empty.
- */
-export function readPkbContext(): string | null {
-  const pkbDir = join(getWorkspaceDir(), "pkb");
-  if (!existsSync(pkbDir)) return null;
-
-  const filesToInject = getPkbAutoInjectList(pkbDir);
-
-  const parts: string[] = [];
-  for (const file of filesToInject) {
-    // Path traversal guard: reject entries that escape the pkb directory
-    const filePath = resolve(pkbDir, file);
-    if (!filePath.startsWith(pkbDir + "/")) continue;
-
-    if (!existsSync(filePath)) continue;
-    try {
-      let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
-      if (file === "buffer.md" && content.length > 0) {
-        // Cap buffer entries to prevent unbounded growth when filing is disabled
-        const lines = content.split("\n");
-        if (lines.length > MAX_BUFFER_LINES) {
-          content = lines.slice(-MAX_BUFFER_LINES).join("\n");
-        }
-      }
-      if (content.length > 0) parts.push(content);
-    } catch {
-      // Skip unreadable files
-    }
-  }
-
-  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 /**
@@ -1688,33 +1656,6 @@ export function loadSlackActiveThreadFocusBlock(
 }
 
 /**
- * Extract the most recently injected NOW.md content from the message history.
- * Returns null if no NOW.md injection is found.
- */
-export function findLastInjectedNowContent(messages: Message[]): string | null {
-  // Matches every NOW.md opening tag we emit (the tag text may evolve over
-  // time, e.g. adding a line-limit hint), so in-flight histories with older
-  // tag variants remain discoverable during a rolling deploy.
-  const openTagPrefix = "<NOW.md Always keep this up to date";
-  const suffix = "\n</NOW.md>";
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== "user") continue;
-    for (const block of msg.content) {
-      if (block.type !== "text" || !block.text.startsWith(openTagPrefix)) {
-        continue;
-      }
-      const tagEnd = block.text.indexOf(">\n");
-      if (tagEnd < 0) continue;
-      const contentStart = tagEnd + ">\n".length;
-      const end = block.text.lastIndexOf(suffix);
-      if (end > contentStart) return block.text.slice(contentStart, end);
-    }
-  }
-  return null;
-}
-
-/**
  * Controls which runtime injections are applied.
  *
  * - `'full'` (default): all injections are applied.
@@ -1761,8 +1702,14 @@ export interface RuntimeInjectionResult {
 }
 
 /**
- * Run every registered {@link Injector}'s `produce()` in ascending `order`
- * and return every non-null block the chain produced.
+ * Run every {@link Injector} in the chain ({@link getInjectorChain}, already
+ * sorted by ascending `order`) and return every non-null block it produced.
+ *
+ * `runMessages` is the turn's working message array, forwarded to each
+ * injector so producers that need the current prompt contents read it from a
+ * parameter rather than the shared {@link TurnContext}. Omitted by text-only
+ * callers ({@link composeInjectorChain}) that drive the chain without a
+ * message array.
  *
  * Injectors returning `null` are omitted from the result. The returned array
  * preserves ascending-`order` sort so downstream callers (notably
@@ -1771,12 +1718,11 @@ export interface RuntimeInjectionResult {
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
+  runMessages?: Message[],
 ): Promise<InjectionBlock[]> {
-  const injectors = getInjectors();
-  if (injectors.length === 0) return [];
   const out: InjectionBlock[] = [];
-  for (const injector of injectors) {
-    const block = await injector.produce(ctx);
+  for (const injector of getInjectorChain()) {
+    const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
   return out;
@@ -1913,29 +1859,6 @@ export interface RuntimeInjectionOptions {
   channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
   voiceCallControlPrompt?: string | null;
-  pkbContext?: string | null;
-  pkbActive?: boolean;
-  /**
-   * The live conversation (or a minimal shape containing `messages`) used
-   * to compute which PKB paths are already "in context" and therefore
-   * suppressed from hint suggestions.
-   */
-  pkbConversation?: PkbContextConversation;
-  /**
-   * Working directory against which relative `file_read` tool paths
-   * resolve, used to detect workspace-relative reads like
-   * `pkb/threads.md`. Falls back to the PKB root when omitted.
-   */
-  pkbWorkingDir?: string;
-  /**
-   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
-   * concatenated, header-wrapped). When non-null on full-mode turns the
-   * `memory-v2-static` injector wraps it in `<info>` and splices it onto
-   * the user message; subsequent turns leave the prior block cached on its
-   * original user message.
-   */
-  memoryV2Static?: string | null;
-  nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   /**
@@ -1983,20 +1906,6 @@ export interface RuntimeInjectionOptions {
   activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
-   * memory-v3-live: when true AND the v3 injector produced a `<memory>` block
-   * this turn (placement `after-memory-prefix`, id `memory-v3`), the v2
-   * `<memory>` injection that `graphMemory.prepareMemory` prepended to the
-   * tail is stripped from EVERY user message before the v3 block is spliced —
-   * so v3 becomes the sole `<memory>` source and history stays byte-stable for
-   * prompt caching.
-   *
-   * The strip is keyed off whether v3 ACTUALLY produced a block, not off the
-   * flag alone: when v3 errors or selects nothing (its injector returns
-   * `null`), v2's block is left in place so the turn still ships memory rather
-   * than dropping it (fallback-to-v2). Default false — v2 untouched.
-   */
-  suppressV2MemoryForV3?: boolean;
-  /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
    * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
    * `applyRuntimeInjections` synthesizes an ephemeral context (with a
@@ -2028,12 +1937,6 @@ function buildTurnInjectionInputs(
     diskPressureContext: options.diskPressureContext,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
-    pkbContext: options.pkbContext,
-    pkbActive: options.pkbActive,
-    pkbConversation: options.pkbConversation,
-    pkbWorkingDir: options.pkbWorkingDir,
-    memoryV2Static: options.memoryV2Static,
-    nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
@@ -2121,7 +2024,7 @@ export async function applyRuntimeInjections(
     ? { ...options.turnContext, injectionInputs }
     : synthesizeFallbackTurnContext(injectionInputs);
 
-  const chainBlocks = await collectInjectorBlocks(turnCtx);
+  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.
@@ -2201,21 +2104,25 @@ export async function applyRuntimeInjections(
       : undefined;
 
   // ── Step 0: memory-v3-live v2 suppression ──
-  // When v3 live mode is on AND the v3 injector actually produced a block this
-  // turn, v3 is the sole `<memory>` source. v2's `prepareMemory` already
-  // prepended its own `<memory>` block to the tail user message (and historical
-  // turns may carry v2 blocks from earlier turns). Strip every user message's
-  // memory prefix here so:
+  // When the `memory-v3-live` flag is on AND the v3 injector actually produced
+  // a block this turn, v3 is the sole `<memory>` source. v2's `prepareMemory`
+  // already prepended its own `<memory>` block to the tail user message (and
+  // historical turns may carry v2 blocks from earlier turns). Strip every user
+  // message's memory prefix here so:
   //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
   //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
   //   2. History is byte-stable across turns for prompt caching.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
-  // see no change.
+  // see no change. Flag off → bit-for-bit identical to the v2 path.
+  const suppressV2MemoryForV3 = isAssistantFeatureFlagEnabled(
+    "memory-v3-live",
+    getConfig(),
+  );
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   let runMessagesForAssembly = runMessages;
-  if (options.suppressV2MemoryForV3 && v3ProducedBlock) {
+  if (suppressV2MemoryForV3 && v3ProducedBlock) {
     runMessagesForAssembly = stripAllMemoryInjections(runMessages);
   }
 

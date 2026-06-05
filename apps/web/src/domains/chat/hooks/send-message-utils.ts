@@ -45,7 +45,7 @@ export function clearConfirmationByRequestId(
     const updatedTcs = msg.toolCalls.map((tc) => {
       if (tc.pendingConfirmation?.requestId === requestId) {
         msgChanged = true;
-        return { ...tc, pendingConfirmation: null };
+        return { ...tc, pendingConfirmation: undefined };
       }
       return tc;
     });
@@ -72,7 +72,7 @@ export function clearPendingConfirmationsFromMessages(
     const updatedTcs = msg.toolCalls.map((tc) => {
       if (tc.pendingConfirmation) {
         msgChanged = true;
-        return { ...tc, pendingConfirmation: null };
+        return { ...tc, pendingConfirmation: undefined };
       }
       return tc;
     });

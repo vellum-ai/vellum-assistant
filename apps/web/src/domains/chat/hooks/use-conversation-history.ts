@@ -22,6 +22,7 @@ import { startTransition, useEffect } from "react";
 import {
   reconcileDisplayMessagesWithLatestHistory,
 } from "@/domains/chat/utils/reconcile";
+import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
@@ -201,6 +202,26 @@ export function useConversationHistory({
           );
         }
       }
+      // Restore an in-flight confirmation the snapshot carries on a tool call
+      // (stamped by the daemon from the pending-interactions registry at render
+      // time). On a cold reconnect the prompt rides the snapshot rather than a
+      // replayed `confirmation_request` event, and binding it to its tool call
+      // restores the inline card on the right chip. Skipped when a prompt is
+      // already active so a live in-progress confirmation is never clobbered.
+      const wirePendingConfirmation =
+        extractWirePendingConfirmation(filteredMessages);
+      if (
+        wirePendingConfirmation &&
+        !useInteractionStore.getState().pendingConfirmation
+      ) {
+        const interactionStore = useInteractionStore.getState();
+        interactionStore.showConfirmation(wirePendingConfirmation);
+        if (wirePendingConfirmation.toolUseId) {
+          interactionStore.setInlineConfirmationToolCallId(
+            wirePendingConfirmation.toolUseId,
+          );
+        }
+      }
     } else {
       recordDiagnostic("history_tq_empty", {
         assistantId,
@@ -263,7 +284,10 @@ export function useConversationHistory({
         if (parsed_secret) {
           useInteractionStore.getState().showSecret(parsed_secret);
         }
-        if (interactions.pendingConfirmation) {
+        if (
+          interactions.pendingConfirmation &&
+          !useInteractionStore.getState().pendingConfirmation
+        ) {
           const { state } = parsePendingConfirmationData(
             interactions.pendingConfirmation as Record<string, unknown>,
           );

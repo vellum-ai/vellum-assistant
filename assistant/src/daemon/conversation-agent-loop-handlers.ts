@@ -27,6 +27,7 @@ import {
   provenanceFromTrustContext,
   reserveMessage,
   setConversationHistoryStrippedAt,
+  setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -136,6 +137,16 @@ export interface PendingToolResult {
 /** Mutable state shared across event handlers within a single agent loop run. */
 export interface EventHandlerState {
   llmCallStartedEmitted: boolean;
+  /**
+   * Profile key whose `model_profile` notice has been assembled into the turn
+   * context but not yet marked notified. Set when the turn injects the notice,
+   * and consumed the first time the model actually receives that context — i.e.
+   * on the first `message_complete`. Persisting on delivery (rather than inline
+   * before the provider call) means a cancelled or failed turn re-sends the
+   * notice next turn instead of silently marking the profile notified without
+   * the model ever having seen it.
+   */
+  pendingNotifiedInferenceProfile: string | null;
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
   /** Most recent resolved provider for the current exchange's usage accounting. */
@@ -334,6 +345,7 @@ export interface EventHandlerDeps {
 export function createEventHandlerState(): EventHandlerState {
   return {
     llmCallStartedEmitted: false,
+    pendingNotifiedInferenceProfile: null,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeProviderName: undefined,
@@ -1638,6 +1650,18 @@ export async function handleMessageComplete(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
+  // The model has now received the turn context, so persist any pending
+  // inference-profile-change notification. Guarded by the pending slot so it
+  // fires once per turn; a turn that fails before reaching delivery leaves the
+  // slot unconsumed and re-sends the notice next turn.
+  if (state.pendingNotifiedInferenceProfile != null) {
+    setLastNotifiedInferenceProfile(
+      deps.ctx.conversationId,
+      state.pendingNotifiedInferenceProfile,
+    );
+    state.pendingNotifiedInferenceProfile = null;
+  }
+
   // Reset per-turn tool tracking for the new turn.
   state.currentTurnToolUseIds = [];
 

@@ -13,8 +13,13 @@ describe("feature flag catalog", () => {
 
   test("exposes the activation flow experiment as a client flag", () => {
     expect(CLIENT_FLAG_DEFAULTS.experimentActivationFlow20260603).toBe(false);
-    expect(
-      "experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS,
-    ).toBe(false);
+    expect("experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false
+    );
+  });
+
+  test("exposes dynamic empty-state greetings as an assistant flag", () => {
+    expect(ASSISTANT_FLAG_DEFAULTS.emptyStateDynamicGreetings).toBe(false);
+    expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
 });

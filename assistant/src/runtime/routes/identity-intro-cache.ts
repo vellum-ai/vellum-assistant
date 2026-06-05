@@ -3,37 +3,32 @@
  *
  * Greetings are sourced from (in priority order):
  * 1. A `## Greetings` section in SOUL.md (user-defined bullet list)
- * 2. A cached greetings array (populated by the BTW side-chain LLM call)
- * 3. Fallback: the assistant name from IDENTITY.md
+ * 2. A cached greetings array (populated by the empty-state greeting callsite)
+ * 3. A generic fallback when generation is unavailable
  *
- * Cache uses TTL + content-hash invalidation: when IDENTITY.md, SOUL.md, or
- * the guardian persona change, the cache is busted.
+ * Cache invalidation is intentionally TTL-only. User-authored SOUL.md
+ * greetings are read before cache, so manual overrides still take priority
+ * without coupling cache validity to prompt-file edits.
  *
  * Storage uses the existing `memory_checkpoints` table (simple key-value store).
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../memory/checkpoints.js";
-import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CACHE_TTL_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
 
 const CHECKPOINT_KEY_GREETINGS = "identity:intro:greetings";
-const CHECKPOINT_KEY_HASH = "identity:intro:content_hash";
 const CHECKPOINT_KEY_TIMESTAMP = "identity:intro:cached_at";
-
-/** Workspace files whose content influences the identity intro. */
-const IDENTITY_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,14 +120,6 @@ export function readWorkspaceGreetings(): string[] | null {
   return parseGreetingsSection(soulContent);
 }
 
-/** Compute a SHA-256 hex hash of the concatenated identity file contents. */
-export function computeIdentityContentHash(): string {
-  const staticFiles = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");
-  const guardianPersona = resolveGuardianPersona() ?? "";
-  const combined = staticFiles + "\n---\n" + guardianPersona;
-  return createHash("sha256").update(combined).digest("hex");
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -142,26 +129,21 @@ export interface CachedIntro {
 }
 
 /**
- * Retrieve the cached greetings array if it exists, is within the TTL window,
- * and the identity files have not changed since it was generated.
+ * Retrieve the cached greetings array if it exists and is within the TTL
+ * window.
  *
- * Returns `null` when the cache is missing, expired, or invalidated.
+ * Returns `null` when the cache is missing or expired.
  */
 export function getCachedIntro(): CachedIntro | null {
   try {
     const raw = getMemoryCheckpoint(CHECKPOINT_KEY_GREETINGS);
-    const hash = getMemoryCheckpoint(CHECKPOINT_KEY_HASH);
     const timestampStr = getMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP);
 
-    if (!raw || !hash || !timestampStr) return null;
+    if (!raw || !timestampStr) return null;
 
     // TTL check
     const cachedAt = Number(timestampStr);
     if (isNaN(cachedAt) || Date.now() - cachedAt > CACHE_TTL_MS) return null;
-
-    // Content-hash check — bust cache when identity files change
-    const currentHash = computeIdentityContentHash();
-    if (currentHash !== hash) return null;
 
     // Parse stored value — handles both JSON array and legacy single string
     let greetings: string[];
@@ -178,16 +160,11 @@ export function getCachedIntro(): CachedIntro | null {
   }
 }
 
-/**
- * Store a greetings array in the cache along with the current content hash
- * and timestamp.
- */
+/** Store a greetings array in the cache along with the current timestamp. */
 export function setCachedIntro(greetings: string[]): void {
   try {
-    const hash = computeIdentityContentHash();
     const now = String(Date.now());
     setMemoryCheckpoint(CHECKPOINT_KEY_GREETINGS, JSON.stringify(greetings));
-    setMemoryCheckpoint(CHECKPOINT_KEY_HASH, hash);
     setMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP, now);
   } catch {
     // Cache write failure is non-fatal — next request will regenerate.

@@ -48,7 +48,6 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
-import { getDocumentsForConversation } from "../documents/document-store.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
@@ -67,7 +66,6 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
   updateMessageMetadata,
@@ -82,10 +80,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import {
-  readMemoryV2StaticContent,
-  shouldExposePersonalMemory,
-} from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
@@ -155,10 +149,11 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildActiveDocuments,
   buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
-  findLastInjectedNowContent,
+  buildWorkspaceTopLevelContext,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -169,7 +164,6 @@ import {
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
-import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import {
   formatTurnTimestamp,
@@ -190,7 +184,7 @@ import {
   UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
 import type { TraceEmitter } from "./trace-emitter.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -1137,67 +1131,16 @@ export async function runAgentLoopImpl(
       }
     };
 
-    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
-    // persists the retrieval's own side effects (injected-block metadata,
-    // recall log, `memory_recalled` event). Runs at the early "prompt
-    // submitted, before context assembly" moment because its outputs feed the
-    // injection and overflow-reduction transforms below. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
-    // must run early, while the canonical late `user-prompt-submit` hook
-    // (history repair, title) runs after those transforms, so the two cannot
-    // share a fire site until compaction is cleared from the gap between them.
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    const memoryCtx: MemoryRetrievalHookContext = {
-      graphMemory: ctx.graphMemory,
-      config: getConfig(),
-      onEvent,
-      isTrustedActor,
-      conversationId: ctx.conversationId,
-      userMessageId,
-      logger: rlog,
-      // An external cancel aborts `prepareMemory` instead of letting it run
-      // to completion after the turn has already been torn down.
-      signal: abortController.signal,
-      pkbContent: null,
-      nowContent: null,
-      latestMessages: ctx.messages,
-    };
-    await userPromptSubmitMemoryRetrieval(memoryCtx);
-
-    // The retriever owns its side effects (injected-block metadata, recall
-    // log, `memory_recalled` event) and records the dense/sparse PKB query
-    // pair on the graph handle for the PKB-reminder injector to read back; the
-    // loop only reuses the injected message list downstream.
-    let runMessages = memoryCtx.latestMessages;
-
-    // Query active documents for this conversation so the injector chain
-    // can surface them to the assistant (prevents duplicate document_create
-    // calls when existing documents should be targeted with document_update).
-    const conversationDocs = getDocumentsForConversation(ctx.conversationId);
-    const activeDocuments =
-      conversationDocs.length > 0
-        ? conversationDocs.map((d) => ({
-            surfaceId: d.surfaceId,
-            title: d.title,
-            wordCount: d.wordCount,
-            updatedAt: d.updatedAt,
-          }))
-        : null;
-
-    ctx.refreshWorkspaceTopLevelContextIfNeeded();
-
-    // Compute fresh turn timestamp for date grounding.
-    // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then device timezones.
+    // Resolve the turn's timezone cascade up front. It depends only on config
+    // and the inbound request — never on retrieval output — so it can be
+    // settled before context assembly. Local date semantics prefer the
+    // configured user timezone, then device timezones, then the host clock.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneContext = resolveTurnTimezoneContext({
       configuredUserTimeZone: config.ui.userTimezone ?? null,
       clientTimezone: ctx.clientTimezone ?? null,
       detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-    });
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
@@ -1222,8 +1165,10 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Build unified turn context block that replaces the separate temporal,
-    // channel, interface, and actor context blocks.
+    // Resolve the channel/interface labels and the guardian flag for this
+    // turn. These derive only from the captured turn context and the resolved
+    // actor trust class — never from retrieval — so they settle before context
+    // assembly.
     const interfaceName =
       capturedTurnInterfaceContext.userMessageInterface ?? undefined;
     const channelName =
@@ -1268,9 +1213,54 @@ export async function runAgentLoopImpl(
       });
       const label = profileEntry?.label ?? effectiveProfileKey;
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
-      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
+      // Record the notification for persistence on delivery rather than here:
+      // the model only "learns" the profile once it receives this turn
+      // context, signalled by the first `message_complete`. Persisting inline
+      // would mark the profile notified even if the turn is cancelled or fails
+      // before the model ever sees the notice.
+      state.pendingNotifiedInferenceProfile = effectiveProfileKey;
     }
 
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
+    // persists the retrieval's own side effects (injected-block metadata,
+    // recall log, `memory_recalled` event). Runs at the early "prompt
+    // submitted, before context assembly" moment because its outputs feed the
+    // injection and overflow-reduction transforms below. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
+    // must run early, while the canonical late `user-prompt-submit` hook
+    // (history repair, title) runs after those transforms, so the two cannot
+    // share a fire site until compaction is cleared from the gap between them.
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryCtx: MemoryRetrievalHookContext = {
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      onEvent,
+      isTrustedActor,
+      conversationId: ctx.conversationId,
+      userMessageId,
+      logger: rlog,
+      // An external cancel aborts `prepareMemory` instead of letting it run
+      // to completion after the turn has already been torn down.
+      signal: abortController.signal,
+      latestMessages: ctx.messages,
+    };
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
+
+    // The retriever owns its side effects (injected-block metadata, recall
+    // log, `memory_recalled` event) and records the dense/sparse PKB query
+    // pair on the graph handle for the PKB-reminder injector to read back; the
+    // loop only reuses the injected message list downstream.
+    let runMessages = memoryCtx.latestMessages;
+
+    // Capture wall-clock "now" at its point of use, after the blocking memory
+    // retrieval, so the injected `<turn_context>` timestamp reflects current
+    // time rather than the moment the turn began.
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
+    });
+
+    // Build unified turn context block that replaces the separate temporal,
+    // channel, interface, and actor context blocks.
     const baseTurnContext = {
       timestamp,
       interfaceName,
@@ -1291,54 +1281,6 @@ export async function runAgentLoopImpl(
     );
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
-    // hold private user content. Block exposure to non-guardian actors
-    // arriving over a remote channel; internal/local flows pass through.
-    // See `shouldExposePersonalMemory` for the threat model.
-    const personalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    });
-
-    // Inject NOW.md and PKB content only on the first turn (or after
-    // compaction re-strips them).  Old injections persist in history and
-    // are never stripped on normal turns — this preserves the cached prefix.
-    // PKB/NOW content is sourced from the `user-prompt-submit-temp` hook above.
-    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
-    const scratchpadInjectionEnabled =
-      getConfig().memory.retrieval.scratchpadInjection.enabled;
-    const currentNowContent =
-      personalMemoryAllowed && scratchpadInjectionEnabled
-        ? memoryCtx.nowContent
-        : null;
-    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
-    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
-
-    const currentPkbContent = personalMemoryAllowed
-      ? memoryCtx.pkbContent
-      : null;
-    const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
-    const pkbActive = currentPkbContent !== null;
-
-    // V2 static memory block (essentials/threads/recent/buffer).
-    // `currentMemoryV2Static` is the trust-gated content reused by every
-    // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<info>`
-    // block) can restore the freshest content. `memoryV2Static` is the
-    // first-turn / post-compaction cadence-gated value for initial
-    // injection only. `readMemoryV2StaticContent` self-gates on the v2
-    // flag + config and returns null when v2 is off.
-    const currentMemoryV2Static = personalMemoryAllowed
-      ? readMemoryV2StaticContent()
-      : null;
-    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
-
-    // PKB relevance-hint input. Pass `ctx` directly —
-    // `PkbContextConversation` is structural and `getInContextPkbPaths`
-    // re-reads `conversation.messages` on each call, so post-compaction
-    // re-injects see the updated history.
-    const pkbConversation = pkbActive ? ctx : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
@@ -1396,13 +1338,12 @@ export async function runAgentLoopImpl(
 
     state.reducerCompacted = compactedThisTurn;
 
-    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
-    // When on, runtime assembly suppresses v2's `<memory>` injection (only
-    // when the v3 injector actually produced a block — otherwise v2 stays as a
-    // fallback) and the provider anchors its long-TTL cache breakpoint on the
-    // most recent STABLE user message, since the latest user message now
-    // carries the volatile per-turn memory block. Flag off → bit-for-bit
-    // identical to today's v2 path.
+    // memory-v3-live: when on, the provider anchors its long-TTL cache
+    // breakpoint on the most recent STABLE user message, since the latest user
+    // message now carries the volatile per-turn `<memory>` block the v3
+    // injector emits. The matching v2-suppression strip is owned by
+    // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
+    // bit-for-bit identical to today's v2 path.
     const memoryV3Live = isAssistantFeatureFlagEnabled(
       "memory-v3-live",
       getConfig(),
@@ -1410,7 +1351,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       // Resolved from the conversation's surface state here, where the
       // runtime injector is the only consumer of the active-surface block.
@@ -1419,19 +1359,16 @@ export async function runAgentLoopImpl(
         currentPage: ctx.currentPage,
         surfaceState: ctx.surfaceState,
       }),
-      activeDocuments,
-      workspaceTopLevelContext: state.shouldInjectWorkspace
-        ? ctx.workspaceTopLevelContext
-        : null,
+      // Resolved here, where the runtime injector is the only consumer of the
+      // active-documents block.
+      activeDocuments: buildActiveDocuments(ctx.conversationId),
+      workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+        ctx,
+        state.shouldInjectWorkspace,
+      ),
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
-      pkbContext,
-      pkbActive,
-      pkbConversation,
-      pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
-      memoryV2Static,
-      nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -1671,19 +1608,20 @@ export async function runAgentLoopImpl(
           // injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
-          // When THIS iteration compacted, it stripped existing NOW.md /
-          // PKB blocks — so we re-inject current content. A later iteration
-          // that only truncates or downgrades must NOT re-force PKB/NOW,
+          // When THIS iteration compacted, it stripped the existing
+          // memory-static block — so we re-inject current content. A later
+          // iteration that only truncates or downgrades must NOT re-force it,
           // or each round would grow the token count.
           // Gate: only the iteration that actually compacted re-injects.
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `reducedMessages`.)
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
-            ...(stepCompacted && { pkbContext: currentPkbContent }),
-            ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
-            ...(stepCompacted && { nowScratchpad: currentNowContent }),
-            workspaceTopLevelContext: state.shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
+            workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+              ctx,
+              state.shouldInjectWorkspace,
+            ),
             // Once ANY iteration has compacted `ctx.messages`, the captured
             // `slackChronologicalMessages` snapshot (built from the full
             // persisted transcript) would overwrite the compacted history
@@ -1828,16 +1766,16 @@ export async function runAgentLoopImpl(
     const midLoopCompaction: MidLoopCompaction = {
       postCompactionHook: async ({ history, turnContext }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
-        // NOW.md block, so re-inject the current content regardless of whether
-        // compaction actually ran.
+        // memory-static block, so re-inject the current content regardless of
+        // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
+        // v2 static `<info>` blocks self-gate inside their injectors on block
+        // presence.
         const injection = await postCompactReinject({
           ...injectionOpts,
-          pkbContext: currentPkbContent,
-          memoryV2Static: currentMemoryV2Static,
-          nowScratchpad: currentNowContent,
-          workspaceTopLevelContext: state.shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
+          workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+            ctx,
+            state.shouldInjectWorkspace,
+          ),
           // Suppress the chronological-transcript snapshot once the reducer
           // has collapsed `ctx.messages`; the captured snapshot reflects the
           // full persisted transcript and would overwrite compaction.
@@ -2042,17 +1980,9 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
-      // Detect whether ctx.messages currently lacks NOW.md so we know if
-      // it needs to be re-injected.  Mid-loop compaction (line ~1067) may
-      // have already stripped injections before escalating here, so we
-      // check actual message state rather than tracking mutation sites.
-      let convergenceStripped =
-        findLastInjectedNowContent(ctx.messages) === null;
-
       if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         markHistoryStrippedBestEffort(ctx.conversationId);
-        convergenceStripped = true;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2225,17 +2155,17 @@ export async function runAgentLoopImpl(
           state.reducerCompacted = true;
         }
 
-        // Only re-inject NOW.md when ctx.messages was actually stripped;
-        // otherwise the existing NOW.md block is still present and
-        // re-injecting would duplicate it.
+        // Only re-inject the memory-static block when ctx.messages was
+        // actually stripped; otherwise the existing block is still present and
+        // re-injecting would duplicate it. (The `<knowledge_base>` and NOW.md
+        // blocks self-gate inside their injectors on whether they are already
+        // present in `ctx.messages`.)
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          pkbContext: currentPkbContent,
-          memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-          nowScratchpad: convergenceStripped ? currentNowContent : null,
-          workspaceTopLevelContext: state.shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
+          workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+            ctx,
+            state.shouldInjectWorkspace,
+          ),
           slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
@@ -2279,7 +2209,6 @@ export async function runAgentLoopImpl(
           if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             markHistoryStrippedBestEffort(ctx.conversationId);
-            convergenceStripped = true;
           }
         }
       }
@@ -2366,16 +2295,17 @@ export async function runAgentLoopImpl(
             state.shouldInjectWorkspace = true;
           }
 
-          // Only re-inject NOW.md when ctx.messages was actually stripped;
-          // otherwise the existing block is still present.
+          // Only re-inject the memory-static block when ctx.messages was
+          // actually stripped; otherwise the existing block is still present.
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `ctx.messages`.)
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
-            pkbContext: currentPkbContent,
-            memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-            nowScratchpad: convergenceStripped ? currentNowContent : null,
-            workspaceTopLevelContext: state.shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
+            workspaceTopLevelContext: buildWorkspaceTopLevelContext(
+              ctx,
+              state.shouldInjectWorkspace,
+            ),
             slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,

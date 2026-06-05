@@ -127,7 +127,6 @@ import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
-  resolveTrustClass,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
@@ -160,7 +159,7 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;

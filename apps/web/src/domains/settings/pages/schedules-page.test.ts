@@ -71,6 +71,8 @@ const {
   RecentRunsCard,
   ScheduleRow,
   SystemTaskDetailView,
+  SystemTaskRow,
+  shouldShowSystemTaskToggles,
 } = await import("./schedules-page");
 
 afterEach(() => {
@@ -434,5 +436,77 @@ describe("ScheduleRow", () => {
     );
 
     expect(screen.getAllByText("--")).toHaveLength(2);
+  });
+});
+
+describe("system task toggles", () => {
+  test("only presents system task toggles after the feature flag has hydrated on", () => {
+    expect(shouldShowSystemTaskToggles(false, true)).toBe(false);
+    expect(shouldShowSystemTaskToggles(true, false)).toBe(false);
+    expect(shouldShowSystemTaskToggles(true, true)).toBe(true);
+  });
+
+  test("hides the system task toggle when the presentation flag is off", () => {
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "system-heartbeat",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 0,
+          },
+        },
+        isRunning: false,
+        showToggle: false,
+        onClick: () => {},
+        onRunNow: () => {},
+        onToggle: () => {},
+      }),
+    );
+
+    expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
+    expect(screen.getByRole("button", { name: /run now/i })).toBeTruthy();
+  });
+
+  test("toggling a system task pauses automatic runs without hiding Run now", () => {
+    const toggleCalls: boolean[] = [];
+
+    render(
+      createElement(SystemTaskRow, {
+        name: "Consolidation",
+        subtitle: "Every 4 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "system-consolidation",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 0,
+          },
+        },
+        isRunning: false,
+        showToggle: true,
+        onClick: () => {},
+        onRunNow: () => {},
+        onToggle: (enabled: boolean) => {
+          toggleCalls.push(enabled);
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByLabelText("Toggle Consolidation"));
+
+    expect(toggleCalls).toEqual([false]);
+    expect(screen.getByRole("button", { name: /run now/i })).toBeTruthy();
   });
 });

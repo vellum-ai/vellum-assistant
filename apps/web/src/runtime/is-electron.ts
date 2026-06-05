@@ -35,6 +35,7 @@ export type VellumCommand =
   | { kind: "openSettings" }
   | { kind: "shareFeedback" }
   | { kind: "find" }
+  | { kind: "markAllRead" }
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }
@@ -72,6 +73,9 @@ declare global {
           website: string;
         }>;
         openWebsite(): Promise<void>;
+      };
+      csrf?: {
+        getToken(): string | null;
       };
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;

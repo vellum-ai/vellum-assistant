@@ -194,8 +194,12 @@ export interface ProvidersFacet {
 // Memory
 // ---------------------------------------------------------------------------
 
-/** Valid message roles for `memory.addMessage`. */
-export type MessageRole = "user" | "assistant" | "system";
+/**
+ * Valid message roles for `memory.addMessage`. The messages store is
+ * UI-facing (`ConversationMessage`), so only renderable turns are accepted —
+ * agent-context `system` rows are not persisted via this facet.
+ */
+export type MessageRole = "user" | "assistant";
 
 /**
  * Callable signature for `memory.addMessage`. Mirrors the daemon's
@@ -247,10 +251,7 @@ export interface Subscription {
 export interface EventsFacet {
   publish(event: AssistantEvent): Promise<void>;
   subscribe(filter: Filter, cb: AssistantEventCallback): Subscription;
-  buildEvent(
-    message: ServerMessage,
-    conversationId?: string,
-  ): AssistantEvent;
+  buildEvent(message: ServerMessage, conversationId?: string): AssistantEvent;
 }
 
 // ---------------------------------------------------------------------------

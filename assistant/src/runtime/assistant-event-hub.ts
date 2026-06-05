@@ -64,6 +64,13 @@ export interface AssistantEventSubscription {
   dispose(): void;
   /** True until `dispose()` has been called. */
   readonly active: boolean;
+  /**
+   * Per-connection identifier, unique within the hub instance. Distinguishes
+   * connections that share a `clientId` (e.g. an old connection and the new
+   * one that replaced it on reconnect) so subscribe / dispose / shed log
+   * lines can be attributed to a specific connection.
+   */
+  readonly connectionId: string;
 }
 
 // ── Subscriber entries (discriminated union) ─────────────────────────────────
@@ -75,6 +82,13 @@ interface BaseSubscriberEntry {
   onEvict: () => void;
   connectedAt: Date;
   lastActiveAt: Date;
+  /**
+   * Per-connection identifier, unique within the hub instance. Two entries
+   * with the same `clientId` (old vs reconnected connection) get distinct
+   * connection ids, making them traceable across subscribe / dispose / shed
+   * logs.
+   */
+  connectionId: string;
 }
 
 interface ClientEntry extends BaseSubscriberEntry {
@@ -106,10 +120,15 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt` and defaults `filter`/`onEvict`. */
+/** Input shape for `subscribe()` — hub fills `active`, `connectedAt`, `lastActiveAt`, `connectionId` and defaults `filter`/`onEvict`. */
 type SubscriberInput = DistributiveOmit<
   SubscriberEntry,
-  "active" | "connectedAt" | "lastActiveAt" | "filter" | "onEvict"
+  | "active"
+  | "connectedAt"
+  | "lastActiveAt"
+  | "filter"
+  | "onEvict"
+  | "connectionId"
 > & {
   filter?: AssistantEventFilter;
   onEvict?: () => void;
@@ -132,6 +151,8 @@ type SubscriberInput = DistributiveOmit<
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
+  /** Monotonic source for per-connection ids, scoped to this hub. */
+  private connectionCounter = 0;
 
   constructor(options?: { maxSubscribers?: number }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
@@ -173,7 +194,11 @@ export class AssistantEventHub {
       }
       if (stale.length > 0) {
         log.info(
-          { clientId: subscriber.clientId, count: stale.length },
+          {
+            clientId: subscriber.clientId,
+            count: stale.length,
+            disposedConnectionIds: stale.map((entry) => entry.connectionId),
+          },
           "disposed stale subscribers for reconnecting client",
         );
       }
@@ -196,6 +221,7 @@ export class AssistantEventHub {
     }
 
     const now = new Date();
+    const connectionId = `conn-${++this.connectionCounter}`;
     const entry: SubscriberEntry = {
       ...subscriber,
       filter: subscriber.filter ?? {},
@@ -203,6 +229,7 @@ export class AssistantEventHub {
       active: true,
       connectedAt: now,
       lastActiveAt: now,
+      connectionId,
     } as SubscriberEntry;
 
     if (entry.type === "client") {
@@ -211,11 +238,12 @@ export class AssistantEventHub {
           clientId: entry.clientId,
           interfaceId: entry.interfaceId,
           capabilities: entry.capabilities,
+          connectionId,
         },
         "subscriber registered (client)",
       );
     } else {
-      log.info("subscriber registered (process)");
+      log.info({ connectionId }, "subscriber registered (process)");
     }
 
     this.subscribers.add(entry);
@@ -230,17 +258,19 @@ export class AssistantEventHub {
               {
                 clientId: entry.clientId,
                 interfaceId: entry.interfaceId,
+                connectionId,
               },
               "subscriber unregistered (client)",
             );
           } else {
-            log.info("subscriber unregistered (process)");
+            log.info({ connectionId }, "subscriber unregistered (process)");
           }
         }
       },
       get active() {
         return entry.active;
       },
+      connectionId,
     };
   }
 

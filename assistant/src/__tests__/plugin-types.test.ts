@@ -17,7 +17,6 @@ import {
   type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
-  type Injector,
   type Middleware,
   type OverflowReduceArgs,
   type OverflowReduceResult,
@@ -90,14 +89,6 @@ describe("plugin core types", () => {
       CircuitBreakerResult
     > = async (args, next, _ctx) => next(args);
 
-    const injector: Injector = {
-      name: "sample-injector",
-      order: 10,
-      async produce(_ctx) {
-        return { id: "sample-block", text: "hello", meta: { kind: "demo" } };
-      },
-    };
-
     const sampleTool: Tool = {
       name: "sample-tool",
       description: "Sample plugin tool",
@@ -141,7 +132,6 @@ describe("plugin core types", () => {
           body: "## Sample\n\nPlugin-provided skill body.",
         },
       ],
-      injectors: [injector],
       middleware: {
         compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,

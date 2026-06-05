@@ -16,9 +16,8 @@
  *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
  *    contributions, no entry in the shutdown hook, and the plugin is also
  *    dropped from the registry via {@link unregisterPlugin} so its middleware
- *    and injectors stop participating in pipeline runs and system-prompt
- *    assembly. This is the primary mechanism for shipping experimental
- *    plugins behind a feature flag.
+ *    stops participating in pipeline runs. This is the primary mechanism for
+ *    shipping experimental plugins behind a feature flag.
  * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
  *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
@@ -190,8 +189,8 @@ function getDisabledPluginFlag(
  * 1. Install the `globalThis.__vellumPluginRuntime` bridge so plugins can touch
  *    it from their module body (see `plugins/external-api.ts` — compiled-binary
  *    module identity).
- * 2. Register the first-party defaults so their middleware and injectors
- *    compose innermost, ahead of any user plugins.
+ * 2. Register the first-party defaults so their middleware composes innermost,
+ *    ahead of any user plugins.
  * 3. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
  *    logged and skipped; `loadUserPlugins()` closes the registration window
  *    when it returns, so the defaults must already be registered by then.
@@ -237,8 +236,8 @@ export async function bootstrapPlugins(): Promise<void> {
 
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path. The default injectors normally populate the registry,
-    // so this branch is primarily for tests that call
+    // No-op fast path. The default plugins normally populate the registry, so
+    // this branch is primarily for tests that call
     // `resetPluginRegistryForTests()` and stub the default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
@@ -263,8 +262,8 @@ export async function bootstrapPlugins(): Promise<void> {
   // two steps always move together on the bootstrap failure path: the former
   // clears tools/routes/skills (so they stop appearing to the model/HTTP
   // server), the latter drops the plugin's entry from the Map (so
-  // `getMiddlewaresFor` / `getInjectors` don't re-enter an uninitialized
-  // plugin on the next pipeline invocation).
+  // `getMiddlewaresFor` doesn't re-enter an uninitialized plugin on the next
+  // pipeline invocation).
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the bootstrap-failure rollback and the normal
   // shutdown hook below. Only `assistantVersion` is exposed today; future

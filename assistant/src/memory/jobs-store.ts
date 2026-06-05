@@ -79,6 +79,11 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "graph_bootstrap",
 ];
 
+export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
+  automatic: "automatic",
+  manual: "manual",
+} as const;
+
 /** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
 export function isMemoryEnabled(): boolean {
   try {
@@ -335,6 +340,34 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
       )
       .get() != null
   );
+}
+
+export function isAutomaticConsolidationJob(job: MemoryJob): boolean {
+  return job.payload.trigger !== MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.manual;
+}
+
+export function cancelPendingAutomaticConsolidationJobs(): number {
+  const db = getDb();
+  db.update(memoryJobs)
+    .set({
+      status: "failed",
+      lastError: "automatic_consolidation_disabled",
+      updatedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_v2_consolidate"),
+        eq(memoryJobs.status, "pending"),
+        or(
+          sql`json_extract(${memoryJobs.payload}, '$.trigger') = ${MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.automatic}`,
+          // Legacy rows predate trigger markers and are indistinguishable from
+          // automatic enqueues, so disabling the schedule treats them as auto.
+          sql`json_extract(${memoryJobs.payload}, '$.trigger') IS NULL`,
+        ),
+      ),
+    )
+    .run();
+  return rawChanges();
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {

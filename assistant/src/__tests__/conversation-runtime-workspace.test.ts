@@ -1,11 +1,6 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -23,21 +18,11 @@ function userMsg(text: string): Message {
 const sampleContext =
   "<workspace>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace>";
 
-// The standalone `injectWorkspaceTopLevelContext` helper was removed in
-// G2.1. The workspace-context default injector (registered by
-// `defaultInjectorsPlugin`) now emits the workspace block as a
+// The workspace-context default injector emits the workspace block as a
 // `prepend-user-tail` placement during `applyRuntimeInjections`. The suite
-// below exercises that end-to-end path instead.
+// below exercises that end-to-end path.
 
 describe("applyRuntimeInjections — workspace top-level context", () => {
-  beforeEach(() => {
-    // Post-G2.1: workspace injection is driven by the `workspace-context`
-    // default injector, so the plugin must be registered for the chain to
-    // produce a block. Each test gets a clean registry.
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
-  });
-
   test("injects workspace context when provided", async () => {
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
@@ -97,11 +82,6 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 });
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
-  beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
-  });
-
   test("minimal mode skips workspace top-level context", async () => {
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {

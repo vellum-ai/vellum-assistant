@@ -38,7 +38,6 @@ import { RiskLevel } from "../permissions/types.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
   closeRegistration,
-  getInjectors,
   getMiddlewaresFor,
   getRegisteredPlugins,
   registerPlugin,
@@ -486,13 +485,12 @@ describe("plugin bootstrap", () => {
     expect(initFired).toBe(false);
   });
 
-  test("requiresFlag disabled: plugin middleware and injectors are dropped from the registry", async () => {
+  test("requiresFlag disabled: plugin middleware is dropped from the registry", async () => {
     // Regression: prior to the unregisterPlugin() call on the flag-gated skip
-    // path, `getMiddlewaresFor()` and `getInjectors()` iterated over every
-    // entry in `registeredPlugins` — so a gated-off plugin's middleware and
-    // injectors still ran on every pipeline invocation and system-prompt
-    // assembly even though `init()` had never fired to set up the state they
-    // depended on.
+    // path, `getMiddlewaresFor()` iterated over every entry in
+    // `registeredPlugins` — so a gated-off plugin's middleware still ran on
+    // every pipeline invocation even though `init()` had never fired to set up
+    // the state it depended on.
     setOverridesForTesting({ "plugin-middleware-disabled": false });
 
     const gatedMiddleware: PipelineMiddlewareMap["compaction"] = async (
@@ -503,15 +501,6 @@ describe("plugin bootstrap", () => {
       "gated-middleware",
       {
         middleware: { compaction: gatedMiddleware },
-        injectors: [
-          {
-            name: "gated-middleware-injector",
-            order: 100,
-            async produce() {
-              return null;
-            },
-          },
-        ],
       },
       { requiresFlag: ["plugin-middleware-disabled"] },
     );
@@ -519,14 +508,10 @@ describe("plugin bootstrap", () => {
 
     await bootstrapPlugins();
 
-    // Neither the middleware slot nor the injector list should expose the
-    // flag-gated plugin's contributions. The default plugins also contribute
-    // compaction middleware / injectors, so we key on identity rather than
-    // asserting empty lists.
+    // The middleware slot must not expose the flag-gated plugin's contribution.
+    // The default plugins also contribute compaction middleware, so we key on
+    // identity rather than asserting an empty list.
     expect(getMiddlewaresFor("compaction")).not.toContain(gatedMiddleware);
-    expect(
-      getInjectors().some((i) => i.name === "gated-middleware-injector"),
-    ).toBe(false);
   });
 
   test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {

@@ -46,7 +46,7 @@ describe("clearPendingConfirmationsFromMessages", () => {
     ];
     const result = clearPendingConfirmationsFromMessages(messages);
     expect(result).not.toBe(messages);
-    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeNull();
+    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeUndefined();
   });
 
   it("leaves tool calls without pendingConfirmation untouched", () => {

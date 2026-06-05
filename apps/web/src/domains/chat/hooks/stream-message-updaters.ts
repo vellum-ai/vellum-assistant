@@ -14,7 +14,7 @@ import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -764,7 +764,6 @@ export function applyToolResult(
     approvalReason?: string;
     riskThreshold?: string;
     riskAllowlistOptions?: AllowlistOption[];
-    scopeOptions?: ScopeOption[];
     riskScopeOptions?: RiskScopeOption[];
     riskDirectoryScopeOptions?: DirectoryScopeOption[];
     /**
@@ -824,7 +823,6 @@ export function applyToolResult(
     approvalReason: opts.approvalReason,
     riskThreshold: opts.riskThreshold,
     riskAllowlistOptions: opts.riskAllowlistOptions,
-    scopeOptions: opts.scopeOptions,
     riskScopeOptions: opts.riskScopeOptions,
     riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
     // Preserve any pre-existing metadata when the new event omits it

@@ -31,7 +31,6 @@ import type {
   ChannelCommandContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { PluginHookFn } from "../plugin-api/types.js";
@@ -372,33 +371,6 @@ export interface TurnInjectionInputs {
   readonly workspaceTopLevelContext?: string | null;
   /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
   readonly unifiedTurnContext?: string | null;
-  /** PKB auto-injected content (`<knowledge_base>...`) or null to skip. */
-  readonly pkbContext?: string | null;
-  /**
-   * Whether PKB is active for this turn — drives the `<system_reminder>` /
-   * hybrid-search relevance-hint branch.
-   */
-  readonly pkbActive?: boolean;
-  /**
-   * Live conversation (or a minimal shape containing `messages`) used to
-   * compute which PKB paths are already "in context" and therefore suppressed
-   * from hint suggestions.
-   */
-  readonly pkbConversation?: PkbContextConversation;
-  /**
-   * Working directory against which relative `file_read` paths resolve.
-   * Falls back to the PKB root when omitted.
-   */
-  readonly pkbWorkingDir?: string;
-  /**
-   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
-   * concatenated, header-wrapped) or null to skip. The agent loop only
-   * passes this on full-mode turns; the injector wraps it in `<memory>` for
-   * the user message.
-   */
-  readonly memoryV2Static?: string | null;
-  /** NOW.md scratchpad content or null to skip. */
-  readonly nowScratchpad?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
   readonly subagentStatusBlock?: string | null;
   /** Channel capabilities — drives slack gating. */
@@ -602,8 +574,21 @@ export interface Injector {
   name: string;
   /** Ascending sort key — lower runs first. */
   order: number;
-  /** Produce a block, or `null` to contribute nothing on this turn. */
-  produce(ctx: TurnContext): Promise<InjectionBlock | null>;
+  /**
+   * Produce a block, or `null` to contribute nothing on this turn.
+   *
+   * `runMessages` is the turn's working message array — the same array the
+   * chain's blocks are spliced onto — passed explicitly so injectors that
+   * need the current prompt contents (e.g. the PKB reminder, which scans for
+   * already-loaded `file_read` paths) read it from a parameter rather than a
+   * field on the shared {@link TurnContext}. Absent for text-only chain
+   * consumers ({@link composeInjectorChain}) that drive injectors without a
+   * message array.
+   */
+  produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null>;
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
@@ -690,7 +675,7 @@ export type PluginHooks = Record<string, PluginHookFn<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
- * may contribute any combination of middleware, injectors, and model-visible
+ * may contribute any combination of middleware and model-visible
  * capabilities. Lifecycle hooks live under `hooks`.
  */
 export interface Plugin {
@@ -712,8 +697,6 @@ export interface Plugin {
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */
   skills?: PluginSkillRegistration[];
-  /** Prompt-time injectors contributed by this plugin. */
-  injectors?: Injector[];
   /**
    * Named middleware slots. At most one middleware per slot per plugin.
    * The registry composes multiple plugins' middleware for a slot in

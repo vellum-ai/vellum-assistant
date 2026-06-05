@@ -22,7 +22,6 @@ import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
-import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 
 export type { PaginatedHistoryResult };
@@ -35,18 +34,11 @@ type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
-  const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
-  const validMessages = rawMessages.filter(
-    (m): m is ConversationMessage =>
-      !!m &&
-      typeof m === "object" &&
-      ((m as ConversationMessage).role === "user" ||
-        (m as ConversationMessage).role === "assistant"),
-  );
+  const rows = body?.messages ?? [];
 
   // Map to display messages first so we can correlate ids with subagent
   // notifications. The two arrays share the same indices.
-  const mapped = validMessages.map(mapRuntimeToDisplayMessage);
+  const mapped = rows.map(mapRuntimeToDisplayMessage);
   const messages = dedupeDisplayMessages(mapped);
 
   // Extract notifications and associate each with the id of the last
@@ -54,8 +46,8 @@ function parsePaginatedResponse(
   // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
   let lastAssistantMessageId: string | undefined;
-  for (let i = 0; i < validMessages.length; i++) {
-    const m = validMessages[i];
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i];
     if (!m) continue;
     if (m.role === "assistant" && !m.subagentNotification) {
       lastAssistantMessageId = m.id;

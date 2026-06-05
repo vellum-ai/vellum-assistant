@@ -5,9 +5,11 @@
  */
 import {
   consolidationConfigGet,
+  consolidationConfigPut,
   consolidationRunnowPost,
   consolidationRunsGet,
   heartbeatConfigGet,
+  heartbeatConfigPut,
   heartbeatRunnowPost,
   heartbeatRunsGet,
   schedulesByIdDelete,
@@ -20,8 +22,10 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type {
   ConsolidationConfigGetResponse,
+  ConsolidationConfigPutResponse,
   ConsolidationRunnowPostResponse,
   HeartbeatConfigGetResponse,
+  HeartbeatConfigPutResponse,
   HeartbeatRunnowPostResponse,
 } from "@/generated/daemon/types.gen";
 import {
@@ -272,6 +276,44 @@ export async function fetchHeartbeatConfig(
   return data;
 }
 
+export interface UpdateSystemTaskConfigPayload {
+  enabled: boolean;
+}
+
+async function updateSystemTaskConfig<TResponse>(
+  request: () => Promise<{
+    data?: TResponse;
+    error?: unknown;
+    response?: Response;
+  }>,
+  failureMessage: string,
+): Promise<TResponse> {
+  const { data, error, response } = await request();
+  assertHasResponse(response, error, failureMessage);
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, failureMessage),
+    );
+  }
+  return data;
+}
+
+export async function updateHeartbeatConfig(
+  assistantId: string,
+  payload: UpdateSystemTaskConfigPayload,
+): Promise<HeartbeatConfigPutResponse> {
+  return updateSystemTaskConfig(
+    () =>
+      heartbeatConfigPut({
+        path: { assistant_id: assistantId },
+        body: payload,
+        throwOnError: false,
+      }),
+    "Failed to update heartbeat config.",
+  );
+}
+
 export async function runHeartbeatNow(
   assistantId: string,
 ): Promise<HeartbeatRunnowPostResponse> {
@@ -308,6 +350,21 @@ export async function fetchConsolidationConfig(
     );
   }
   return data;
+}
+
+export async function updateConsolidationConfig(
+  assistantId: string,
+  payload: UpdateSystemTaskConfigPayload,
+): Promise<ConsolidationConfigPutResponse> {
+  return updateSystemTaskConfig(
+    () =>
+      consolidationConfigPut({
+        path: { assistant_id: assistantId },
+        body: payload,
+        throwOnError: false,
+      }),
+    "Failed to update consolidation config.",
+  );
 }
 
 export async function runConsolidationNow(

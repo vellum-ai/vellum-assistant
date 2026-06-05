@@ -23,6 +23,12 @@ const CSRF_COOKIE_NAME = import.meta.env.PROD
  * last-wins semantics.
  */
 export function getCsrfToken(): string | undefined {
+  // In Electron the `app://` scheme doesn't support cookies, so
+  // `document.cookie` is always empty. Read from the preload bridge
+  // which pulls the token from main's cache via sync IPC.
+  const bridgeToken = window.vellum?.csrf?.getToken();
+  if (bridgeToken) return bridgeToken;
+
   const match = document.cookie
     .split("; ")
     .findLast((row) => row.startsWith(`${CSRF_COOKIE_NAME}=`));

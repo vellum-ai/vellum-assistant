@@ -22,10 +22,7 @@ import {
   messagesQueuedByIdSteerPost,
   messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
-import type {
-  MessagesGetResponse,
-  MessagesPostData,
-} from "@/generated/daemon/types.gen";
+import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
@@ -53,25 +50,6 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageId?: string;
 }
 
-/**
- * Coerce the daemon messages endpoint's `Array<unknown>` rows into the
- * canonical `ConversationMessage` shape. The route declares message items as
- * `unknown` on the wire, so consumers narrow defensively here rather than
- * trusting the element type.
- */
-function extractRuntimeMessages(
-  data: MessagesGetResponse | undefined,
-): ConversationMessage[] {
-  const raw = Array.isArray(data?.messages) ? data.messages : [];
-  return raw.filter(
-    (m): m is ConversationMessage =>
-      !!m &&
-      typeof m === "object" &&
-      typeof (m as ConversationMessage).id === "string" &&
-      typeof (m as ConversationMessage).role === "string",
-  );
-}
-
 export async function pollForResponse(
   assistantId: string,
   userMessageId: string,
@@ -96,7 +74,7 @@ export async function pollForResponse(
       throw new Error(msg);
     }
 
-    const messages = extractRuntimeMessages(data);
+    const messages = data?.messages ?? [];
 
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
@@ -215,9 +193,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = extractRuntimeMessages(data)
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map(mapRuntimeToDisplayMessage);
+    const messages = (data?.messages ?? []).map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {
@@ -249,7 +225,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return extractRuntimeMessages(data);
+  return data?.messages ?? [];
 }
 
 export type PostMessageResult =
