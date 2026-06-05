@@ -350,11 +350,8 @@ export const CANNED_GREETING_SUBSCRIBER_WAIT_MS = 60_000;
 export async function waitForConversationSubscriber(
   conversationId: string,
   timeoutMs: number,
+  hub: Pick<typeof assistantEventHub, "hasClientSubscriberForEvent">,
   pollIntervalMs = 100,
-  hub: Pick<
-    typeof assistantEventHub,
-    "hasClientSubscriberForEvent"
-  > = assistantEventHub,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (!hub.hasClientSubscriberForEvent({ conversationId })) {
@@ -1652,17 +1649,17 @@ export async function handleSendMessage(
       }
 
       setTimeout(() => {
-        void (async () => {
-          // Hold the canned greeting's terminal events until the freshly-hatched
-          // client's SSE subscription exists, so `message_complete` lands on a
-          // live stream and clears the send spinner instead of broadcasting into
-          // the void. Resolves immediately when a subscriber is already present;
-          // falls through after the cap (the client's own watchdog covers the
-          // never-connects case).
-          await waitForConversationSubscriber(
-            conversationId,
-            CANNED_GREETING_SUBSCRIBER_WAIT_MS,
-          );
+        // Hold the canned greeting's terminal events until the freshly-hatched
+        // client's SSE subscription exists, so `message_complete` lands on a
+        // live stream and clears the send spinner instead of broadcasting into
+        // the void. Resolves immediately when a subscriber is already present;
+        // falls through after the cap (the client's own watchdog covers the
+        // never-connects case).
+        void waitForConversationSubscriber(
+          conversationId,
+          CANNED_GREETING_SUBSCRIBER_WAIT_MS,
+          assistantEventHub,
+        ).then(() => {
           broadcastMessage({
             type: "user_message_echo",
             text: rawContent,
@@ -1688,7 +1685,7 @@ export async function handleSendMessage(
           );
 
           conversation.warmPromptCache();
-        })();
+        });
       }, 0);
 
       log.info(

@@ -33,8 +33,8 @@ describe("waitForConversationSubscriber", () => {
     const result = await waitForConversationSubscriber(
       "sess_1",
       1_000,
-      10,
       hub,
+      10,
     );
 
     // THEN it resolves true without sleeping for a poll interval
@@ -58,8 +58,8 @@ describe("waitForConversationSubscriber", () => {
     const result = await waitForConversationSubscriber(
       "sess_1",
       1_000,
-      10,
       hub,
+      10,
     );
 
     // THEN it resolves true once the client appears
@@ -77,7 +77,7 @@ describe("waitForConversationSubscriber", () => {
 
     // WHEN we wait with a short cap
     const start = Date.now();
-    const result = await waitForConversationSubscriber("sess_1", 60, 10, hub);
+    const result = await waitForConversationSubscriber("sess_1", 60, hub, 10);
 
     // THEN it resolves false at/after the cap
     expect(result).toBe(false);
@@ -95,7 +95,7 @@ describe("waitForConversationSubscriber", () => {
     subscribeClient(hub, "sess_other");
 
     // WHEN we wait for a subscriber on sess_1
-    const result = await waitForConversationSubscriber("sess_1", 60, 10, hub);
+    const result = await waitForConversationSubscriber("sess_1", 60, hub, 10);
 
     // THEN it times out because no matching client exists
     expect(result).toBe(false);
@@ -117,7 +117,7 @@ describe("waitForConversationSubscriber", () => {
     });
 
     // WHEN we wait for a subscriber on that conversation
-    const result = await waitForConversationSubscriber("sess_1", 60, 10, hub);
+    const result = await waitForConversationSubscriber("sess_1", 60, hub, 10);
 
     // THEN it times out because no client is connected
     expect(result).toBe(false);
