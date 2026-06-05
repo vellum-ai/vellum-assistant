@@ -400,9 +400,19 @@ const NOW_MD_BLOCK_PREFIXES = [
  * `{ prefix, suffix }` wrapper shape (not a bare prefix) so user-authored text
  * merely starting with `<info>\n` is never mistaken for an injection — matching
  * the full-wrapper requirement the compaction strip uses for this block.
+ *
+ * The static block is wrapped in `<info>…</info>` today, but rows persisted
+ * before that switch rehydrate verbatim as `<memory>…</memory>` (see
+ * `conversation-lifecycle`), so the legacy wrapper counts as present too.
+ * Matching `<memory>` cannot wrongly skip a needed injection: the static block
+ * is only (re)injected on the first turn (empty history) and right after
+ * compaction (which strips both wrappers), and on neither is a `<memory>` block
+ * present — the dynamic activation `<memory>` block only survives on normal
+ * cached turns, which is exactly when this injector must skip anyway.
  */
 const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
   { prefix: "<info>\n", suffix: "\n</info>" },
+  { prefix: "<memory>\n", suffix: "\n</memory>" },
 ];
 
 /**

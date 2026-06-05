@@ -141,4 +141,25 @@ describe("memory-v2-static injector", () => {
     ];
     expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
   });
+
+  test("skips (re)injection when a legacy <memory>-wrapped static block is present", async () => {
+    // Rows persisted before the `<info>` switch rehydrate the static block as
+    // `<memory>…</memory>`. Re-injecting a fresh `<info>` copy alongside it
+    // would duplicate the content until the next compaction.
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+          },
+          { type: "text", text: "What next?" },
+        ],
+      },
+    ];
+    expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
+  });
 });
