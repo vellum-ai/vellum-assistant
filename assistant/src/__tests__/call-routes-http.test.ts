@@ -28,6 +28,20 @@ const mockCallsConfig = {
   },
 };
 
+// A COMPLETE credentialed services block so the now-always-on outbound
+// media-stream credential preflight (resolveTelephonyCredentialReadiness) passes:
+// an STT provider (deepgram, telephony-eligible) whose key is available via
+// getProviderKeyAsync, AND a TTS provider (elevenlabs, PCM-capable) whose key is
+// available via getSecureKeyAsync. This mirrors production, where services.stt /
+// services.tts always exist with defaults.
+const mockServicesConfig = {
+  stt: { provider: "deepgram" },
+  tts: {
+    provider: "elevenlabs",
+    providers: { elevenlabs: {} },
+  },
+};
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -38,6 +52,7 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     calls: mockCallsConfig,
+    services: mockServicesConfig,
   }),
   loadConfig: () => ({
     model: "test",
@@ -46,6 +61,7 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     calls: mockCallsConfig,
+    services: mockServicesConfig,
     ingress: {
       enabled: true,
       publicBaseUrl: "https://test.example.com",
@@ -80,9 +96,18 @@ mock.module("../calls/twilio-config.js", () => ({
   }),
 }));
 
-// Mock secure keys
+// Mock secure keys. Both lookups must return a key so the always-on outbound
+// credential preflight resolves ready:
+//   - getProviderKeyAsync("deepgram")  → STT leg credential (resolve.ts)
+//   - getSecureKeyAsync("credential/elevenlabs/api_key") → TTS leg credential
+//     (telephony-tts-capability.ts, "namespaced-only" lookup)
+// getSecureKeyAsync is key-specific: it returns a credential for the TTS api_key
+// lookup but null for everything else (notably the twilio user-phone-number key),
+// so the user_number caller-identity test still sees an unconfigured user number.
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => null,
+  getSecureKeyAsync: async (key: string) =>
+    key === "credential/elevenlabs/api_key" ? "test-secure-key" : null,
+  getProviderKeyAsync: async () => "test-provider-key",
 }));
 
 mock.module("../calls/voice-ingress-preflight.js", () => ({
