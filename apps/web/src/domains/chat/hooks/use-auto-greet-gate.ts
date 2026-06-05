@@ -10,14 +10,14 @@
  *    so the auto-send hook can fire without the user seeing the raw chat UI.
  * 2. **Assistant-output clear** — once assistant output appears, the gate
  *    drops immediately.
- * 3. **Safety timer** — a 10-second backstop prevents the user from being
- *    stranded on the overlay if auto-send or greeting fails.
+ * 3. **Safety timer** — a 30-second backstop surfaces a retry prompt
+ *    if auto-send or greeting fails, instead of silently dismissing.
  * 4. **Conversation-switch clear** — switching away from the hatched
  *    conversation dismisses the gate, except for the onboarding draft→real
  *    conversation handoff while assistant output is still pending.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -27,15 +27,21 @@ import {
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
 
+export interface AutoGreetGateResult {
+  show: boolean;
+  timedOut: boolean;
+}
+
 export function useAutoGreetGate(
   activeConversationId: string | null,
   hasPendingPreChatMessage: boolean,
   onboardingDraftConversationId: string | null,
-): boolean {
+): AutoGreetGateResult {
   const autoGreetPending =
     useAssistantLifecycleStore.use.expectingFirstMessage();
   const messages = useChatSessionStore.use.messages();
   const firstAssistantMessageArrived = hasAssistantMessage(messages);
+  const [timedOut, setTimedOut] = useState(false);
 
   // 1. Pre-chat sessionStorage detector — re-arm gate on reload.
   useEffect(() => {
@@ -48,17 +54,19 @@ export function useAutoGreetGate(
   useEffect(() => {
     if (!autoGreetPending) return;
     if (firstAssistantMessageArrived) {
+      setTimedOut(false);
       lifecycleService.clearExpectingFirstMessage();
     }
   }, [autoGreetPending, firstAssistantMessageArrived]);
 
-  // 3. Safety timer — 10s backstop.
+  // 3. Safety timer — 30s backstop. Surfaces a retry prompt instead
+  // of silently dismissing the overlay.
   useEffect(() => {
-    if (!autoGreetPending) return;
-    const timeout = setTimeout(
-      () => lifecycleService.clearExpectingFirstMessage(),
-      10_000,
-    );
+    if (!autoGreetPending) {
+      setTimedOut(false);
+      return;
+    }
+    const timeout = setTimeout(() => setTimedOut(true), 30_000);
     return () => clearTimeout(timeout);
   }, [autoGreetPending]);
 
@@ -88,5 +96,5 @@ export function useAutoGreetGate(
     onboardingDraftConversationId,
   ]);
 
-  return autoGreetPending;
+  return { show: autoGreetPending, timedOut };
 }

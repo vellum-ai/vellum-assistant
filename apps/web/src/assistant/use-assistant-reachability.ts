@@ -182,10 +182,10 @@ export function useAssistantReachability(
         const ingressUrl = getSelfHostedIngressUrl();
         if (ingressUrl) {
           try {
-            const res = await fetch(`${ingressUrl}/healthz`);
+            const res = await fetch(`${ingressUrl}/readyz`);
             response = res.ok
               ? ({ state: "ready" } as AssistantsConnectionStatusResponse)
-              : null;
+              : ({ state: "waking" } as AssistantsConnectionStatusResponse);
           } catch {
             response = null;
           }
