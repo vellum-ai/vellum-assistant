@@ -240,6 +240,23 @@ public struct InlineSurfaceRouter: View {
             let onPopOut: (() -> Void)? = nil
             #endif
             InlineCardWidget(data: data, onPopOut: onPopOut)
+        case .choice(let data):
+            InlineChoiceWidget(data: data) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
+        case .copyBlock(let data):
+            InlineCopyBlockWidget(data: data)
+        case .oauthConnect(let data):
+            InlineOAuthConnectWidget(
+                data: data,
+                title: surface.title
+            ) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
+        case .taskPreferences:
+            InlineTaskPreferencesWidget(title: surface.title) { actionId, payload in
+                onAction(surface.id, actionId, payload)
+            }
         case .documentPreview(let data):
             InlineDocumentPreview(data: data) {
                 NotificationCenter.default.post(
@@ -368,6 +385,8 @@ public struct InlineSurfaceRouter: View {
         #endif
         case .callSummary(let data):
             InlineCallSummaryWidget(data: data)
+        case .workResult(let data):
+            InlineWorkResultWidget(title: surface.title ?? "Work completed", data: data)
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }
