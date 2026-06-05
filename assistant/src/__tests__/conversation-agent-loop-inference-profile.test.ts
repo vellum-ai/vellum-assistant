@@ -223,7 +223,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     blocks: {},
   }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
   readPkbContext: () => null,
   isSlackChannelConversation: () => false,

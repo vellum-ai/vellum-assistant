@@ -48,6 +48,7 @@
 import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
+import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import {
   readNowScratchpad,
   readPkbContext,
@@ -63,7 +64,10 @@ import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-mem
 import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
-import { shouldExposePersonalMemory } from "../../../memory/v2/static-context.js";
+import {
+  readMemoryV2StaticContent,
+  shouldExposePersonalMemory,
+} from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
@@ -360,6 +364,18 @@ function readGatedNowScratchpad(trust: TrustContext): string | null {
 }
 
 /**
+ * Read the v2 static memory content for the turn, gated behind the
+ * personal-memory trust gate. Returns the content (essentials/threads/recent/
+ * buffer concatenated) when the gate admits and v2 memory is enabled,
+ * otherwise `null`. {@link readMemoryV2StaticContent} self-gates on the v2
+ * flag + config, so the `memory-v2-static` injector owns its input rather than
+ * having it threaded in from the agent loop.
+ */
+function readGatedMemoryV2Static(trust: TrustContext): string | null {
+  return isPersonalMemoryAllowed(trust) ? readMemoryV2StaticContent() : null;
+}
+
+/**
  * Whether PKB is active for the turn: the personal-memory trust gate admits
  * the actor and the workspace has PKB content to surface.
  */
@@ -380,15 +396,26 @@ const NOW_MD_BLOCK_PREFIXES = [
 ] as const;
 
 /**
- * Whether a block matching any of the given prefixes is already present in the
+ * Matchers that mark a persisted `memory-v2-static` injection. Uses the
+ * `{ prefix, suffix }` wrapper shape (not a bare prefix) so user-authored text
+ * merely starting with `<info>\n` is never mistaken for an injection — matching
+ * the full-wrapper requirement the compaction strip uses for this block.
+ */
+const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
+  { prefix: "<info>\n", suffix: "\n</info>" },
+];
+
+/**
+ * Whether a block matching any of the given matchers is already present in the
  * turn's working messages. Mirrors `stripUserTextBlocksByPrefix` (a
- * user-message text block whose content starts with one of the prefixes), so
- * presence detection stays in lockstep with what compaction strips: a block is
- * present here exactly when compaction would strip it.
+ * user-message text block whose content matches a bare-prefix or a
+ * `{ prefix, suffix }` wrapper matcher), so presence detection stays in
+ * lockstep with what compaction strips: a block is present here exactly when
+ * compaction would strip it.
  */
 function hasInjectedUserTextBlock(
   runMessages: Message[] | undefined,
-  prefixes: readonly string[],
+  matchers: readonly InjectionMatcher[],
 ): boolean {
   if (!runMessages) return false;
   return runMessages.some(
@@ -397,7 +424,12 @@ function hasInjectedUserTextBlock(
       message.content.some(
         (block) =>
           block.type === "text" &&
-          prefixes.some((prefix) => block.text.startsWith(prefix)),
+          matchers.some((m) =>
+            typeof m === "string"
+              ? block.text.startsWith(m)
+              : block.text.startsWith(m.prefix) &&
+                block.text.endsWith(m.suffix),
+          ),
       ),
   );
 }
@@ -508,18 +540,30 @@ async function buildPkbReminderWithHints(
  * the memory prefix so `now-md` (40) splices after it.
  *
  * Gating:
- *  - `mode === "full"`.
- *  - `memoryV2Static` is a non-null, non-empty string.
+ *  - `mode === "full"` (skipped in minimal mode).
+ *  - The personal-memory trust gate admits the actor and v2 static memory has
+ *    content (see {@link readGatedMemoryV2Static}).
+ *  - The `<info>` block is not already present in the turn's working messages.
+ *    Like `<knowledge_base>`, the block is injected once and then persists in
+ *    history, so it only needs (re)injecting on the first turn and right after
+ *    compaction strips it — both of which leave the working messages without
+ *    the block. Skipping when it is present keeps the conversation prefix
+ *    stable for Anthropic's prefix caching and avoids a duplicate splice.
  */
 const memoryV2StaticInjector: Injector = {
   name: "memory-v2-static",
   order: DEFAULT_INJECTOR_ORDER.memoryV2Static,
-  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    const content = inputs.memoryV2Static;
+    const content = readGatedMemoryV2Static(ctx.trust);
     if (!content) return null;
+    if (hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS))
+      return null;
     return {
       id: "memory-v2-static",
       text: buildMemoryV2StaticBlock(content),

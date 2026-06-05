@@ -1730,33 +1730,6 @@ export function loadSlackActiveThreadFocusBlock(
 }
 
 /**
- * Extract the most recently injected NOW.md content from the message history.
- * Returns null if no NOW.md injection is found.
- */
-export function findLastInjectedNowContent(messages: Message[]): string | null {
-  // Matches every NOW.md opening tag we emit (the tag text may evolve over
-  // time, e.g. adding a line-limit hint), so in-flight histories with older
-  // tag variants remain discoverable during a rolling deploy.
-  const openTagPrefix = "<NOW.md Always keep this up to date";
-  const suffix = "\n</NOW.md>";
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== "user") continue;
-    for (const block of msg.content) {
-      if (block.type !== "text" || !block.text.startsWith(openTagPrefix)) {
-        continue;
-      }
-      const tagEnd = block.text.indexOf(">\n");
-      if (tagEnd < 0) continue;
-      const contentStart = tagEnd + ">\n".length;
-      const end = block.text.lastIndexOf(suffix);
-      if (end > contentStart) return block.text.slice(contentStart, end);
-    }
-  }
-  return null;
-}
-
-/**
  * Controls which runtime injections are applied.
  *
  * - `'full'` (default): all injections are applied.
@@ -1962,14 +1935,6 @@ export interface RuntimeInjectionOptions {
   channelCommandContext?: ChannelCommandContext | null;
   unifiedTurnContext?: string | null;
   voiceCallControlPrompt?: string | null;
-  /**
-   * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
-   * concatenated, header-wrapped). When non-null on full-mode turns the
-   * `memory-v2-static` injector wraps it in `<info>` and splices it onto
-   * the user message; subsequent turns leave the prior block cached on its
-   * original user message.
-   */
-  memoryV2Static?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
   /**
@@ -2062,7 +2027,6 @@ function buildTurnInjectionInputs(
     diskPressureContext: options.diskPressureContext,
     workspaceTopLevelContext: options.workspaceTopLevelContext,
     unifiedTurnContext: options.unifiedTurnContext,
-    memoryV2Static: options.memoryV2Static,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
