@@ -26,6 +26,7 @@ import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
+import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode } from "./local-mode";
 import { installLockfileWatcher } from "./lockfile-watcher";
@@ -312,6 +313,7 @@ app
     installFeedbackIpc();
     installApplicationMenu();
     installQuickInput();
+    installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during

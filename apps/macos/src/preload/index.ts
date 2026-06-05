@@ -387,6 +387,15 @@ export interface VellumBridge {
     /** Dismiss the quick input panel without submitting. */
     dismiss(): Promise<void>;
   };
+  popout: {
+    /**
+     * Open (or focus) a pop-out window for a conversation. Main creates an
+     * independent BrowserWindow showing only the conversation without sidebar
+     * chrome. If a pop-out for the given conversation already exists, it is
+     * focused instead of creating a duplicate.
+     */
+    open(conversationId: string): Promise<void>;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -598,6 +607,10 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
     dismiss: (): Promise<void> =>
       ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
+  },
+  popout: {
+    open: (conversationId: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:popout:open", conversationId) as Promise<void>,
   },
 };
 

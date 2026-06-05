@@ -247,6 +247,10 @@ declare global {
           callback: (event: ElectronNotificationActionEvent) => void,
         ): () => void;
       };
+      // Optional: older Electron shells predate the popout channel.
+      popout?: {
+        open(conversationId: string): Promise<void>;
+      };
     };
   }
 }
