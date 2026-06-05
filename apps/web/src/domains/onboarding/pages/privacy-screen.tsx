@@ -168,7 +168,13 @@ export function PrivacyScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-16 pt-6 text-[var(--content-default)]">
+      <div
+        className="mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-16 text-[var(--content-default)]"
+        style={{
+          paddingTop:
+            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
+        }}
+      >
         {isNative && (
           <div
             className="mb-8 flex w-full justify-center"

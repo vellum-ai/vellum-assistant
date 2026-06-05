@@ -35,7 +35,13 @@ export function NameExchangeScreen({
 }: NameExchangeScreenProps) {
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 pt-6 text-[var(--content-default)]">
+      <div
+        className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 text-[var(--content-default)]"
+        style={{
+          paddingTop:
+            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
+        }}
+      >
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
