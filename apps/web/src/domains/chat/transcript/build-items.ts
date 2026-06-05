@@ -15,6 +15,7 @@ import type {
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
   pendingSecret: { requestId: string } | null;
+  pendingConfirmation: { requestId: string } | null;
   pendingContactRequest?: {
     requestId: string;
     channel?: string;
@@ -47,11 +48,8 @@ export interface BuildTranscriptItemsInput {
  *   2. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
  *        b. `PendingSecretItem` when `pendingSecret` is set.
- *        c. `ErrorItem` when `errorNotice` is a non-empty string.
- *
- * Pending confirmations are not standalone rows: every confirmation is bound
- * to a tool call and renders inline on that tool call's chip via
- * `toolCall.pendingConfirmation`.
+ *        c. `PendingConfirmationItem` when `pendingConfirmation` is set.
+ *        d. `ErrorItem` when `errorNotice` is a non-empty string.
  *
  * Every returned item carries a non-empty, distinct `key`.
  */
@@ -61,6 +59,7 @@ export function buildTranscriptItems(
   const {
     messages,
     pendingSecret,
+    pendingConfirmation,
     pendingContactRequest,
     isThinking,
     errorNotice,
@@ -112,6 +111,14 @@ export function buildTranscriptItems(
       kind: "pendingSecret",
       key: `secret-${pendingSecret.requestId}`,
       requestId: pendingSecret.requestId,
+    });
+  }
+
+  if (pendingConfirmation) {
+    items.push({
+      kind: "pendingConfirmation",
+      key: `confirmation-${pendingConfirmation.requestId}`,
+      requestId: pendingConfirmation.requestId,
     });
   }
 

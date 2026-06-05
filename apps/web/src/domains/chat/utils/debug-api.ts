@@ -132,6 +132,7 @@ export interface PendingInteractionsSnapshot {
   pendingSecret: PendingSecretState | null;
   isSubmittingSecret: boolean;
   pendingConfirmation: PendingConfirmationState | null;
+  isSubmittingConfirmation: boolean;
   pendingContactRequest: PendingContactRequestState | null;
   isSubmittingContactRequest: boolean;
   pendingQuestion: PendingQuestionState | null;
@@ -139,6 +140,9 @@ export interface PendingInteractionsSnapshot {
   /** True while the question card is hidden but `pendingQuestion` is set —
    *  the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
+  /** Tool-call id paired with the currently-rendered inline confirmation,
+   *  or `null` when no inline confirmation is active. */
+  inlineConfirmationToolCallId: string | null;
 }
 
 /**

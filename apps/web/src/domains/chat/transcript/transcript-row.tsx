@@ -14,11 +14,12 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
  * component for its `kind`. Never forks the component — the per-kind JSX
  * mirrors the corresponding block in `AssistantPageClient.tsx`.
  *
- * `renderPendingSecret` is a render-prop slot: the pending-secret card
- * (`SecretPromptCard`) lives inside `AssistantPageClient.tsx` and depends on
- * local state (submitting, saved, etc). When it isn't supplied we fall back to
- * a minimal built-in prompt that exercises the public callbacks so the
- * Transcript still produces something sensible in isolation.
+ * `renderPendingSecret` / `renderPendingConfirmation` are render-prop slots:
+ * the pending-prompt cards (`SecretPromptCard`, `ConfirmationPromptCard`)
+ * currently live inside `AssistantPageClient.tsx` and depend on local state
+ * (submitting, saved, etc). PR 7 passes those renderers in; until then we
+ * fall back to a minimal built-in prompt that exercises the public callbacks
+ * so the Transcript still produces something sensible in isolation.
  */
 export interface TranscriptRowProps {
   item: TranscriptItem;
@@ -32,11 +33,14 @@ export interface TranscriptRowProps {
     data?: Record<string, unknown>,
   ) => void;
   onSecretSubmit: (requestId: string, value: string) => void;
+  onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   /** Render-prop override for `kind: "pendingSecret"`. */
   renderPendingSecret?: (requestId: string) => ReactNode;
+  /** Render-prop override for `kind: "pendingConfirmation"`. */
+  renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingContactRequest"`. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "onboardingChoice"`. */
@@ -83,10 +87,12 @@ export const TranscriptRow = memo(function TranscriptRow({
   expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
+  onConfirmationDecision,
   onRetryError,
   onForkConversation,
   onInspectMessage,
   renderPendingSecret,
+  renderPendingConfirmation,
   renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -186,6 +192,17 @@ export const TranscriptRow = memo(function TranscriptRow({
         />
       );
 
+    case "pendingConfirmation":
+      if (renderPendingConfirmation) {
+        return <>{renderPendingConfirmation(item.requestId)}</>;
+      }
+      return (
+        <MinimalConfirmationPrompt
+          requestId={item.requestId}
+          onDecision={onConfirmationDecision}
+        />
+      );
+
     case "pendingContactRequest":
       if (renderPendingContactRequest) {
         return <>{renderPendingContactRequest(item.requestId)}</>;
@@ -269,4 +286,33 @@ function MinimalSecretPrompt({
   );
 }
 
-
+function MinimalConfirmationPrompt({
+  requestId,
+  onDecision,
+}: {
+  requestId: string;
+  onDecision: (requestId: string, decision: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3">
+      <button
+        type="button"
+        onClick={() => onDecision(requestId, "allow")}
+        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
+         
+        className="rounded-md bg-[var(--system-positive-strong)] px-3 py-1 text-sm font-medium text-white"
+      >
+        Allow
+      </button>
+      <button
+        type="button"
+        onClick={() => onDecision(requestId, "deny")}
+        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
+         
+        className="rounded-md border border-[var(--system-negative-strong)] px-3 py-1 text-sm font-medium text-[var(--system-negative-strong)]"
+      >
+        Deny
+      </button>
+    </div>
+  );
+}

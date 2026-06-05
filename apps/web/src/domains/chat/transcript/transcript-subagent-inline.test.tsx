@@ -180,6 +180,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -204,6 +205,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -223,6 +225,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -261,6 +264,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -296,6 +300,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -345,6 +350,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -366,6 +372,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -419,6 +426,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -493,6 +501,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,
@@ -539,6 +548,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />
@@ -667,6 +677,7 @@ describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () =
         items={items}
         conversationId={null}
         onSecretSubmit={noop}
+        onConfirmationDecision={noop}
         onSurfaceAction={noop}
         onRetryError={noop}
       />,

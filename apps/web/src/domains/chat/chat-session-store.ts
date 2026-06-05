@@ -61,6 +61,7 @@ export interface ChatSessionState {
   pendingQueuedMessageIds: string[];
   requestIdToMessageId: Map<string, string>;
   pendingLocalDeletions: Set<string>;
+  confirmationToolCallMap: Map<string, string>;
   expandedToolCallIds: Set<string>;
   /**
    * Persistent expand state for the activity/tool progress cards and thinking
@@ -165,6 +166,7 @@ function initialState(): ChatSessionState {
     pendingQueuedMessageIds: [],
     requestIdToMessageId: new Map(),
     pendingLocalDeletions: new Set(),
+    confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
     expandedCardIds: new Map(),
     expandedThinkingKeys: new Map(),
@@ -291,6 +293,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       pendingQueuedMessageIds: [],
       requestIdToMessageId: new Map(),
       pendingLocalDeletions: new Set(),
+      confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
       expandedCardIds: new Map(),
       expandedThinkingKeys: new Map(),

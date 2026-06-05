@@ -31,10 +31,12 @@ export interface LatestTurnRowProps {
     data?: Record<string, unknown>,
   ) => void;
   onSecretSubmit: (requestId: string, value: string) => void;
+  onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   renderPendingSecret?: (requestId: string) => ReactNode;
+  renderPendingConfirmation?: (requestId: string) => ReactNode;
   renderPendingContactRequest?: (requestId: string) => ReactNode;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
@@ -75,10 +77,12 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   expandedThinkingKeys,
   onSurfaceAction,
   onSecretSubmit,
+  onConfirmationDecision,
   onRetryError,
   onForkConversation,
   onInspectMessage,
   renderPendingSecret,
+  renderPendingConfirmation,
   renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -108,10 +112,12 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
         onSecretSubmit={onSecretSubmit}
+        onConfirmationDecision={onConfirmationDecision}
         onRetryError={onRetryError}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
         renderPendingSecret={renderPendingSecret}
+        renderPendingConfirmation={renderPendingConfirmation}
         renderPendingContactRequest={renderPendingContactRequest}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
@@ -135,10 +141,12 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
             onSecretSubmit={onSecretSubmit}
+            onConfirmationDecision={onConfirmationDecision}
             onRetryError={onRetryError}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}
             renderPendingSecret={renderPendingSecret}
+            renderPendingConfirmation={renderPendingConfirmation}
             renderPendingContactRequest={renderPendingContactRequest}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}

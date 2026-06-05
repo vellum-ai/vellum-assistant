@@ -414,7 +414,14 @@ export function useSendMessage({
             const capturedConfData = restoredConfData;
             setMessages((prev) => {
               if (!isCurrentSendScope(effectiveConversationId)) return prev;
-              return attachConfirmationToToolCall(prev, capturedConfData);
+              const result = attachConfirmationToToolCall(prev, capturedConfData);
+              if (result.attachedToolCallId) {
+                useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
+                useChatSessionStore.getState().confirmationToolCallMap.set(capturedConfData.requestId, result.attachedToolCallId);
+              } else {
+                useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+              }
+              return result.updatedMessages;
             });
           }
           startReconciliationLoop(epoch);
@@ -474,6 +481,7 @@ export function useSendMessage({
       }
       setError(null);
       useInteractionStore.getState().resetSecretAndConfirmation();
+      useChatSessionStore.getState().confirmationToolCallMap.clear();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
@@ -718,6 +726,7 @@ export function useSendMessage({
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
+    useChatSessionStore.getState().confirmationToolCallMap.clear();
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

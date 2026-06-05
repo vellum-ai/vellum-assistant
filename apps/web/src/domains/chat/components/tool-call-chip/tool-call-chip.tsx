@@ -132,7 +132,6 @@ function InlineConfirmationCard({
     : null;
   const hasDetails = !!confirmation.input;
   const hasAllowlistOptions =
-    confirmation.persistentDecisionsAllowed !== false &&
     (confirmation.allowlistOptions?.length ?? 0) > 0;
 
   return (
@@ -262,9 +261,12 @@ export function ToolCallChip({
   embedded = false,
 }: ToolCallChipProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  // Submission state is local to each chip so concurrent confirmations on
-  // separate tool calls track their in-flight decisions independently.
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Per-chip submission state. Each tool call that is awaiting a confirmation
+  // renders its own inline card and tracks its own in-flight Allow/Deny, so a
+  // second confirmation outstanding in the same turn stays independently
+  // actionable (tools run via Promise.all — two prompts can overlap).
+  const [isSubmittingConfirmation, setIsSubmittingConfirmation] =
+    useState(false);
   // `status` is not stored; the chip only needs the two booleans it branches
   // on. An errored call resolves to error; otherwise a call is still running
   // until it has either a result payload or a (force-)completion timestamp.
@@ -287,7 +289,8 @@ export function ToolCallChip({
     hasPendingConfirmation ||
     (!isRunning && (toolCall.result !== undefined || Object.keys(toolCall.input).length > 0));
 
-  // Auto-expand when a pending confirmation appears on this tool call
+  // Auto-expand whenever this chip has a pending confirmation so its inline
+  // approve/deny card is immediately visible.
   useEffect(() => {
     if (toolCall.pendingConfirmation && !expanded) {
       setExpanded(true);
@@ -297,30 +300,26 @@ export function ToolCallChip({
 
   const handleConfirmationSubmit = useCallback(
     async (decision: ConfirmationDecision) => {
-      if (isSubmitting) {
-        return;
-      }
-      setIsSubmitting(true);
+      if (!onConfirmationSubmit) return;
+      setIsSubmittingConfirmation(true);
       try {
-        await onConfirmationSubmit?.(decision, toolCall);
+        await onConfirmationSubmit(decision, toolCall);
       } finally {
-        setIsSubmitting(false);
+        setIsSubmittingConfirmation(false);
       }
     },
-    [isSubmitting, onConfirmationSubmit, toolCall],
+    [onConfirmationSubmit, toolCall],
   );
 
   const handleAllowAndCreateRule = useCallback(async () => {
-    if (isSubmitting) {
-      return;
-    }
-    setIsSubmitting(true);
+    if (!onAllowAndCreateRule) return;
+    setIsSubmittingConfirmation(true);
     try {
-      await onAllowAndCreateRule?.(toolCall);
+      await onAllowAndCreateRule(toolCall);
     } finally {
-      setIsSubmitting(false);
+      setIsSubmittingConfirmation(false);
     }
-  }, [isSubmitting, onAllowAndCreateRule, toolCall]);
+  }, [onAllowAndCreateRule, toolCall]);
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
@@ -399,11 +398,12 @@ export function ToolCallChip({
 
   const detailsPanel = (
     <>
-      {/* Inline confirmation card when this tool call has a pending prompt */}
+      {/* Inline confirmation card — rendered per-chip directly from
+          tc.pendingConfirmation so overlapping confirmations are each visible. */}
       {hasPendingConfirmation && (
         <InlineConfirmationCard
           toolCall={toolCall}
-          isSubmitting={isSubmitting}
+          isSubmitting={isSubmittingConfirmation}
           onSubmit={handleConfirmationSubmit}
           onAllowAndCreateRule={handleAllowAndCreateRule}
         />
@@ -510,7 +510,7 @@ export function ToolCallChip({
             <div className="px-3 pt-1 pb-2">
               <InlineConfirmationCard
                 toolCall={toolCall}
-                isSubmitting={isSubmitting}
+                isSubmitting={isSubmittingConfirmation}
                 onSubmit={handleConfirmationSubmit}
                 onAllowAndCreateRule={handleAllowAndCreateRule}
               />

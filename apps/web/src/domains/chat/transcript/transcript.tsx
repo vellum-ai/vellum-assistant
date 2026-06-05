@@ -41,6 +41,7 @@ export interface TranscriptProps {
   conversationId: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
+  onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
     surfaceId: string,
     action: string,
@@ -64,6 +65,9 @@ export interface TranscriptProps {
   /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
    *  real `SecretPromptCard` here. */
   renderPendingSecret?: (requestId: string) => ReactNode;
+  /** Optional renderer for `kind: "pendingConfirmation"` items. PR 7 passes
+   *  the real `ConfirmationPromptCard` here. */
+  renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Optional renderer for `kind: "pendingContactRequest"` items. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
   /** Optional renderer for `kind: "onboardingChoice"` items. */
@@ -235,10 +239,12 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
       onSecretSubmit: rest.onSecretSubmit,
+      onConfirmationDecision: rest.onConfirmationDecision,
       onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,
       renderPendingSecret: rest.renderPendingSecret,
+      renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,

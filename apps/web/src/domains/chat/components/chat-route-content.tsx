@@ -27,6 +27,7 @@ import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-s
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
@@ -434,6 +435,7 @@ export function ChatRouteContent({
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
   const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
+  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
   const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
   const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
   const contactRequestAccepted = useInteractionStore.use.contactRequestAccepted();
@@ -736,12 +738,33 @@ export function ChatRouteContent({
 
   useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
 
+  // The standalone confirmation card is the fallback home for confirmations
+  // that aren't bound to a tool call (e.g. the `host_file_read` directive
+  // approval). When a tool call carries the same prompt it renders inline on
+  // that chip, so deriving attachment from the message tree avoids a
+  // double-render without relying on a single store slot (which can't
+  // represent two overlapping confirmations).
+  const pendingConfirmationAttachedToToolCall = useMemo(
+    () =>
+      pendingConfirmation != null &&
+      sanitizedMessages.some((m) =>
+        m.toolCalls?.some(
+          (tc) =>
+            tc.pendingConfirmation?.requestId === pendingConfirmation.requestId,
+        ),
+      ),
+    [pendingConfirmation, sanitizedMessages],
+  );
+
   const transcriptItems = useMemo(
     () =>
       buildTranscriptItems({
         messages: sanitizedMessages,
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
+          : null,
+        pendingConfirmation: pendingConfirmation && !pendingConfirmationAttachedToToolCall
+          ? { requestId: pendingConfirmation.requestId }
           : null,
         pendingContactRequest: pendingContactRequest
           ? {
@@ -762,6 +785,8 @@ export function ChatRouteContent({
     [
       sanitizedMessages,
       pendingSecret,
+      pendingConfirmation,
+      pendingConfirmationAttachedToToolCall,
       pendingContactRequest,
       showThinking,
       thinkingLabel,
@@ -1146,6 +1171,7 @@ export function ChatRouteContent({
       );
     },
     onSecretSubmit: () => {},
+    onConfirmationDecision: () => {},
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onRetryError: () => setError(null),
@@ -1162,6 +1188,20 @@ export function ChatRouteContent({
           onSave={(val) => handleSecretSubmit(val, "store")}
           onSendOnce={(val) => handleSecretSubmit(val, "transient_send")}
           onCancel={handleSecretCancel}
+        />
+      ) : null,
+    renderPendingConfirmation: () =>
+      pendingConfirmation ? (
+        <ConfirmationPromptCard
+          confirmation={pendingConfirmation}
+          isSubmitting={isSubmittingConfirmation}
+          onSubmit={handleConfirmationSubmit}
+          onAllowAndCreateRule={
+            pendingConfirmation.persistentDecisionsAllowed !== false &&
+            (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
+              ? handleAllowAndCreateRule
+              : undefined
+          }
         />
       ) : null,
     renderPendingContactRequest: () =>

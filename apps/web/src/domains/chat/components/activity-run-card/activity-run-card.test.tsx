@@ -276,7 +276,7 @@ describe("ActivityRunCard — mixed group", () => {
 });
 
 describe("ActivityRunCard — confirmation short-circuit", () => {
-  test("a tool call's pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
+  test("a tool call with pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",

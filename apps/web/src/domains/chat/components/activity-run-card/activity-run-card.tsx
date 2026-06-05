@@ -82,8 +82,9 @@ export interface ActivityRunCardProps {
     directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
-  // Inline confirmation props (pass-through). Each chip tracks its own
-  // submission state and reads its prompt from `toolCall.pendingConfirmation`.
+  // Inline confirmation props (pass-through). Each chip renders its own card
+  // from `tc.pendingConfirmation`, so the handlers receive the originating
+  // tool call rather than relying on a single "active" id.
   onConfirmationSubmit?: (
     decision: ConfirmationDecision,
     toolCall: ChatMessageToolCall,
@@ -125,9 +126,9 @@ function buildDefaultItems(
  *
  * Special cases short-circuit before the shell:
  *
- * - a tool call in this group carries a `pendingConfirmation` →
- *   render the inline confirmation UI via {@link ToolCallChip} so the
- *   approve/deny path is preserved bit-for-bit from the legacy card.
+ * - any tool call in this group carries a `pendingConfirmation` → render the
+ *   inline confirmation UI via {@link ToolCallChip} so the approve/deny path
+ *   is preserved bit-for-bit from the legacy card.
  * - Zero renderable steps (today: a group made up entirely of
  *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
  *   `null`; the spawned subagents render as inline
@@ -576,6 +577,7 @@ function ConfirmationView({
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">
         {toolCalls.map((tc) => {
+          const isConfirmationTarget = !!tc.pendingConfirmation;
           return (
             <Fragment key={tc.id}>
               <ToolCallChip
@@ -586,8 +588,12 @@ function ConfirmationView({
                 }
                 onOpenRuleEditor={onOpenRuleEditor}
                 embedded
-                onConfirmationSubmit={onConfirmationSubmit}
-                onAllowAndCreateRule={onAllowAndCreateRule}
+                {...(isConfirmationTarget
+                  ? {
+                      onConfirmationSubmit,
+                      onAllowAndCreateRule,
+                    }
+                  : {})}
               />
               {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
                 <UnknownCommandNudge

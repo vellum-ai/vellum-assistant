@@ -207,14 +207,17 @@ function applyConfirmationToToolCall(
   messageIndex: number,
   toolCallIndex: number,
   pending: PendingToolConfirmation,
-): DisplayMessage[] {
+): {
+  updatedMessages: DisplayMessage[];
+  attachedToolCallId: string | undefined;
+} {
   const msg = messages[messageIndex]!;
   const tc = msg.toolCalls![toolCallIndex]!;
   const updatedToolCalls = [...msg.toolCalls!];
   updatedToolCalls[toolCallIndex] = { ...tc, pendingConfirmation: pending };
   const updatedMessages = [...messages];
   updatedMessages[messageIndex] = { ...msg, toolCalls: updatedToolCalls };
-  return updatedMessages;
+  return { updatedMessages, attachedToolCallId: tc.id };
 }
 
 /**
@@ -224,8 +227,7 @@ function applyConfirmationToToolCall(
  * 1. Exact `toolUseId` match (conf.toolUseId === toolCall.id)
  * 2. Fallback: last running tool call in the latest assistant message with tool calls
  *
- * Returns the messages with the prompt stamped onto the matching tool call,
- * or the original array unchanged when no tool call matches.
+ * Returns updated messages and the id of the attached tool call (or undefined).
  */
 export function attachConfirmationToToolCall(
   messages: DisplayMessage[],
@@ -243,7 +245,10 @@ export function attachConfirmationToToolCall(
     persistentDecisionsAllowed?: boolean;
     toolUseId?: string;
   },
-): DisplayMessage[] {
+): {
+  updatedMessages: DisplayMessage[];
+  attachedToolCallId: string | undefined;
+} {
   const { toolUseId, ...pendingFields } = conf;
   const pending: PendingToolConfirmation = pendingFields;
 
@@ -273,7 +278,7 @@ export function attachConfirmationToToolCall(
     break;
   }
 
-  return messages;
+  return { updatedMessages: messages, attachedToolCallId: undefined };
 }
 
 /**
