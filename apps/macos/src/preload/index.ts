@@ -212,16 +212,17 @@ export interface VellumBridge {
      * Publish the unread count so the main process can update the macOS
      * Dock badge. Pass `0` (or any non-positive number) to clear. Main
      * formats per Swift Vellum's convention — pass-through up to 99,
-     * `"99+"` beyond.
+     * `"99+"` beyond. Fire-and-forget — no acknowledgement.
      */
-    setBadge(count: number): Promise<void>;
+    setBadge(count: number): void;
     /**
      * Publish the user's signed-in state so the main process can decide
      * whether to keep the Dock icon visible after the last window
      * closes. Temporary — once main owns auth state directly, this
-     * call becomes a no-op and the renderer drops it.
+     * call becomes a no-op and the renderer drops it. Fire-and-forget —
+     * no acknowledgement.
      */
-    setSignedIn(signedIn: boolean): Promise<void>;
+    setSignedIn(signedIn: boolean): void;
   };
   localMode: {
     /**
@@ -436,10 +437,12 @@ const bridge: VellumBridge = {
     },
   },
   dock: {
-    setBadge: (count: number): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
-    setSignedIn: (signedIn: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+    setBadge: (count: number): void => {
+      ipcRenderer.send("vellum:dock:setBadge", count);
+    },
+    setSignedIn: (signedIn: boolean): void => {
+      ipcRenderer.send("vellum:dock:setSignedIn", signedIn);
+    },
   },
   localMode: {
     hatch: (species: string, remote?: string) =>

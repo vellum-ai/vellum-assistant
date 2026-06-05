@@ -41,11 +41,11 @@ export function useElectronDockSync(conversations: Conversation[]): void {
   );
 
   useEffect(() => {
-    void setDockBadge(unreadCount);
+    setDockBadge(unreadCount);
   }, [unreadCount]);
 
   useEffect(() => {
-    void setDockSignedIn(isAuthenticated);
+    setDockSignedIn(isAuthenticated);
   }, [isAuthenticated]);
 
   useEffect(() => {

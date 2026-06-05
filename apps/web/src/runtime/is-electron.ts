@@ -149,8 +149,8 @@ declare global {
         setAvatar(png: Uint8Array | null): void;
       };
       dock: {
-        setBadge(count: number): Promise<void>;
-        setSignedIn(signedIn: boolean): Promise<void>;
+        setBadge(count: number): void;
+        setSignedIn(signedIn: boolean): void;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
