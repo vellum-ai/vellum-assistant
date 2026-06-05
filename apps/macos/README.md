@@ -187,8 +187,11 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   transport seam is [`apps/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
   which selects this bridge on Electron and the dev-server `/assistant/__local/*`
   middleware on web/dev so both hosts honor the same contract.
-- `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
-  until the corresponding feature tickets land.
+- `helper.hotkey.fnPushToTalk(enable)` — starts or stops the native Carbon
+  helper that captures the Fn key globally for Push to Talk, with
+  `helper.hotkey.onEvent(callback)` streaming `down` / `up` notifications.
+- `auth.*` and `helper.ping()` — typed stubs that reject with "not implemented
+  yet" until the corresponding feature tickets land.
 
 Verify the bridge from the renderer:
 

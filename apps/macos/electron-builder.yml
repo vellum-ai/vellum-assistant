@@ -5,6 +5,8 @@ directories:
 extraResources:
   - from: resources/bun
     to: bun
+  - from: resources/hotkey-helper
+    to: hotkey-helper
   # The generated per-environment app icon, kept at a stable resources path so
   # the Dock can restore it when a custom avatar is cleared (Electron has no
   # "reset to bundle icon" API). Source is produced by scripts/generate-icon.sh.

@@ -27,6 +27,7 @@ import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
+import { installHotkeyHelper } from "./hotkey-helper";
 import { installLocalMode } from "./local-mode";
 import log from "./logger";
 import {
@@ -307,6 +308,7 @@ app
     installCsp();
     installSettingsIpc();
     installLocalMode();
+    installHotkeyHelper();
     installAbout();
     installFeedbackIpc();
     installApplicationMenu();

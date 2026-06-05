@@ -2,6 +2,7 @@ import { ArrowUpRight, Info } from "lucide-react";
 import {
     useCallback,
     useEffect,
+    useMemo,
     useRef,
     useState,
     type KeyboardEvent as ReactKeyboardEvent,
@@ -17,6 +18,7 @@ import {
     setLocalSetting,
 } from "@/utils/local-settings";
 import {
+    FN_PTT_ACTIVATOR,
     LS_PTT_ACTIVATION_KEY,
     activatorDisplayName,
     activatorsEqual,
@@ -28,6 +30,7 @@ import {
     type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
+import { supportsFnPushToTalk } from "@/runtime/hotkey";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
@@ -45,6 +48,11 @@ const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
     activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
   },
 ];
+
+const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
+  label: "Fn",
+  activator: FN_PTT_ACTIVATOR,
+};
 
 const CONVERSATION_TIMEOUT_OPTIONS = [
   { label: "5 seconds", value: "5" },
@@ -91,14 +99,24 @@ function SpeechServicesBanner() {
 }
 
 function PushToTalkCard() {
+  const fnPushToTalkSupported = supportsFnPushToTalk();
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-    return raw ? parseActivator(raw) : { kind: "off" };
+    return raw
+      ? parseActivator(raw, { preserveFunction: fnPushToTalkSupported })
+      : fnPushToTalkSupported
+        ? FN_PTT_PRESET.activator
+        : { kind: "off" };
   });
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);
   const nonModifierPressedRef = useRef(false);
+  const pttPresets = useMemo(
+    () =>
+      fnPushToTalkSupported ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS,
+    [fnPushToTalkSupported],
+  );
 
   const pttEnabled = activator.kind !== "off";
 
@@ -127,13 +145,19 @@ function PushToTalkCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
+      if (
+        fnPushToTalkSupported &&
+        (event.key === "Fn" || event.getModifierState("Fn"))
+      ) {
+        modifiers.push("function");
+      }
       if (event.ctrlKey) modifiers.push("control");
       if (event.altKey) modifiers.push("option");
       if (event.shiftKey) modifiers.push("shift");
       if (event.metaKey) modifiers.push("command");
       return modifiers;
     },
-    [],
+    [fnPushToTalkSupported],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -155,7 +179,16 @@ function PushToTalkCard() {
         key === "Meta" ||
         key === "Fn";
       if (isModifierOnly) {
-        setPendingModifiers(sortModifiers(modifiers));
+        setPendingModifiers(
+          modifiers.includes("function")
+            ? FN_PTT_ACTIVATOR.modifiers
+            : sortModifiers(modifiers),
+        );
+        return;
+      }
+
+      if (modifiers.includes("function")) {
+        selectActivator(FN_PTT_ACTIVATOR);
         return;
       }
 
@@ -214,7 +247,7 @@ function PushToTalkCard() {
 
   const isCustom =
     pttEnabled &&
-    !PTT_PRESETS.some((p) => activatorsEqual(p.activator, activator));
+    !pttPresets.some((p) => activatorsEqual(p.activator, activator));
 
   return (
     <DetailCard
@@ -227,10 +260,14 @@ function PushToTalkCard() {
           onChange={(next: boolean) => {
             if (next) {
               if (activator.kind === "off") {
-                selectActivator({
-                  kind: "modifierOnly",
-                  modifiers: ["control"],
-                });
+                selectActivator(
+                  fnPushToTalkSupported
+                    ? FN_PTT_PRESET.activator
+                    : {
+                        kind: "modifierOnly",
+                        modifiers: ["control"],
+                      },
+                );
               }
             } else {
               selectActivator({ kind: "off" });
@@ -249,7 +286,7 @@ function PushToTalkCard() {
               onKeyUp={isRecording ? handleCaptureKeyUp : undefined}
               className="flex flex-wrap items-center gap-2 focus:outline-none"
             >
-              {PTT_PRESETS.map((preset) => {
+              {pttPresets.map((preset) => {
                 const selected = activatorsEqual(preset.activator, activator);
                 return (
                   <ActivationKeyOption
@@ -280,14 +317,16 @@ function PushToTalkCard() {
               )}
             </div>
 
-            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>
-                Push-to-Talk only works while this tab is focused, and browsers
-                may intercept some shortcuts (e.g. Ctrl+T) before the page can
-                see them. For always-on PTT, use the Vellum desktop app.
-              </span>
-            </div>
+            {!fnPushToTalkSupported && (
+              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>
+                  Push-to-Talk only works while this tab is focused, and browsers
+                  may intercept some shortcuts (e.g. Ctrl+T) before the page can
+                  see them. For always-on PTT, use the Vellum desktop app.
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -72,6 +72,17 @@ export type ConnectivityState =
   | "device-offline"
   | "backend-unreachable";
 
+export type HotkeyEventState = "down" | "up";
+
+export interface HotkeyEvent {
+  kind: "fnPushToTalk";
+  state: HotkeyEventState;
+}
+
+export type FnPushToTalkResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
 declare global {
   interface Window {
     vellum?: {
@@ -92,6 +103,12 @@ declare global {
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
         set<T = unknown>(key: string, value: T): Promise<void>;
+      };
+      helper?: {
+        hotkey?: {
+          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          onEvent(callback: (event: HotkeyEvent) => void): () => void;
+        };
       };
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;

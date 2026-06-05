@@ -2,13 +2,21 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
+  FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
   eventDeactivatesPTT,
+  isFnPushToTalkActivator,
   parseActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
-import { getLocalSetting } from "@/utils/local-settings";
+import { getLocalSetting, watchSetting } from "@/utils/local-settings";
+import {
+  setFnPushToTalkEnabled,
+  subscribeToHotkeyEvents,
+  supportsFnPushToTalk,
+  type HotkeyEvent,
+} from "@/runtime/hotkey";
 
 /**
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
@@ -90,7 +98,8 @@ function playActivationBlip(): void {
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
  * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
- * tab has focus — browsers cannot observe global/OS-level hotkeys.
+ * tab has focus. Electron's native Fn bridge bypasses this DOM path so the
+ * desktop app can keep PTT active while it is in the background.
  *
  * The 300 ms hold delay prevents accidental activation from quick taps and
  * system shortcuts (matching the macOS `PTTActivator` behaviour). If
@@ -108,6 +117,7 @@ export function usePushToTalk(
   const { enabled = true } = options;
   const activatorRef = useRef<PTTActivator>({ kind: "off" });
   const activeRef = useRef(false);
+  const activeOriginRef = useRef<"dom" | "native" | null>(null);
 
   // Hold-delay state — tracked via refs so event handlers always see the
   // latest values without requiring effect re-runs.
@@ -119,9 +129,31 @@ export function usePushToTalk(
       return;
     }
 
+    const nativeFnSupported = supportsFnPushToTalk();
+    let nativeFnRegistered = false;
+
+    const updateNativeRegistration = () => {
+      const shouldRegister =
+        nativeFnSupported && isFnPushToTalkActivator(activatorRef.current);
+      if (nativeFnRegistered === shouldRegister) {
+        return;
+      }
+      nativeFnRegistered = shouldRegister;
+      void setFnPushToTalkEnabled(shouldRegister).then((ok) => {
+        if (shouldRegister && !ok) {
+          nativeFnRegistered = false;
+        }
+      });
+    };
+
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-      activatorRef.current = raw ? parseActivator(raw) : { kind: "off" };
+      activatorRef.current = raw
+        ? parseActivator(raw, { preserveFunction: nativeFnSupported })
+        : nativeFnSupported
+          ? FN_PTT_ACTIVATOR
+          : { kind: "off" };
+      updateNativeRegistration();
     };
     readActivator();
 
@@ -173,6 +205,7 @@ export function usePushToTalk(
         }
         holdingRef.current = false;
         activeRef.current = true;
+        activeOriginRef.current = "dom";
         playActivationBlip();
         targetRef.current?.start();
       }, PTT_HOLD_DELAY_MS);
@@ -214,6 +247,31 @@ export function usePushToTalk(
         return;
       }
       activeRef.current = false;
+      activeOriginRef.current = null;
+      targetRef.current?.stop();
+    };
+
+    const handleNativeHotkey = (event: HotkeyEvent) => {
+      if (!isFnPushToTalkActivator(activatorRef.current)) {
+        return;
+      }
+      if (event.state === "down") {
+        cancelHold();
+        if (activeRef.current) {
+          return;
+        }
+        activeRef.current = true;
+        activeOriginRef.current = "native";
+        playActivationBlip();
+        targetRef.current?.start();
+        return;
+      }
+
+      if (!activeRef.current || activeOriginRef.current !== "native") {
+        return;
+      }
+      activeRef.current = false;
+      activeOriginRef.current = null;
       targetRef.current?.stop();
     };
 
@@ -221,35 +279,38 @@ export function usePushToTalk(
       // Dropping focus while in the hold window — cancel.
       cancelHold();
 
-      // Dropping focus while the key is held means we'll never see the keyup.
-      // Stop the session so the recognizer doesn't run forever.
-      if (activeRef.current) {
+      // DOM keyup can be lost when the page blurs. Native Fn events are
+      // delivered by the host helper while the app is in the background, so
+      // leave those sessions running until the helper sends the up event.
+      if (activeRef.current && activeOriginRef.current !== "native") {
         activeRef.current = false;
+        activeOriginRef.current = null;
         targetRef.current?.stop();
       }
     };
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === LS_PTT_ACTIVATION_KEY) {
-        readActivator();
-      }
-    };
-
     const target = targetRef;
+    const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, readActivator);
+    const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("blur", handleBlur);
-    window.addEventListener("storage", handleStorage);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
-      window.removeEventListener("storage", handleStorage);
+      unsubscribeSetting();
+      unsubscribeNative();
+      if (nativeFnRegistered) {
+        nativeFnRegistered = false;
+        void setFnPushToTalkEnabled(false);
+      }
       cancelHold();
       if (activeRef.current) {
         activeRef.current = false;
+        activeOriginRef.current = null;
         target.current?.stop();
       }
     };
