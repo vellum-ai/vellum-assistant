@@ -535,6 +535,9 @@ export function ChatLayout() {
         handleMarkConversationUnread(conversation);
       }
     },
+    markAllRead: () => {
+      void handleMarkAllReadInGroup(conversations);
+    },
     find: () => {
       useCommandPaletteStore.getState().toggle();
     },

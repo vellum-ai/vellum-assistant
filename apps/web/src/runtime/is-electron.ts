@@ -35,6 +35,7 @@ export type VellumCommand =
   | { kind: "openSettings" }
   | { kind: "shareFeedback" }
   | { kind: "find" }
+  | { kind: "markAllRead" }
   | { kind: "logout" }
   | { kind: "rePair" };
 
