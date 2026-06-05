@@ -904,6 +904,116 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("accumulates Deepgram is_final segments and flushes one onTranscriptFinal at the utterance boundary", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Deepgram emits a final per is_final segment. Mid-sentence segments
+      // carry endOfUtterance:false and must NOT fire onTranscriptFinal — only
+      // the final segment at the speech_final boundary should flush.
+      fake.emit({ type: "final", text: "hello there", endOfUtterance: false });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      fake.emit({
+        type: "final",
+        text: "how are you",
+        endOfUtterance: true,
+      });
+
+      // Exactly one reply, with the concatenated utterance text.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello there how are you",
+        expect.any(Number),
+      );
+
+      // A subsequent utterance starts fresh (buffer reset after flush).
+      fake.emit({ type: "final", text: "second", endOfUtterance: false });
+      fake.emit({ type: "final", text: "utterance", endOfUtterance: true });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(2);
+      expect(onTranscriptFinal).toHaveBeenLastCalledWith(
+        "second utterance",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("flushes accumulated segments on a standalone UtteranceEnd boundary (empty-text final)", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // is_final segment with no speech_final, then a Deepgram UtteranceEnd
+      // surfaced as an empty-text boundary final.
+      fake.emit({ type: "final", text: "mid segment", endOfUtterance: false });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      fake.emit({ type: "final", text: "", endOfUtterance: true });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "mid segment",
+        expect.any(Number),
+      );
+
+      // A bare boundary with nothing buffered does not emit an empty reply.
+      fake.emit({ type: "final", text: "", endOfUtterance: true });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("provider without a boundary signal emits one onTranscriptFinal per final (no regression)", async () => {
+      telephonyStreamingFlag = true;
+      sttProvider = "xai"; // realtime-ws, no separate utterance boundary signal
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // No endOfUtterance field (undefined) — each final is a complete
+      // utterance and flushes immediately.
+      fake.emit({ type: "final", text: "first reply" });
+      fake.emit({ type: "final", text: "second reply" });
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(2);
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        1,
+        "first reply",
+        expect.any(Number),
+      );
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        2,
+        "second reply",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
     test("maps transcriber error to onError", async () => {
       telephonyStreamingFlag = true;
       const fake = makeFakeStreamingTranscriber();

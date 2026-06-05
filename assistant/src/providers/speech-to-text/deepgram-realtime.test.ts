@@ -296,6 +296,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: true,
       confidence: 0.95,
     });
   });
@@ -309,6 +310,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "",
+      endOfUtterance: false,
       confidence: 0.95,
     });
   });
@@ -327,6 +329,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "",
+      endOfUtterance: false,
       confidence: 0.5,
     });
   });
@@ -341,7 +344,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(frame);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      endOfUtterance: false,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -358,6 +365,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: false,
       confidence: 0.95,
     });
     // `in` check: the key must not exist at all, not just be undefined.
@@ -382,6 +390,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: false,
       speakerLabel: "0",
       confidence: 0.95,
     });
@@ -408,6 +417,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "yes exactly right here",
+      endOfUtterance: false,
       speakerLabel: "1",
       confidence: 0.95,
     });
@@ -434,6 +444,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "alpha beta gamma delta",
+      endOfUtterance: false,
       speakerLabel: "2",
       confidence: 0.95,
     });
@@ -475,6 +486,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "no speakers here",
+      endOfUtterance: false,
       confidence: 0.95,
     });
     expect("speakerLabel" in events[0]).toBe(false);
@@ -553,6 +565,7 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events[2]).toEqual({
       type: "final",
       text: "hello world",
+      endOfUtterance: true,
       confidence: 0.95,
     });
   });
@@ -561,12 +574,20 @@ describe("DeepgramRealtimeTranscriber", () => {
   // Non-transcript frames
   // ─────────────────────────────────────────────────────────────────
 
-  test("ignores UtteranceEnd frames (no event emitted)", async () => {
+  test("emits a boundary-only final for UtteranceEnd frames", async () => {
     const { events } = await startSession();
 
     mockWs.simulateMessage(utteranceEndFrame());
 
-    expect(events).toHaveLength(0);
+    // UtteranceEnd marks the natural utterance boundary; we surface it as an
+    // empty-text final with endOfUtterance:true so accumulating consumers
+    // flush the committed segments so far.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      endOfUtterance: true,
+    });
   });
 
   test("ignores Metadata frames (no event emitted)", async () => {

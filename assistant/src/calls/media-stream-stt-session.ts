@@ -30,6 +30,7 @@ import type {
   StreamingTranscriber,
   SttCallContextHints,
   SttStreamServerEvent,
+  SttStreamServerFinalEvent,
 } from "../stt/types.js";
 import { getLogger } from "../util/logger.js";
 import { mulawToPcm16, resamplePcm16 } from "./media-stream-audio-transcode.js";
@@ -198,6 +199,22 @@ export class MediaStreamSttSession {
   private streamingReady = false;
 
   /**
+   * Accumulated committed (`final`) transcript segments for the in-progress
+   * caller utterance, awaiting the provider's utterance boundary.
+   *
+   * Some providers (Deepgram) commit multiple per-segment finals within a
+   * single spoken sentence (`is_final`) and only mark the natural pause
+   * separately (`speech_final` / `UtteranceEnd`, surfaced as
+   * `endOfUtterance: true`). Routing every committed segment to
+   * `onTranscriptFinal` would trigger an assistant reply mid-sentence, so we
+   * buffer segments here and flush a single concatenated `onTranscriptFinal`
+   * at the boundary. Providers without a separate boundary signal emit
+   * `endOfUtterance: undefined`, which flushes immediately — preserving the
+   * one-final-per-utterance behavior.
+   */
+  private streamingUtteranceSegments: string[] = [];
+
+  /**
    * Set when a Twilio `stop` arrives (or {@link dispose} is called) while the
    * session is still in `"streaming-pending"` — i.e. before the streaming
    * resolver/`start()` has settled. Once set, the in-flight
@@ -347,6 +364,7 @@ export class MediaStreamSttSession {
     }
     this.streamingReady = false;
     this.streamingStartupBuffer = [];
+    this.streamingUtteranceSegments = [];
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -516,12 +534,19 @@ export class MediaStreamSttSession {
    * Handle a server event from the streaming transcriber. `onSpeechStart`
    * is driven by local VAD (for barge-in latency), so partials are not
    * surfaced here — only finals, errors, and close.
+   *
+   * `final` segments are gated on the provider's utterance boundary: we
+   * accumulate consecutive committed segments and only flush one
+   * concatenated `onTranscriptFinal` when the segment marks the end of the
+   * utterance (`endOfUtterance !== false`). Providers that do not signal a
+   * separate boundary emit `endOfUtterance: undefined`, so each `final`
+   * flushes immediately — see {@link handleStreamingFinal}.
    */
   private handleStreamingEvent(event: SttStreamServerEvent): void {
     if (this.disposed) return;
     switch (event.type) {
       case "final":
-        this.callbacks.onTranscriptFinal?.(event.text, 0);
+        this.handleStreamingFinal(event);
         break;
       case "error":
         this.callbacks.onError?.(event.category, event.message);
@@ -536,6 +561,44 @@ export class MediaStreamSttSession {
         // fast local VAD instead of waiting for the first partial.
         break;
     }
+  }
+
+  /**
+   * Gate a streaming `final` event on the provider's utterance boundary.
+   *
+   * - `endOfUtterance === false` — mid-utterance committed segment. Buffer the
+   *   text and wait; do NOT fire onTranscriptFinal yet (avoids a mid-sentence
+   *   assistant reply).
+   * - `endOfUtterance === true` or `undefined` — utterance boundary (or a
+   *   provider with no separate boundary signal). Concatenate any buffered
+   *   segments with this one, reset the buffer, and flush a single
+   *   onTranscriptFinal.
+   *
+   * Empty boundary finals with no buffered text (e.g. a standalone Deepgram
+   * `UtteranceEnd` after silence) are dropped so a bare boundary does not emit
+   * an empty transcript.
+   */
+  private handleStreamingFinal(event: SttStreamServerFinalEvent): void {
+    const text = event.text.trim();
+
+    if (event.endOfUtterance === false) {
+      // Mid-utterance committed segment — accumulate, do not flush.
+      if (text.length > 0) this.streamingUtteranceSegments.push(text);
+      return;
+    }
+
+    // Utterance boundary (true) or a provider with no boundary signal
+    // (undefined): flush the accumulated segments plus this one as a single
+    // transcript.
+    if (text.length > 0) this.streamingUtteranceSegments.push(text);
+    const combined = this.streamingUtteranceSegments.join(" ");
+    this.streamingUtteranceSegments = [];
+
+    // A bare boundary (e.g. UtteranceEnd) with nothing buffered carries no
+    // transcript — drop it rather than firing an empty reply.
+    if (combined.length === 0) return;
+
+    this.callbacks.onTranscriptFinal?.(combined, 0);
   }
 
   private handleMedia(event: MediaStreamMediaEvent): void {

@@ -173,7 +173,10 @@ interface DeepgramStreamChannel {
  *   and will not be revised. When false, the transcript is interim (partial).
  * - `speech_final` — true when Deepgram's endpointing detects a natural
  *   speech pause. Combined with `is_final`, this signals a committed utterance
- *   boundary. We emit a `final` event only when `is_final` is true.
+ *   boundary. We emit a `final` event for every `is_final` segment and set
+ *   `endOfUtterance: true` on it only when `speech_final` is true (or on a
+ *   standalone `UtteranceEnd` frame), so consumers can accumulate
+ *   mid-utterance segments and flush only at the boundary.
  * - `type` — `"Results"` for transcript frames, `"Metadata"` for session info,
  *   `"UtteranceEnd"` for endpointing signals.
  */
@@ -495,12 +498,17 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    // `UtteranceEnd` is an endpointing signal — no transcript text, but
-    // it confirms the previous is_final segment is a natural boundary.
-    // We don't need to emit an additional event since we already emit
-    // finals on is_final=true.
+    // `UtteranceEnd` is an endpointing signal carrying no transcript text.
+    // It marks the natural end of the caller's utterance when Deepgram did
+    // NOT already set `speech_final` on the trailing `is_final` segment
+    // (e.g. interim-results disabled, or a barge-in cut the segment short).
+    // We surface it as a boundary-only `final` (empty text,
+    // endOfUtterance=true) so utterance-accumulating consumers flush the
+    // segments committed so far. Consumers that treat each `final` as a
+    // complete utterance ignore empty finals, so this is a no-op for them.
     if (frame.type === "UtteranceEnd") {
       log.debug("Received UtteranceEnd signal");
+      this.emitEvent({ type: "final", text: "", endOfUtterance: true });
       return;
     }
 
@@ -543,10 +551,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         : undefined;
 
     if (frame.is_final) {
-      // Committed transcript — emit as final.
+      // Committed transcript — emit as final. `speech_final` marks Deepgram's
+      // natural utterance boundary (endpointed pause); a bare `is_final`
+      // without `speech_final` is a mid-utterance committed segment. We carry
+      // this through `endOfUtterance` so the consumer can accumulate
+      // mid-utterance segments and only act on the true boundary.
       this.emitEvent({
         type: "final",
         text,
+        endOfUtterance: frame.speech_final === true,
         ...(speakerLabel !== undefined ? { speakerLabel } : {}),
         ...(confidence !== undefined ? { confidence } : {}),
       });
