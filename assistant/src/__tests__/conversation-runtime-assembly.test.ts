@@ -46,7 +46,6 @@ import {
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
-  findLastInjectedNowContent,
   getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
@@ -1829,85 +1828,6 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     const result = await applyRuntimeInjections(userTailMessages, {});
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// findLastInjectedNowContent
-// ---------------------------------------------------------------------------
-
-describe("findLastInjectedNowContent", () => {
-  test("extracts NOW.md content from the last user message", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nCurrent focus: fix the bug\n</NOW.md>",
-          },
-          { type: "text", text: "Hello" },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe(
-      "Current focus: fix the bug",
-    );
-  });
-
-  test("returns null when no NOW.md injection exists", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "Hello" }],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBeNull();
-  });
-
-  test("returns the most recent injection when multiple exist", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nOld focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "OK" }] },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nNew focus\n</NOW.md>",
-          },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("New focus");
-  });
-
-  test("skips assistant messages", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nUser focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("User focus");
   });
 });
 
