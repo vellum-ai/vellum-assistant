@@ -14,10 +14,9 @@ import { useMemo } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import {
   canStopGeneration,
-  getThinkingStatusText,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
@@ -60,11 +59,6 @@ export function useChatUIState(): ChatUIState {
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
 
-  // The selector functions (shouldShowThinkingIndicator, canStopGeneration,
-  // isSendDisabled, getThinkingStatusText) only access `phase`,
-  // `activeToolCallCount`, and `statusText` from TurnState. Subscribe only
-  // to those three; remaining TurnState fields are filled from the store
-  // snapshot to satisfy the type without creating extra subscriptions.
   const phase = useTurnStore.use.phase();
   const activeToolCallCount = useTurnStore.use.activeToolCallCount();
   const statusText = useTurnStore.use.statusText();
@@ -77,13 +71,6 @@ export function useChatUIState(): ChatUIState {
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
   // --- Derived values (memoized) ------------------------------------------
-
-  const turnState: TurnState = {
-    ...useTurnStore.getState(),
-    phase,
-    activeToolCallCount,
-    statusText,
-  };
 
   // Conversation processing — OR of local optimistic set and server snapshot.
   const activeConversationIsProcessing =
@@ -133,11 +120,11 @@ export function useChatUIState(): ChatUIState {
     ],
   );
 
-  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  const showThinking = shouldShowThinkingIndicator(phase, activeToolCallCount, uiContext);
   const isAssistantStreaming = showThinking || hasStreamingAssistantMessage;
-  const canStopGenerating = canStopGeneration(turnState, uiContext);
-  const isSendDisabledFromTurn = isSendDisabled(turnState, uiContext);
-  const thinkingLabel = getThinkingStatusText(turnState);
+  const canStopGenerating = canStopGeneration(phase, uiContext);
+  const isSendDisabledFromTurn = isSendDisabled(uiContext);
+  const thinkingLabel = statusText;
 
   return {
     uiContext,

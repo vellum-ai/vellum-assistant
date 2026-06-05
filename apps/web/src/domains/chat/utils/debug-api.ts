@@ -494,8 +494,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       uiContext.hasPendingAssistantResponse === true;
 
     const conditions: ChatDebugThinkingConditions = {
-      isSending: isSending(turnState),
-      isThinking: isThinking(turnState),
+      isSending: isSending(turnState.phase),
+      isThinking: isThinking(turnState.phase),
       restoredProcessing,
       activeToolCallCount: turnState.activeToolCallCount,
       statusText: turnState.statusText,
@@ -546,7 +546,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       failingConditions.push("activeToolCallCount>0");
     }
 
-    const visible = shouldShowThinkingIndicator(turnState, uiContext);
+    const visible = shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext);
     // Cross-check: the failingConditions list should be empty iff visible is
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
@@ -587,7 +587,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     // `isAssistantStreaming` (`showThinking || hasStreamingAssistantMessage`);
     // `isProcessing` is the coarse `activeConversationIsProcessing` OR-signal.
     const isStreaming =
-      shouldShowThinkingIndicator(turnState, uiContext) ||
+      shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext) ||
       uiContext.hasStreamingAssistantMessage;
     const isProcessing = uiContext.activeConversationIsProcessing === true;
     const litBy: string[] = [];

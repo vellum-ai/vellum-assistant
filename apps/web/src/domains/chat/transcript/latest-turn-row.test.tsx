@@ -81,7 +81,7 @@ const sharedProps = {
   onSurfaceAction: noop,
   onSecretSubmit: noop,
   onConfirmationDecision: noop,
-  onRetryError: noop,
+
 };
 
 describe("LatestTurnRow render order", () => {

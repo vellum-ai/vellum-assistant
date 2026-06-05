@@ -30,7 +30,6 @@ export interface LatestTurnRowProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   renderOnboardingChoice?: () => ReactNode;
@@ -70,7 +69,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   expandedCardIds,
   expandedThinkingKeys,
   onSurfaceAction,
-  onRetryError,
   onForkConversation,
   onInspectMessage,
   renderOnboardingChoice,
@@ -100,7 +98,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         expandedCardIds={expandedCardIds}
         expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
-        onRetryError={onRetryError}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
         renderOnboardingChoice={renderOnboardingChoice}
@@ -124,7 +121,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             expandedCardIds={expandedCardIds}
             expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
-            onRetryError={onRetryError}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}
             renderOnboardingChoice={renderOnboardingChoice}

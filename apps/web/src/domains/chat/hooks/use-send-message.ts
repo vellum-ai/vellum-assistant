@@ -516,7 +516,7 @@ export function useSendMessage({
         useTurnStore.getState().dismissSurface();
       }
 
-      const willQueue = isSending(useTurnStore.getState());
+      const willQueue = isSending(useTurnStore.getState().phase);
       const optimisticUserId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: optimisticUserId,

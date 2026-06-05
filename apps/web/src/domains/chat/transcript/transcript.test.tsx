@@ -90,7 +90,7 @@ describe("Transcript", () => {
         items={[]}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
     // No message content → no rendered rows.
@@ -104,7 +104,7 @@ describe("Transcript", () => {
         items={[]}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
     expect(html).toContain("flex-col");
@@ -126,7 +126,7 @@ describe("Transcript", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -154,7 +154,7 @@ describe("Transcript", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -176,7 +176,7 @@ describe("Transcript", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -203,7 +203,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -225,7 +225,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -256,7 +256,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -271,7 +271,7 @@ describe("Transcript avatar slot", () => {
         items={[]}
         conversationId={null}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -297,7 +297,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -319,7 +319,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -344,7 +344,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -374,7 +374,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -394,7 +394,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -447,7 +447,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
         items={historyOnly}
         conversationId="conv-1"
         onSurfaceAction={noop}
-        onRetryError={noop}
+
         renderAvatar={renderAvatar}
       />,
     );
@@ -466,7 +466,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={withAnchor}
           conversationId="conv-1"
           onSurfaceAction={noop}
-          onRetryError={noop}
+  
           renderAvatar={renderAvatar}
         />,
       );
@@ -486,7 +486,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={historyOnly}
           conversationId="conv-1"
           onSurfaceAction={noop}
-          onRetryError={noop}
+  
           renderAvatar={renderAvatar}
         />,
       );

@@ -909,7 +909,6 @@ export function ChatRouteContent({
     },
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
-    onRetryError: () => setError(null),
     onForkConversation: (messageId) => {
       void handleForkConversation(messageId);
     },

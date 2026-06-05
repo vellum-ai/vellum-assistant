@@ -45,7 +45,6 @@ export interface TranscriptProps {
     action: string,
     input?: unknown,
   ) => void;
-  onRetryError: () => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
@@ -230,7 +229,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       expandedCardIds,
       expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
-      onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,
       renderOnboardingChoice: rest.renderOnboardingChoice,

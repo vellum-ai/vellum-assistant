@@ -3,7 +3,6 @@ import { memo, type ReactNode } from "react";
 
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
-import { Notice } from "@vellumai/design-library";
 
 import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
@@ -31,7 +30,6 @@ export interface TranscriptRowProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
@@ -79,7 +77,6 @@ export const TranscriptRow = memo(function TranscriptRow({
   expandedCardIds,
   expandedThinkingKeys,
   onSurfaceAction,
-  onRetryError,
   onForkConversation,
   onInspectMessage,
   renderOnboardingChoice,
@@ -177,15 +174,6 @@ export const TranscriptRow = memo(function TranscriptRow({
 
     case "pendingContactRequest":
       return <PendingContactRequestRow />;
-
-    case "error":
-      // `onRetryError` is wired as the dismiss handler so the user has a
-      // visible retry/ack affordance.
-      return (
-        <Notice tone="error" onDismiss={onRetryError}>
-          {item.message}
-        </Notice>
-      );
 
     case "onboardingChoice":
       if (renderOnboardingChoice) {

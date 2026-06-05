@@ -318,7 +318,7 @@ export function ActiveChatView() {
       lifecycleService.clearExpectingFirstMessage();
       return;
     }
-    if (isSending(useTurnStore.getState())) return;
+    if (isSending(useTurnStore.getState().phase)) return;
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
