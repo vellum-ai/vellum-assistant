@@ -143,7 +143,7 @@ paths:
       summary: Bulk-clear terminal ACP sessions
       description:
         Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
-        Rows whose session is currently active in memory (e.g. resumed) are excluded.
+        Rows whose session is currently active in memory (e.g. resumed) or has a resume in flight are excluded.
       tags:
         - acp
       responses:
@@ -245,8 +245,8 @@ paths:
       operationId: acp_sessions_by_id_delete
       summary: Delete ACP session from history
       description:
-        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory; idempotent
-        for unknown ids.
+        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory or has a
+        resume in flight; idempotent for unknown ids.
       tags:
         - acp
       responses:

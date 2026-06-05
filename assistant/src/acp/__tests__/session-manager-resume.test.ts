@@ -112,9 +112,15 @@ mock.module("../agent-process.js", () => ({
   AcpAgentProcess: FakeAcpAgentProcess,
 }));
 
-// Identity env-prep: credential-broker plumbing has its own suite.
+// Identity env-prep: credential-broker plumbing has its own suite. Tests
+// that need to observe the manager mid-resume (dispose, pending-id
+// visibility) set `prepareAgentEnvGate` to stall the resume here.
+let prepareAgentEnvGate: Promise<void> | null = null;
 mock.module("../prepare-agent-env.js", () => ({
-  prepareAgentEnv: async (agentConfig: unknown) => agentConfig,
+  prepareAgentEnv: async (agentConfig: unknown) => {
+    if (prepareAgentEnvGate) await prepareAgentEnvGate;
+    return agentConfig;
+  },
 }));
 
 // Resolver stub: defaults to resolving every id to the claude adapter.
@@ -161,6 +167,7 @@ function countHistoryRows(): number {
 type ManagerInternals = {
   sessions: Map<string, { clientHandler: FakeClient }>;
   eventBuffers: Map<string, Array<{ update: AcpSessionUpdate }>>;
+  pendingResumes: Map<string, Promise<void>>;
 };
 
 function internals(
@@ -176,6 +183,7 @@ beforeEach(() => {
   fakeCaps.resume = false;
   replayChunks = [];
   promptThrowsSync = false;
+  prepareAgentEnvGate = null;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
@@ -426,6 +434,53 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(manager.getStatus() as AcpSessionState[]).toHaveLength(1);
   });
 
+  test("getActiveAndPendingIds surfaces a resume still awaiting env prep", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "pending-vis-1" });
+    let release!: () => void;
+    prepareAgentEnvGate = new Promise((res) => {
+      release = res;
+    });
+
+    const manager = new AcpSessionManager(4);
+    const promise = manager.resumeFromHistory("pending-vis-1", () => {});
+
+    // Mid-resume: no SessionEntry yet (getStatus throws not-found), but the
+    // id must already be visible to the delete guards.
+    expect(() => manager.getStatus("pending-vis-1")).toThrow(/not found/);
+    expect(manager.getActiveAndPendingIds()).toEqual(["pending-vis-1"]);
+
+    release();
+    await promise;
+
+    // After the resume lands the id comes from the sessions map and the
+    // reservation is gone (no duplicate).
+    expect(manager.getActiveAndPendingIds()).toEqual(["pending-vis-1"]);
+    expect(internals(manager).pendingResumes.size).toBe(0);
+  });
+
+  test("dispose during prepareAgentEnv aborts the resume before any process spawns", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "dispose-1" });
+    let release!: () => void;
+    prepareAgentEnvGate = new Promise((res) => {
+      release = res;
+    });
+
+    const manager = new AcpSessionManager(4);
+    const promise = manager.resumeFromHistory("dispose-1", () => {});
+    manager.dispose();
+    release();
+
+    await expect(promise).rejects.toThrow(/disposed/);
+    // No child process was ever constructed on the disposed manager, and
+    // the reservation was released.
+    expect(fakeInstances).toHaveLength(0);
+    expect(internals(manager).pendingResumes.size).toBe(0);
+    expect(internals(manager).sessions.size).toBe(0);
+    expect(internals(manager).eventBuffers.size).toBe(0);
+  });
+
   test("cancel on a resumed session with no in-flight prompt persists and tears down", async () => {
     fakeCaps.resume = true;
     insertHistoryRow({
@@ -516,6 +571,41 @@ describe("AcpSessionManager.steerOrResume", () => {
     const promise = manager.steerOrResume("sor-legacy-1", "go", () => {});
     await expect(promise).rejects.toBeInstanceOf(AcpResumeError);
     await expect(promise).rejects.toThrow(/recorded before resume support/);
+  });
+
+  test("concurrent steerOrResume on the same id: the loser awaits the in-flight resume and steers", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "sor-race-1" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: ServerMessage[] = [];
+    const [a, b] = await Promise.all([
+      manager.steerOrResume("sor-race-1", "first instruction", (msg) =>
+        sent.push(msg),
+      ),
+      manager.steerOrResume("sor-race-1", "second instruction", (msg) =>
+        sent.push(msg),
+      ),
+    ]);
+
+    // Neither caller got the misleading "already active" resume error;
+    // both landed their instruction on the single resumed session.
+    expect(a).toEqual({ resumed: true });
+    expect(b).toEqual({ resumed: true });
+    expect(fakeInstances).toHaveLength(1);
+    const fake = fakeInstances[0]!;
+    expect(fake.resumeSessionCalls).toHaveLength(1);
+    expect(fake.promptCalls.map((c) => c.text).sort()).toEqual([
+      "first instruction",
+      "second instruction",
+    ]);
+    // Single spawned event: one resume happened, not two.
+    expect(sent.filter((m) => m.type === "acp_session_spawned")).toHaveLength(
+      1,
+    );
+    expect((manager.getStatus("sor-race-1") as AcpSessionState).status).toBe(
+      "running",
+    );
   });
 
   test("post-resume steer failure tears the resumed session down instead of leaving it idle", async () => {

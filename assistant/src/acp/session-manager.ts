@@ -75,6 +75,15 @@ interface SessionEntry {
   command: string;
 }
 
+/**
+ * An `acp_session_history` row that passed resumeFromHistory's validation
+ * guards: `cwd` (nullable in the schema for pre-resume-support rows) is
+ * guaranteed present.
+ */
+type ResumableHistoryRow = typeof acpSessionHistory.$inferSelect & {
+  cwd: string;
+};
+
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
   /**
@@ -85,15 +94,24 @@ export class AcpSessionManager {
    */
   private eventBuffers = new Map<string, BufferedAcpUpdate[]>();
   /**
-   * Ids whose resumeFromHistory has passed its guards but not yet
-   * registered a SessionEntry (it is awaiting prepareAgentEnv). Reserved
-   * SYNCHRONOUSLY before the first await so concurrent resumes of the same
-   * id cannot both pass the guards (the loser would overwrite the winner's
-   * map entry and leak its child process), and so N concurrent resumes of
-   * distinct ids cannot exceed maxConcurrent. The spawn path needs no such
-   * reservation: its check-then-register is synchronous.
+   * In-flight resumes by session id, keyed to the promise of the resume's
+   * async body. Reserved SYNCHRONOUSLY before the first await so concurrent
+   * resumes of the same id cannot both pass the guards (the loser would
+   * overwrite the winner's map entry and leak its child process), and so N
+   * concurrent resumes of distinct ids cannot exceed maxConcurrent. The
+   * entry lives until the resume settles so `steerOrResume` can await a
+   * concurrent caller's resume instead of failing the already-active guard.
+   * The spawn path needs no such reservation: its check-then-register is
+   * synchronous.
    */
-  private pendingResumes = new Set<string>();
+  private pendingResumes = new Map<string, Promise<void>>();
+
+  /**
+   * Set by dispose() (the daemon-shutdown path). Resumes that are mid-await
+   * when the manager is disposed re-check this flag before spawning a child
+   * process nothing would ever kill.
+   */
+  private disposed = false;
 
   constructor(private readonly maxConcurrent: number) {
     this.cleanupStaleRunningRows();
@@ -131,12 +149,25 @@ export class AcpSessionManager {
   }
 
   /**
+   * Ids that must be treated as live: registered sessions plus in-flight
+   * resume reservations (deduped, since a resuming session appears in both maps
+   * between registration and settle). Delete guards use this so a history
+   * row cannot be removed out from under a resume that is still awaiting
+   * env preparation; the later terminal upsert would resurrect it.
+   */
+  getActiveAndPendingIds(): string[] {
+    return [
+      ...new Set([...this.sessions.keys(), ...this.pendingResumes.keys()]),
+    ];
+  }
+
+  /**
    * Concurrency guard shared by spawn() and resumeFromHistory(). Counts
    * both registered sessions and in-flight resume reservations so the cap
    * holds even while a resume is still awaiting prepareAgentEnv.
    */
   private assertCapacity(): void {
-    if (this.sessions.size + this.pendingResumes.size >= this.maxConcurrent) {
+    if (this.getActiveAndPendingIds().length >= this.maxConcurrent) {
       throw new Error(
         `ACP concurrency limit reached (max ${this.maxConcurrent}). ` +
           `Close an existing session before spawning a new one.`,
@@ -181,7 +212,7 @@ export class AcpSessionManager {
       startedAt: Date.now(),
       sendToVellum,
     });
-    const { process: agentProcess, state, sendToVellum: wrappedSend } = entry;
+    const { process: agentProcess, state } = entry;
 
     try {
       log.info({ acpSessionId, agentId }, "ACP spawning child process");
@@ -201,19 +232,11 @@ export class AcpSessionManager {
       );
     } catch (err) {
       log.error({ acpSessionId, agentId, err }, "ACP spawn failed");
-      // Kill the orphaned child process and remove the reserved slot.
-      agentProcess.kill();
-      this.sessions.delete(acpSessionId);
-      this.eventBuffers.delete(acpSessionId);
+      this.cleanupFailedStartup(acpSessionId, agentProcess);
       throw err;
     }
 
-    wrappedSend({
-      type: "acp_session_spawned",
-      acpSessionId,
-      agent: agentId,
-      parentConversationId,
-    });
+    this.sendSpawnedEvent(acpSessionId, entry);
 
     // Fire prompt in the background — don't await
     entry.currentPrompt = this.firePromptInBackground(
@@ -294,6 +317,36 @@ export class AcpSessionManager {
   }
 
   /**
+   * Failure cleanup shared by spawn() and the resume path: kill the
+   * orphaned child process and remove the reserved slot. A subset of
+   * teardownSession: at startup time no prompt has fired, so there are no
+   * pending permission requests to deny.
+   */
+  private cleanupFailedStartup(
+    acpSessionId: string,
+    agentProcess: AcpAgentProcess,
+  ): void {
+    agentProcess.kill();
+    this.sessions.delete(acpSessionId);
+    this.eventBuffers.delete(acpSessionId);
+  }
+
+  /**
+   * Notifies connected clients that a session is live. Shared by spawn()
+   * and the resume path (resumed sessions reuse the spawned event so
+   * clients render them; a dedicated acp_session_resumed event is a
+   * possible follow-up, not in scope here).
+   */
+  private sendSpawnedEvent(acpSessionId: string, entry: SessionEntry): void {
+    entry.sendToVellum({
+      type: "acp_session_spawned",
+      acpSessionId,
+      agent: entry.state.agentId,
+      parentConversationId: entry.parentConversationId,
+    });
+  }
+
+  /**
    * Resumes a terminal-state session from its persisted
    * `acp_session_history` row, reattaching to the agent's stored
    * conversation via ACP `session/resume` (preferred: no history replay) or
@@ -351,31 +404,62 @@ export class AcpSessionManager {
     // Everything up to here is synchronous. Reserve the id + concurrency
     // slot BEFORE the first await so a concurrent resume of the same id
     // (or a spawn racing the cap) fails the guards above instead of
-    // double-registering and leaking the first child process.
-    this.pendingResumes.add(acpSessionId);
-    let entry: SessionEntry;
+    // double-registering and leaking the first child process. The
+    // reservation holds the resume's promise until it settles so
+    // steerOrResume can await a concurrent caller's in-flight resume, and
+    // so the delete guards see the id as live while the row's terminal
+    // status still reflects the previous run.
+    const resumePromise = this.performResume(
+      acpSessionId,
+      row as ResumableHistoryRow,
+      resolved.agent,
+      sendToVellum,
+    );
+    this.pendingResumes.set(acpSessionId, resumePromise);
     try {
-      const agentConfig = await prepareAgentEnv(resolved.agent);
-      entry = this.registerSession({
-        acpSessionId,
-        agentId: row.agentId,
-        agentConfig,
-        parentConversationId: row.parentConversationId,
-        cwd: row.cwd,
-        startedAt: row.startedAt,
-        sendToVellum,
-      });
+      await resumePromise;
     } finally {
-      // The reservation is either transferred to the sessions map by
-      // registerSession or released on prepareAgentEnv failure.
       this.pendingResumes.delete(acpSessionId);
     }
+  }
+
+  /**
+   * The async body of resumeFromHistory, split out so the caller can store
+   * its promise in `pendingResumes` synchronously before the first await.
+   * All guards and row validation have already passed.
+   */
+  private async performResume(
+    acpSessionId: string,
+    row: ResumableHistoryRow,
+    agent: AcpAgentConfig,
+    sendToVellum: (msg: ServerMessage) => void,
+  ): Promise<void> {
+    const agentConfig = await prepareAgentEnv(agent);
+
+    // The daemon may have shut down while prepareAgentEnv was pending.
+    // Registering now would spawn a child process on a disposed manager
+    // that nothing would ever kill.
+    if (this.disposed) {
+      throw new Error(
+        `ACP session manager is disposed; cannot resume session "${acpSessionId}"`,
+      );
+    }
+
+    const entry = this.registerSession({
+      acpSessionId,
+      agentId: row.agentId,
+      agentConfig,
+      parentConversationId: row.parentConversationId,
+      cwd: row.cwd,
+      startedAt: row.startedAt,
+      sendToVellum,
+    });
 
     log.info(
       { acpSessionId, agentId: row.agentId, cwd: row.cwd },
       "ACP resume from history requested",
     );
-    const { process: agentProcess, state, sendToVellum: wrappedSend } = entry;
+    const { process: agentProcess, state } = entry;
 
     // Re-seed the ring buffer from the persisted event log, routed through
     // appendToBuffer so the count/byte caps still apply. The terminal
@@ -434,22 +518,11 @@ export class AcpSessionManager {
         { acpSessionId, agentId: row.agentId, err },
         "ACP resume failed",
       );
-      // Kill the orphaned child process and remove the reserved slot.
-      agentProcess.kill();
-      this.sessions.delete(acpSessionId);
-      this.eventBuffers.delete(acpSessionId);
+      this.cleanupFailedStartup(acpSessionId, agentProcess);
       throw err;
     }
 
-    // Reuse the existing spawned event so connected clients render the
-    // session. A dedicated acp_session_resumed event is a possible
-    // follow-up, not in scope here.
-    wrappedSend({
-      type: "acp_session_spawned",
-      acpSessionId,
-      agent: row.agentId,
-      parentConversationId: row.parentConversationId,
-    });
+    this.sendSpawnedEvent(acpSessionId, entry);
   }
 
   /**
@@ -504,10 +577,15 @@ export class AcpSessionManager {
    * fails, the freshly resumed session is closed (process killed, terminal
    * row persisted, maps cleared) instead of being leaked.
    *
+   * When a concurrent caller's resume of the same id is already in flight,
+   * this call awaits that resume and then retries the plain steer, so both
+   * callers' instructions land on the single resumed session.
+   *
    * Error contract for transport callers (acp_steer tool, steer route):
    * - `AcpSessionNotFoundError`: no in-memory session AND no history row.
-   * - `AcpResumeError`: the resume (or the steer immediately after it)
-   *   failed; the message carries the actionable hint.
+   * - `AcpResumeError`: the resume (own or a concurrent caller's awaited
+   *   one, or the steer immediately after an own resume) failed; the
+   *   message carries the actionable hint.
    * - any other error: the plain steer on an in-memory session failed.
    */
   async steerOrResume(
@@ -520,6 +598,25 @@ export class AcpSessionManager {
       return { resumed: false };
     } catch (err) {
       if (!(err instanceof AcpSessionNotFoundError)) throw err;
+    }
+
+    // Another caller's resume of this id may already be in flight (the
+    // session is not in memory yet, but its slot is reserved). Await that
+    // resume and retry the plain steer once instead of failing
+    // resumeFromHistory's already-active guard, which would surface a
+    // misleading resume error and drop this instruction.
+    const inFlightResume = this.pendingResumes.get(acpSessionId);
+    if (inFlightResume) {
+      try {
+        await inFlightResume;
+      } catch (err) {
+        throw new AcpResumeError(err);
+      }
+      // The resumed session is owned by the concurrent caller (its own
+      // post-resume steer handles teardown on failure), so a failure here
+      // propagates as a plain steer error without closing the session.
+      await this.steer(acpSessionId, instruction);
+      return { resumed: true };
     }
 
     try {
@@ -836,9 +933,12 @@ export class AcpSessionManager {
   }
 
   /**
-   * Kills all processes on shutdown.
+   * Kills all processes on shutdown. Also flags the manager as disposed so
+   * resumes that are mid-await when shutdown happens abort before spawning
+   * a child process nothing would ever kill.
    */
   dispose(): void {
+    this.disposed = true;
     this.closeAll();
   }
 }

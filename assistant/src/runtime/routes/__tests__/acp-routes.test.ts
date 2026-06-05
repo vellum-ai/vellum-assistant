@@ -481,7 +481,10 @@ describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  test("unknown command: never installs, plain hint surfaces", async () => {
+  test("unknown command: plain hint maps to FailedDependencyError", async () => {
+    // The allowlist itself (no npm invocation for unmapped commands) is
+    // pinned in auto-install.test.ts and spawn.test.ts; this asserts only
+    // the route's transport mapping of the plain-hint failure.
     config.setConfig({
       agents: { custom: { command: "custom-bin", args: [] } },
     });
@@ -493,8 +496,6 @@ describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
     await expect(promise).rejects.toThrow(
       "custom-bin is not on PATH. Install 'custom-bin' and ensure it is on PATH.",
     );
-    expect(execFileMock).not.toHaveBeenCalled();
-    expect(spawnMock).not.toHaveBeenCalled();
   });
 });
 

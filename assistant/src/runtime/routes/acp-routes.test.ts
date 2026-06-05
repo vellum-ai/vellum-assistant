@@ -2,25 +2,28 @@
  * Tests for the ACP route handlers.
  *
  * Suites:
- *  - POST /v1/acp/spawn — the three failure paths produced by
- *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
+ *  - POST /v1/acp/spawn: resolver failure paths (acp_disabled,
+ *    unknown_agent) and the body-shape guard. The binary_not_found /
+ *    auto-install surface is covered in `__tests__/acp-routes.test.ts`.
  *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
  *    from the credential broker (policy-gated + audited) and merged into
  *    `agentConfig.env` ONLY for the `claude` agent.
  *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
  *    wipes terminal-state rows (completed/failed/cancelled) from
- *    `acp_session_history` while leaving running/initializing rows intact.
+ *    `acp_session_history` while leaving running/initializing rows and
+ *    rows with an in-flight resume intact.
  *  - DELETE /v1/acp/sessions/:id — single-row delete: completed → 200,
- *    running → 409, unknown id → idempotent { deleted: false }.
+ *    running or mid-resume → 409, unknown id → idempotent
+ *    { deleted: false }.
  *
  * The spawn tests mirror the resolver's test setup using the shared
  * `installAcpConfigStub` and `installWhichStub` helpers so the host
  * environment doesn't influence the resolver's PATH preflight.
  *
- * The single-id delete tests stub `getAcpSessionManager` so we can drive
- * the in-memory-status check without spawning real ACP child processes,
- * and use the real DB (initialized via the test preload's per-file
- * workspace) to verify the row is actually removed.
+ * The delete tests stub `getAcpSessionManager` so we can drive the
+ * in-memory-status and pending-resume checks without spawning real ACP
+ * child processes, and use the real DB (initialized via the test preload's
+ * per-file workspace) to verify the row is actually removed.
  */
 
 import {
@@ -34,18 +37,11 @@ import {
 } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
-import { installExecFileStub } from "../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { AcpSessionState } from "../../acp/index.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
-
-// Stub `execFile` so the spawn route's auto-install path (`npm i -g ...` in
-// acp/auto-install.ts) never shells out to real npm. The binary-missing test
-// scripts the install to fail so the route falls through to the augmented
-// FailedDependencyError hint.
-const { execScripts, reset: resetExecFileStub } = installExecFileStub();
 
 afterAll(() => {
   which.restore();
@@ -55,8 +51,10 @@ afterAll(() => {
 // in-memory-status check without spawning real ACP processes, and so the
 // env-injection spawn tests can capture the `agentConfig` arg without
 // launching a real subprocess. Stored in mutable state so individual tests
-// can plant arbitrary states / inspect capture.
+// can plant arbitrary states / inspect capture. `pendingResumeIds` models
+// ids reserved by an in-flight resumeFromHistory (no SessionEntry yet).
 const inMemoryStates = new Map<string, AcpSessionState>();
+const pendingResumeIds = new Set<string>();
 
 interface CapturedSpawn {
   agent: string;
@@ -77,6 +75,9 @@ mock.module("../../acp/index.js", () => ({
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
     },
+    getActiveAndPendingIds: () => [
+      ...new Set([...inMemoryStates.keys(), ...pendingResumeIds]),
+    ],
     spawn: async (
       agent: string,
       agentConfig: { env?: Record<string, string> },
@@ -176,9 +177,6 @@ import { initializeDb } from "../../memory/db-init.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 
 const { ROUTES } = await import("./acp-routes.js");
-const { _resetAdapterInstallCacheForTests } = await import(
-  "../../acp/auto-install.js"
-);
 
 function getSpawnHandler() {
   const route = ROUTES.find(
@@ -195,8 +193,6 @@ beforeEach(() => {
   capturedSpawns.length = 0;
   vaultStore.clear();
   metadataStore.clear();
-  resetExecFileStub();
-  _resetAdapterInstallCacheForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -236,29 +232,6 @@ describe("POST /v1/acp/spawn", () => {
         },
       }),
     ).rejects.toThrow('Unknown agent "nonexistent"');
-  });
-
-  test("throws FailedDependencyError when the agent binary is missing", async () => {
-    config.setConfig({ agents: {} });
-    which.setWhich({});
-    // codex-acp is an allowlisted adapter, so the route attempts a silent
-    // `npm i -g @zed-industries/codex-acp` before failing. Script that
-    // install to fail; the full auto-install failure surface is covered in
-    // __tests__/acp-routes.test.ts.
-    execScripts.set("npm i", {
-      error: new Error("EACCES: permission denied"),
-    });
-
-    const handler = getSpawnHandler();
-    await expect(
-      handler({
-        body: {
-          agent: "codex",
-          task: "do a thing",
-          conversationId: "conv-1",
-        },
-      }),
-    ).rejects.toThrow("codex-acp is not on PATH");
   });
 
   test("body-shape guard short-circuits before the resolver runs", async () => {
@@ -477,6 +450,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
 
   beforeEach(() => {
     inMemoryStates.clear();
+    pendingResumeIds.clear();
     getSqlite().run("DELETE FROM acp_session_history");
   });
 
@@ -528,6 +502,29 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
 
     const remaining = listRows();
     expect(remaining).toEqual([{ id: "row-resumed", status: "completed" }]);
+  });
+
+  test("excludes terminal rows whose session has a resume in flight", async () => {
+    // A resume that is still awaiting env preparation has no in-memory
+    // SessionEntry yet, but its history row (still terminal) must survive:
+    // deleting it mid-resume would let the later terminal upsert resurrect
+    // it as an orphan row.
+    seedHistoryRow("row-pending-resume", "completed", 1000);
+    seedHistoryRow("row-completed", "completed", 2000);
+    pendingResumeIds.add("row-pending-resume");
+
+    const handler = getBulkDeleteHandler();
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(1);
+
+    const remaining = listRows();
+    expect(remaining).toEqual([
+      { id: "row-pending-resume", status: "completed" },
+    ]);
   });
 
   test("returns deleted=0 when no terminal rows are present", async () => {
@@ -607,6 +604,7 @@ describe("DELETE /v1/acp/sessions/:id", () => {
 
   beforeEach(() => {
     inMemoryStates.clear();
+    pendingResumeIds.clear();
     getDb().delete(acpSessionHistory).run();
   });
 
@@ -657,6 +655,24 @@ describe("DELETE /v1/acp/sessions/:id", () => {
       expect(remaining).toHaveLength(1);
     },
   );
+
+  test("returns 409 when the session has a resume in flight (not yet in memory)", async () => {
+    pendingResumeIds.add("sess-resuming");
+    insertHistoryRow({ id: "sess-resuming", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    expect(() => handler({ pathParams: { id: "sess-resuming" } })).toThrow(
+      "resume in flight",
+    );
+
+    // Row untouched.
+    const remaining = getDb()
+      .select()
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, "sess-resuming"))
+      .all();
+    expect(remaining).toHaveLength(1);
+  });
 
   test("idempotent for unknown id — returns { deleted: false }", async () => {
     const handler = getDeleteSessionHandler();
