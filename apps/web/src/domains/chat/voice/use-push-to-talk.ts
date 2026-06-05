@@ -2,6 +2,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
+  CTRL_PTT_ACTIVATOR,
   FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
@@ -129,12 +130,12 @@ export function usePushToTalk(
       return;
     }
 
-    const nativeFnSupported = supportsFnPushToTalk();
+    let nativeFnAvailable = supportsFnPushToTalk();
     let nativeFnRegistered = false;
 
     const updateNativeRegistration = () => {
       const shouldRegister =
-        nativeFnSupported && isFnPushToTalkActivator(activatorRef.current);
+        nativeFnAvailable && isFnPushToTalkActivator(activatorRef.current);
       if (nativeFnRegistered === shouldRegister) {
         return;
       }
@@ -142,6 +143,10 @@ export function usePushToTalk(
       void setFnPushToTalkEnabled(shouldRegister).then((ok) => {
         if (shouldRegister && !ok) {
           nativeFnRegistered = false;
+          nativeFnAvailable = false;
+          if (isFnPushToTalkActivator(activatorRef.current)) {
+            activatorRef.current = CTRL_PTT_ACTIVATOR;
+          }
         }
       });
     };
@@ -149,8 +154,8 @@ export function usePushToTalk(
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
-        ? parseActivator(raw, { preserveFunction: nativeFnSupported })
-        : nativeFnSupported
+        ? parseActivator(raw, { preserveFunction: nativeFnAvailable })
+        : nativeFnAvailable
           ? FN_PTT_ACTIVATOR
           : { kind: "off" };
       updateNativeRegistration();

@@ -34,6 +34,10 @@ export interface PTTKey {
 export type PTTActivator = PTTOff | PTTModifierOnly | PTTKey;
 
 export const LS_PTT_ACTIVATION_KEY = "vellum:voice:activationKey";
+export const CTRL_PTT_ACTIVATOR: PTTModifierOnly = {
+  kind: "modifierOnly",
+  modifiers: ["control"],
+};
 export const FN_PTT_ACTIVATOR: PTTModifierOnly = {
   kind: "modifierOnly",
   modifiers: ["function"],
@@ -130,6 +134,9 @@ function normalizeModifiers(
   options: ParseActivatorOptions,
 ): PTTModifier[] {
   const modifiers = raw.filter(isPTTModifier);
+  if (options.preserveFunction && modifiers.includes("function")) {
+    return FN_PTT_ACTIVATOR.modifiers;
+  }
   const filtered = options.preserveFunction
     ? modifiers
     : modifiers.filter((m) => m !== "function");
@@ -141,7 +148,7 @@ export function parseActivator(
   options: ParseActivatorOptions = {},
 ): PTTActivator {
   if (!raw) {
-    return { kind: "modifierOnly", modifiers: ["control"] };
+    return CTRL_PTT_ACTIVATOR;
   }
   // Back-compat with the macOS legacy string values. Browsers cannot detect
   // the Fn key, so any stored "fn" preference falls back to Ctrl.
@@ -150,17 +157,17 @@ export function parseActivator(
       kind: "modifierOnly",
       modifiers: options.preserveFunction
         ? FN_PTT_ACTIVATOR.modifiers
-        : ["control"],
+        : CTRL_PTT_ACTIVATOR.modifiers,
     };
   }
   if (raw === "ctrl") {
-    return { kind: "modifierOnly", modifiers: ["control"] };
+    return CTRL_PTT_ACTIVATOR;
   }
   if (raw === "fn_shift") {
     return {
       kind: "modifierOnly",
       modifiers: options.preserveFunction
-        ? ["function", "shift"]
+        ? FN_PTT_ACTIVATOR.modifiers
         : ["shift"],
     };
   }
@@ -175,7 +182,7 @@ export function parseActivator(
     if (parsed.kind === "modifierOnly" && Array.isArray(parsed.modifiers)) {
       const modifiers = normalizeModifiers(parsed.modifiers, options);
       if (modifiers.length === 0) {
-        return { kind: "modifierOnly", modifiers: ["control"] };
+        return CTRL_PTT_ACTIVATOR;
       }
       return { kind: "modifierOnly", modifiers };
     }
@@ -193,7 +200,7 @@ export function parseActivator(
   } catch {
     // fall through
   }
-  return { kind: "modifierOnly", modifiers: ["control"] };
+  return CTRL_PTT_ACTIVATOR;
 }
 
 // ---------------------------------------------------------------------------

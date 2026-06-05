@@ -18,6 +18,7 @@ import {
     setLocalSetting,
 } from "@/utils/local-settings";
 import {
+    CTRL_PTT_ACTIVATOR,
     FN_PTT_ACTIVATOR,
     LS_PTT_ACTIVATION_KEY,
     activatorDisplayName,
@@ -263,10 +264,7 @@ function PushToTalkCard() {
                 selectActivator(
                   fnPushToTalkSupported
                     ? FN_PTT_PRESET.activator
-                    : {
-                        kind: "modifierOnly",
-                        modifiers: ["control"],
-                      },
+                    : CTRL_PTT_ACTIVATOR,
                 );
               }
             } else {
