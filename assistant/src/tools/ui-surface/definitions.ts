@@ -19,7 +19,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const APP_BUILDER_ARTIFACT_RE =
-  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|tool|tools|utility|utilities|counter|counters)\b/i;
+  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|visualize|visualise|artifact|artifacts|chart|charts|graph|graphs|tool|tools|utility|utilities|counter|counters)\b/i;
 const APP_BUILDER_BUILD_RE =
   /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
 

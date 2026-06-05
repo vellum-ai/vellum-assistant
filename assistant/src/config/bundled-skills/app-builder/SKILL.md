@@ -1,14 +1,14 @@
 ---
 name: app-builder
-description: Build and edit small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks the user wants for THEMSELVES. Use when the app is for the user's own use, or when editing an app they already built here. NOT for complex, multi-user, or shippable products — those go to a real project folder with a coding agent (see Scope below).
+description: Build and edit small, personal visual tools and artifacts — dashboards, trackers, calculators, data visualizations, charts, simple landing pages, and slide decks the user wants for THEMSELVES. This is the right skill whenever the user asks to "visualize this," "make a chart," or "build an artifact" for their own use, or to edit an app they already built here. Do NOT reach for a ui_show dynamic_page to fake an artifact — build a real persistent app here. NOT for complex, multi-user, or shippable products — those go to a real project folder with a coding agent (see Scope below).
 metadata:
   emoji: "🛠️"
   vellum:
     display-name: "App Builder"
     activation-hints:
-      - "User asks to build a dashboard, tracker, calculator, data visualization, simple landing page, or slide deck for their own use"
+      - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
+      - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"
       - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
-      - "User asks to visualize their own data — build an interactive visualization in the sandbox"
     avoid-when:
       - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---
