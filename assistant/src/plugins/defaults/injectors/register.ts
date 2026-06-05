@@ -51,8 +51,9 @@ import { getConfig } from "../../../config/loader.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { listComments } from "../../../documents/document-comments-store.js";
+import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
-import { PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
+import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
@@ -316,27 +317,22 @@ async function buildPkbReminderWithHints(
 ): Promise<string> {
   let hints: string[] = [];
   const queryVector = inputs.pkbQueryVector;
-  if (
-    queryVector &&
-    queryVector.length > 0 &&
-    inputs.pkbConversation &&
-    inputs.pkbRoot
-  ) {
+  if (queryVector && queryVector.length > 0 && inputs.pkbConversation) {
     try {
+      const pkbRoot = getPkbRoot();
       const results = await searchPkbFiles(
         queryVector,
         inputs.pkbSparseVector,
         8,
         [PKB_WORKSPACE_SCOPE],
       );
-      const workingDir = inputs.pkbWorkingDir ?? inputs.pkbRoot;
+      const workingDir = inputs.pkbWorkingDir ?? pkbRoot;
       const inContext = getInContextPkbPaths(
         inputs.pkbConversation,
-        inputs.pkbAutoInjectList ?? [],
-        inputs.pkbRoot,
+        getPkbAutoInjectList(pkbRoot),
+        pkbRoot,
         workingDir,
       );
-      const pkbRoot = inputs.pkbRoot;
       // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
       // regardless of whether sparse was provided. Rank by `hybridScore`
       // (RRF) when available — that captures the sparse signal for

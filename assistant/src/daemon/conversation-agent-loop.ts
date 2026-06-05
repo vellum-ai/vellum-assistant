@@ -7,8 +7,6 @@
  * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
-import { join } from "node:path";
-
 import { v4 as uuid } from "uuid";
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
@@ -58,7 +56,6 @@ import {
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
@@ -117,7 +114,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -153,17 +149,16 @@ import { raceWithTimeout } from "./conversation-media-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ActiveSurfaceContext,
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildActiveSurfaceContext,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
-  getPkbAutoInjectList,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -183,7 +178,6 @@ import {
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
-  DynamicPageSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -1154,7 +1148,6 @@ export async function runAgentLoopImpl(
     // share a fire site until compaction is cleared from the gap between them.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     const memoryCtx: MemoryRetrievalHookContext = {
-      messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
       onEvent,
@@ -1167,7 +1160,7 @@ export async function runAgentLoopImpl(
       signal: abortController.signal,
       pkbContent: null,
       nowContent: null,
-      runMessages: ctx.messages,
+      latestMessages: ctx.messages,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 
@@ -1175,36 +1168,15 @@ export async function runAgentLoopImpl(
     // log, `memory_recalled` event) and the dense/sparse pair selection; the
     // loop only reads back the turn-scoped context it reuses downstream — the
     // injected message list and the PKB query vectors.
-    let runMessages = memoryCtx.runMessages;
+    let runMessages = memoryCtx.latestMessages;
     const pkbQueryVector = memoryCtx.pkbQueryVector;
     const pkbSparseVector = memoryCtx.pkbSparseVector;
 
-    // Build active surface context
-    let activeSurface: ActiveSurfaceContext | null = null;
-    if (ctx.currentActiveSurfaceId) {
-      const stored = ctx.surfaceState.get(ctx.currentActiveSurfaceId);
-      if (stored && stored.surfaceType === "dynamic_page") {
-        const data = stored.data as DynamicPageSurfaceData;
-        activeSurface = {
-          surfaceId: ctx.currentActiveSurfaceId,
-          html: data.html,
-          currentPage: ctx.currentPage,
-        };
-        if (data.appId) {
-          const app = getApp(data.appId);
-          if (app) {
-            activeSurface.appId = app.id;
-            activeSurface.appName = app.name;
-            activeSurface.appDirName = resolveAppDir(app.id).dirName;
-            activeSurface.appSchemaJson = app.schemaJson;
-            activeSurface.appFiles = listAppFiles(app.id);
-            if (app.pages && Object.keys(app.pages).length > 0) {
-              activeSurface.appPages = app.pages;
-            }
-          }
-        }
-      }
-    }
+    const activeSurface = buildActiveSurfaceContext({
+      currentActiveSurfaceId: ctx.currentActiveSurfaceId,
+      currentPage: ctx.currentPage,
+      surfaceState: ctx.surfaceState,
+    });
 
     // Query active documents for this conversation so the injector chain
     // can surface them to the assistant (prevents duplicate document_create
@@ -1370,16 +1342,10 @@ export async function runAgentLoopImpl(
       : null;
     const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
-    // PKB relevance-hint inputs. Resolved once per turn and reused across
-    // re-injections so post-compaction rebuilds pick up fresh hints against
-    // the updated conversation history.
-    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
-    const pkbAutoInjectList = pkbRoot
-      ? getPkbAutoInjectList(pkbRoot)
-      : undefined;
-    // Pass `ctx` directly — `PkbContextConversation` is structural and
-    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
-    // so post-compaction re-injects see the updated history.
+    // PKB relevance-hint input. Pass `ctx` directly —
+    // `PkbContextConversation` is structural and `getInContextPkbPaths`
+    // re-reads `conversation.messages` on each call, so post-compaction
+    // re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
@@ -1467,8 +1433,6 @@ export async function runAgentLoopImpl(
       pkbQueryVector,
       pkbSparseVector,
       pkbConversation,
-      pkbAutoInjectList,
-      pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
       nowScratchpad,

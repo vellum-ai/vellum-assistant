@@ -359,12 +359,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
   readPkbContext: () => null,
-  getPkbAutoInjectList: () => [
-    "INDEX.md",
-    "essentials.md",
-    "threads.md",
-    "buffer.md",
-  ],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,

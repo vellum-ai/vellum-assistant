@@ -117,18 +117,6 @@ export async function pollForResponse(
 }
 
 /**
- * Narrow the wire's free-form `confirmationDecision` string to the closed set
- * the client renders. Unknown values collapse to `undefined`.
- */
-function narrowConfirmationDecision(
-  value: string | undefined,
-): ChatMessageToolCall["confirmationDecision"] {
-  return value === "approved" || value === "denied" || value === "timed_out"
-    ? value
-    : undefined;
-}
-
-/**
  * Project a canonical wire tool call onto the `ChatMessageToolCall` rendered in
  * the transcript. The wire base already carries every shared field (`name`,
  * `input`, `result`, the risk/approval fields, the `risk*Options` ladders), so
@@ -145,13 +133,12 @@ export function mapRuntimeToolCalls(
   messageId: string,
 ): ChatMessageToolCall[] {
   return toolCalls.map((tc, idx) => {
-    // Drop the wire's free-form `confirmationDecision` from the spread and add
-    // it back only when it narrows to a known value. A history row that omits
-    // it must not materialize `confirmationDecision: undefined`, or
-    // reconciliation would spread that over a live `"denied"`/`"timed_out"`
-    // decision set locally by `useInteractionActions`.
-    const { confirmationDecision: wireDecision, ...rest } = tc;
-    const confirmationDecision = narrowConfirmationDecision(wireDecision);
+    // Drop `confirmationDecision` from the spread and re-add it only when the
+    // wire row actually carries one. A history row that omits it must not
+    // materialize `confirmationDecision: undefined`, or reconciliation would
+    // spread that over a live `"denied"`/`"timed_out"` decision set locally by
+    // `useInteractionActions`.
+    const { confirmationDecision, ...rest } = tc;
     return {
       ...rest,
       id: tc.id ?? `tool-history-${messageId}-${idx}`,

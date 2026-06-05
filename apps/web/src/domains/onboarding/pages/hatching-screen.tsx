@@ -20,6 +20,7 @@ import {
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { getLocalGatewayUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
@@ -95,7 +96,6 @@ export function HatchingScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
-  const userId = useAuthStore.use.user()?.id ?? null;
   const sessionStatus = useAuthStore.use.sessionStatus();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
@@ -244,6 +244,7 @@ export function HatchingScreen() {
                     "status" in body &&
                     body.status === "ok"
                   ) {
+                    clearGatewayToken();
                     await primeLocalGatewayConnection();
                     gatewayReady = true;
                     break;
@@ -400,7 +401,6 @@ export function HatchingScreen() {
     setOnboardingCompleted,
     transitionPhase,
     useLocalHatch,
-    userId,
   ]);
 
   useEffect(() => {
