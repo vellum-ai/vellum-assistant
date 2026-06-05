@@ -1789,7 +1789,7 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version]
+    needs: [compute-version, publish-meta-dev]
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true
