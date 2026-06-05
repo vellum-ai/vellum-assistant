@@ -34,9 +34,12 @@ import {
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type AnchorSnapshot,
+  captureScrollPositionSnapshot,
   classifyScrollPosition,
   decideItemsChangeAction,
   findLatestUserAnchorKey,
+  resolveRemountScrollTop,
+  type ScrollPositionSnapshot,
   type ScrollMetrics,
 } from "@/domains/chat/transcript/transcript-scroll-utils";
 
@@ -53,6 +56,7 @@ export interface UseTranscriptScrollArgs {
   hasMore: boolean;
   isLoadingOlder: boolean;
   onLoadOlder: () => void;
+  layoutKey?: string | number | boolean | null;
 }
 
 export interface UseTranscriptScrollReturn {
@@ -74,10 +78,23 @@ export function useTranscriptScroll(
     hasMore,
     isLoadingOlder,
     onLoadOlder,
+    layoutKey,
   } = args;
 
   const [isPinnedToLatest, setIsPinnedToLatest] = useState(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+  const lastScrollSnapshotRef = useRef<ScrollPositionSnapshot | null>(null);
+  const mountedScrollElementRef = useRef<HTMLElement | null>(null);
+  const restoredConversationIdRef = useRef<string | null>(conversationId);
+
+  const recordScrollSnapshot = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    lastScrollSnapshotRef.current = captureScrollPositionSnapshot({
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    });
+  }, []);
 
   // ---------- Latest-props ref (ref-backed fresh-closure pattern) ---------
   // Synced in useLayoutEffect (declared BEFORE the items-effect below)
@@ -240,6 +257,44 @@ export function useTranscriptScroll(
     engageAutoPin();
   }, [conversationId, engageAutoPin]);
 
+  // Layout transitions (opening app-editing/document split panels) remount
+  // the Transcript without changing `items`. Preserve the last known scroll
+  // position across that DOM-node replacement so the chat pane does not jump
+  // to the oldest messages.
+  useLayoutEffect(() => {
+    const el = transcriptRef.current?.getScrollElement() ?? null;
+    const conversationChanged =
+      restoredConversationIdRef.current !== conversationId;
+    restoredConversationIdRef.current = conversationId;
+
+    if (conversationChanged) {
+      lastScrollSnapshotRef.current = null;
+      mountedScrollElementRef.current = el;
+      return;
+    }
+
+    if (!el) return;
+
+    if (el !== mountedScrollElementRef.current) {
+      const snapshot = lastScrollSnapshotRef.current;
+      mountedScrollElementRef.current = el;
+      if (snapshot) {
+        el.scrollTop = resolveRemountScrollTop(snapshot, {
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        });
+      }
+    }
+
+    recordScrollSnapshot(el);
+  }, [
+    conversationId,
+    items,
+    layoutKey,
+    recordScrollSnapshot,
+    transcriptRef,
+  ]);
+
   // -----------------------------------------------------------------------
   // Items change handler — runs in useLayoutEffect so the anchor correction
   // happens before the browser paints.
@@ -332,6 +387,7 @@ export function useTranscriptScroll(
     // the current commit).
     const el = transcriptRef.current?.getScrollElement();
     if (el) {
+      recordScrollSnapshot(el);
       const classification = classifyScrollPosition(
         {
           scrollTop: el.scrollTop,
@@ -374,7 +430,7 @@ export function useTranscriptScroll(
         latest.onLoadOlder();
       }
     }
-  }, [items, conversationId, transcriptRef, engageAutoPin]);
+  }, [items, conversationId, transcriptRef, engageAutoPin, recordScrollSnapshot]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the
@@ -410,11 +466,12 @@ export function useTranscriptScroll(
     const observer = new ResizeObserver(() => {
       if (latestRef.current.isPinnedToLatest) {
         transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+        recordScrollSnapshot(transcriptRef.current?.getScrollElement() ?? null);
       }
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [items, transcriptRef, recordScrollSnapshot]);
 
   // Disconnect observer on hook unmount.
   useEffect(() => () => {
@@ -454,11 +511,12 @@ export function useTranscriptScroll(
     const observer = new ResizeObserver(() => {
       if (shouldAutoPinRef.current) {
         transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+        recordScrollSnapshot(transcriptRef.current?.getScrollElement() ?? null);
       }
     });
     observer.observe(el);
     contentObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [items, transcriptRef, recordScrollSnapshot]);
 
   useEffect(() => () => {
     contentObserverRef.current?.disconnect();
@@ -495,6 +553,7 @@ export function useTranscriptScroll(
       scrollHeight: target.scrollHeight,
       clientHeight: target.clientHeight,
     };
+    lastScrollSnapshotRef.current = captureScrollPositionSnapshot(metrics);
     const latest = latestRef.current;
     const classification = classifyScrollPosition(metrics, {
       hasMore: latest.hasMore,
@@ -544,8 +603,9 @@ export function useTranscriptScroll(
       transcriptRef.current?.scrollToLatest({
         behavior: opts?.behavior ?? "smooth",
       });
+      recordScrollSnapshot(transcriptRef.current?.getScrollElement() ?? null);
     },
-    [transcriptRef, engageAutoPin],
+    [transcriptRef, engageAutoPin, recordScrollSnapshot],
   );
 
   // -----------------------------------------------------------------------
