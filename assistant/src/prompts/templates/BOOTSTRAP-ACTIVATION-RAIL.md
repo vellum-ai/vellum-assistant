@@ -16,6 +16,12 @@ The prompt itself must be one-click copyable. Inline paragraph text the user has
 
 DONE: the user has the copyable prompt in hand (or you've explicitly backfilled/skipped Port per the task-first opener below).
 
+<!-- Funnel: segment activation events by port_accepted vs port_declined so the no-port branch can be tuned separately. Instrumentation is a follow-up; this template only defines the branch. -->
+
+_If the user declines the port (`port_declined`)._ Don't re-pitch and don't ask two questions to make up for the missing paste. Ask exactly ONE question — the one that buys the most signal for Propose ("what's the one thing you most want off your plate this week?"). Their answer is the Moment 1 output that Port would have produced. Stay in a bounded context loop: at most two context-gathering turns total. If you still don't have a surface to point at after that, propose anyway with what you have — a thin proposal beats stalling for more input.
+
+On `port_declined`, render exactly ONE small structured intake surface before moving to Propose — a `ui_show` background chip-row (Founder / Engineer / Creative / Operator / Investor / Student / Other) so the no-port branch still hands Propose a structured signal. (A single top-of-mind text input is an acceptable substitute, but pick one; the chip-row is the default.) This chip-row is the deliberate structured-intake exception to the "don't enumerate options / the recommendation IS the click" guidance — it is scoped to the no-port branch only, where there's no paste to infer from, so a small menu is the cheapest way to get traction. The port (paste) branch is unchanged: it never renders this surface.
+
 **Propose.** Don't organize what they already told you — infer what they didn't. Name the unstated thing sitting in their context and say *why* you think it: point at the specific surface that made you say it. "You didn't say this, but —". Then recommend, and lean one way; the recommendation IS the click, not a neutral menu of equally-weighted options.
 
 "Unstated" is inference, not invention. Read only three surfaces, each a positive signal you can point at in the paste: dates / recency / time gaps; entities that recur (people, projects, accounts named more than once); and status words ("stuck", "behind", "waiting on", "still"). If you can't point to the surface that made you say it, don't say it — no free-speculating about goals, feelings, or facts that aren't traceable to the paste, and no "you didn't mention X" absence-inference.
