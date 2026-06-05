@@ -33,6 +33,7 @@ import { NotFoundError } from "./errors.js";
 import {
   getCachedIntro,
   readWorkspaceGreetings,
+  readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
@@ -455,16 +456,30 @@ function getIdentityIntro(): IdentityIntroResponse {
     return identityIntroResponse(FALLBACK_GREETINGS, "fallback");
   }
 
-  // 2. Cached LLM-generated greetings
+  // 2. Cached LLM-generated greetings (populated by background refresh)
   const cached = getCachedIntro();
   if (cached) {
     return identityIntroResponse(cached.greetings, "cache");
   }
 
-  // 3. Trigger fresh generation without blocking the empty-state UI.
+  // 3. Identity intro tagline from `## Identity Intro` in IDENTITY.md
+  //    (written during onboarding by BOOTSTRAP.md instructions)
+  const identityIntro = readWorkspaceIdentityIntro();
+  if (identityIntro) {
+    // Still trigger background generation so the next request gets
+    // LLM-generated greetings instead of the static tagline.
+    const refreshing = triggerEmptyStateGreetingGeneration();
+    return identityIntroResponse(
+      [identityIntro, ...FALLBACK_GREETINGS],
+      "workspace",
+      refreshing,
+    );
+  }
+
+  // 4. Trigger fresh generation without blocking the empty-state UI.
   const refreshing = triggerEmptyStateGreetingGeneration();
 
-  // 4. Generic fallback only when generation is unavailable.
+  // 5. Generic fallback only when generation is unavailable.
   return identityIntroResponse(FALLBACK_GREETINGS, "fallback", refreshing);
 }
 
