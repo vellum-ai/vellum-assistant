@@ -1,9 +1,12 @@
 /**
- * Aggregate export of the first-party default plugins.
+ * First-party default plugins — definitions and centralized registration.
  *
- * Each default wraps one of the assistant's built-in pipelines with a
- * passthrough implementation so the pipeline shape is always explicit at boot
- * and at test time, even when no third-party plugins are loaded.
+ * Each default contributes the hooks for one of the assistant's built-in
+ * behaviors (history repair, title generation, tool-error coaching, …) so the
+ * lifecycle is always populated at boot and at test time, even when no
+ * third-party plugins are loaded. A `Plugin` is the manifest (name/version,
+ * sourced from the sibling `package.json`) plus its hook map; the hook
+ * implementations live in each `defaults/<name>/hooks/` directory.
  *
  * Consumers:
  *
@@ -16,32 +19,140 @@
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Each `defaults/<name>/register.ts` module only builds and exports its
- * `Plugin` object; registration is centralized here. The plugin identifiers
- * are dereferenced inside {@link registerDefaultPlugins} at call time, once
- * every module has finished initializing, so importing this aggregator does no
- * registration work.
+ * The plugin definitions below are plain `const`s, so importing this module
+ * does no registration work — registration is driven by
+ * {@link registerDefaultPlugins} at call time.
  */
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { defaultCompactionPlugin } from "./compaction/register.js";
-import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
-import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
-import { memoryV3ShadowPlugin } from "./memory-v3-shadow/register.js";
-import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
-import { defaultToolErrorPlugin } from "./tool-error/register.js";
-import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
+import compactionPkg from "./compaction/package.json" with { type: "json" };
+import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
+import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
+import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
+import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import titleGenerateStop from "./title-generate/hooks/stop.js";
+import titleGenerateUserPromptSubmit from "./title-generate/hooks/user-prompt-submit.js";
+import titleGeneratePkg from "./title-generate/package.json" with { type: "json" };
+import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
+import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
+import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
+import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+
+/**
+ * `compaction` — compaction is implemented in `compaction/compact.ts` as
+ * `defaultCompact`, which the agent loop calls directly. The plugin stays
+ * registered as a placeholder so it keeps a presence in the defaults list
+ * while we decide how plugins should surface compaction; it contributes no
+ * hooks today.
+ */
+export const defaultCompactionPlugin: Plugin = {
+  manifest: {
+    name: compactionPkg.name,
+    version: compactionPkg.version,
+  },
+};
+
+/**
+ * `empty-response` — a `stop` hook that re-queries the model when a turn
+ * yields with no tool calls but came back empty (or as a provider refusal).
+ */
+export const defaultEmptyResponsePlugin: Plugin = {
+  manifest: {
+    name: emptyResponsePkg.name,
+    version: emptyResponsePkg.version,
+  },
+  hooks: {
+    stop: emptyResponseStop,
+  },
+};
+
+/**
+ * `history-repair` — a `user-prompt-submit` hook that normalizes the working
+ * message history (tool-use/tool-result pairing, role alternation) before the
+ * agent loop hands it to the provider.
+ */
+export const defaultHistoryRepairPlugin: Plugin = {
+  manifest: {
+    name: historyRepairPkg.name,
+    version: historyRepairPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": historyRepairUserPromptSubmit,
+  },
+};
+
+/**
+ * `memory-v3-shadow` — houses the memory-v3 shadow/live orchestration engine
+ * (`memory-v3-shadow/`) and its injector. The `user-prompt-submit` /
+ * `post-compact` hooks are no-op scaffolding for the eventual convergence,
+ * when v3 injection moves off the loop-driven chain and into these hooks.
+ */
+export const memoryV3ShadowPlugin: Plugin = {
+  manifest: {
+    name: memoryV3Pkg.name,
+    version: memoryV3Pkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": memoryV3UserPromptSubmit,
+    "post-compact": memoryV3PostCompact,
+  },
+};
+
+/**
+ * `title-generate` — two pure-trigger hooks that delegate the title work to
+ * the conversation-title service: `user-prompt-submit` (first-pass title) and
+ * `stop` (second-pass regeneration once the topic is established).
+ */
+export const defaultTitleGeneratePlugin: Plugin = {
+  manifest: {
+    name: titleGeneratePkg.name,
+    version: titleGeneratePkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": titleGenerateUserPromptSubmit,
+    stop: titleGenerateStop,
+  },
+};
+
+/**
+ * `tool-error` — a `post-tool-use` hook that coaches the model to retry or
+ * report a failed tool call, bounded per tool. The coaching is surfaced via
+ * `additionalContext`, leaving the tool result's own content untouched.
+ */
+export const defaultToolErrorPlugin: Plugin = {
+  manifest: {
+    name: toolErrorPkg.name,
+    version: toolErrorPkg.version,
+  },
+  hooks: {
+    "post-tool-use": toolErrorPostToolUse,
+  },
+};
+
+/**
+ * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
+ * tool result down to a character budget derived from the model's context
+ * window before the result is sent to the provider.
+ */
+export const defaultToolResultTruncatePlugin: Plugin = {
+  manifest: {
+    name: toolResultTruncatePkg.name,
+    version: toolResultTruncatePkg.version,
+  },
+  hooks: {
+    "post-tool-use": toolResultTruncatePostToolUse,
+  },
+};
 
 /**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
- * order is the registration order, which determines onion order for middleware
- * composition (defaults innermost, user plugins outermost).
- *
- * Returned by a function rather than a top-level `const` so the array
- * contents are read at call time, after every imported plugin identifier is
- * guaranteed initialized.
+ * order is the registration order, which fixes hook-chain order (defaults run
+ * ahead of any later-registered user plugins).
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
