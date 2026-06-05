@@ -109,7 +109,10 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -139,6 +142,10 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import {
+  collectPendingConfirmations,
+  enrichToolCallsWithConfirmation,
+} from "./tool-call-confirmation-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -775,6 +782,15 @@ export function handleListMessages({
     };
   });
 
+  // Confirmation context layered onto rendered tool calls at render time: the
+  // derived scope ladder for scope-aware tools, and any in-flight prompt read
+  // from the pending-interactions registry. Both are computed once per request
+  // and applied per message below.
+  const workspaceDir = getWorkspaceDir();
+  const pendingConfirmations = collectPendingConfirmations(
+    resolvedConversationId,
+  );
+
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
 
@@ -836,6 +852,11 @@ export function handleListMessages({
       attachmentBlocks,
       m.id ?? undefined,
     );
+
+    const toolCalls = enrichToolCallsWithConfirmation(rendered.toolCalls, {
+      workspaceDir,
+      pendingConfirmations,
+    });
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
@@ -900,9 +921,7 @@ export function handleListMessages({
       content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
-      ...(rendered.toolCalls.length > 0
-        ? { toolCalls: rendered.toolCalls }
-        : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
       ...(textSegments.length > 0 ? { textSegments } : {}),
       ...(rendered.thinkingSegments.length > 0

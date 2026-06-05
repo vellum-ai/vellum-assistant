@@ -38,6 +38,7 @@ export interface ConfirmationDetails {
     pattern: string;
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
+  directoryScopeOptions?: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
   /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). */
   acpToolKind?: string;

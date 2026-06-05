@@ -19,7 +19,7 @@
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled`
@@ -48,6 +48,7 @@ import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 /** A fake TurnContext sufficient for driving `composeInjectorChain`. */
 function makeTurnContext(): TurnContext {
@@ -78,9 +79,25 @@ function clearPkbContent(): void {
   rmSync(getPkbRoot(), { recursive: true, force: true });
 }
 
+// The now-md injector sources NOW.md from the workspace itself — behind the
+// personal-memory trust gate and the `scratchpadInjection` config toggle —
+// rather than from a threaded option. Seed the file so the injector fires;
+// clear it between tests so suites that assert NOW.md is absent stay
+// unaffected.
+function seedNowScratchpad(content: string): void {
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  mkdirSync(dirname(nowPath), { recursive: true });
+  writeFileSync(nowPath, content, "utf-8");
+}
+
+function clearNowScratchpad(): void {
+  rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
+}
+
 describe("injector chain", () => {
   beforeEach(() => {
     clearPkbContent();
+    clearNowScratchpad();
   });
 
   test("defaultInjectors lists the defaults in the documented order", () => {
@@ -222,6 +239,8 @@ describe("injector chain", () => {
     // (no graph handle is registered, so it has no search hints).
     const pkbContent = "essentials of the project";
     seedPkbContent(pkbContent);
+    const nowContent = "Current focus: shipping G2.1";
+    seedNowScratchpad(nowContent);
 
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "What next?" }] },
@@ -231,7 +250,6 @@ describe("injector chain", () => {
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
     const unifiedTurn =
       "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
-    const nowContent = "Current focus: shipping G2.1";
     const subagentBlock =
       '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
 
@@ -239,7 +257,6 @@ describe("injector chain", () => {
       turnContext: makeTurnContext(),
       workspaceTopLevelContext: workspaceText,
       unifiedTurnContext: unifiedTurn,
-      nowScratchpad: nowContent,
       subagentStatusBlock: subagentBlock,
     });
 
@@ -358,7 +375,6 @@ describe("injector chain", () => {
         mode: "minimal",
         workspaceTopLevelContext: "<workspace>...</workspace>",
         unifiedTurnContext: "<turn_context>...</turn_context>",
-        nowScratchpad: "nowbody",
         subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },
     );

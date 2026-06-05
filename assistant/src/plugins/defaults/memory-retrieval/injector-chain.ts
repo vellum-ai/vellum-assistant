@@ -13,12 +13,9 @@
  * an `order` keep their listed order), so the produced sequence — and therefore
  * the injected content — is identical.
  *
- * The chain is assembled lazily on first access. `register.ts` and
- * `conversation-runtime-assembly.ts` form an import cycle (the injectors read
- * `readPkbContext` from the assembly module), so eagerly reading
- * `defaultInjectors` at module-evaluation time would observe it in its
- * temporal dead zone. Deferring assembly to the first turn sidesteps the cycle
- * entirely.
+ * The chain is assembled lazily on first access and memoized, so the sort runs
+ * once per process rather than per turn and module evaluation stays free of any
+ * ordering assumptions about when `defaultInjectors` finishes initializing.
  */
 
 import { memoryV3Injector } from "../../../memory/v3/shadow-plugin.js";

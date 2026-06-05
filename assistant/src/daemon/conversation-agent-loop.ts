@@ -80,10 +80,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import {
-  readMemoryV2StaticContent,
-  shouldExposePersonalMemory,
-} from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
@@ -158,7 +154,6 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   buildWorkspaceTopLevelContext,
-  findLastInjectedNowContent,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -1247,7 +1242,6 @@ export async function runAgentLoopImpl(
       // An external cancel aborts `prepareMemory` instead of letting it run
       // to completion after the turn has already been torn down.
       signal: abortController.signal,
-      nowContent: null,
       latestMessages: ctx.messages,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
@@ -1287,42 +1281,6 @@ export async function runAgentLoopImpl(
     );
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
-    // hold private user content. Block exposure to non-guardian actors
-    // arriving over a remote channel; internal/local flows pass through.
-    // See `shouldExposePersonalMemory` for the threat model.
-    const personalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    });
-
-    // Inject NOW.md content only on the first turn (or after compaction
-    // re-strips it).  Old injections persist in history and are never
-    // stripped on normal turns — this preserves the cached prefix.
-    // NOW content is sourced from the `user-prompt-submit-temp` hook above.
-    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
-    const scratchpadInjectionEnabled =
-      getConfig().memory.retrieval.scratchpadInjection.enabled;
-    const currentNowContent =
-      personalMemoryAllowed && scratchpadInjectionEnabled
-        ? memoryCtx.nowContent
-        : null;
-    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
-    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
-
-    // V2 static memory block (essentials/threads/recent/buffer).
-    // `currentMemoryV2Static` is the trust-gated content reused by every
-    // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<info>`
-    // block) can restore the freshest content. `memoryV2Static` is the
-    // first-turn / post-compaction cadence-gated value for initial
-    // injection only. `readMemoryV2StaticContent` self-gates on the v2
-    // flag + config and returns null when v2 is off.
-    const currentMemoryV2Static = personalMemoryAllowed
-      ? readMemoryV2StaticContent()
-      : null;
-    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
@@ -1380,13 +1338,12 @@ export async function runAgentLoopImpl(
 
     state.reducerCompacted = compactedThisTurn;
 
-    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
-    // When on, runtime assembly suppresses v2's `<memory>` injection (only
-    // when the v3 injector actually produced a block — otherwise v2 stays as a
-    // fallback) and the provider anchors its long-TTL cache breakpoint on the
-    // most recent STABLE user message, since the latest user message now
-    // carries the volatile per-turn memory block. Flag off → bit-for-bit
-    // identical to today's v2 path.
+    // memory-v3-live: when on, the provider anchors its long-TTL cache
+    // breakpoint on the most recent STABLE user message, since the latest user
+    // message now carries the volatile per-turn `<memory>` block the v3
+    // injector emits. The matching v2-suppression strip is owned by
+    // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
+    // bit-for-bit identical to today's v2 path.
     const memoryV3Live = isAssistantFeatureFlagEnabled(
       "memory-v3-live",
       getConfig(),
@@ -1394,7 +1351,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       // Resolved from the conversation's surface state here, where the
       // runtime injector is the only consumer of the active-surface block.
@@ -1413,8 +1369,6 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
-      memoryV2Static,
-      nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -1654,17 +1608,16 @@ export async function runAgentLoopImpl(
           // injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
-          // When THIS iteration compacted, it stripped the existing NOW.md /
-          // memory-static blocks — so we re-inject current content. A later
-          // iteration that only truncates or downgrades must NOT re-force
-          // them, or each round would grow the token count.
+          // When THIS iteration compacted, it stripped the existing
+          // memory-static block — so we re-inject current content. A later
+          // iteration that only truncates or downgrades must NOT re-force it,
+          // or each round would grow the token count.
           // Gate: only the iteration that actually compacted re-injects.
-          // (The `<knowledge_base>` block self-gates inside the pkb-context
-          // injector on whether it is already present in `reducedMessages`.)
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `reducedMessages`.)
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
-            ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
-            ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: buildWorkspaceTopLevelContext(
               ctx,
               state.shouldInjectWorkspace,
@@ -1813,12 +1766,12 @@ export async function runAgentLoopImpl(
     const midLoopCompaction: MidLoopCompaction = {
       postCompactionHook: async ({ history, turnContext }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
-        // NOW.md block, so re-inject the current content regardless of whether
-        // compaction actually ran.
+        // memory-static block, so re-inject the current content regardless of
+        // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
+        // v2 static `<info>` blocks self-gate inside their injectors on block
+        // presence.
         const injection = await postCompactReinject({
           ...injectionOpts,
-          memoryV2Static: currentMemoryV2Static,
-          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: buildWorkspaceTopLevelContext(
             ctx,
             state.shouldInjectWorkspace,
@@ -2027,17 +1980,9 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
-      // Detect whether ctx.messages currently lacks NOW.md so we know if
-      // it needs to be re-injected.  Mid-loop compaction (line ~1067) may
-      // have already stripped injections before escalating here, so we
-      // check actual message state rather than tracking mutation sites.
-      let convergenceStripped =
-        findLastInjectedNowContent(ctx.messages) === null;
-
       if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         markHistoryStrippedBestEffort(ctx.conversationId);
-        convergenceStripped = true;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2210,15 +2155,13 @@ export async function runAgentLoopImpl(
           state.reducerCompacted = true;
         }
 
-        // Only re-inject NOW.md when ctx.messages was actually stripped;
-        // otherwise the existing NOW.md block is still present and
-        // re-injecting would duplicate it. (The `<knowledge_base>` block
-        // self-gates inside the pkb-context injector on whether it is already
+        // Only re-inject the memory-static block when ctx.messages was
+        // actually stripped; otherwise the existing block is still present and
+        // re-injecting would duplicate it. (The `<knowledge_base>` and NOW.md
+        // blocks self-gate inside their injectors on whether they are already
         // present in `ctx.messages`.)
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-          nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: buildWorkspaceTopLevelContext(
             ctx,
             state.shouldInjectWorkspace,
@@ -2266,7 +2209,6 @@ export async function runAgentLoopImpl(
           if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             markHistoryStrippedBestEffort(ctx.conversationId);
-            convergenceStripped = true;
           }
         }
       }
@@ -2353,14 +2295,13 @@ export async function runAgentLoopImpl(
             state.shouldInjectWorkspace = true;
           }
 
-          // Only re-inject NOW.md when ctx.messages was actually stripped;
-          // otherwise the existing block is still present. (The
-          // `<knowledge_base>` block self-gates inside the pkb-context
-          // injector on whether it is already present in `ctx.messages`.)
+          // Only re-inject the memory-static block when ctx.messages was
+          // actually stripped; otherwise the existing block is still present.
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `ctx.messages`.)
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
-            memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-            nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: buildWorkspaceTopLevelContext(
               ctx,
               state.shouldInjectWorkspace,

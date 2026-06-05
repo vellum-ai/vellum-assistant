@@ -172,11 +172,10 @@ function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
 
 /**
  * Read the live NOW.md scratchpad (the user's short "what's salient right now"
- * file), stripped of its comment lines. Mirrors `readNowScratchpad` in the
- * conversation-runtime assembly but reads through the light platform / strip
- * utilities directly, so the v3 plugin does not pull the heavy conversation
- * assembly module into its load (and its test). Returns `null` when absent,
- * empty, or unreadable.
+ * file), stripped of its comment lines. Mirrors `readNowScratchpad` but reads
+ * through the light platform / strip utilities directly, keeping the v3
+ * plugin's load (and its test) free of heavier module graphs. Returns `null`
+ * when absent, empty, or unreadable.
  */
 function readNowContext(): string | null {
   const nowPath = getWorkspacePromptPath("NOW.md");

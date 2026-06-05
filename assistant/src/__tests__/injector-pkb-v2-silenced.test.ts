@@ -13,7 +13,7 @@
  * when called.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let v2Active = false;
@@ -22,7 +22,12 @@ const realLoader = await import("../config/loader.js");
 
 mock.module("../config/loader.js", () => ({
   ...realLoader,
-  getConfig: () => ({ memory: { v2: { enabled: v2Active } } }),
+  getConfig: () => ({
+    memory: {
+      v2: { enabled: v2Active },
+      retrieval: { scratchpadInjection: { enabled: true } },
+    },
+  }),
 }));
 
 mock.module("../memory/pkb/pkb-search.js", () => ({
@@ -34,6 +39,7 @@ const { applyRuntimeInjections } =
 import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 function makeTurnContext(): TurnContext {
   return {
@@ -54,7 +60,6 @@ function tailTexts(messages: Message[]): string[] {
     .map((b) => b.text);
 }
 
-const NOW_CONTENT = "Current focus: shipping G2.1";
 const RUN_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "What next?" }] },
 ];
@@ -72,15 +77,20 @@ describe("PKB injector v2 cutover behavior", () => {
       "workspace knowledge index",
       "utf-8",
     );
+    // now-md sources NOW.md from the workspace behind the same guardian trust,
+    // so seed the file rather than passing a flag.
+    const nowPath = getWorkspacePromptPath("NOW.md");
+    mkdirSync(dirname(nowPath), { recursive: true });
+    writeFileSync(nowPath, "Current focus: shipping G2.1", "utf-8");
   });
   afterEach(() => {
     rmSync(getPkbRoot(), { recursive: true, force: true });
+    rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
   });
 
   test("v2 inactive → pkb-context, pkb-reminder, and now-md all produce blocks", async () => {
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
-      nowScratchpad: NOW_CONTENT,
     });
 
     const texts = tailTexts(result.messages);
@@ -93,7 +103,6 @@ describe("PKB injector v2 cutover behavior", () => {
     v2Active = true;
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
-      nowScratchpad: NOW_CONTENT,
     });
 
     const texts = tailTexts(result.messages);

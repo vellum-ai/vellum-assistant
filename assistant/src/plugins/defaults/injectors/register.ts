@@ -46,7 +46,8 @@
 import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
-import { readPkbContext } from "../../../daemon/conversation-runtime-assembly.js";
+import type { InjectionMatcher } from "../../../context/strip-injections.js";
+import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import {
@@ -56,9 +57,13 @@ import {
 import { listComments } from "../../../documents/document-comments-store.js";
 import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
+import { readPkbContext } from "../../../memory/pkb/context.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
-import { shouldExposePersonalMemory } from "../../../memory/v2/static-context.js";
+import {
+  readMemoryV2StaticContent,
+  shouldExposePersonalMemory,
+} from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
@@ -270,7 +275,8 @@ const pkbContextInjector: Injector = {
     if (isPkbInjectionSilencedByV2()) return null;
     const content = readGatedPkbContext(ctx.trust);
     if (!content) return null;
-    if (hasKnowledgeBaseBlock(runMessages)) return null;
+    if (hasInjectedUserTextBlock(runMessages, KNOWLEDGE_BASE_BLOCK_PREFIXES))
+      return null;
     return {
       id: "pkb-context",
       text: buildPkbContextBlock(content),
@@ -314,6 +320,19 @@ const pkbReminderInjector: Injector = {
 };
 
 /**
+ * Whether personal-memory content (PKB, NOW.md) may be surfaced this turn: the
+ * trust gate admits the actor (guardian-class, or an internal/local flow). All
+ * memory-domain injectors share this gate so they apply identical exposure
+ * rules without it being threaded in from the agent loop.
+ */
+function isPersonalMemoryAllowed(trust: TrustContext): boolean {
+  return shouldExposePersonalMemory({
+    sourceChannel: trust.sourceChannel,
+    isTrustedActor: resolveTrustClass(trust) === "guardian",
+  });
+}
+
+/**
  * Read the auto-injected PKB content for the turn, gated behind the
  * personal-memory trust gate. Returns the content string when the gate admits
  * the actor and the workspace has PKB content, otherwise `null`. Both the gate
@@ -322,11 +341,32 @@ const pkbReminderInjector: Injector = {
  * having them threaded in from the agent loop.
  */
 function readGatedPkbContext(trust: TrustContext): string | null {
-  const personalMemoryAllowed = shouldExposePersonalMemory({
-    sourceChannel: trust.sourceChannel,
-    isTrustedActor: resolveTrustClass(trust) === "guardian",
-  });
-  return personalMemoryAllowed ? readPkbContext() : null;
+  return isPersonalMemoryAllowed(trust) ? readPkbContext() : null;
+}
+
+/**
+ * Read the NOW.md scratchpad content for the turn, gated behind the
+ * personal-memory trust gate and the `scratchpadInjection` config toggle.
+ * Returns the trimmed content when both gates admit and the file is non-empty,
+ * otherwise `null`. Sourced from the trust context and the NOW.md file directly
+ * so the `now-md` injector owns its input rather than having it threaded in.
+ */
+function readGatedNowScratchpad(trust: TrustContext): string | null {
+  if (!isPersonalMemoryAllowed(trust)) return null;
+  if (!getConfig().memory.retrieval.scratchpadInjection.enabled) return null;
+  return readNowScratchpad();
+}
+
+/**
+ * Read the v2 static memory content for the turn, gated behind the
+ * personal-memory trust gate. Returns the content (essentials/threads/recent/
+ * buffer concatenated) when the gate admits and v2 memory is enabled,
+ * otherwise `null`. {@link readMemoryV2StaticContent} self-gates on the v2
+ * flag + config, so the `memory-v2-static` injector owns its input rather than
+ * having it threaded in from the agent loop.
+ */
+function readGatedMemoryV2Static(trust: TrustContext): string | null {
+  return isPersonalMemoryAllowed(trust) ? readMemoryV2StaticContent() : null;
 }
 
 /**
@@ -337,20 +377,63 @@ function isPkbActive(trust: TrustContext): boolean {
   return readGatedPkbContext(trust) !== null;
 }
 
+/** Block prefixes that mark a persisted `<knowledge_base>` injection. */
+const KNOWLEDGE_BASE_BLOCK_PREFIXES = [
+  "<knowledge_base>",
+  "<pkb>", // backward-compat: pre-rename history
+] as const;
+
+/** Block prefixes that mark a persisted NOW.md injection. */
+const NOW_MD_BLOCK_PREFIXES = [
+  "<NOW.md Always keep this up to date",
+  "<now_scratchpad>", // backward-compat: pre-rename history
+] as const;
+
 /**
- * Whether the `<knowledge_base>` block is already present in the turn's working
- * messages. Mirrors the matcher `stripInjectionsForCompaction` uses for the
- * block (a user-message text block whose content starts with the opening tag),
- * so detection stays in lockstep with what compaction strips.
+ * Matchers that mark a persisted `memory-v2-static` injection. Uses the
+ * `{ prefix, suffix }` wrapper shape (not a bare prefix) so user-authored text
+ * merely starting with `<info>\n` is never mistaken for an injection — matching
+ * the full-wrapper requirement the compaction strip uses for this block.
+ *
+ * The static block is wrapped in `<info>…</info>` today, but rows persisted
+ * before that switch rehydrate verbatim as `<memory>…</memory>` (see
+ * `conversation-lifecycle`), so the legacy wrapper counts as present too.
+ * Matching `<memory>` cannot wrongly skip a needed injection: the static block
+ * is only (re)injected on the first turn (empty history) and right after
+ * compaction (which strips both wrappers), and on neither is a `<memory>` block
+ * present — the dynamic activation `<memory>` block only survives on normal
+ * cached turns, which is exactly when this injector must skip anyway.
  */
-function hasKnowledgeBaseBlock(runMessages?: Message[]): boolean {
+const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
+  { prefix: "<info>\n", suffix: "\n</info>" },
+  { prefix: "<memory>\n", suffix: "\n</memory>" },
+];
+
+/**
+ * Whether a block matching any of the given matchers is already present in the
+ * turn's working messages. Mirrors `stripUserTextBlocksByPrefix` (a
+ * user-message text block whose content matches a bare-prefix or a
+ * `{ prefix, suffix }` wrapper matcher), so presence detection stays in
+ * lockstep with what compaction strips: a block is present here exactly when
+ * compaction would strip it.
+ */
+function hasInjectedUserTextBlock(
+  runMessages: Message[] | undefined,
+  matchers: readonly InjectionMatcher[],
+): boolean {
   if (!runMessages) return false;
   return runMessages.some(
     (message) =>
       message.role === "user" &&
       message.content.some(
         (block) =>
-          block.type === "text" && block.text.startsWith("<knowledge_base>"),
+          block.type === "text" &&
+          matchers.some((m) =>
+            typeof m === "string"
+              ? block.text.startsWith(m)
+              : block.text.startsWith(m.prefix) &&
+                block.text.endsWith(m.suffix),
+          ),
       ),
   );
 }
@@ -461,18 +544,30 @@ async function buildPkbReminderWithHints(
  * the memory prefix so `now-md` (40) splices after it.
  *
  * Gating:
- *  - `mode === "full"`.
- *  - `memoryV2Static` is a non-null, non-empty string.
+ *  - `mode === "full"` (skipped in minimal mode).
+ *  - The personal-memory trust gate admits the actor and v2 static memory has
+ *    content (see {@link readGatedMemoryV2Static}).
+ *  - The `<info>` block is not already present in the turn's working messages.
+ *    Like `<knowledge_base>`, the block is injected once and then persists in
+ *    history, so it only needs (re)injecting on the first turn and right after
+ *    compaction strips it — both of which leave the working messages without
+ *    the block. Skipping when it is present keeps the conversation prefix
+ *    stable for Anthropic's prefix caching and avoids a duplicate splice.
  */
 const memoryV2StaticInjector: Injector = {
   name: "memory-v2-static",
   order: DEFAULT_INJECTOR_ORDER.memoryV2Static,
-  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    const content = inputs.memoryV2Static;
+    const content = readGatedMemoryV2Static(ctx.trust);
     if (!content) return null;
+    if (hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS))
+      return null;
     return {
       id: "memory-v2-static",
       text: buildMemoryV2StaticBlock(content),
@@ -504,17 +599,30 @@ function buildMemoryV2StaticBlock(content: string): string {
  *
  * Gating:
  *  - `mode === "full"` (skipped in minimal mode).
- *  - `nowScratchpad` is a non-null, non-empty string.
+ *  - The personal-memory trust gate admits the actor, the `scratchpadInjection`
+ *    config toggle is on, and NOW.md has content (see
+ *    {@link readGatedNowScratchpad}).
+ *  - The NOW.md block is not already present in the turn's working messages.
+ *    Like `<knowledge_base>`, the block is injected once and then persists in
+ *    history, so it only needs (re)injecting on the first turn and right after
+ *    compaction strips it — both of which leave the working messages without
+ *    the block. Skipping when it is present keeps the conversation prefix
+ *    stable for Anthropic's prefix caching and avoids a duplicate splice.
  */
 const nowMdInjector: Injector = {
   name: "now-md",
   order: DEFAULT_INJECTOR_ORDER.nowMd,
-  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(
+    ctx: TurnContext,
+    runMessages?: Message[],
+  ): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-    const content = inputs.nowScratchpad;
+    const content = readGatedNowScratchpad(ctx.trust);
     if (!content) return null;
+    if (hasInjectedUserTextBlock(runMessages, NOW_MD_BLOCK_PREFIXES))
+      return null;
     const text = `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`;
     return {
       id: "now-md",
