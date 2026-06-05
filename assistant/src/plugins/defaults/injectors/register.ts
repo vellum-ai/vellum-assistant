@@ -32,27 +32,22 @@
  * closer to the memory prefix themselves. For appends, ascending `order` is
  * the natural left-to-right append sequence. The runtime-injection applier
  * sorts and applies blocks declaratively so this invariant holds even when
- * third-party injectors slot additional blocks at fractional order values.
+ * injectors slot additional blocks at fractional order values.
  *
- * Third-party plugins may register additional {@link Injector}s at any
- * `order` value; the registry's `getInjectors()` returns all injectors
- * sorted ascending, so a plugin-registered injector at `order: 25`
- * reliably slots between `unified-turn-context` (20) and `pkb` (30).
- *
- * This module only builds and exports the `Plugin` object; the defaults
- * aggregator in `plugins/defaults/index.ts` registers it centrally, either
- * explicitly from `daemon/external-plugins-bootstrap.ts` or lazily via the
- * registry's default registrar the first time a query reads the registry.
+ * This module exports the default injectors as a plain ordered array
+ * ({@link defaultInjectors}). The chain assembler in
+ * `plugins/defaults/memory-retrieval/injector-chain.ts` sorts them by `order`
+ * (alongside the memory-v3 injector) into the single sequence
+ * `applyRuntimeInjections` walks each turn — injection is not a plugin
+ * contribution, so injectors are imported directly rather than aggregated
+ * through the registry.
  */
 
 import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
-import {
-  readNowScratchpad,
-  readPkbContext,
-} from "../../../daemon/conversation-runtime-assembly.js";
+import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import {
@@ -62,6 +57,7 @@ import {
 import { listComments } from "../../../documents/document-comments-store.js";
 import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
+import { readPkbContext } from "../../../memory/pkb/context.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import {
@@ -74,11 +70,9 @@ import { getSandboxWorkingDir } from "../../../util/platform.js";
 import {
   type InjectionBlock,
   type Injector,
-  type Plugin,
   type TurnContext,
   type TurnInjectionInputs,
 } from "../../types.js";
-import pkg from "./package.json" with { type: "json" };
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -97,7 +91,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * and any future integration code — can assert ordering without re-deriving
  * the constants.
  *
- * Gaps of 10 between slots leave room for third-party injectors to slot in
+ * Gaps of 10 between slots leave room for future injectors to slot in
  * at granular positions (e.g. `25` between unified-turn-context and pkb)
  * without renumbering the defaults.
  */
@@ -855,31 +849,26 @@ const threadFocusInjector: Injector = {
 };
 
 /**
- * Bundle every default injector into a single first-party plugin. Registered
- * at daemon startup via `external-plugins-bootstrap.ts`.
+ * Every default injector in ascending `order`. This is the canonical
+ * first-party injection sequence consumed by `applyRuntimeInjections` via the
+ * assembled injector chain.
  *
- * Using one plugin per injector would inflate the registry and create
- * spurious registration-order dependencies; a single plugin keeps the
- * ordering contract entirely in the `order` field.
+ * `order` is the source of truth for sequencing (see {@link DEFAULT_INJECTOR_ORDER});
+ * the chain assembler sorts by it, so this array's literal order is only a
+ * readability convenience.
  */
-export const defaultInjectorsPlugin: Plugin = {
-  manifest: {
-    name: pkg.name,
-    version: pkg.version,
-  },
-  injectors: [
-    diskPressureWarningInjector,
-    workspaceContextInjector,
-    backgroundTurnInjector,
-    unifiedTurnContextInjector,
-    pkbContextInjector,
-    pkbReminderInjector,
-    memoryV2StaticInjector,
-    nowMdInjector,
-    activeDocumentsInjector,
-    documentCommentsInjector,
-    subagentStatusInjector,
-    slackMessagesInjector,
-    threadFocusInjector,
-  ],
-};
+export const defaultInjectors: Injector[] = [
+  diskPressureWarningInjector,
+  workspaceContextInjector,
+  backgroundTurnInjector,
+  unifiedTurnContextInjector,
+  pkbContextInjector,
+  pkbReminderInjector,
+  memoryV2StaticInjector,
+  nowMdInjector,
+  activeDocumentsInjector,
+  documentCommentsInjector,
+  subagentStatusInjector,
+  slackMessagesInjector,
+  threadFocusInjector,
+];

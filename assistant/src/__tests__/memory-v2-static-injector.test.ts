@@ -34,16 +34,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-const { defaultInjectorsPlugin } =
+const { defaultInjectors } =
   await import("../plugins/defaults/injectors/register.js");
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
-    (i) => i.name === name,
-  );
+  const injector = defaultInjectors.find((i) => i.name === name);
   if (!injector) {
     throw new Error(`injector '${name}' not registered`);
   }

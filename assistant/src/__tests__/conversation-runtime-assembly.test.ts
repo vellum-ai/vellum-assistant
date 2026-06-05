@@ -68,25 +68,10 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
-
-// `applyRuntimeInjections` is now driven by the default injector chain
-// (PR G2.1). The default-injectors plugin must be registered for the chain
-// to emit workspace, PKB, NOW.md, subagent, Slack, and thread-focus blocks.
-// Each test gets a clean registry so a test that registers its own plugin
-// doesn't leak into the next one.
-beforeEach(() => {
-  resetPluginRegistryForTests();
-  registerPlugin(defaultInjectorsPlugin);
-});
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
@@ -915,12 +900,10 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 });
 
-// The standalone `injectNowScratchpad` helper was removed in G2.1. The
-// now-md default injector (registered by `defaultInjectorsPlugin`) emits
-// the `<NOW.md>` block as an `after-memory-prefix` placement during
-// `applyRuntimeInjections`. The suites below (`applyRuntimeInjections with
-// nowScratchpad` and the injection-mode tests) cover that behaviour
-// end-to-end.
+// The now-md default injector emits the `<NOW.md>` block as an
+// `after-memory-prefix` placement during `applyRuntimeInjections`. The suites
+// below (`applyRuntimeInjections with nowScratchpad` and the injection-mode
+// tests) cover that behaviour end-to-end.
 
 // ---------------------------------------------------------------------------
 // stripNowScratchpad

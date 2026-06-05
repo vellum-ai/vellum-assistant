@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   applyRuntimeInjections,
@@ -6,18 +6,14 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   DEFAULT_INJECTOR_ORDER,
-  defaultInjectorsPlugin,
+  defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
 } from "../plugins/defaults/injectors/register.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
+  const injector = defaultInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
@@ -50,11 +46,6 @@ const diskPressureInjector = findInjector("disk-pressure-warning");
 const cleanupContext = { cleanupModeActive: true };
 
 describe("disk-pressure-warning injector", () => {
-  beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
-  });
-
   test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
     const block = await diskPressureInjector.produce(
       makeContext({

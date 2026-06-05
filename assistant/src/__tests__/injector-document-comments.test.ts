@@ -8,12 +8,12 @@ mock.module("../documents/document-comments-store.js", () => ({
   listComments: (...args: unknown[]) => listCommentsMock(...args),
 }));
 
-const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
+const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/injectors/register.js");
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
+  const injector = defaultInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
