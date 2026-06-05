@@ -47,7 +47,7 @@ import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
-import { isDiskPressureCleanupModeActive } from "../../../daemon/conversation-disk-pressure.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
@@ -131,17 +131,20 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
  * `disk-pressure-warning` injector — order 5, prepend-user-tail.
  *
  * Emits the storage cleanup-mode warning at the very top of the user tail when
- * the turn is restricted to disk-pressure cleanup. Sources the cleanup-mode
- * flag itself from the per-conversation disk-pressure registry (keyed by
- * conversation id) — the agent loop sets the flag when it classifies the
- * turn's disk-pressure policy — rather than having the loop thread it as an
- * injection input.
+ * the turn is restricted to disk-pressure cleanup. Reads the cleanup-mode flag
+ * off the live `Conversation` looked up by conversation id — the agent loop
+ * sets `diskPressureCleanupModeActive` when it classifies the turn's
+ * disk-pressure policy — rather than having the loop thread it as an injection
+ * input.
  */
 const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (!isDiskPressureCleanupModeActive(ctx.conversationId)) return null;
+    const conversation = ctx.conversationId
+      ? findConversation(ctx.conversationId)
+      : undefined;
+    if (!conversation?.diskPressureCleanupModeActive) return null;
     return {
       id: "disk-pressure-warning",
       text: DISK_PRESSURE_WARNING_PROMPT,

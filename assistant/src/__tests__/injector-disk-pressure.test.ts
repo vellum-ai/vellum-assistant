@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  type DiskPressureConversationContext,
-  registerConversationDiskPressure,
-  unregisterConversationDiskPressure,
-} from "../daemon/conversation-disk-pressure.js";
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
@@ -58,26 +57,15 @@ function tailTexts(messages: Message[]): string[] {
 
 const diskPressureInjector = findInjector("disk-pressure-warning");
 
-// The disk-pressure-warning injector sources the cleanup-mode flag from the
-// per-conversation disk-pressure registry keyed by `conversationId`. Register
-// a context under the id `makeContext()` uses so the injector emits the block;
-// unregister between tests so suites that assert the block is absent stay
-// unaffected.
-let registeredDiskPressure: DiskPressureConversationContext | null = null;
-
+// The disk-pressure-warning injector reads the cleanup-mode flag off the live
+// `Conversation` looked up by `conversationId`. Register a fake conversation
+// carrying only that flag under the id `makeContext()` uses so the injector
+// emits the block; `clearConversations()` between tests keeps suites that
+// assert the block is absent unaffected.
 function seedDiskPressure(cleanupModeActive: boolean): void {
-  registeredDiskPressure = {
-    conversationId: TEST_CONVERSATION_ID,
+  setConversation(TEST_CONVERSATION_ID, {
     diskPressureCleanupModeActive: cleanupModeActive,
-  };
-  registerConversationDiskPressure(registeredDiskPressure);
-}
-
-function clearDiskPressure(): void {
-  if (registeredDiskPressure) {
-    unregisterConversationDiskPressure(registeredDiskPressure);
-    registeredDiskPressure = null;
-  }
+  } as never);
 }
 
 // The workspace-context injector sources its block from the per-conversation
@@ -107,7 +95,7 @@ function clearWorkspaceContext(): void {
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     clearWorkspaceContext();
-    clearDiskPressure();
+    clearConversations();
   });
 
   test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
