@@ -6,6 +6,7 @@
 // anchor / suppression logic so the projection and the rendered DOM anchors
 // cannot drift.
 
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -96,15 +97,31 @@ export function resolveToolCall(
  * Join the reasoning segments referenced by a run of `thinking` contentOrder
  * ids into a single markdown string (mirrors macOS, which joins adjacent
  * reasoning indices with newlines).
+ *
+ * Reads from the unified `contentBlocks` projection when the row carries it:
+ * thinking blocks appear in the same order as the positional `thinkingSegments`
+ * (both are built in lockstep from the model-native content), so a `thinking:i`
+ * contentOrder id resolves to the i-th thinking block. The positional
+ * `thinkingSegments` lookup is the fallback for in-flight rows whose blocks
+ * haven't been populated yet.
  */
 export function resolveThinkingContent(
   message: DisplayMessage,
   ids: string[],
 ): string {
+  const thinkingBlocks = message.contentBlocks?.filter(
+    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
+      b.type === "thinking",
+  );
   return ids
     .map((id) => {
       const idx = parseInt(id, 10);
-      return !isNaN(idx) ? message.thinkingSegments?.[idx] : undefined;
+      if (isNaN(idx)) {
+        return undefined;
+      }
+      return thinkingBlocks
+        ? thinkingBlocks[idx]?.thinking
+        : message.thinkingSegments?.[idx];
     })
     .filter((s): s is string => Boolean(s))
     .join("\n");

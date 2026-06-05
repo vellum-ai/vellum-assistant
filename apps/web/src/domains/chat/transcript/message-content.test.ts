@@ -117,6 +117,24 @@ describe("resolveThinkingContent", () => {
     expect(resolveThinkingContent(message, ["0", "9"])).toBe("first");
     expect(resolveThinkingContent(message, ["nan"])).toBe("");
   });
+
+  test("reads from contentBlocks verbatim when the row carries them", () => {
+    // GIVEN a row whose unified blocks hold the reasoning, with stale
+    // positional thinkingSegments that should be ignored
+    const message = assistant({
+      contentBlocks: [
+        { type: "thinking", thinking: "first" },
+        { type: "text", text: "spacer" },
+        { type: "thinking", thinking: "second" },
+      ],
+      thinkingSegments: ["STALE", "STALE"],
+    });
+
+    // WHEN a thinking run references the i-th thinking by contentOrder index
+    // THEN the i-th thinking block's text is returned, not the positional array
+    expect(resolveThinkingContent(message, ["0", "1"])).toBe("first\nsecond");
+    expect(resolveThinkingContent(message, ["1", "9"])).toBe("second");
+  });
 });
 
 describe("isSubagentSpawnCall", () => {

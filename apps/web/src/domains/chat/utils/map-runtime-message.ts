@@ -11,7 +11,11 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder } from "@/domains/chat/api/messages";
+import {
+  mapRuntimeToolCalls,
+  normalizeContentBlocks,
+  normalizeContentOrder,
+} from "@/domains/chat/api/messages";
 
 /**
  * Narrow the wire surface `display` (an open string) to the display union.
@@ -173,6 +177,8 @@ export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessa
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
   if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
+  const contentBlocks = normalizeContentBlocks(m);
+  if (contentBlocks) msg.contentBlocks = contentBlocks;
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
   if (prepared.thinkingSegments) msg.thinkingSegments = prepared.thinkingSegments;
