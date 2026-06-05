@@ -1011,6 +1011,32 @@ describe("MediaStreamSttSession", () => {
       expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
     });
 
+    test("dispose() with a buffered final but no prior close does NOT emit a late transcript (call already ended)", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // A mid-utterance committed segment buffers, awaiting a boundary.
+      fake.emit({ type: "final", text: "i was saying", endOfUtterance: false });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // The media WebSocket / session is torn down before the provider emits
+      // its `closed` event (e.g. Twilio `stop` then the WS closes while
+      // Deepgram is still draining). dispose() must NOT flush the buffered
+      // partial: the call is over, so emitting would start an LLM turn / reply
+      // on a dead call with no one to hear it.
+      session.dispose();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+    });
+
     test("does NOT pre-flush on stop; flushes the buffered final on the provider's post-stop close", async () => {
       telephonyStreamingFlag = true;
       const fake = makeFakeStreamingTranscriber();

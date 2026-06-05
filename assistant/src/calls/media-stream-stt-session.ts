@@ -333,14 +333,14 @@ export class MediaStreamSttSession {
    * Dispose of the session, clearing all timers and buffers.
    */
   dispose(): void {
-    // Flush any buffered accumulated streaming finals BEFORE marking the
-    // session disposed. dispose() is a teardown path, so treat it as an
-    // implicit utterance boundary — otherwise a caller's last partial
-    // utterance (buffered with speech_final:false, no boundary yet) would be
-    // dropped. Done before `disposed = true` so the callback still fires, and
-    // before the buffer is cleared below; flushStreamingUtterance resets the
-    // buffer so a prior real-boundary/close flush won't double-fire here.
-    this.handleStreamingClose();
+    // dispose() is a teardown path: the WS/session is gone, so the call is
+    // over. Do NOT flush buffered accumulated streaming finals here — emitting
+    // onTranscriptFinal during teardown would route to handleCallerUtterance
+    // and start an LLM turn / reply on an already-ended call (no one is left to
+    // hear it). The legitimate end-of-utterance flush happens on the provider
+    // `closed` event (handleStreamingClose), which fires after stop() drains.
+    // The buffer is still cleared below (`streamingUtteranceSegments = []`) so
+    // teardown leaves nothing behind — it just is not emitted.
     this.disposed = true;
     // If a streaming startup is still in flight, mark it aborted so the
     // pending resolver tears down (and does not leak) any late-resolved
@@ -610,10 +610,15 @@ export class MediaStreamSttSession {
    * `onTranscriptFinal`, then reset the buffer.
    *
    * Used both at a real provider utterance boundary
-   * ({@link handleStreamingFinal}) and on stream teardown
-   * ({@link handleStreamingClose}) — closing the stream is treated as an
-   * implicit utterance boundary so the caller's last partial utterance is not
-   * lost if they hang up mid-sentence before the provider emits its boundary.
+   * ({@link handleStreamingFinal}) and on the provider `closed` event
+   * ({@link handleStreamingClose}) — the `closed` event fires after `stop()`
+   * drains, so it is treated as an implicit utterance boundary and the caller's
+   * last partial utterance is not lost if they hang up mid-sentence before the
+   * provider emits its explicit boundary.
+   *
+   * NOTE: {@link dispose} deliberately does NOT flush — once the WS/session is
+   * being torn down the call is over, so emitting the buffered partial would
+   * start a reply on a dead call. dispose() only clears the buffer.
    *
    * Guards:
    * - A bare boundary / close with nothing buffered (e.g. a standalone
@@ -633,15 +638,16 @@ export class MediaStreamSttSession {
   }
 
   /**
-   * Handle stream teardown (transcriber `closed`, `stop()`/{@link handleStop},
-   * or {@link dispose}). Treats the close as an implicit utterance boundary and
+   * Handle the provider `closed` event, which fires after `stop()` drains the
+   * remaining audio. Treats the close as an implicit utterance boundary and
    * flushes any buffered accumulated `final` segments as one
-   * `onTranscriptFinal` before tearing down — otherwise a caller who hangs up
-   * mid-utterance (before the provider emits `speech_final`/`UtteranceEnd`)
-   * would lose their final partial utterance.
+   * `onTranscriptFinal` — otherwise a caller who hangs up mid-utterance (before
+   * the provider emits `speech_final`/`UtteranceEnd`) would lose their final
+   * partial utterance. This is the SOLE flush path on teardown; {@link dispose}
+   * does not flush (the call is already over).
    *
-   * Flushing here resets the buffer, so it is safe to call from multiple
-   * teardown paths: the second call finds an empty buffer and does nothing.
+   * Flushing here resets the buffer, so it is safe to call more than once: a
+   * second call finds an empty buffer and does nothing.
    */
   private handleStreamingClose(): void {
     this.flushStreamingUtterance();
