@@ -2012,6 +2012,12 @@ jobs:
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
           npm publish --tag dev --access public --no-provenance
 
   publish-web-dev:
@@ -2059,7 +2065,14 @@ jobs:
         working-directory: apps/web
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --tag dev --access public --no-provenance
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
 
   publish-meta-dev:
     needs: [compute-version, publish-npm-dev, publish-web-dev]
@@ -2089,7 +2102,14 @@ jobs:
         working-directory: meta
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --tag dev --access public --no-provenance
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
 
   # ── Sparkle Rolling Release ────────────────────────────────────────────
   # ── Upload Sparkle artifacts to GCS ───────────────────────────────────
