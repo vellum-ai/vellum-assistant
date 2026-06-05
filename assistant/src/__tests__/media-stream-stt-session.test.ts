@@ -980,6 +980,105 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("flushes a buffered final on transcriber close when no boundary arrived (caller hangs up mid-utterance)", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // A mid-utterance committed segment buffers, awaiting a boundary.
+      fake.emit({ type: "final", text: "i was saying", endOfUtterance: false });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // The caller hangs up: the transcriber closes WITHOUT a speech_final /
+      // UtteranceEnd boundary. The buffered text must be flushed as one final.
+      fake.emit({ type: "closed" });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "i was saying",
+        expect.any(Number),
+      );
+
+      session.dispose();
+      // Buffer was reset on close, so dispose() does not double-flush.
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+    });
+
+    test("flushes a buffered final on stop when no boundary arrived", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const onStop = jest.fn();
+      const session = new MediaStreamSttSession(
+        {},
+        { onTranscriptFinal, onStop },
+      );
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      fake.emit({
+        type: "final",
+        text: "partial words",
+        endOfUtterance: false,
+      });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Twilio stop arrives before any boundary final.
+      session.handleMessage(makeStopMessage());
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "partial words",
+        expect.any(Number),
+      );
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(onStop).toHaveBeenCalledTimes(1);
+
+      // The provider's subsequent `closed` (triggered by stop()) must not
+      // double-flush, since the buffer was reset on stop.
+      fake.emit({ type: "closed" });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not emit an extra empty final on close when a boundary already flushed", async () => {
+      telephonyStreamingFlag = true;
+      const fake = makeFakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession({}, { onTranscriptFinal });
+
+      session.handleMessage(makeStartMessage());
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      fake.resolveStart();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // A real boundary flushes the utterance, leaving the buffer empty.
+      fake.emit({ type: "final", text: "all done", endOfUtterance: true });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      // Close fires afterward with an empty buffer — no extra empty flush.
+      fake.emit({ type: "closed" });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+    });
+
     test("provider without a boundary signal emits one onTranscriptFinal per final (no regression)", async () => {
       telephonyStreamingFlag = true;
       sttProvider = "xai"; // realtime-ws, no separate utterance boundary signal

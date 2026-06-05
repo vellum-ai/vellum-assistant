@@ -333,6 +333,14 @@ export class MediaStreamSttSession {
    * Dispose of the session, clearing all timers and buffers.
    */
   dispose(): void {
+    // Flush any buffered accumulated streaming finals BEFORE marking the
+    // session disposed. dispose() is a teardown path, so treat it as an
+    // implicit utterance boundary — otherwise a caller's last partial
+    // utterance (buffered with speech_final:false, no boundary yet) would be
+    // dropped. Done before `disposed = true` so the callback still fires, and
+    // before the buffer is cleared below; flushStreamingUtterance resets the
+    // buffer so a prior real-boundary/close flush won't double-fire here.
+    this.handleStreamingClose();
     this.disposed = true;
     // If a streaming startup is still in flight, mark it aborted so the
     // pending resolver tears down (and does not leak) any late-resolved
@@ -554,6 +562,9 @@ export class MediaStreamSttSession {
       case "closed":
         // Session-level `onStop` is driven by the Twilio `stop` event
         // (`handleStop`); the provider `closed` event is teardown only.
+        // Treat close as an implicit utterance boundary: flush any buffered
+        // accumulated finals so a mid-utterance hangup is not dropped.
+        this.handleStreamingClose();
         this.streamingReady = false;
         break;
       case "partial":
@@ -591,14 +602,49 @@ export class MediaStreamSttSession {
     // (undefined): flush the accumulated segments plus this one as a single
     // transcript.
     if (text.length > 0) this.streamingUtteranceSegments.push(text);
+    this.flushStreamingUtterance();
+  }
+
+  /**
+   * Flush any accumulated streaming `final` segments as a single
+   * `onTranscriptFinal`, then reset the buffer.
+   *
+   * Used both at a real provider utterance boundary
+   * ({@link handleStreamingFinal}) and on stream teardown
+   * ({@link handleStreamingClose}) — closing the stream is treated as an
+   * implicit utterance boundary so the caller's last partial utterance is not
+   * lost if they hang up mid-sentence before the provider emits its boundary.
+   *
+   * Guards:
+   * - A bare boundary / close with nothing buffered (e.g. a standalone
+   *   Deepgram `UtteranceEnd` after silence, or a close after a real boundary
+   *   already flushed) carries no transcript — drop it rather than firing an
+   *   empty reply.
+   * - The buffer is reset before invoking the callback so a re-entrant teardown
+   *   path cannot double-flush the same text.
+   */
+  private flushStreamingUtterance(): void {
     const combined = this.streamingUtteranceSegments.join(" ");
     this.streamingUtteranceSegments = [];
 
-    // A bare boundary (e.g. UtteranceEnd) with nothing buffered carries no
-    // transcript — drop it rather than firing an empty reply.
     if (combined.length === 0) return;
 
     this.callbacks.onTranscriptFinal?.(combined, 0);
+  }
+
+  /**
+   * Handle stream teardown (transcriber `closed`, `stop()`/{@link handleStop},
+   * or {@link dispose}). Treats the close as an implicit utterance boundary and
+   * flushes any buffered accumulated `final` segments as one
+   * `onTranscriptFinal` before tearing down — otherwise a caller who hangs up
+   * mid-utterance (before the provider emits `speech_final`/`UtteranceEnd`)
+   * would lose their final partial utterance.
+   *
+   * Flushing here resets the buffer, so it is safe to call from multiple
+   * teardown paths: the second call finds an empty buffer and does nothing.
+   */
+  private handleStreamingClose(): void {
+    this.flushStreamingUtterance();
   }
 
   private handleMedia(event: MediaStreamMediaEvent): void {
@@ -738,6 +784,12 @@ export class MediaStreamSttSession {
     if (this.mode === "streaming") {
       // Streaming mode: signal end-of-audio. The transcriber may emit a
       // final transcript and then a `closed` event (which drives onStop).
+      // Treat the stop as an implicit utterance boundary and flush any
+      // buffered accumulated finals first — the provider may close without
+      // emitting a real boundary for the caller's last partial utterance.
+      // flushStreamingUtterance resets the buffer, so the subsequent `closed`
+      // event won't double-flush.
+      this.handleStreamingClose();
       this.streamingTranscriber?.stop();
       this.callbacks.onStop?.();
       return;
