@@ -339,10 +339,13 @@ export const CANNED_GREETING_SUBSCRIBER_WAIT_MS = 60_000;
  * (no `Last-Event-ID`, so the replay ring is bypassed) restores message
  * *content* from the `/messages` snapshot but never re-derives the
  * turn-complete transition, leaving the send spinner stuck until the watchdog.
- * Waiting for a subscriber before broadcasting lets the terminal event land on
- * a live stream exactly like every other turn. Resolves immediately when a
- * subscriber is already present, so the common (already-connected) case is
- * unchanged.
+ * Waiting for a client before broadcasting lets the terminal event land on a
+ * live stream exactly like every other turn. Resolves immediately when a client
+ * is already present, so the common (already-connected) case is unchanged.
+ *
+ * Only `client` (SSE) subscribers count — an in-process `process` subscriber
+ * (e.g. a skill watcher) cannot clear the client-side spinner, so treating one
+ * as "connected" would re-open the very race this guards against.
  */
 export async function waitForConversationSubscriber(
   conversationId: string,
@@ -350,11 +353,11 @@ export async function waitForConversationSubscriber(
   pollIntervalMs = 100,
   hub: Pick<
     typeof assistantEventHub,
-    "hasSubscribersForEvent"
+    "hasClientSubscriberForEvent"
   > = assistantEventHub,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (!hub.hasSubscribersForEvent({ conversationId })) {
+  while (!hub.hasClientSubscriberForEvent({ conversationId })) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }

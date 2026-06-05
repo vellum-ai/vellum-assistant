@@ -445,6 +445,31 @@ export class AssistantEventHub {
     return false;
   }
 
+  /**
+   * Like {@link hasSubscribersForEvent}, but counts only `client` (SSE)
+   * subscribers — the connections that actually drive UI state. In-process
+   * `process` subscribers (e.g. skill watchers like the Meet barge-in watcher)
+   * are ignored, since they cannot clear a client-side spinner. Use this to
+   * gate broadcasts that are only meaningful once a UI client is listening.
+   */
+  hasClientSubscriberForEvent(
+    event: Pick<AssistantEvent, "conversationId">,
+  ): boolean {
+    for (const entry of this.subscribers) {
+      if (!entry.active) continue;
+      if (entry.type !== "client") continue;
+      if (
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   // ── Client queries ──────────────────────────────────────────────────────────
 
   private clientEntries(): ClientEntry[] {

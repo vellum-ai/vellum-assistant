@@ -148,6 +148,35 @@ describe("AssistantEventHub — fanout", () => {
       }),
     ).toBe(false);
   });
+
+  test("hasClientSubscriberForEvent ignores process subscribers", () => {
+    const hub = new AssistantEventHub();
+    hub.subscribe({ type: "process", callback: () => {} });
+
+    expect(hub.hasSubscribersForEvent({ conversationId: "sess_A" })).toBe(true);
+    expect(hub.hasClientSubscriberForEvent({ conversationId: "sess_A" })).toBe(
+      false,
+    );
+  });
+
+  test("hasClientSubscriberForEvent matches a scoped client subscriber", () => {
+    const hub = new AssistantEventHub();
+    hub.subscribe({
+      type: "client",
+      clientId: "client-a",
+      interfaceId: "macos",
+      capabilities: [],
+      filter: { conversationId: "sess_A" },
+      callback: () => {},
+    });
+
+    expect(hub.hasClientSubscriberForEvent({ conversationId: "sess_A" })).toBe(
+      true,
+    );
+    expect(hub.hasClientSubscriberForEvent({ conversationId: "sess_B" })).toBe(
+      false,
+    );
+  });
 });
 
 // ── Unsubscribe / cleanup ────────────────────────────────────────────────────
