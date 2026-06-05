@@ -17,7 +17,9 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 /**
  * IPC params for `addMessage()`. `role` is constrained to the
- * `MessageRole` union. `metadata` is a free-form record (validated
+ * renderable conversation roles (`user`/`assistant`): the messages store
+ * is UI-facing (`ConversationMessage`), so agent-context `system` rows are
+ * not accepted here. `metadata` is a free-form record (validated
  * downstream by `messageMetadataSchema` with a warn-and-store fallback).
  * `skipIndexing` and `clientMessageId` mirror `AddMessageOptions`.
  *
@@ -28,7 +30,7 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),
-  role: z.enum(["user", "assistant", "system"]),
+  role: z.enum(["user", "assistant"]),
   content: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   skipIndexing: z.boolean().optional(),
