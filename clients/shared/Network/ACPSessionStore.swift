@@ -244,7 +244,29 @@ open class ACPSessionStore {
         // `state.acpSessionId` is set to the wire value as a placeholder;
         // a subsequent seed will overwrite it with the protocol-level
         // session id once the agent's `createSession` has resolved.
-        if sessions[message.acpSessionId] == nil {
+        if let existing = sessions[message.acpSessionId] {
+            // The daemon re-emits `acp_session_spawned` when a persisted
+            // session is RESUMED from history, keeping its original id.
+            // The store may hold a terminal entry for that id (seeded
+            // from /v1/acp/sessions or left by the original run's
+            // completed/error event), so flip it back to running and
+            // clear the terminal fields; otherwise the panel keeps
+            // showing "completed" while the agent is actively working.
+            // Identity, accumulated events, and `startedAt` are preserved
+            // so navigation paths and list ordering stay stable; already
+            // running entries (duplicate spawn after reconnect) are left
+            // untouched.
+            if existing.state.status != .running {
+                existing.state = ACPSessionState(
+                    id: existing.state.id,
+                    agentId: existing.state.agentId,
+                    acpSessionId: existing.state.acpSessionId,
+                    parentConversationId: existing.state.parentConversationId,
+                    status: .running,
+                    startedAt: existing.state.startedAt
+                )
+            }
+        } else {
             let state = ACPSessionState(
                 id: message.acpSessionId,
                 agentId: message.agent,
