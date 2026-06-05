@@ -31,6 +31,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import {
     useAuthStore,
     useHasPlatformSession,
@@ -219,7 +220,7 @@ function PreferencesMenuContent({
         }}
       />
 
-      {platformGate === "full" && (
+      {(platformGate === "full" || isElectron()) && (
         <PanelItem
           icon={MessageSquareText}
           label="Share Feedback"
