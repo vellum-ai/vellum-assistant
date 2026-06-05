@@ -65,13 +65,10 @@ function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
 }
 
-// A connect/verify flow (e.g. Gmail) routinely emits a step as `failed` for a
-// recoverable, expected state — the first `oauth ping` fails, the silent
-// reconnect succeeds, and the overall task finishes. The model does not always
-// send a corrective per-step `ui_update`, so the stale `failed` step keeps
-// rendering a red error glyph even though the flow completed. Once the overall
-// task is `completed`, treat any lingering `failed` step as recovered so we
-// never show a persistent error on a successful flow.
+// Once the overall task is `completed`, treat any lingering `failed` step as
+// recovered: a recoverable step (e.g. a Gmail reconnect) can be left `failed`
+// with no corrective per-step update, which would otherwise show a permanent red
+// glyph on a successful flow.
 function effectiveStepStatus(
   stepStatus: string | undefined,
   taskCompleted: boolean,
