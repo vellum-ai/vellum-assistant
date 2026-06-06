@@ -4,6 +4,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { CastTurn } from "@/cast/cast-templates";
+import { CastLockedInput } from "@/cast/cast-locked-input";
 
 /**
  * Watch-only conversation panel for the Cast two-panel demo. Assistant turns
@@ -52,8 +53,9 @@ const GAP_MS = 280; // small pause between phases
 
 /** Fake-stream one assistant turn: TTFT → prelude → optional web_search → body.
  * All timers use RELATIVE delays (each `after` fires that many ms from now), so
- * the cadence stays constant no matter how long the turn runs. */
-function runScript(s: Streamer, id: string, turn: CastTurn) {
+ * the cadence stays constant no matter how long the turn runs. `onDone` fires
+ * once the body finishes streaming (used to enable the Beat-4 offer). */
+function runScript(s: Streamer, id: string, turn: CastTurn, onDone: () => void = () => {}) {
   const { prelude, search, body } = turn.script;
   const textSegments: string[] = [];
   const toolCalls: ChatMessageToolCall[] = [];
@@ -80,7 +82,7 @@ function runScript(s: Streamer, id: string, turn: CastTurn) {
   after(TTFT_MS, () =>
     streamText(prelude, () => {
       if (!search) {
-        after(GAP_MS, () => streamText(body, () => {}));
+        after(GAP_MS, () => streamText(body, onDone));
         return;
       }
       const toolId = `cast-tool-${id}`;
@@ -91,7 +93,7 @@ function runScript(s: Streamer, id: string, turn: CastTurn) {
         const k = toolCalls.findIndex((t) => t.id === toolId);
         if (k >= 0) toolCalls[k] = { ...toolCalls[k], completedAt: Date.now(), result: search.result };
         flush();
-        after(GAP_MS, () => streamText(body, () => {}));
+        after(GAP_MS, () => streamText(body, onDone));
       });
     }),
   );
@@ -99,12 +101,24 @@ function runScript(s: Streamer, id: string, turn: CastTurn) {
 
 export interface CastConversation {
   messages: DisplayMessage[];
+  /** Immediate-send (Beat 5): user text comes from the turn itself. */
   send: (turn: CastTurn) => void;
+  /** Accumulate-then-send (Beats 3–4): the locked-input draft text. */
+  draft: string;
+  setDraft: (text: string) => void;
+  /** Commit the current draft as the user message, then stream the turn's script. */
+  commit: (turn: CastTurn) => void;
+  /** True while an assistant turn is streaming (gates the Beat-4 offer). */
+  streaming: boolean;
+  /** Seed a settled assistant greeting (once) so the panel is never empty. */
+  seedGreeting: (name: string) => void;
   reset: () => void;
 }
 
 export function useCastConversation(): CastConversation {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [streaming, setStreaming] = useState(false);
   const timersRef = useRef<number[]>([]);
 
   useEffect(() => {
@@ -112,7 +126,8 @@ export function useCastConversation(): CastConversation {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  const send = useCallback((turn: CastTurn) => {
+  /** Push a user + empty-assistant pair and stream the script into the latter. */
+  const run = useCallback((userText: string, turn: CastTurn) => {
     const now = Date.now();
     const userId = nextId();
     const asstId = nextId();
@@ -121,22 +136,50 @@ export function useCastConversation(): CastConversation {
       {
         id: userId,
         role: "user",
-        textSegments: [turn.user],
+        textSegments: [userText],
         contentOrder: [{ type: "text", id: "0" }],
         timestamp: now,
       },
       { id: asstId, role: "assistant", textSegments: [], contentOrder: [], timestamp: now + 1 },
     ]);
-    runScript({ setMessages, timers: timersRef.current }, asstId, turn);
+    setStreaming(true);
+    runScript({ setMessages, timers: timersRef.current }, asstId, turn, () => setStreaming(false));
+  }, []);
+
+  const send = useCallback((turn: CastTurn) => run(turn.user, turn), [run]);
+
+  const commit = useCallback(
+    (turn: CastTurn) => {
+      run(draft || turn.user, turn);
+      setDraft("");
+    },
+    [run, draft],
+  );
+
+  const seedGreeting = useCallback((name: string) => {
+    setMessages((prev) => {
+      if (prev.length > 0) return prev;
+      return [
+        {
+          id: nextId(),
+          role: "assistant",
+          textSegments: [`Hey — I'm ${name}. Tell me what you need and watch me get to it.`],
+          contentOrder: [{ type: "text", id: "0" }],
+          timestamp: Date.now(),
+        },
+      ];
+    });
   }, []);
 
   const reset = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     setMessages([]);
+    setDraft("");
+    setStreaming(false);
   }, []);
 
-  return { messages, send, reset };
+  return { messages, send, draft, setDraft, commit, streaming, seedGreeting, reset };
 }
 
 /* ---------------- render ---------------- */
@@ -175,12 +218,22 @@ const AssistantRow = memo(function AssistantRow({
   );
 });
 
+/** The Beat-4 "boring stuff" offer, rendered into the conversation panel after
+ * the rather-turn finishes (faithful mock of a platform ui_show component). */
+export interface CastOffer {
+  onAccept: () => void;
+}
+
 export function CastConversationView({
   messages,
   assistantName,
+  input,
+  offer,
 }: {
   messages: DisplayMessage[];
   assistantName: string;
+  input?: { value: string; canSend: boolean; onSend: () => void };
+  offer?: CastOffer;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [expandedToolCallIds] = useState(() => new Set<string>());
@@ -189,7 +242,7 @@ export function CastConversationView({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+  }, [messages, offer]);
 
   return (
     <div className="cast-convo">
@@ -215,8 +268,19 @@ export function CastConversationView({
             ),
           )
         )}
+        {offer && (
+          <div className="cast-convo__offer">
+            <p className="cast-convo__offer-copy">I'm ready to handle the boring stuff.</p>
+            <button className="cast-convo__offer-btn" onClick={offer.onAccept}>
+              Let's go!
+            </button>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
+      {input && (
+        <CastLockedInput value={input.value} canSend={input.canSend} onSend={input.onSend} />
+      )}
     </div>
   );
 }

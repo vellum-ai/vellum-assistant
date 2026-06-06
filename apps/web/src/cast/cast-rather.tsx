@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 
 import { JOBS, RATHERS, type JobKey, type RatherKey } from "@/cast/cast-content";
 // (RATHERS used for both the tile list and the ascension check)
@@ -9,7 +9,9 @@ import type { CastCharacter } from "@/cast/cast-roster";
 /**
  * Beat 4 — "What would you rather be doing right now?" Multi-select: the
  * character keeps the chosen job props in hand and mimes each rather as it's
- * tapped. A beat after the first mime, a card slides up.
+ * tapped. Picks assemble the locked-input draft on the right; Send fires the
+ * message and, once it streams, the conversation panel shows the "boring stuff"
+ * offer that advances to Beat 5.
  */
 export function CastRather({
   character,
@@ -17,9 +19,7 @@ export function CastRather({
   jobs,
   rathers,
   mime,
-  showCard,
   onToggle,
-  onAnswer,
   onBack,
 }: {
   character: CastCharacter;
@@ -27,9 +27,7 @@ export function CastRather({
   jobs: JobKey[];
   rathers: RatherKey[];
   mime: MimeState | null;
-  showCard: boolean;
   onToggle: (key: RatherKey) => void;
-  onAnswer: (answer: "yeah" | "not-yet") => void;
   onBack: () => void;
 }) {
   const heldProps: HeldProp[] = jobs.map((k) => {
@@ -73,28 +71,6 @@ export function CastRather({
           />
         ))}
       </TileGrid>
-
-      <AnimatePresence>
-        {showCard && (
-          <motion.div
-            className="cast-card"
-            initial={{ y: "115%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "115%" }}
-            transition={{ type: "spring", stiffness: 280, damping: 30 }}
-          >
-            <p className="cast-card__copy">Want me to handle the boring stuff so you can?</p>
-            <div className="cast-card__actions">
-              <button className="cast-card__primary" onClick={() => onAnswer("yeah")}>
-                Yeah
-              </button>
-              <button className="cast-card__secondary" onClick={() => onAnswer("not-yet")}>
-                Not yet
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 }

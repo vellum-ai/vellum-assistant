@@ -1152,6 +1152,90 @@
   display: none !important;
 }
 
+/* Beat-4 "boring stuff" offer (faithful mock of a platform ui_show card). */
+.cast-convo__offer {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+}
+.cast-convo__offer-copy {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--content-default);
+}
+.cast-convo__offer-btn {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-convo__offer-btn:hover {
+  background: var(--primary-hover);
+}
+
+/* Visible-but-locked chat input for the two-panel beats. It's not an input —
+   no caret, no focus ring; the left tiles are the input, Send is the only
+   live control. */
+.cast-locked-input {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+}
+.cast-locked-input__value {
+  flex: 1;
+  min-height: 24px;
+  max-height: 4.5em; /* ~3 lines, then scroll with the tail pinned */
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 9px 13px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.cast-locked-input__value::-webkit-scrollbar {
+  display: none;
+}
+.cast-locked-input__ph {
+  color: var(--content-tertiary);
+}
+.cast-locked-input__send {
+  flex: none;
+  appearance: none;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-locked-input__send:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.cast-locked-input__send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ---- keyframes ---- */
 
 @keyframes cast-bob {

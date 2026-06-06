@@ -21,17 +21,19 @@ export interface JobChoice {
   key: JobKey;
   label: string;
   prop: PropKey; // tile icon AND the prop that flies in / stays held
+  /** Fragment that follows "you'll get to help me with …" in the locked input. */
+  phrase: string;
 }
 
 export const JOBS: JobChoice[] = [
-  { key: "building", label: "Building", prop: "laptop" },
-  { key: "writing", label: "Writing", prop: "pen" },
-  { key: "designing", label: "Designing", prop: "brush" },
-  { key: "fundraising", label: "Fundraising", prop: "headset" },
-  { key: "operating", label: "Operating", prop: "clipboard" },
-  { key: "teaching", label: "Teaching", prop: "book" },
-  { key: "healing", label: "Healing", prop: "stethoscope" },
-  { key: "making", label: "Making", prop: "hammer" },
+  { key: "building", label: "Building", prop: "laptop", phrase: "building" },
+  { key: "writing", label: "Writing", prop: "pen", phrase: "writing" },
+  { key: "designing", label: "Designing", prop: "brush", phrase: "design" },
+  { key: "fundraising", label: "Fundraising", prop: "headset", phrase: "fundraising" },
+  { key: "operating", label: "Operating", prop: "clipboard", phrase: "operations" },
+  { key: "teaching", label: "Teaching", prop: "book", phrase: "teaching" },
+  { key: "healing", label: "Healing", prop: "stethoscope", phrase: "healing" },
+  { key: "making", label: "Making", prop: "hammer", phrase: "making things" },
 ];
 
 export type RatherKey =
@@ -51,6 +53,9 @@ export interface RatherChoice {
   key: RatherKey;
   label: string;
   icon: PropKey; // tile icon
+  /** Fragment that follows "I'd rather be …" in the locked input (grammatical:
+   *  "at the beach", not "beach"). */
+  phrase: string;
   mime: {
     prop?: PropKey; // prop that flies in for the mime (omit for special beats)
     place: Placement;
@@ -61,15 +66,31 @@ export interface RatherChoice {
 }
 
 export const RATHERS: RatherChoice[] = [
-  { key: "beach", label: "Beach", icon: "sunglasses", mime: { prop: "sunglasses", place: "face" } },
-  { key: "sleeping", label: "Sleeping", icon: "moon", mime: { place: "none", reaction: "yawn" } },
-  { key: "reading", label: "Reading", icon: "book", mime: { prop: "book", place: "front", replaceJob: true } },
-  { key: "hiking", label: "Hiking", icon: "backpack", mime: { prop: "backpack", place: "back" } },
-  { key: "cooking", label: "Cooking", icon: "chefhat", mime: { prop: "chefhat", place: "top" } },
-  { key: "gaming", label: "Gaming", icon: "gamepad", mime: { prop: "gamepad", place: "front" } },
-  { key: "traveling", label: "Traveling", icon: "plane", mime: { prop: "plane", place: "across" } },
-  { key: "friends", label: "With friends", icon: "buddies", mime: { place: "none", buddies: true } },
+  { key: "beach", label: "Beach", icon: "sunglasses", phrase: "at the beach", mime: { prop: "sunglasses", place: "face" } },
+  { key: "sleeping", label: "Sleeping", icon: "moon", phrase: "asleep", mime: { place: "none", reaction: "yawn" } },
+  { key: "reading", label: "Reading", icon: "book", phrase: "reading", mime: { prop: "book", place: "front", replaceJob: true } },
+  { key: "hiking", label: "Hiking", icon: "backpack", phrase: "out hiking", mime: { prop: "backpack", place: "back" } },
+  { key: "cooking", label: "Cooking", icon: "chefhat", phrase: "cooking", mime: { prop: "chefhat", place: "top" } },
+  { key: "gaming", label: "Gaming", icon: "gamepad", phrase: "gaming", mime: { prop: "gamepad", place: "front" } },
+  { key: "traveling", label: "Traveling", icon: "plane", phrase: "traveling", mime: { prop: "plane", place: "across" } },
+  { key: "friends", label: "With friends", icon: "buddies", phrase: "with friends", mime: { place: "none", buddies: true } },
 ];
+
+/**
+ * Assemble the locked-input message from the current selections, in stable
+ * JOBS/RATHERS order (not tap order) so re-tapping never reshuffles the text.
+ */
+export function assembleJobMessage(keys: JobKey[]): string {
+  const parts = JOBS.filter((j) => keys.includes(j.key)).map((j) => j.phrase);
+  if (parts.length === 0) return "";
+  return `you'll get to help me with ${parts.join(", and ")}`;
+}
+
+export function assembleRatherMessage(keys: RatherKey[]): string {
+  const parts = RATHERS.filter((r) => keys.includes(r.key)).map((r) => r.phrase);
+  if (parts.length === 0) return "";
+  return `and I'd rather be ${parts.join(", ")}`;
+}
 
 /**
  * Off-screen fly-in directions (unit-ish vectors + a landing rotation), cycled

@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
 import {
+  assembleJobMessage,
+  assembleRatherMessage,
   EDGES,
   RATHERS,
   type Edge,
@@ -87,14 +89,13 @@ export function CastPage() {
   const [rathers, setRathers] = useState<RatherKey[]>([]);
   const [style, setStyle] = useState<StyleProfile>({});
   const [mime, setMime] = useState<MimeState | null>(null);
-  const [showCard, setShowCard] = useState(false);
+  // Beat 4: flips true once a rather message is Sent, so the conversation-panel
+  // offer can appear after that turn finishes streaming.
+  const [ratherSent, setRatherSent] = useState(false);
   const tapRef = useRef(0);
   const mimeTimer = useRef<number | undefined>(undefined);
-  const cardTimer = useRef<number | undefined>(undefined);
-  const cardScheduled = useRef(false);
   const clearBeatTimers = () => {
     clearTimeout(mimeTimer.current);
-    clearTimeout(cardTimer.current);
   };
 
   useEffect(() => {
@@ -151,7 +152,6 @@ export function CastPage() {
 
   function backToGrid() {
     clearBeatTimers();
-    cardScheduled.current = false;
     convo.reset();
     setPhase("grid");
     setSelected(null);
@@ -160,7 +160,7 @@ export function CastPage() {
     setJobEdges({});
     setRathers([]);
     setMime(null);
-    setShowCard(false);
+    setRatherSent(false);
   }
 
   function goToRather() {
@@ -168,7 +168,8 @@ export function CastPage() {
   }
 
   // Beat 3: toggle a job. Each newly-added job keeps a stable fly-in edge so its
-  // prop arcs in once and then stays clustered around the character.
+  // prop arcs in once and then stays clustered around the character. Taps no
+  // longer send — they assemble the locked-input draft; Send fires it.
   function toggleJob(key: JobKey) {
     const adding = !jobs.includes(key);
     const next = adding ? [...jobs, key] : jobs.filter((k) => k !== key);
@@ -177,47 +178,44 @@ export function CastPage() {
       prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
     );
     void kickoffJobContext(next);
-    // Drive the live conversation panel (mocked, scripted) on each new pick.
-    if (adding) convo.send(jobTurn(key));
+    convo.setDraft(assembleJobMessage(next));
   }
 
-  // Beat 4: toggle a rather. Adding one plays its mime (transient) and, the
-  // first time, schedules the card.
+  // Beat 3 Send: commit the assembled draft as the user message + stream a turn.
+  function sendJobs() {
+    if (jobs.length === 0) return;
+    convo.commit(jobTurn(jobs[0])); // first pick's script drives the demo response
+  }
+
+  // Beat 4: toggle a rather. Adding one plays its mime (transient) and assembles
+  // the locked-input draft. Send fires it.
   function toggleRather(key: RatherKey) {
     const has = rathers.includes(key);
     const next = has ? rathers.filter((k) => k !== key) : [...rathers, key];
     setRathers(next);
-    // Warm up rather context in the background (stub for now).
     void kickoffRatherContext(next);
+    convo.setDraft(assembleRatherMessage(next));
     if (has) return;
     const choice = RATHERS.find((r) => r.key === key)!;
-    convo.send(ratherTurn(key, choice.label));
     const nonce = (tapRef.current += 1);
     setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
     clearTimeout(mimeTimer.current);
     mimeTimer.current = window.setTimeout(() => setMime(null), 1500);
-    // Card slides up a beat after the FIRST rather pick (scheduled once, so
-    // rapid multi-select doesn't keep pushing it out).
-    if (!cardScheduled.current) {
-      cardScheduled.current = true;
-      cardTimer.current = window.setTimeout(() => setShowCard(true), 2500);
-    }
   }
 
-  function answer(a: "yeah" | "not-yet") {
-    console.log("[Cast] answer", {
-      character: selected?.id,
-      name,
-      jobs,
-      rathers,
-      answer: a,
-    });
-    if (a === "yeah") {
-      clearBeatTimers();
-      setShowCard(false);
-      setMime(null);
-      setPhase("style");
-    }
+  // Beat 4 Send: commit the draft + arm the post-stream "boring stuff" offer.
+  function sendRathers() {
+    if (rathers.length === 0) return;
+    const choice = RATHERS.find((r) => r.key === rathers[0])!;
+    convo.commit(ratherTurn(rathers[0], choice.label));
+    setRatherSent(true);
+  }
+
+  // Beat 4 offer "Let's go!" → advance to This/That.
+  function acceptOffer() {
+    clearBeatTimers();
+    setMime(null);
+    setPhase("style");
   }
 
   // Beat 5: persist each round's pick (kickoffStyleContext fires per-tap inside
@@ -304,7 +302,10 @@ export function CastPage() {
             name={name}
             box={boxes.focus}
             onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
-            onContinue={() => setPhase("job")}
+            onContinue={() => {
+              convo.seedGreeting(name); // never enter Beat 3 with an empty panel
+              setPhase("job");
+            }}
             onBack={backToGrid}
           />
         )}
@@ -323,7 +324,13 @@ export function CastPage() {
                 onBack={() => setPhase("focus")}
               />
             }
-            right={<CastConversationView messages={convo.messages} assistantName={name} />}
+            right={
+              <CastConversationView
+                messages={convo.messages}
+                assistantName={name}
+                input={{ value: convo.draft, canSend: jobs.length > 0, onSend: sendJobs }}
+              />
+            }
           />
         )}
 
@@ -337,19 +344,22 @@ export function CastPage() {
                 jobs={jobs}
                 rathers={rathers}
                 mime={mime}
-                showCard={showCard}
                 onToggle={toggleRather}
-                onAnswer={answer}
                 onBack={() => {
                   clearBeatTimers();
-                  cardScheduled.current = false;
                   setMime(null);
-                  setShowCard(false);
                   setPhase("job");
                 }}
               />
             }
-            right={<CastConversationView messages={convo.messages} assistantName={name} />}
+            right={
+              <CastConversationView
+                messages={convo.messages}
+                assistantName={name}
+                input={{ value: convo.draft, canSend: rathers.length > 0, onSend: sendRathers }}
+                offer={ratherSent && !convo.streaming ? { onAccept: acceptOffer } : undefined}
+              />
+            }
           />
         )}
 
