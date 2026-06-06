@@ -208,7 +208,7 @@ export function ensurePromptFiles(): void {
  * overwrite the workspace file with the specified variant.  No-op when
  * BOOTSTRAP.md has been deleted, modified, or the template file is missing.
  */
-export function maybeReseedBootstrap(templateFileName: string): void {
+export function maybeReseedBootstrap(templateFileName: string): boolean {
   // Path traversal guard: reject filenames containing directory separators or
   // parent-directory references, and require a `.md` extension.
   if (
@@ -220,11 +220,11 @@ export function maybeReseedBootstrap(templateFileName: string): void {
       { templateFileName },
       "Rejected bootstrap template filename: invalid characters or extension",
     );
-    return;
+    return false;
   }
 
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-  if (!existsSync(bootstrapPath)) return;
+  if (!existsSync(bootstrapPath)) return false;
 
   const currentContent = readPromptFile(bootstrapPath);
   // Compare against the GENERIC "BOOTSTRAP.md" template, not the specified
@@ -232,7 +232,7 @@ export function maybeReseedBootstrap(templateFileName: string): void {
   // template, so this guard returns false on subsequent calls — making the
   // swap idempotent.  Do NOT change the comparison target to the provided
   // template filename; that would re-swap on every prompt build.
-  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return;
+  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return false;
 
   const templatesDir = resolveBundledDir(
     import.meta.dirname ?? __dirname,
@@ -245,7 +245,7 @@ export function maybeReseedBootstrap(templateFileName: string): void {
       { templateFileName },
       "Bootstrap template not found, keeping generic BOOTSTRAP.md",
     );
-    return;
+    return false;
   }
 
   try {
@@ -255,11 +255,13 @@ export function maybeReseedBootstrap(templateFileName: string): void {
       { templateFileName },
       "Replaced generic BOOTSTRAP.md with specified template",
     );
+    return true;
   } catch (err) {
     log.warn(
       { err, templateFileName },
       "Failed to reseed BOOTSTRAP.md with template",
     );
+    return false;
   }
 }
 
@@ -292,13 +294,23 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the specified variant before the prompt reads the file.
   const bootstrapTemplate = options?.onboardingContext?.bootstrapTemplate;
   if (bootstrapTemplate) {
-    maybeReseedBootstrap(bootstrapTemplate);
+    const installedActivationRail = maybeReseedBootstrap(bootstrapTemplate);
     // Mark activation-rail conversations so the funnel telemetry can scope its
     // events. Best-effort and guarded inside the store; only when we know which
-    // conversation this prompt is for.
+    // conversation this prompt is for. Gate on the rail actually being the
+    // active bootstrap — either this build just installed it, OR BOOTSTRAP.md
+    // already holds the activation-rail template (idempotent re-marks on later
+    // turns). When the reseed no-ops because BOOTSTRAP.md is missing or has been
+    // customized to something else, the rail is NOT active, so we must NOT mark
+    // (otherwise non-rail conversations would pollute activation telemetry).
     if (
       bootstrapTemplate === ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE &&
-      options?.conversationId
+      options?.conversationId &&
+      (installedActivationRail ||
+        isTemplateContent(
+          readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md")),
+          ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+        ))
     ) {
       markActivationSession(options.conversationId);
     }
