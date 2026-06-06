@@ -7,9 +7,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // injection chain assertions stay meaningful.
 const realLoaderForAssemblyTest = await import("../config/loader.js");
 const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
-// Per-test override for `ui.userTimezone` so the self-resolution of the
-// configured user timezone inside `applyRuntimeInjections` can be exercised.
+// Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
+// config self-resolution inside `applyRuntimeInjections` can be exercised.
 let assemblyConfiguredUserTimezone: string | null | undefined;
+let assemblyDetectedTimezone: string | null | undefined;
 mock.module("../config/loader.js", () => ({
   ...realLoaderForAssemblyTest,
   getConfig: () => {
@@ -20,6 +21,8 @@ mock.module("../config/loader.js", () => ({
         ...real.ui,
         userTimezone:
           assemblyConfiguredUserTimezone ?? real.ui?.userTimezone ?? null,
+        detectedTimezone:
+          assemblyDetectedTimezone ?? real.ui?.detectedTimezone ?? null,
       },
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
       slack: { ...real.slack, botUserId: "U_BOT" },
@@ -1843,12 +1846,13 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 });
 
 // ---------------------------------------------------------------------------
-// applyRuntimeInjections self-resolves the configured user timezone
+// applyRuntimeInjections self-resolves the config timezones
 // ---------------------------------------------------------------------------
 
-describe("applyRuntimeInjections configured user timezone self-resolution", () => {
+describe("applyRuntimeInjections timezone resolution", () => {
   afterEach(() => {
     assemblyConfiguredUserTimezone = undefined;
+    assemblyDetectedTimezone = undefined;
     clearConversations();
   });
 
@@ -1863,23 +1867,48 @@ describe("applyRuntimeInjections configured user timezone self-resolution", () =
       .join("\n");
   }
 
-  test("sources configured_user_timezone from config, not the options bag", async () => {
+  test("sources the configured and detected timezones from config, not the options bag", async () => {
     /**
-     * Verifies the re-homed configured user timezone is read from
-     * `config.ui.userTimezone` inside `applyRuntimeInjections` rather than
-     * threaded through the options bag.
+     * Verifies the re-homed configured user timezone and detected-timezone
+     * fallback are read from `config.ui` inside `applyRuntimeInjections`
+     * rather than threaded through the options bag. The detected timezone is
+     * the device-timezone fallback used when the client reports none.
      */
     // GIVEN the guardian has configured a user timezone in config
     assemblyConfiguredUserTimezone = "America/New_York";
 
-    // WHEN a turn is assembled whose client reports a different timezone
-    // (the options bag carries no `configuredUserTimezone`)
+    // AND a different server-detected timezone is configured
+    assemblyDetectedTimezone = "America/Los_Angeles";
+
+    // WHEN a turn is assembled whose options bag carries no client timezone
+    // (so the detected timezone is the device-timezone fallback)
+    const result = await applyRuntimeInjections(baseMessages, {
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+    });
+
+    // THEN the injector surfaces the mismatch using the config-sourced values
+    const injected = injectedText(result);
+    expect(injected).toContain("configured_user_timezone: America/New_York");
+    expect(injected).toContain("client_device_timezone: America/Los_Angeles");
+  });
+
+  test("threads clientTimezone from the options bag as a turn-start snapshot", async () => {
+    /**
+     * Verifies the per-turn client timezone is taken from the options bag (the
+     * turn-start snapshot) and takes precedence over the config-sourced
+     * detected-timezone fallback.
+     */
+    // GIVEN the configured user timezone and a detected fallback in config
+    assemblyConfiguredUserTimezone = "America/New_York";
+    assemblyDetectedTimezone = "America/Denver";
+
+    // WHEN a turn is assembled whose options bag carries a client timezone
     const result = await applyRuntimeInjections(baseMessages, {
       timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
       clientTimezone: "America/Los_Angeles",
     });
 
-    // THEN the injector surfaces the mismatch using the config-sourced value
+    // THEN the injector surfaces the mismatch using the threaded client value
     const injected = injectedText(result);
     expect(injected).toContain("configured_user_timezone: America/New_York");
     expect(injected).toContain("client_device_timezone: America/Los_Angeles");
@@ -1888,7 +1917,7 @@ describe("applyRuntimeInjections configured user timezone self-resolution", () =
   test("omits the mismatch lines when config and client timezone agree", async () => {
     /**
      * Verifies no mismatch affordance is emitted when the config-sourced
-     * configured user timezone matches the client-reported timezone.
+     * configured user timezone matches the threaded client timezone.
      */
     // GIVEN the configured user timezone matches the client timezone
     assemblyConfiguredUserTimezone = "America/New_York";

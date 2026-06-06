@@ -780,7 +780,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("passes resolved canonical timezones into unified turn context", async () => {
+    test("threads the client timezone snapshot but not the config timezones", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -797,19 +797,20 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
+      // The loop resolves the effective timezone to format the turn timestamp.
       expect(formatTurnTimestampMock).toHaveBeenCalledWith({
         timeZone: "America/New_York",
       });
-      // The loop resolves the unified turn-context inputs into the injection
-      // options bag; the `unified-turn-context` injector later builds the block
-      // from them. `configuredUserTimezone` is not threaded here —
-      // `applyRuntimeInjections` sources it from config (`ui.userTimezone`).
+      // The client timezone is threaded as a turn-start snapshot, but the
+      // configured and detected timezones are not — `applyRuntimeInjections`
+      // self-resolves those from config (`ui.userTimezone`,
+      // `ui.detectedTimezone`).
       const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
       expect(injectionOptions).toMatchObject({
         clientTimezone: "America/Los_Angeles",
-        detectedTimezone: "America/Chicago",
       });
       expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
+      expect(injectionOptions).not.toHaveProperty("detectedTimezone");
     });
   });
 

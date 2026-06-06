@@ -1611,14 +1611,14 @@ function applyInjectionBlock(
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, the
  * transport hints, the background-conversation flag, the
- * `<active_subagents>` status block, and the configured user timezone are not
- * on this bag: `applyRuntimeInjections` resolves them from the live
+ * `<active_subagents>` status block, and the two config-sourced timezones are
+ * not on this bag: `applyRuntimeInjections` resolves them from the live
  * conversation itself (its surface state, `channelCapabilities`, the document
  * store keyed by `conversationId`, its `commandIntent`, its
  * `voiceCallControlPrompt`, its `transportHints`, its `conversationType`, and
- * the subagent manager's children of `conversationId` respectively) or, for
- * the configured user timezone, from config (`ui.userTimezone`), so the
- * orchestrator does not compute or thread any of them per turn.
+ * the subagent manager's children of `conversationId` respectively) or from
+ * config (the configured user timezone and the detected-timezone fallback), so
+ * the orchestrator does not compute or thread any of them per turn.
  *
  * {@link isNonInteractive} is the exception: it is derived from the agent
  * loop's `isInteractive` option (not re-derivable from live conversation
@@ -1628,11 +1628,14 @@ function applyInjectionBlock(
  * agent-loop closure state.
  *
  * The remaining unified `<turn_context>` inputs (`timestamp`, `interfaceName`,
- * `channelName`, `actorContext`, `clientTimezone`, `detectedTimezone`,
- * `timeSinceLastMessage`, and `modelProfile`) are flat top-level fields here.
- * They flow through to the matching {@link TurnInjectionInputs} fields, and the
- * `unified-turn-context` injector builds the block from them (combined with the
- * self-resolved `configuredUserTimezone`) via `buildUnifiedTurnContextBlock`.
+ * `channelName`, `actorContext`, `clientTimezone`, `timeSinceLastMessage`, and
+ * `modelProfile`) are flat top-level fields here. `clientTimezone` stays on the
+ * bag as a turn-start snapshot because the live `Conversation.clientTimezone`
+ * is overwritten when a newer message for the same conversation arrives
+ * mid-turn. They flow through to the matching {@link TurnInjectionInputs}
+ * fields, and the `unified-turn-context` injector builds the block from them
+ * (combined with the two self-resolved config timezones) via
+ * `buildUnifiedTurnContextBlock`.
  */
 export interface RuntimeInjectionOptions {
   /**
@@ -1693,10 +1696,14 @@ export interface RuntimeInjectionOptions {
    * turns; `null`/absent suppresses the actor section of `<turn_context>`.
    */
   actorContext?: InboundActorContext | null;
-  /** Client-reported timezone, used to detect a client/config mismatch. */
+  /**
+   * Client-reported timezone, used to detect a client/config mismatch. Kept on
+   * this bag as a turn-start snapshot rather than self-resolved: the live
+   * `Conversation.clientTimezone` is overwritten when a newer message for the
+   * same conversation arrives mid-turn, so reading it at assembly time could
+   * leak a queued message's timezone into the in-flight turn.
+   */
   clientTimezone?: string | null;
-  /** Server-detected timezone fallback when the client does not report one. */
-  detectedTimezone?: string | null;
   /**
    * Human-readable gap since the previous user message (e.g. "14h ago"), only
    * set when the gap exceeds the long-absence threshold.
@@ -1738,6 +1745,7 @@ function buildTurnInjectionInputs(
   isBackgroundConversation: boolean,
   subagentStatusBlock: string | null,
   configuredUserTimezone: string | null,
+  detectedTimezone: string | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1754,7 +1762,7 @@ function buildTurnInjectionInputs(
     actorContext: options.actorContext,
     configuredUserTimezone,
     clientTimezone: options.clientTimezone,
-    detectedTimezone: options.detectedTimezone,
+    detectedTimezone,
     timeSinceLastMessage: options.timeSinceLastMessage,
     modelProfile: options.modelProfile,
   };
@@ -1853,12 +1861,20 @@ export async function applyRuntimeInjections(
   );
   const isNonInteractive = options.isNonInteractive ?? false;
 
-  // The guardian-configured timezone is a stable user setting, not a per-turn
-  // value, so it is sourced from config here rather than threaded through
-  // `options`. The `unified-turn-context` injector compares it against the
-  // client-reported timezone to surface a mismatch affordance.
+  // The configured user timezone and the server-detected fallback are stable
+  // settings, so they are read from config here rather than threaded through
+  // `options`. The client-reported timezone stays on `options` instead: it is a
+  // per-turn snapshot frozen at turn start, since the live
+  // `Conversation.clientTimezone` is overwritten when a newer message for the
+  // same conversation arrives mid-turn. The `unified-turn-context` injector
+  // compares the configured and client timezones to surface a mismatch
+  // affordance.
+  const uiConfig = getConfig().ui;
   const configuredUserTimezone = canonicalizeTimeZone(
-    getConfig().ui?.userTimezone ?? null,
+    uiConfig?.userTimezone ?? null,
+  );
+  const detectedTimezone = canonicalizeTimeZone(
+    uiConfig?.detectedTimezone ?? null,
   );
 
   // The `<active_subagents>` status block is sourced from the live subagent
@@ -1882,6 +1898,7 @@ export async function applyRuntimeInjections(
     isBackgroundConversation,
     subagentStatusBlock,
     configuredUserTimezone,
+    detectedTimezone,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
