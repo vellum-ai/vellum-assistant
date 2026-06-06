@@ -42,14 +42,17 @@ const resolveBuildSha = (): string => {
   }
 };
 
-const BUILD_SHA_DEFINE = {
+const BUILD_DEFINES = {
   __VELLUM_BUILD_SHA__: JSON.stringify(resolveBuildSha()),
+  __VELLUM_ENVIRONMENT__: JSON.stringify(
+    process.env.VELLUM_ENVIRONMENT || "production",
+  ),
 };
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: DEPS_TO_INLINE })],
-    define: BUILD_SHA_DEFINE,
+    define: BUILD_DEFINES,
     build: {
       outDir: "out/main",
       lib: {

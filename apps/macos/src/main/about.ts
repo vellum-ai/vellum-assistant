@@ -27,13 +27,21 @@ import { createWindow } from "./windows";
  * right metadata.
  */
 
-const APP_NAME = "Vellum";
 const WEBSITE = "https://vellum.ai";
 
-// Injected by `electron.vite.config.ts` at build time. Resolves to a
-// short SHA in CI / dev checkouts, or "unknown" if neither
-// `GITHUB_SHA` nor a git tree is available.
+// Injected by `electron.vite.config.ts` at build time.
 declare const __VELLUM_BUILD_SHA__: string;
+declare const __VELLUM_ENVIRONMENT__: string;
+
+const VELLUM_ENV: string =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
+
+const APP_NAME =
+  VELLUM_ENV === "production"
+    ? "Vellum"
+    : `Vellum ${VELLUM_ENV.charAt(0).toUpperCase() + VELLUM_ENV.slice(1)}`;
 
 const COMMIT_SHA: string =
   typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown";
