@@ -25,7 +25,9 @@ const navigateMock = (to: string) => {
   navigateCalls.push(to);
 };
 
+const reactRouter = await import("react-router");
 mock.module("react-router", () => ({
+  ...reactRouter,
   useNavigate: () => navigateMock,
   useParams: () => ({}),
 }));
@@ -70,8 +72,8 @@ const {
   formatScheduleCost,
   RecentRunsCard,
   ScheduleRow,
-  SystemTaskDetailView,
   SystemTaskRow,
+  SystemTaskDetailView,
   shouldShowSystemTaskToggles,
 } = await import("./schedules-page");
 
@@ -115,6 +117,16 @@ function run(overrides: Partial<ScheduleRun> = {}): ScheduleRun {
     ...overrides,
   } as ScheduleRun;
 }
+
+const readySystemTaskUsage = {
+  status: "ready" as const,
+  summary: {
+    scheduleId: "system-heartbeat",
+    runCount: 2,
+    totalEstimatedCostUsd: 0.42,
+    eventCount: 7,
+  },
+};
 
 describe("canOpenScheduleSourceConversation", () => {
   test("requires an existing unarchived source conversation", () => {
@@ -237,6 +249,7 @@ describe("SystemTaskDetailView", () => {
     await waitFor(() =>
       expect(document.body.textContent).toContain("$0.1234"),
     );
+    expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
     expect(document.body.textContent).not.toContain(
       "Run history is not available",
     );
@@ -439,6 +452,56 @@ describe("ScheduleRow", () => {
   });
 });
 
+describe("SystemTaskRow", () => {
+  test("opens details from the row-level control", () => {
+    let detailClicks = 0;
+
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 5 min",
+        enabled: true,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: 1_761_792_003_000,
+        usage: readySystemTaskUsage,
+        onClick: () => {
+          detailClicks += 1;
+        },
+        showToggle: false,
+        onToggle: () => {},
+      }),
+    );
+
+    const row = screen.getByRole("button", { name: "Open Heartbeat" });
+    fireEvent.click(row);
+
+    expect(detailClicks).toBe(1);
+  });
+
+  test("omits list-level run now while keeping status and usage content", () => {
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 5 min",
+        enabled: true,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: 1_761_792_003_000,
+        usage: readySystemTaskUsage,
+        onClick: () => {},
+        showToggle: false,
+        onToggle: () => {},
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
+    expect(screen.getByLabelText("enabled")).toBeTruthy();
+    expect(screen.getByText("Cost")).toBeTruthy();
+    expect(screen.getByText("$0.42")).toBeTruthy();
+    expect(screen.getByText("Runs")).toBeTruthy();
+    expect(screen.getByText("2 runs")).toBeTruthy();
+  });
+});
+
 describe("system task toggles", () => {
   test("only presents system task toggles after the feature flag has hydrated on", () => {
     expect(shouldShowSystemTaskToggles(false, true)).toBe(false);
@@ -454,28 +517,18 @@ describe("system task toggles", () => {
         enabled: true,
         nextRunAt: null,
         lastRunAt: null,
-        usage: {
-          status: "ready",
-          summary: {
-            scheduleId: "system-heartbeat",
-            runCount: 1,
-            totalEstimatedCostUsd: 0.01,
-            eventCount: 0,
-          },
-        },
-        isRunning: false,
+        usage: readySystemTaskUsage,
         showToggle: false,
         onClick: () => {},
-        onRunNow: () => {},
         onToggle: () => {},
       }),
     );
 
     expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
-    expect(screen.getByRole("button", { name: /run now/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 
-  test("toggling a system task pauses automatic runs without hiding Run now", () => {
+  test("toggling a system task pauses automatic runs without restoring Run now", () => {
     const toggleCalls: boolean[] = [];
 
     render(
@@ -485,19 +538,9 @@ describe("system task toggles", () => {
         enabled: true,
         nextRunAt: null,
         lastRunAt: null,
-        usage: {
-          status: "ready",
-          summary: {
-            scheduleId: "system-consolidation",
-            runCount: 1,
-            totalEstimatedCostUsd: 0.01,
-            eventCount: 0,
-          },
-        },
-        isRunning: false,
+        usage: readySystemTaskUsage,
         showToggle: true,
         onClick: () => {},
-        onRunNow: () => {},
         onToggle: (enabled: boolean) => {
           toggleCalls.push(enabled);
         },
@@ -507,6 +550,6 @@ describe("system task toggles", () => {
     fireEvent.click(screen.getByLabelText("Toggle Consolidation"));
 
     expect(toggleCalls).toEqual([false]);
-    expect(screen.getByRole("button", { name: /run now/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 });

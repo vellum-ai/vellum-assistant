@@ -1,3 +1,4 @@
+import { isLlmUsageDimension, toDaemonGroupBy } from "@/utils/llm-dimension";
 import type { UsageGroupLabelMetadata } from "./group-labels";
 import { resolveUsageGroupLabel } from "./group-labels";
 import type {
@@ -8,6 +9,8 @@ import type {
 } from "./usage-types";
 
 const VISIBLE_LEGEND_ITEM_LIMIT = 6;
+const VALUE_GROUP_PREFIX = "value:";
+const NULL_GROUP_PREFIX = "null:";
 
 export interface UsageSeriesLegendItem {
   seriesKey: string;
@@ -19,6 +22,23 @@ export interface UsageSeriesLegendItem {
 export interface UsageSeriesLegend {
   items: UsageSeriesLegendItem[];
   visibleItems: UsageSeriesLegendItem[];
+}
+
+/**
+ * Mirrors the backend's grouped-series key shape so filtered charts can keep
+ * legend items aligned with the buckets returned by the usage series route.
+ */
+export function usageSeriesKeyForGroupValue(
+  groupKey: string | null,
+  groupBy: UsageSeriesGroupBy = "schedule",
+): string {
+  if (groupKey !== null) {
+    return `${VALUE_GROUP_PREFIX}${groupKey}`;
+  }
+  const backendGroupBy = isLlmUsageDimension(groupBy)
+    ? toDaemonGroupBy(groupBy)
+    : groupBy;
+  return `${NULL_GROUP_PREFIX}${backendGroupBy}`;
 }
 
 export function sortUsageSeriesBuckets(

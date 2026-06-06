@@ -1034,10 +1034,8 @@ interface SystemTaskRowProps {
   nextRunAt: number | null;
   lastRunAt: number | null;
   usage: ScheduleRowUsage;
-  isRunning: boolean;
   showToggle: boolean;
   onClick: () => void;
-  onRunNow: () => void;
   onToggle: (enabled: boolean) => void;
 }
 
@@ -1048,75 +1046,60 @@ export function SystemTaskRow({
   nextRunAt,
   lastRunAt,
   usage,
-  isRunning,
   showToggle,
   onClick,
-  onRunNow,
   onToggle,
 }: SystemTaskRowProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
+    <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
-        className="min-w-0 flex-1 text-left"
+        aria-label={`Open ${name}`}
+        className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
-        <div className="flex items-center gap-2">
-          <span className="truncate text-body-medium-default text-[var(--content-default)]">
-            {name}
-          </span>
-          <Tag tone="neutral">system</Tag>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-body-medium-default text-[var(--content-default)]">
+              {name}
+            </span>
+            <Tag tone="neutral">system</Tag>
+          </div>
+          <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+            {subtitle}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
+            {nextRunAt ? (
+              <span>Next: {formatTimestamp(nextRunAt)}</span>
+            ) : null}
+            {lastRunAt ? (
+              <span>Last: {formatTimestamp(lastRunAt)}</span>
+            ) : null}
+          </div>
         </div>
-        <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-          {subtitle}
-        </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-          {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
-          {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+          <ScheduleUsageStats scheduleName={name} usage={usage} />
+          {showToggle ? null : (
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{
+                backgroundColor: enabled
+                  ? "var(--system-positive-strong)"
+                  : "var(--content-disabled)",
+              }}
+              aria-label={enabled ? "enabled" : "disabled"}
+            />
+          )}
+          <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
         </div>
       </button>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-        <ScheduleUsageStats scheduleName={name} usage={usage} />
-        <Button
-          variant="ghost"
-          size="compact"
-          leftIcon={
-            isRunning ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="h-3.5 w-3.5" />
-            )
-          }
-          onClick={(event) => {
-            event.stopPropagation();
-            onRunNow();
-          }}
-          disabled={isRunning}
-        >
-          {isRunning ? "Running…" : "Run now"}
-        </Button>
-        {showToggle ? (
-          <Toggle
-            checked={enabled}
-            onChange={onToggle}
-            aria-label={`Toggle ${name}`}
-          />
-        ) : (
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{
-              backgroundColor: enabled
-                ? "var(--system-positive-strong)"
-                : "var(--content-disabled)",
-            }}
-            aria-label={enabled ? "enabled" : "disabled"}
-          />
-        )}
-        <ChevronRight
-          className="h-4 w-4 text-[var(--content-tertiary)] cursor-pointer"
-          onClick={onClick}
+      {showToggle ? (
+        <Toggle
+          checked={enabled}
+          onChange={onToggle}
+          aria-label={`Toggle ${name}`}
         />
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -1129,15 +1112,11 @@ interface SystemTasksSectionProps {
   isLoading: boolean;
   hasError: boolean;
   onRetry: () => void;
-  onRunHeartbeatNow: () => void;
-  onRunConsolidationNow: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
   showSystemTaskToggles: boolean;
   onToggleHeartbeat: (enabled: boolean) => void;
   onToggleConsolidation: (enabled: boolean) => void;
-  isHeartbeatRunning: boolean;
-  isConsolidationRunning: boolean;
 }
 
 function SystemTasksSection({
@@ -1148,15 +1127,11 @@ function SystemTasksSection({
   isLoading,
   hasError,
   onRetry,
-  onRunHeartbeatNow,
-  onRunConsolidationNow,
   onSelectHeartbeat,
   onSelectConsolidation,
   showSystemTaskToggles,
   onToggleHeartbeat,
   onToggleConsolidation,
-  isHeartbeatRunning,
-  isConsolidationRunning,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
@@ -1195,10 +1170,8 @@ function SystemTasksSection({
               nextRunAt={heartbeatConfig.nextRunAt}
               lastRunAt={heartbeatConfig.lastRunAt}
               usage={heartbeatUsage}
-              isRunning={isHeartbeatRunning}
               showToggle={showSystemTaskToggles}
               onClick={onSelectHeartbeat}
-              onRunNow={onRunHeartbeatNow}
               onToggle={onToggleHeartbeat}
             />
           ) : null}
@@ -1210,10 +1183,8 @@ function SystemTasksSection({
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
-              isRunning={isConsolidationRunning}
               showToggle={showSystemTaskToggles}
               onClick={onSelectConsolidation}
-              onRunNow={onRunConsolidationNow}
               onToggle={onToggleConsolidation}
             />
           ) : null}
@@ -1782,8 +1753,6 @@ export function SchedulesPage() {
         isLoading={isSystemLoading}
         hasError={hasSystemError}
         onRetry={refetchSystemTasks}
-        onRunHeartbeatNow={handleRunHeartbeatNow}
-        onRunConsolidationNow={handleRunConsolidationNow}
         onSelectHeartbeat={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.heartbeat)
         }
@@ -1793,8 +1762,6 @@ export function SchedulesPage() {
         showSystemTaskToggles={showSystemTaskToggles}
         onToggleHeartbeat={handleToggleHeartbeat}
         onToggleConsolidation={handleToggleConsolidation}
-        isHeartbeatRunning={isHeartbeatRunning}
-        isConsolidationRunning={isConsolidationRunning}
       />
 
       {oneTime.length > 0 && (
