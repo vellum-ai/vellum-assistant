@@ -322,15 +322,14 @@ export interface AgentLoopConversationContext {
    */
   currentCallSite?: LLMCallSite;
   /**
-   * Whether the in-flight turn has no human present to answer clarification
-   * questions, set at turn start from the resolved interactivity signal
-   * (`options?.isInteractive` override, falling back to `hasNoClient` /
-   * `headlessLock`). Read back from the live conversation by runtime assembly
-   * to drive the `<non_interactive_context>` branch and the `background-turn`
-   * injector, so the orchestrator does not thread it per turn. Per-turn
-   * mutable, mirroring {@link currentCallSite}.
+   * The in-flight turn's explicit interactivity override (`options.isInteractive`),
+   * recorded at turn start. Runtime assembly derives `currentTurnIsNonInteractive`
+   * from this plus the conversation's client / headless state to drive the
+   * `<non_interactive_context>` branch and the `background-turn` injector, so the
+   * orchestrator does not thread the resolved flag per turn. Per-turn mutable,
+   * mirroring {@link currentCallSite}.
    */
-  currentTurnIsNonInteractive?: boolean;
+  currentTurnInteractiveOverride?: boolean;
 
   readonly agentLoop: AgentLoop;
   readonly provider: Provider;
@@ -750,12 +749,12 @@ export async function runAgentLoopImpl(
     };
   })();
 
+  // Record the turn's explicit interactivity override so runtime assembly can
+  // derive `currentTurnIsNonInteractive` from the live conversation to drive
+  // the `<non_interactive_context>` branch and the background-turn injector.
+  ctx.currentTurnInteractiveOverride = options?.isInteractive;
   const isInteractiveResolved =
     options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-  // Expose the turn's interactivity to plugin pipeline/injector contexts (read
-  // by buildPluginTurnContext) so runtime assembly can drive the
-  // `<non_interactive_context>` branch and the background-turn injector.
-  ctx.currentTurnIsNonInteractive = !isInteractiveResolved;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {

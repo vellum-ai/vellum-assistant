@@ -1992,15 +1992,19 @@ export async function applyRuntimeInjections(
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
 
-  // Source the channel capabilities from the live conversation rather than a
-  // per-turn option computed by the orchestrator. The same value drives the
-  // Slack-conversation gate, the `<channel_capabilities>` branch, and the
-  // per-injector inputs the Slack injectors read.
   const conversationId =
     options.turnContext?.conversationId ??
     RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID;
-  const channelCapabilities =
-    findConversationOrSubagent(conversationId)?.channelCapabilities ?? null;
+
+  // Resolve the live conversation (or subagent) once and source every per-turn
+  // field below from it, rather than from options computed by the orchestrator.
+  // The injector path already consults this same live object, so a single
+  // lookup keeps the source-of-truth (and the cost) singular.
+  const liveConversation = findConversationOrSubagent(conversationId);
+
+  // Drives the Slack-conversation gate, the `<channel_capabilities>` branch,
+  // and the per-injector inputs the Slack injectors read.
+  const channelCapabilities = liveConversation?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
   // Source the active documents from the document store keyed by the same
@@ -2009,39 +2013,30 @@ export async function applyRuntimeInjections(
   // read the result off their per-injector inputs.
   const activeDocuments = buildActiveDocuments(conversationId);
 
-  // Source the channel command intent (e.g. Telegram /start) from the live
-  // conversation rather than a per-turn option. It is set on the conversation
-  // at message-processing start and cleared at turn end, so the same value
-  // drives the `<channel_command_context>` branch on every assembly call
-  // within the turn.
-  const channelCommandContext =
-    findConversationOrSubagent(conversationId)?.commandIntent ?? null;
-
-  // Source the voice call-control prompt from the live conversation rather
-  // than a per-turn option. The voice-session bridge sets it on the
-  // conversation when a call attaches and clears it when the call ends, so
-  // the same value drives the `<voice_call_control>` branch on every assembly
+  // The channel command intent (e.g. Telegram /start) is set on the
+  // conversation at message-processing start and cleared at turn end, so the
+  // same value drives the `<channel_command_context>` branch on every assembly
   // call within the turn.
-  const voiceCallControlPrompt =
-    findConversationOrSubagent(conversationId)?.voiceCallControlPrompt ?? null;
+  const channelCommandContext = liveConversation?.commandIntent ?? null;
 
-  // Source the transport hints from the live conversation rather than a
-  // per-turn option. They are set on the conversation from the inbound
-  // message's transport when the message is processed, so the same value
-  // drives the `<transport_hints>` branch on every assembly call within the
+  // The voice-session bridge sets the call-control prompt on the conversation
+  // when a call attaches and clears it when the call ends, so the same value
+  // drives the `<voice_call_control>` branch on every assembly call within the
   // turn.
-  const transportHints =
-    findConversationOrSubagent(conversationId)?.transportHints ?? null;
+  const voiceCallControlPrompt =
+    liveConversation?.voiceCallControlPrompt ?? null;
 
-  // Source the turn's interactivity from the live conversation rather than a
-  // per-turn option. The orchestrator resolves it once at turn start (the
-  // `isInteractive` override, falling back to the conversation's client /
-  // headless state) and records it on the conversation, so the same value
-  // drives the `<non_interactive_context>` branch and the `background-turn`
-  // injector on every assembly call within the turn.
+  // Transport hints are set on the conversation from the inbound message's
+  // transport when the message is processed, so the same value drives the
+  // `<transport_hints>` branch on every assembly call within the turn.
+  const transportHints = liveConversation?.transportHints ?? null;
+
+  // The conversation resolves the turn's interactivity from its explicit
+  // override (set once at turn start) and its client / headless state, so the
+  // same value drives the `<non_interactive_context>` branch and the
+  // `background-turn` injector on every assembly call within the turn.
   const isNonInteractive =
-    findConversationOrSubagent(conversationId)?.currentTurnIsNonInteractive ??
-    false;
+    liveConversation?.currentTurnIsNonInteractive ?? false;
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
@@ -2240,14 +2235,11 @@ export async function applyRuntimeInjections(
   if (mode === "full") {
     // Source the active workspace surface from the live conversation's surface
     // state rather than from a per-turn option computed by the orchestrator.
-    const surfaceConversation = findConversationOrSubagent(
-      turnCtx.conversationId,
-    );
-    const activeSurface = surfaceConversation
+    const activeSurface = liveConversation
       ? buildActiveSurfaceContext({
-          currentActiveSurfaceId: surfaceConversation.currentActiveSurfaceId,
-          currentPage: surfaceConversation.currentPage,
-          surfaceState: surfaceConversation.surfaceState,
+          currentActiveSurfaceId: liveConversation.currentActiveSurfaceId,
+          currentPage: liveConversation.currentPage,
+          surfaceState: liveConversation.surfaceState,
         })
       : null;
     if (activeSurface) {

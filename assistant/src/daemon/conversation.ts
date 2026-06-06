@@ -247,13 +247,16 @@ export class Conversation {
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
-   * Whether the in-flight turn has no human present to answer clarification
-   * questions, set at turn start from the resolved interactivity signal.
-   * Read back by runtime assembly to drive the `<non_interactive_context>`
-   * branch and the `background-turn` injector.
+   * The in-flight turn's explicit interactivity override (`options.isInteractive`
+   * passed to the agent loop), recorded at turn start. `undefined` means no
+   * override, in which case interactivity falls back to the conversation's
+   * client / headless state. Genuinely per-call — background dispatch derives
+   * it from the turn's routing state, scheduled / analysis runs force it off —
+   * so it is the one interactivity input that cannot be re-derived from the
+   * conversation and must be captured here.
    * @internal
    */
-  currentTurnIsNonInteractive?: boolean;
+  currentTurnInteractiveOverride?: boolean;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -1270,6 +1273,21 @@ export class Conversation {
    */
   get transportInterface(): InterfaceId | undefined {
     return this.currentTurnInterfaceContext?.userMessageInterface;
+  }
+
+  /**
+   * Whether the in-flight turn has no human present to answer clarification
+   * questions. Resolved from the turn's explicit interactivity override when
+   * one was supplied, otherwise from the conversation's client / headless
+   * state — mirroring the agent loop's own interactivity resolution. Read by
+   * runtime assembly to drive the `<non_interactive_context>` branch and the
+   * `background-turn` injector.
+   */
+  get currentTurnIsNonInteractive(): boolean {
+    return !(
+      this.currentTurnInteractiveOverride ??
+      (!this.hasNoClient && !this.headlessLock)
+    );
   }
 
   async persistUserMessage(
