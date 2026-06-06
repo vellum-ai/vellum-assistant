@@ -139,34 +139,32 @@ export function reconcileMessagesWithSeq(
 
   const deduped = dedupeDisplayMessages(reconciled);
 
-  const { snapshotSeq, appliedSeq } = options;
-  if (snapshotSeq != null && appliedSeq != null) {
-    // Stability is seq-driven. The watermark fully encodes snapshot state, so
-    // when the snapshot advanced the applied frontier (`S > F`) it carries new
-    // content and the merged result is authoritative. When it did not
-    // (`S <= F`), regression protection guarantees no existing row's content
-    // changed, so the only differences the merge can introduce are structural
-    // — rows added, dropped, folded, or re-identified — which the row-identity
-    // sequence captures with an O(n) walk instead of a deep content compare.
-    if (snapshotSeq > appliedSeq) {
-      return deduped;
-    }
+  // Stability mirrors the merge's own branch decision above. A stale snapshot
+  // (`streamAhead`, `S < F`) kept the live local rows and adopted only their
+  // server identity, so the merge cannot have changed any row's content — the
+  // only differences are structural (rows added, dropped, folded, or
+  // re-identified), which the row-id sequence captures with an O(n) walk
+  // instead of a deep content compare. This is the streaming hot path, where
+  // debounced snapshots routinely lag the stream.
+  if (streamAhead) {
     return sameIdentitySequence(local, deduped) ? local : deduped;
   }
 
-  // No honest seq on this snapshot (a daemon predating seq reporting): there is
-  // no watermark to trust, so fall back to a structural content comparison and
-  // the reconciliation poll loop still settles instead of treating every
-  // refetch as a change.
+  // Authoritative snapshot (`S >= F`) or a daemon predating seq reporting: the
+  // merge took the server rows wholesale, so their content can differ from the
+  // local rows even when the row ids line up (e.g. a server-normalized row
+  // re-persisted at the same watermark). Compare content so an authoritative
+  // correction is never dropped and the poll loop still settles when nothing
+  // changed.
   return messagesEqual(local, deduped) ? local : deduped;
 }
 
 /**
  * Whether two transcripts carry the same rows in the same order, compared by
- * the server-assigned row id. The seq-path stability signal: when the snapshot
- * has not advanced the applied frontier, no row's content can have changed, so
- * an identical id sequence means the merge was a no-op and the original
- * reference can be returned for caller-side reference-equality stability.
+ * the server-assigned row id. The seq-path structural-stability signal: on a
+ * stale snapshot (`S < F`) the merge keeps local content, so an identical id
+ * sequence means the merge was a no-op and the original reference can be
+ * returned for caller-side reference-equality stability.
  */
 function sameIdentitySequence(
   a: DisplayMessage[],

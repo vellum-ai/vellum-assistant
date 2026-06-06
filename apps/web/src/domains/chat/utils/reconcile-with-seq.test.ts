@@ -283,12 +283,12 @@ describe("reconcileMessagesWithSeq", () => {
     expect(messageText(assistants[0])).toBe("Hello there");
   });
 
-  test("returns the same reference when the snapshot has not advanced the frontier", () => {
+  test("returns the same reference for a stale no-op snapshot via the row-id walk", () => {
     /**
-     * Stability is seq-driven: a snapshot at or behind the applied frontier
-     * carries no new content for an existing row, and an identical row-id
-     * sequence proves the merge was structurally a no-op — so the original
-     * reference comes back without a deep content comparison.
+     * On the streaming hot path a debounced snapshot lags the stream (`S < F`).
+     * The merge keeps the live local rows, so an identical row-id sequence
+     * proves it was structurally a no-op — the original reference comes back
+     * without a deep content comparison.
      */
     // GIVEN a local transcript
     const local = [
@@ -296,13 +296,13 @@ describe("reconcileMessagesWithSeq", () => {
       makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
     ];
 
-    // AND a snapshot of the same rows at a watermark behind the frontier
+    // AND a stale snapshot of the same rows behind the applied frontier
     const server = [
       makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
       makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
     ];
 
-    // WHEN the snapshot has not advanced the frontier (S <= F)
+    // WHEN the snapshot is stale (S < F)
     const result = reconcileMessagesWithSeq(local, server, {
       snapshotSeq: 5,
       appliedSeq: 10,
@@ -312,31 +312,60 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result).toBe(local);
   });
 
-  test("returns a new result when the snapshot advances the frontier, even with identical row ids", () => {
+  test("surfaces an authoritative correction at the same watermark even when row ids are unchanged", () => {
     /**
-     * The case a row-id walk alone would miss: the row set is unchanged but the
-     * snapshot advanced the frontier (`S > F`), so an existing row's content
-     * genuinely changed and the authoritative server copy must surface.
+     * The case a row-id walk alone would miss: at the authoritative boundary
+     * (`S >= F`) the merge takes the server row wholesale, so an existing row's
+     * content can change while its id stays put (a server-normalized row
+     * re-persisted at the same watermark). The correction must surface rather
+     * than be masked by matching ids.
      */
-    // GIVEN a local row
+    // GIVEN a local row already carrying the server id
     const local = [
       makeRow({ id: "a1", role: "assistant", ...textBody("v1"), timestamp: 1000 }),
     ];
 
-    // AND a fresher snapshot of the same row id with updated content
+    // AND a snapshot of the same row id with corrected content
     const server = [
       makeRow({ id: "a1", role: "assistant", ...textBody("v2"), timestamp: 1000 }),
     ];
 
-    // WHEN the snapshot advances the frontier (S > F)
+    // WHEN the snapshot sits at the applied frontier (S == F)
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: 10,
-      appliedSeq: 5,
+      snapshotSeq: 7,
+      appliedSeq: 7,
     });
 
-    // THEN a new result carrying the updated content surfaces
+    // THEN the authoritative server content surfaces (not the stale local copy)
     expect(result).not.toBe(local);
     expect(messageText(result[0])).toBe("v2");
+  });
+
+  test("returns the same reference for an authoritative no-op snapshot via content equality", () => {
+    /**
+     * Once persistence catches up to the stream (`S >= F`) the poll loop keeps
+     * refetching the same authoritative snapshot. The content comparison lets
+     * it settle by returning the original reference when nothing changed,
+     * instead of treating every identical refetch as a change.
+     */
+    // GIVEN a local transcript
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // AND an authoritative snapshot of the same content at the frontier
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // WHEN the snapshot is authoritative and introduces nothing (S == F)
+    const result = reconcileMessagesWithSeq(local, server, {
+      snapshotSeq: 9,
+      appliedSeq: 9,
+    });
+
+    // THEN the original reference is returned (no-op merge)
+    expect(result).toBe(local);
   });
 
   test("falls back to content equality for reference stability when seq is unknown", () => {
@@ -345,13 +374,18 @@ describe("reconcileMessagesWithSeq", () => {
      * content comparison still lets the reconciliation poll loop settle by
      * returning the original reference for a no-op merge.
      */
-    // GIVEN a local transcript and a snapshot that introduces nothing
+    // GIVEN a local transcript
     const local = [
       makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
     ];
 
+    // AND a snapshot of the same content with no honest seq
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
     // WHEN the merge runs with no honest seq and no new server content
-    const result = reconcileMessagesWithSeq(local, [], {
+    const result = reconcileMessagesWithSeq(local, server, {
       snapshotSeq: null,
       appliedSeq: null,
     });
