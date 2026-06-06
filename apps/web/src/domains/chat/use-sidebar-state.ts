@@ -1,7 +1,7 @@
 /**
  * Data-shaping hook for the assistant sidebar.
  *
- * Owns conversation grouping, pagination ("show more"), collapse/expand
+ * Owns conversation grouping, pagination ("Show more"), collapse/expand
  * state, and attention-forced expansion. Returns a typed object the
  * presentational `AssistantSideMenu` renders without any inline
  * computation, `useEffect`, or derived state.
@@ -44,9 +44,7 @@ export interface PaginatedSection {
   items: Conversation[];
   totalCount: number;
   showMore: boolean;
-  showLess: boolean;
   onShowMore: () => void;
-  onShowLess: () => void;
 }
 
 export interface SidebarState {
@@ -214,9 +212,6 @@ export function useSidebarState({
       items: grouped.recents.slice(0, effectiveVisibleCount),
       totalCount: grouped.recents.length,
       showMore: effectiveVisibleCount < grouped.recents.length,
-      showLess:
-        visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () =>
         setVisibleRecentsCount((prev) =>
           Math.min(
@@ -224,7 +219,6 @@ export function useSidebarState({
             Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
           ),
         ),
-      onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
     };
   }, [grouped.recents, visibleRecentsCount, attentionConversationIds]);
 
@@ -243,9 +237,6 @@ export function useSidebarState({
       items: grouped.slack.slice(0, effectiveVisibleCount),
       totalCount: grouped.slack.length,
       showMore: effectiveVisibleCount < grouped.slack.length,
-      showLess:
-        visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () =>
         setVisibleSlackCount((prev) =>
           Math.min(
@@ -253,7 +244,6 @@ export function useSidebarState({
             Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
           ),
         ),
-      onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
     };
   }, [grouped.slack, visibleSlackCount, attentionConversationIds]);
 

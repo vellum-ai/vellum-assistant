@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("useSidebarState pagination", () => {
-  test("reveals recents in page-size increments and can reset", () => {
+  test("reveals recents in page-size increments", () => {
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index),
     );
@@ -62,7 +62,6 @@ describe("useSidebarState pagination", () => {
       SIDEBAR_CONVERSATION_LIMIT,
     );
     expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
 
     act(() => result.current.recents.onShowMore());
 
@@ -70,21 +69,11 @@ describe("useSidebarState pagination", () => {
       SIDEBAR_CONVERSATION_LIMIT * 2,
     );
     expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(true);
 
     act(() => result.current.recents.onShowMore());
 
     expect(result.current.recents.items).toHaveLength(conversations.length);
     expect(result.current.recents.showMore).toBe(false);
-    expect(result.current.recents.showLess).toBe(true);
-
-    act(() => result.current.recents.onShowLess());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
   });
 
   test("uses the same incremental reveal behavior for Slack conversations", () => {
@@ -105,7 +94,6 @@ describe("useSidebarState pagination", () => {
       SIDEBAR_CONVERSATION_LIMIT,
     );
     expect(result.current.slack.showMore).toBe(true);
-    expect(result.current.slack.showLess).toBe(false);
 
     act(() => result.current.slack.onShowMore());
 
@@ -113,6 +101,5 @@ describe("useSidebarState pagination", () => {
       SIDEBAR_CONVERSATION_LIMIT * 2,
     );
     expect(result.current.slack.showMore).toBe(true);
-    expect(result.current.slack.showLess).toBe(true);
   });
 });
