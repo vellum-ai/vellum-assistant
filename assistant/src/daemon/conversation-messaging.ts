@@ -17,6 +17,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   attachInlineAttachmentToMessage,
   attachmentExists,
@@ -36,6 +37,8 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
+import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+import { countRealUserTurns } from "../memory/turn-events-store.js";
 import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
@@ -377,6 +380,37 @@ export interface PersistMessageOptions {
   clientMessageId?: string;
 }
 
+// ── activation north-star (msg_5) ────────────────────────────────────
+
+/**
+ * Emit the activation north-star event (`activation_msg_5_sent`) when the 5th
+ * real user turn lands in an activation-rail conversation.
+ *
+ * Best-effort and fire-and-forget: wrapped in try/catch so it can never throw
+ * into or block turn persistence. Triggers only on the exact `=== 5`
+ * transition so no row is written on turns 6, 7, …; the deterministic
+ * `daemon_event_id` (built by the reporter) dedups any residual double-emit
+ * downstream.
+ *
+ * Must be called AFTER the user turn is persisted so {@link countRealUserTurns}
+ * counts this turn as the conversation's Nth real user message.
+ */
+export function maybeEmitActivationMsg5(conversationId: string): void {
+  try {
+    if (!isActivationSession(conversationId)) return;
+    if (countRealUserTurns(conversationId) !== 5) return;
+    recordActivationEvent({
+      stepName: "activation_msg_5_sent",
+      sessionId: conversationId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to emit activation_msg_5_sent event",
+    );
+  }
+}
+
 // ── persistUserMessage ───────────────────────────────────────────────
 
 export async function persistUserMessage(
@@ -608,6 +642,8 @@ export async function persistQueuedMessageBody(
         conv.createdAt,
       );
     }
+
+    maybeEmitActivationMsg5(ctx.conversationId);
 
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {

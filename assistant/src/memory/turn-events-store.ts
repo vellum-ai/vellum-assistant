@@ -87,6 +87,34 @@ function realUserTurnContentFilter(alias: string): ReturnType<typeof sql> {
 }
 
 /**
+ * Count the real user turns in a conversation — the 1-indexed position of the
+ * most-recently-persisted real user turn. Reuses {@link realUserTurnContentFilter}
+ * (the single source of truth) so this count stays in lockstep with the
+ * `turn_index` computed by {@link queryUnreportedTurnEvents}: tool-result rows
+ * persisted with role="user" are excluded.
+ *
+ * Intended to be called immediately after a real user turn is persisted, so the
+ * returned count is that turn's 1-indexed position within the conversation.
+ */
+export function countRealUserTurns(conversationId: string): number {
+  const db = getDb();
+  const row = db
+    .select({
+      count: sql<number>`COUNT(*)`.as("count"),
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "user"),
+        realUserTurnContentFilter("messages"),
+      ),
+    )
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
  * Query user messages (turns) that haven't been reported to telemetry yet.
  * Uses a compound cursor (createdAt + id) for reliable watermarking.
  *
