@@ -11,6 +11,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
+import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
@@ -556,6 +557,16 @@ export interface AgentLoopRunOptions {
    * `null` when omitted.
    */
   modelProfile?: string | null;
+  /**
+   * Inbound actor identity and trust fields for the unified `<turn_context>`
+   * block, or `null` on guardian turns. Resolved once by the orchestrator at
+   * turn start via the actor-trust resolver, whose contact/member registry
+   * inputs can be mutated mid-turn by contact tools, and forwarded to the
+   * {@link MidLoopCompaction.postCompactionHook} so post-compaction
+   * re-injection re-emits the turn-start value rather than re-resolving it.
+   * Defaults to `null` when omitted.
+   */
+  actorContext?: InboundActorContext | null;
 }
 
 /**
@@ -733,6 +744,7 @@ export class AgentLoop {
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfile: string | null,
+    actorContext: InboundActorContext | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -795,6 +807,7 @@ export class AgentLoop {
       // Mid-loop re-injection always runs at full injection volume.
       mode: "full",
       modelProfile,
+      actorContext,
     });
   }
 
@@ -815,6 +828,7 @@ export class AgentLoop {
       compaction,
       isNonInteractive = false,
       modelProfile = null,
+      actorContext = null,
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -1660,6 +1674,7 @@ export class AgentLoop {
                 resolveEffectiveOverrideProfile() ?? null,
                 isNonInteractive,
                 modelProfile,
+                actorContext,
               );
               if (compacted) {
                 history = compacted;

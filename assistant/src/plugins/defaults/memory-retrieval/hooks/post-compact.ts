@@ -26,6 +26,7 @@
 
 import {
   applyRuntimeInjections,
+  type InboundActorContext,
   type InjectionMode,
   type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
@@ -75,6 +76,15 @@ export interface PostCompactionHookInput {
    * hook here so re-injection re-emits the loop's turn-start value.
    */
   modelProfile: string | null;
+  /**
+   * Inbound actor identity and trust fields for the unified `<turn_context>`
+   * block, or `null` on guardian turns (which suppress the actor section). The
+   * agent loop resolves it once at turn start via the actor-trust resolver,
+   * whose contact/member registry inputs can be mutated mid-turn by contact
+   * tools, so it cannot be re-derived. Handed to the hook here so re-injection
+   * re-emits the loop's turn-start value.
+   */
+  actorContext: InboundActorContext | null;
 }
 
 /**
@@ -104,6 +114,11 @@ export interface PostCompactContext
    * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
    */
   modelProfile: string | null;
+  /**
+   * Re-declared for the same reason as {@link isNonInteractive}: required on
+   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
+   */
+  actorContext: InboundActorContext | null;
 }
 
 export default async function postCompactReinject(
