@@ -39,16 +39,17 @@ function initialCastTheme(): CastTheme {
 }
 
 /** The crowd floor spans wider than the viewport so characters bleed off both
- * edges ("already outside the window"). Columns/rows derive from that wider
- * area at a roughly constant cell size, so growing the window reveals MORE
- * characters rather than scaling them up. */
-const FLOOR_W = 1.7; // floor width as a fraction of the viewport (170%)
-const CELL = 132; // target on-screen cell size (px)
+ * edges ("already outside the window"). The cell is a FIXED pixel size, so
+ * resizing only adds/removes whole columns of same-size characters — the dudes
+ * never scale; the window just reveals more. */
+const FLOOR_W = 1.7; // floor over-extends to this fraction of the viewport
+const CELL = 132; // fixed on-screen cell size (px) — constant across resizes
+const GAP = 2;
 function colsFor(width: number): number {
-  return Math.max(6, Math.min(28, Math.round((width * FLOOR_W) / CELL)));
+  return Math.max(6, Math.min(40, Math.ceil((width * FLOOR_W) / CELL)));
 }
 function rowsFor(height: number): number {
-  return Math.max(10, Math.min(28, Math.round(height / 70)));
+  return Math.max(10, Math.min(30, Math.ceil(height / 70) + 1));
 }
 
 /** Beat 2 hero box: centered, large. */
@@ -262,8 +263,11 @@ export function CastPage() {
           <motion.div
             className="cast-floor"
             style={{
-              width: `${FLOOR_W * 100}%`,
-              gridTemplateColumns: `repeat(${cols}, 1fr)`,
+              // fixed-px tracks → constant dude size; width is the exact sum so
+              // the centered floor overflows the viewport rather than stretching
+              width: `${cols * CELL + (cols - 1) * GAP}px`,
+              gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
+              columnGap: `${GAP}px`,
             }}
             animate={{ opacity: inGrid ? 1 : 0 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
