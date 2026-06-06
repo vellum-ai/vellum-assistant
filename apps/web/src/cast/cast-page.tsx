@@ -17,6 +17,7 @@ import {
   kickoffRatherContext,
   type StyleProfile,
 } from "@/cast/cast-hooks";
+import { CastChat } from "@/cast/cast-chat";
 import { CastConversationView, useCastConversation } from "@/cast/cast-conversation";
 import { CastJob } from "@/cast/cast-job";
 import { CastProof } from "@/cast/cast-proof-view";
@@ -29,7 +30,7 @@ import { CAST } from "@/cast/cast-roster";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import "@/cast/cast.css";
 
-type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done";
+type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done" | "chat" | "boost";
 
 /** The crowd floor spans wider than the viewport so characters bleed off both
  * edges ("already outside the window"). The cell is a FIXED pixel size, so
@@ -406,10 +407,21 @@ export function CastPage() {
                     style,
                   });
                 }}
+                onEndpoint={(which) => setPhase(which)}
                 onBack={() => setPhase("style")}
               />
             }
             right={<CastConversationView messages={convo.messages} assistantName={name} />}
+          />
+        )}
+
+        {/* Endpoints — drop into the (mocked) real product chat. */}
+        {(phase === "chat" || phase === "boost") && selected && (
+          <CastChat
+            name={name}
+            picks={{ jobs, rathers, style }}
+            mode={phase}
+            onBack={() => setPhase("done")}
           />
         )}
 

@@ -10,11 +10,9 @@ import { CastProp, type PropKey } from "@/cast/cast-prop-art";
 import {
   generateArtifacts,
   generateFullArtifact,
-  generateReceipt,
   resolveAssistantId,
   type Artifact,
   type Picks,
-  type Receipt,
 } from "@/cast/cast-proof";
 import type { StyleProfile } from "@/cast/cast-hooks";
 import type { CastCharacter } from "@/cast/cast-roster";
@@ -36,6 +34,7 @@ export function CastProof({
   ascended,
   assistantId,
   onAction,
+  onEndpoint,
   onBack,
 }: {
   character: CastCharacter;
@@ -45,14 +44,14 @@ export function CastProof({
   style: StyleProfile;
   ascended: boolean;
   assistantId: string | null;
-  onAction: (which: "offer" | "artifact" | "save") => void;
+  onAction: (which: "artifact" | "save") => void;
+  onEndpoint: (which: "chat" | "boost") => void;
   onBack: () => void;
 }) {
   const few = style.shape === "few";
   const count = few ? 3 : 1;
 
   const [showProps, setShowProps] = useState(false);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [fullByIdx, setFullByIdx] = useState<Record<number, string | null>>({});
@@ -84,7 +83,6 @@ export function CastProof({
     void resolveAssistantId(assistantId).then((id) => {
       if (!alive) return;
       resolvedIdRef.current = id;
-      void generateReceipt(picks, id).then((r) => alive && setReceipt(r));
       void generateArtifacts(picks, count, id).then((a) => alive && setArtifacts(a));
     });
     return () => {
@@ -131,27 +129,8 @@ export function CastProof({
       )}
 
       <div className="cast-proof" style={{ top: box.top + box.size + 28 }}>
-        <motion.div
-          className="cast-receipt"
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.45, ease: "easeOut" }}
-        >
-          {receipt ? (
-            <>
-              <p className="cast-receipt__line">{receipt.observation}</p>
-              <p className="cast-receipt__line">{receipt.inference}</p>
-              <p className="cast-receipt__line cast-receipt__offer">{receipt.offer}</p>
-              <button className="cast-continue cast-receipt__cta" onClick={() => onAction("offer")}>
-                {receipt.verb}
-              </button>
-            </>
-          ) : (
-            <ReceiptSkeleton />
-          )}
-        </motion.div>
-
-        {/* artifact card(s): one focused card, or a stack of a few quick wins */}
+        {/* artifact card(s): one focused card, or a stack of a few quick wins.
+            No receipt — the inference moment lives in the endpoint chat now. */}
         <div className="cast-artifacts">
           {artifacts
             ? artifacts.map((a, i) => (
@@ -176,6 +155,23 @@ export function CastProof({
               ))
             : Array.from({ length: count }).map((_, i) => <ArtifactSkeleton key={i} />)}
         </div>
+
+        {/* Endpoint: drop into real chat, or boost with a prior assistant. */}
+        {artifacts && (
+          <motion.div
+            className="cast-endpoints"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7 + count * 0.12 + 0.15, duration: 0.4, ease: "easeOut" }}
+          >
+            <button className="cast-endpoints__primary" onClick={() => onEndpoint("chat")}>
+              Start chatting
+            </button>
+            <button className="cast-endpoints__secondary" onClick={() => onEndpoint("boost")}>
+              Give me a boost
+            </button>
+          </motion.div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -309,17 +305,6 @@ function ArtifactOverlay({
         </button>
       </motion.div>
     </motion.div>
-  );
-}
-
-function ReceiptSkeleton() {
-  return (
-    <div className="cast-skeleton" aria-hidden>
-      <span className="cast-skel-line" style={{ width: "82%" }} />
-      <span className="cast-skel-line" style={{ width: "94%" }} />
-      <span className="cast-skel-line" style={{ width: "70%" }} />
-      <span className="cast-skel-btn" />
-    </div>
   );
 }
 

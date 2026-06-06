@@ -229,11 +229,14 @@ export function CastConversationView({
   assistantName,
   input,
   offer,
+  emptyHint,
 }: {
   messages: DisplayMessage[];
   assistantName: string;
   input?: { value: string; canSend: boolean; onSend: () => void };
   offer?: CastOffer;
+  /** Idle text when there are no messages; pass "" to render nothing. */
+  emptyHint?: string;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [expandedToolCallIds] = useState(() => new Set<string>());
@@ -248,7 +251,9 @@ export function CastConversationView({
     <div className="cast-convo">
       <div className="cast-convo__scroll">
         {messages.length === 0 ? (
-          <p className="cast-convo__idle">Watch {assistantName} get to work…</p>
+          (emptyHint ?? `Watch ${assistantName} get to work…`) ? (
+            <p className="cast-convo__idle">{emptyHint ?? `Watch ${assistantName} get to work…`}</p>
+          ) : null
         ) : (
           messages.map((m, i) =>
             m.role === "user" ? (

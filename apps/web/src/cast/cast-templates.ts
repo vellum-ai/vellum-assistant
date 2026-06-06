@@ -8,6 +8,7 @@
  */
 
 import type { JobKey, RatherKey } from "@/cast/cast-content";
+import type { StyleProfile } from "@/cast/cast-hooks";
 
 export interface AssistantScript {
   /** A short line the assistant says before searching. */
@@ -164,4 +165,76 @@ export function styleTurn(value: string): CastTurn {
       body: "Understood. I'll keep that in mind for everything from here.",
     },
   };
+}
+
+/* ---------------- Endpoints: synthesized first reply ---------------- */
+
+export interface CastPicks {
+  jobs: JobKey[];
+  rathers: RatherKey[];
+  style: StyleProfile;
+}
+
+const JOB_NOUN: Record<JobKey, string> = {
+  building: "a builder",
+  writing: "a writer",
+  designing: "a designer",
+  fundraising: "someone in fundraising mode",
+  operating: "an operator",
+  teaching: "a teacher",
+  healing: "a caretaker",
+  making: "a maker",
+};
+
+const RATHER_PLACE: Record<RatherKey, string> = {
+  beach: "outside",
+  sleeping: "getting some rest",
+  reading: "lost in a book",
+  hiking: "out on a trail",
+  cooking: "in the kitchen",
+  gaming: "playing something",
+  traveling: "somewhere new",
+  friends: "with people you like",
+};
+
+/**
+ * Build the "inference, not recital" first reply for the endpoint chat. The
+ * activation IS the memory — this synthesizes a read of the user from the picks
+ * rather than listing them back. Deterministic (mock), Sonnet-shaped.
+ */
+export function castInferenceReply(picks: CastPicks): string {
+  const { jobs, rathers, style } = picks;
+  const noun = jobs[0] ? JOB_NOUN[jobs[0]] : "someone with a clear direction";
+  const more = jobs.length > 1 ? " (among other things)" : "";
+  const place = rathers[0] ? RATHER_PLACE[rathers[0]] : "doing your own thing";
+
+  const autonomy =
+    style.autonomy === "send_it"
+      ? "you'd rather I just act than ask for permission"
+      : style.autonomy === "show_me"
+        ? "you want a look before I do anything"
+        : "you'll tell me how much rope to give you";
+  const tone =
+    style.tone === "point"
+      ? "keep it brief"
+      : style.tone === "walk"
+        ? "walk you through the why"
+        : "match my detail to the moment";
+  const shape =
+    style.shape === "few"
+      ? "a few quick wins in parallel"
+      : style.shape === "one"
+        ? "one solid thing done well"
+        : "whatever shape fits";
+
+  return [
+    `My read: you're ${noun}${more} who'd rather be ${place} — so you probably want something tangible to show for your time, not busywork.`,
+    `On how to work with you: ${autonomy}, ${tone}, and lean toward ${shape}.`,
+    `That's the deal — I'll carry the boring parts so you can get back to it. Where do you want to start?`,
+  ].join("\n\n");
+}
+
+/** A turn for the endpoint chat: the user's first message + the synthesized reply. */
+export function endpointTurn(userText: string, picks: CastPicks): CastTurn {
+  return { user: userText, script: { prelude: "", body: castInferenceReply(picks) } };
 }

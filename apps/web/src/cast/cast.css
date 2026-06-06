@@ -1236,6 +1236,163 @@
   cursor: default;
 }
 
+/* ---- Beat 6: endpoint CTAs ---- */
+.cast-endpoints {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+}
+.cast-endpoints__primary,
+.cast-endpoints__secondary {
+  flex: 1;
+  appearance: none;
+  border: none;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  font-size: 15px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-endpoints__primary {
+  background: var(--primary-base);
+  color: var(--content-inset);
+}
+.cast-endpoints__primary:hover {
+  background: var(--primary-hover);
+}
+.cast-endpoints__secondary {
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+}
+.cast-endpoints__secondary:hover {
+  background: var(--surface-active);
+}
+
+/* ---- Endpoint: mocked product chat ---- */
+.cast-chat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cast-chat__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.cast-chat__chip-row {
+  flex: none;
+  padding: 8px 22px 0;
+}
+.cast-chat__chip {
+  appearance: none;
+  padding: 10px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-lift);
+  color: var(--content-default);
+  font-size: 14px;
+  cursor: pointer;
+}
+.cast-chat__chip:hover {
+  background: var(--surface-hover);
+}
+.cast-chat__input {
+  flex: none;
+  margin: 12px 22px 24px;
+  padding: 13px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-base);
+  background: var(--surface-sunken);
+}
+.cast-chat__input-ph {
+  color: var(--content-tertiary);
+  font-size: 14px;
+}
+
+/* ---- Endpoint: boost copy/paste block ---- */
+.cast-chat__boost-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.cast-boost {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 560px;
+}
+.cast-boost__lead {
+  margin: 0;
+  color: var(--content-secondary);
+  font-size: 14px;
+}
+.cast-boost__prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-lift);
+}
+.cast-boost__prompt-text {
+  flex: 1;
+  margin: 0;
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cast-boost__copy {
+  flex: none;
+  appearance: none;
+  border: none;
+  padding: 7px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cast-boost__copy:hover {
+  background: var(--surface-active);
+}
+.cast-boost__paste {
+  width: 100%;
+  resize: none;
+  padding: 13px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-base);
+  background: var(--surface-sunken);
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+.cast-boost__submit {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  padding: 11px 20px;
+  border-radius: var(--radius-xl);
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 640;
+  cursor: pointer;
+}
+.cast-boost__submit:hover {
+  background: var(--primary-hover);
+}
+
 /* ---- keyframes ---- */
 
 @keyframes cast-bob {
