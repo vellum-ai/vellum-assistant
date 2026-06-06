@@ -158,12 +158,7 @@ export async function getPluginDetails(
       }
     : { kind: "first-party" };
 
-  const remote = await readRemotePlugin(
-    source,
-    ref,
-    firstPartyEntries,
-    fetchFn,
-  );
+  const remote = await readRemotePlugin(source, firstPartyEntries, fetchFn);
 
   const readme = local.readme ?? remote.readme;
 
@@ -242,15 +237,15 @@ interface RemotePlugin {
 }
 
 /**
- * Fetch README + `package.json` from the plugin's repository at {@link ref}.
+ * Fetch README + `package.json` from the plugin's repository.
  *
  * For a first-party plugin the listing is the in-repo directory the caller
- * already fetched (passed through to avoid a duplicate request). For an
- * external plugin we list its `owner/repo[/path]` directory fresh.
+ * already fetched at the catalog ref (passed through to avoid a duplicate
+ * request). For an external plugin we list its `owner/repo[/path]` directory
+ * fresh at the plugin's own pinned `source.ref`.
  */
 async function readRemotePlugin(
   source: PluginMatchSource,
-  ref: string,
   firstPartyEntries: readonly GitHubContentEntry[] | null,
   fetchFn: FetchLike,
 ): Promise<RemotePlugin> {
@@ -260,7 +255,16 @@ async function readRemotePlugin(
 
   if (source.kind === "github") {
     [owner, repo] = source.repo.split("/", 2) as [string, string];
-    entries = await listDirSafe(owner, repo, source.path ?? "", ref, fetchFn);
+    // Read the external repo at its pinned ref, not the assistant catalog ref —
+    // the detail page must describe the same artifact the installer resolves
+    // from `source.ref`, even when that differs from the catalog ref (`main`).
+    entries = await listDirSafe(
+      owner,
+      repo,
+      source.path ?? "",
+      source.ref,
+      fetchFn,
+    );
   } else {
     owner = PLUGIN_SOURCE_OWNER;
     repo = PLUGIN_SOURCE_REPO;

@@ -7,7 +7,7 @@ import {
     Trash2,
     TriangleAlert,
 } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -23,7 +23,7 @@ import {
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
-import { Button, Card } from "@vellumai/design-library";
+import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
 
 /**
  * Detail page for a single plugin, reached by clicking a row in the
@@ -42,6 +42,7 @@ export function PluginDetailPage() {
   const assistantId = useActiveAssistantId();
   const { name } = useParams<{ name: string }>();
   const queryClient = useQueryClient();
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   const detailQuery = useQuery({
     ...pluginsByNameGetOptions({
@@ -100,7 +101,8 @@ export function PluginDetailPage() {
     });
   };
 
-  const handleRemove = () => {
+  const confirmRemove = () => {
+    setConfirmingRemove(false);
     removeMutation.mutate({
       path: { assistant_id: assistantId, name },
     });
@@ -120,7 +122,7 @@ export function PluginDetailPage() {
           name={name}
           plugin={plugin}
           onInstall={handleInstall}
-          onRemove={handleRemove}
+          onRemove={() => setConfirmingRemove(true)}
           isInstalling={installMutation.isPending}
           isRemoving={removeMutation.isPending}
         />
@@ -159,6 +161,16 @@ export function PluginDetailPage() {
           )}
         </div>
       </Card.Root>
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        title="Remove plugin"
+        message={`Remove "${plugin?.name ?? name}" from this assistant?`}
+        confirmLabel="Remove"
+        destructive
+        onConfirm={confirmRemove}
+        onCancel={() => setConfirmingRemove(false)}
+      />
     </div>
   );
 }

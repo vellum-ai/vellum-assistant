@@ -165,6 +165,63 @@ describe("getPluginDetails", () => {
     expect(details.ref).toBe("v1");
   });
 
+  test("reads an external plugin at its pinned source ref, not the catalog ref", async () => {
+    // GIVEN a marketplace entry pinned to a ref that differs from the catalog
+    // ref the detail view is resolved at
+    const marketplace = {
+      name: "vellum",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "example-org/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    };
+    // AND a fetch that records the ref query param of every contents request
+    const contentsRefs = new Map<string, string>();
+    const fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(marketplace), { status: 200 });
+      }
+      if (url.includes("/contents")) {
+        const ref = new URL(url).searchParams.get("ref") ?? "";
+        const key = url.includes("example-org/caveman")
+          ? "external"
+          : "first-party";
+        contentsRefs.set(key, ref);
+        if (key === "external") {
+          return new Response(
+            JSON.stringify([fileEntry("README.md", "raw://caveman/readme")]),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      }
+      if (url === "raw://caveman/readme") {
+        return new Response("# Caveman", { status: 200 });
+      }
+      return new Response("unexpected url: " + url, { status: 500 });
+    }) as FetchLike;
+
+    // WHEN we resolve the detail view at the catalog ref `main`
+    const details = await getPluginDetails(
+      { name: "caveman", ref: "main" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the external repo is read at the plugin's pinned ref, not `main`
+    expect(contentsRefs.get("external")).toBe("v1.8.2");
+    // AND the first-party collision probe still uses the catalog ref
+    expect(contentsRefs.get("first-party")).toBe("main");
+    // AND the README from the pinned ref is surfaced
+    expect(details.readme).toContain("Caveman");
+  });
+
   test("first-party directory wins a name also claimed by the marketplace", async () => {
     // GIVEN both a marketplace entry AND a first-party in-repo directory for
     // the same name
