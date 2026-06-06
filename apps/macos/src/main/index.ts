@@ -233,6 +233,12 @@ const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
 let cachedCsrfToken: string | null = null;
 handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
 
+const resolvedConfig = resolveLocalConfigFromEnv(process.env);
+handleSync("vellum:config:get", () => ({
+  webUrl: resolvedConfig.webUrl,
+  platformUrl: resolvedConfig.platformUrl,
+}));
+
 const captureCsrfToken = (response: Response): void => {
   const setCookies = response.headers.getSetCookie?.() ?? [];
   for (const raw of setCookies) {
