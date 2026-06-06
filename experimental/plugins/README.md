@@ -51,8 +51,10 @@ my-plugin/
 │   ├── init.ts                # Bootstrap
 │   ├── shutdown.ts            # Teardown
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
+│   ├── pre-model-call.ts      # Per-call request edit / output-defer
 │   ├── post-tool-use.ts       # Per-tool-result transform
 │   ├── stop.ts                # Per-run stop-boundary decision
+│   ├── assistant-message.ts   # Per-message reply transform
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -210,6 +212,35 @@ The hook fires **exactly once per user turn**, at the primary
 sites further down in the conversation agent loop deliberately do
 **not** refire: they're not new user submissions.
 
+### `pre-model-call`
+
+Fires **immediately before each provider call** — once per model call within a
+turn, including the follow-up calls after tool results. Because it runs for every
+provider call (background, subagent, and compaction work can share a
+conversation), a hook **must self-gate** on `ctx.callSite` / `ctx.conversationId`
+before acting.
+
+```ts
+// hooks/pre-model-call.ts
+import type { PreModelCallContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function preModelCall(
+  ctx: PreModelCallContext,
+): Promise<void> {
+  // ctx.conversationId       — ID of the conversation the call belongs to
+  // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
+  // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
+  // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
+  //                            (an `assistant-message` hook then emits the text)
+  // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+Multiple plugins' hooks chain in registration order — each sees the previous
+hook's edits. Throwing is contained by the loop: the provider call proceeds with
+the original request.
+
 ### `post-tool-use`
 
 Fires once per tool result, **after** the tool returns and
@@ -280,6 +311,39 @@ previous hook's `decision` and `messages` mutations. The default
 with a nudge when a turn comes back empty after tool use, or with a
 refusal nudge on a first-call refusal; because defaults register first,
 it runs ahead of user hooks.
+
+### `assistant-message`
+
+Fires for **each finalized assistant message** — once per model call, at the
+message-complete boundary, before the message is persisted and (if deferred)
+streamed-final. Unlike `stop`'s read-only `responseContent`, `ctx.content` is
+**mutable**: the loop adopts the hook's result as the persisted and streamed
+message. Fires on tool-bearing turns too (a reply can carry both text and
+`tool_use`), so transform only the blocks you own and leave others — notably
+`tool_use` — intact. Runs for every finalized message; **self-gate** on
+`ctx.callSite` / `ctx.conversationId`.
+
+```ts
+// hooks/assistant-message.ts
+import type { AssistantMessageContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function assistantMessage(
+  ctx: AssistantMessageContext,
+): Promise<void> {
+  // ctx.conversationId — ID of the conversation the message belongs to
+  // ctx.callSite       — call site ("mainAgent" for the user-facing reply)
+  // ctx.content        — finalized message content; transform text blocks and
+  //                      leave tool_use (and other non-text blocks) intact
+  // ctx.stopReason     — provider stop reason, when reported
+  // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+A `pre-model-call` hook can set `deferAssistantOutput` to suppress the live
+stream; the loop then emits this hook's finalized text once. Multiple plugins'
+hooks chain in registration order — each sees the previous hook's mutations.
+Throwing is contained by the loop: the original content is kept.
 
 ### Forward-compatible hooks
 
