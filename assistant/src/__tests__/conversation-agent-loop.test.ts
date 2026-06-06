@@ -3890,6 +3890,9 @@ describe("session-agent-loop", () => {
     });
 
     test("applyCompactionResult advances the persisted count from the trusted in-context boundary", async () => {
+      // Trusted views slice past the already-compacted prefix, so a further
+      // compaction advances the persisted count from the mirrored DB boundary.
+
       // GIVEN a trusted (guardian) conversation that has already compacted 5
       // persisted messages, so its in-context history starts past that prefix
       const ctx = makeCtx({
@@ -3912,6 +3915,10 @@ describe("session-agent-loop", () => {
     });
 
     test("applyCompactionResult resets the persisted count to the unsliced boundary for untrusted views", async () => {
+      // Untrusted views render history unsliced (boundary 0), so a compaction
+      // must record only the new summary's prefix instead of adding to the raw
+      // mirror — otherwise future loads slice past unsummarized rows.
+
       // GIVEN an untrusted view of a conversation whose raw DB count mirrors a
       // 5-message compacted prefix — but untrusted views render that history
       // unsliced (boundary 0), so the compactor operates on the full list
