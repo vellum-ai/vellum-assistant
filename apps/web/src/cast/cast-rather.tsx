@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 
 import { JOBS, RATHERS, type JobKey, type RatherKey } from "@/cast/cast-content";
+// (RATHERS used for both the tile list and the ascension check)
 import { HeroCharacter, type HeldProp, type MimeState, type Rect } from "@/cast/cast-hero";
 import { Tile, TileGrid } from "@/cast/cast-tiles";
 import type { CastCharacter } from "@/cast/cast-roster";
@@ -35,6 +36,7 @@ export function CastRather({
     const idx = JOBS.findIndex((j) => j.key === k);
     return { key: JOBS[idx].prop, slot: idx, fly: null };
   });
+  const ascended = rathers.length === RATHERS.length;
 
   return (
     <motion.div className="cast-beat" style={{ paddingTop: heroBox.top + heroBox.size + 22 }}>
@@ -48,6 +50,7 @@ export function CastRather({
         interactive
         heldProps={heldProps}
         mime={mime}
+        ascended={ascended}
       />
 
       <motion.p

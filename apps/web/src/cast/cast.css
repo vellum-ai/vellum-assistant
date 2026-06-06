@@ -451,6 +451,101 @@
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* ---- Easter egg: Super-Saiyan ascension (select everything) ---- */
+
+.cast-hero.is-ascended .cast-hero__body {
+  filter: drop-shadow(0 0 26px rgba(255, 210, 60, 0.92)) brightness(1.12) saturate(1.2);
+  animation: cast-ascend-shake 0.07s linear infinite;
+}
+
+.cast-flash {
+  position: absolute;
+  inset: -20%;
+  z-index: 6;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 235, 0.95) 0%,
+    rgba(255, 210, 60, 0.5) 45%,
+    transparent 70%
+  );
+}
+
+.cast-aura {
+  position: absolute;
+  inset: -55%;
+  z-index: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+.cast-aura__glow {
+  position: absolute;
+  inset: 10%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 216, 60, 0.55) 0%,
+    rgba(255, 150, 20, 0.28) 38%,
+    transparent 68%
+  );
+  filter: blur(6px);
+  animation: cast-aura-pulse 0.5s ease-in-out infinite alternate;
+}
+.cast-aura__burst {
+  position: absolute;
+  width: 116%;
+  height: 116%;
+  opacity: 0.5;
+  filter: drop-shadow(0 0 14px rgba(255, 200, 40, 0.85));
+  animation: cast-aura-spin 6s linear infinite, cast-aura-flicker 0.12s steps(2) infinite;
+}
+.cast-aura__burst--2 {
+  width: 142%;
+  height: 142%;
+  opacity: 0.3;
+  animation: cast-aura-spin-rev 9s linear infinite, cast-aura-flicker 0.1s steps(2) infinite reverse;
+}
+.cast-aura__spark {
+  position: absolute;
+  bottom: 26%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffe680;
+  box-shadow: 0 0 10px 2px rgba(255, 210, 60, 0.9);
+  animation: cast-spark-rise 0.9s ease-in infinite;
+}
+.cast-aura__spark.s0 { left: 34%; animation-delay: 0s; }
+.cast-aura__spark.s1 { left: 58%; animation-delay: 0.18s; }
+.cast-aura__spark.s2 { left: 46%; animation-delay: 0.36s; }
+.cast-aura__spark.s3 { left: 66%; animation-delay: 0.54s; }
+.cast-aura__spark.s4 { left: 28%; animation-delay: 0.72s; }
+
+@keyframes cast-ascend-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-1.4px, 1px); }
+  50% { transform: translate(1.2px, -1.2px); }
+  75% { transform: translate(-1px, -1px); }
+  100% { transform: translate(1.4px, 1px); }
+}
+@keyframes cast-aura-pulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.1); opacity: 1; }
+}
+@keyframes cast-aura-spin { to { transform: rotate(360deg); } }
+@keyframes cast-aura-spin-rev { to { transform: rotate(-360deg); } }
+@keyframes cast-aura-flicker {
+  0% { opacity: 0.55; }
+  100% { opacity: 0.3; }
+}
+@keyframes cast-spark-rise {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(-130px) scale(1); opacity: 0; }
+}
+
 /* ---- bottom controls ---- */
 
 .cast-build-link {

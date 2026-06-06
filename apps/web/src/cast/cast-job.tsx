@@ -30,6 +30,7 @@ export function CastJob({
     const idx = JOBS.findIndex((j) => j.key === k);
     return { key: JOBS[idx].prop, slot: idx, fly: jobEdges[k] ?? null };
   });
+  const ascended = jobs.length === JOBS.length;
 
   return (
     <motion.div className="cast-beat" style={{ paddingTop: heroBox.top + heroBox.size + 22 }}>
@@ -37,7 +38,13 @@ export function CastJob({
         ‹
       </button>
 
-      <HeroCharacter character={character} box={heroBox} interactive heldProps={heldProps} />
+      <HeroCharacter
+        character={character}
+        box={heroBox}
+        interactive
+        heldProps={heldProps}
+        ascended={ascended}
+      />
 
       <motion.p
         className="cast-beat__prompt"

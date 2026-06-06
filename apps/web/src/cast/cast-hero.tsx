@@ -6,6 +6,12 @@ import { CastProp, type PropKey } from "@/cast/cast-prop-art";
 import { REACTIONS } from "@/cast/cast-reactions";
 import type { Edge, Placement, RatherChoice } from "@/cast/cast-content";
 import { CAST, type CastCharacter, type Reaction } from "@/cast/cast-roster";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+
+// The dudes' own "burst" body, reused as the Super-Saiyan aura starburst.
+const AURA_BURST =
+  BUNDLED_COMPONENTS.bodyShapes.find((b) => b.id === "burst") ??
+  BUNDLED_COMPONENTS.bodyShapes[0];
 
 export interface Rect {
   left: number;
@@ -138,6 +144,26 @@ function PropAcross({ name }: { name: PropKey }) {
   );
 }
 
+/** Super-Saiyan aura: spinning gold starbursts (the dudes' own burst shape),
+ * a pulsing glow, and rising sparks. Easter egg when everything is selected. */
+function CastAura() {
+  const vb = `0 0 ${AURA_BURST.viewBox.width} ${AURA_BURST.viewBox.height}`;
+  return (
+    <div className="cast-aura" aria-hidden>
+      <div className="cast-aura__glow" />
+      <svg className="cast-aura__burst" viewBox={vb}>
+        <path d={AURA_BURST.svgPath} fill="#FFD23A" />
+      </svg>
+      <svg className="cast-aura__burst cast-aura__burst--2" viewBox={vb}>
+        <path d={AURA_BURST.svgPath} fill="#FFB020" />
+      </svg>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <span key={i} className={`cast-aura__spark s${i}`} />
+      ))}
+    </div>
+  );
+}
+
 /** Little companion dudes that slide in beside (with friends). */
 function Buddies({ seed }: { seed: number }) {
   const left = CAST[(seed * 7 + 3) % CAST.length];
@@ -181,6 +207,7 @@ export function HeroCharacter({
   autoReact = false,
   heldProps = [],
   mime = null,
+  ascended = false,
 }: {
   character: CastCharacter;
   box: Rect;
@@ -188,6 +215,7 @@ export function HeroCharacter({
   autoReact?: boolean;
   heldProps?: HeldProp[];
   mime?: MimeState | null;
+  ascended?: boolean;
 }) {
   const controls = useAnimationControls();
   // Zzz floats whenever a yawn plays — the grumpy-eyed character in Beat 2 and
@@ -228,15 +256,35 @@ export function HeroCharacter({
     if (mimeReaction) void play(mimeReaction);
   }, [mimeNonce, mimeReaction, play]);
 
+  // Power up on ascension: a dramatic spin.
+  useEffect(() => {
+    if (ascended) void play("spin");
+  }, [ascended, play]);
+
   const m = mime?.rather.mime;
   const hideHeld = m?.replaceJob;
+  // Super-Saiyan recolor: the dude turns gold.
+  const shown = ascended ? { ...character, color: "yellow" } : character;
 
   return (
     <motion.div
-      className="cast-hero"
+      className={`cast-hero${ascended ? " is-ascended" : ""}`}
       layoutId="cast-hero"
       style={{ left: box.left, top: box.top, width: box.size, height: box.size }}
     >
+      <AnimatePresence>
+        {ascended && (
+          <motion.div
+            key="flash"
+            className="cast-flash"
+            initial={{ opacity: 0.95, scale: 0.2 }}
+            animate={{ opacity: 0, scale: 2.4 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          />
+        )}
+        {ascended && <CastAura key="aura" />}
+      </AnimatePresence>
       {/* back-layer mime props (backpack) sit behind the body */}
       <AnimatePresence>
         {m && m.prop && m.place === "back" && (
@@ -271,7 +319,7 @@ export function HeroCharacter({
         <div className="cast-focus-alive">
           <div className="cast-hover" data-anim={character.hover}>
             <motion.div style={{ width: "100%", height: "100%" }} animate={controls}>
-              <CastAvatar character={character} />
+              <CastAvatar character={shown} />
             </motion.div>
           </div>
         </div>
