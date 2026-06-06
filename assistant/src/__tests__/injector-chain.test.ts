@@ -53,10 +53,7 @@ import {
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
-import {
-  buildUnifiedTurnContextBlock,
-  type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -116,18 +113,40 @@ function clearNowScratchpad(): void {
 // workspace cache under the id `makeTurnContext()` uses so the injector emits
 // the block; `clearConversations()` between tests keeps suites that assert the
 // workspace block is absent unaffected.
-function seedWorkspaceContext(text: string, interfaceName?: string): void {
+function seedWorkspaceContext(
+  text: string,
+  currentTurnTemporalSnapshot?: {
+    timestamp: string;
+    clientTimezone: string | null;
+  },
+  interfaceName?: string,
+): void {
   setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
+    currentTurnTemporalSnapshot,
     currentTurnInterfaceContext: interfaceName
       ? {
           userMessageInterface: interfaceName,
           assistantMessageInterface: interfaceName,
         }
       : undefined,
+  } as never);
+}
+
+// `applyRuntimeInjections` sources the `<turn_context>` timestamp from the live
+// conversation's frozen `currentTurnTemporalSnapshot`. Tests that drive the
+// chain without a caller-supplied `turnContext` fall back to the
+// runtime-assembly fallback conversation, so seed the snapshot there.
+function seedFallbackTemporalSnapshot(timestamp: string): void {
+  setConversation("runtime-assembly-fallback", {
+    conversationId: "runtime-assembly-fallback",
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: "",
+    workspaceTopLevelDirty: false,
+    currentTurnTemporalSnapshot: { timestamp, clientTimezone: null },
   } as never);
 }
 
@@ -297,13 +316,15 @@ describe("injector chain", () => {
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ];
 
-    const synthesizedOptions: UnifiedTurnContextOptions = {
+    // The fallback conversation has no per-turn or origin interface, so the
+    // unified-turn-context injector resolves the interface label to the `web`
+    // default.
+    const synthesizedBlock = buildUnifiedTurnContextBlock({
       timestamp: "synthesized",
-    };
-    const synthesizedBlock = buildUnifiedTurnContextBlock(synthesizedOptions);
-    const result = await applyRuntimeInjections(runMessages, {
-      ...synthesizedOptions,
+      interfaceName: "web",
     });
+    seedFallbackTemporalSnapshot("synthesized");
+    const result = await applyRuntimeInjections(runMessages, {});
 
     // The unified-turn-context injector fires even without a caller-supplied
     // turnContext, proving the chain runs under the synthesized context.
@@ -340,20 +361,24 @@ describe("injector chain", () => {
 
     const workspaceText =
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
-    const unifiedTurnOptions: UnifiedTurnContextOptions = {
+    // The interface label flows through the options bag; the timestamp is
+    // frozen on the conversation's temporal snapshot.
+    const unifiedTurn = buildUnifiedTurnContextBlock({
       timestamp: "2026-04-22",
       interfaceName: "macos",
-    };
-    const unifiedTurn = buildUnifiedTurnContextBlock(unifiedTurnOptions);
+    });
     // A completed child renders deterministically (no elapsed clock), so the
     // block the injector self-resolves matches `buildSubagentStatusBlock`.
     const subagentChild = makeSubagentState("sub-1", "worker", "completed");
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText, "macos");
+    seedWorkspaceContext(
+      workspaceText,
+      { timestamp: "2026-04-22", clientTimezone: null },
+      "macos",
+    );
     const result = await applyRuntimeInjections(runMessages, {
-      ...unifiedTurnOptions,
       turnContext: makeTurnContext(),
     });
 
@@ -467,16 +492,16 @@ describe("injector chain", () => {
     // context prepend plus any non-injector hardcoded content (none
     // here).
     // Empty workspace text keeps that injector inert while the unified
-    // turn-context inputs flow through. The interface label is sourced from the
-    // live conversation, which has no per-turn or origin interface here and so
-    // resolves to the `web` default. A live child subagent is seeded so the
-    // subagent-status injector has a block to skip.
-    const minimalTurnOptions: UnifiedTurnContextOptions = {
+    // turn-context timestamp flows through the conversation's frozen temporal
+    // snapshot. The interface label is sourced from the live conversation,
+    // which has no per-turn or origin interface here and so resolves to the
+    // `web` default. A live child subagent is seeded so the subagent-status
+    // injector has a block to skip.
+    const minimalTurnBlock = buildUnifiedTurnContextBlock({
       timestamp: "2026-04-22",
       interfaceName: "web",
-    };
-    const minimalTurnBlock = buildUnifiedTurnContextBlock(minimalTurnOptions);
-    seedWorkspaceContext("");
+    });
+    seedWorkspaceContext("", { timestamp: "2026-04-22", clientTimezone: null });
     seedSubagentChild(
       TEST_CONVERSATION_ID,
       makeSubagentState("sub-1", "worker", "running"),
@@ -489,7 +514,6 @@ describe("injector chain", () => {
         },
       ],
       {
-        ...minimalTurnOptions,
         turnContext: makeTurnContext(),
         mode: "minimal",
       },

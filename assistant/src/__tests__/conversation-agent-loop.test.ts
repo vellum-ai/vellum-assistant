@@ -810,7 +810,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("threads the client timezone snapshot but not the config timezones", async () => {
+    test("freezes the timestamp and client timezone snapshot on the conversation, not the options bag", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -831,14 +831,21 @@ describe("session-agent-loop", () => {
       expect(formatTurnTimestampMock).toHaveBeenCalledWith({
         timeZone: "America/New_York",
       });
-      // The client timezone is threaded as a turn-start snapshot, but the
-      // configured and detected timezones are not — `applyRuntimeInjections`
-      // self-resolves those from config (`ui.userTimezone`,
-      // `ui.detectedTimezone`).
-      const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
-      expect(injectionOptions).toMatchObject({
+      // The formatted timestamp and the turn-start client timezone are frozen
+      // on the conversation as `currentTurnTemporalSnapshot` so every
+      // post-compaction re-injection reuses the same instant; the live
+      // `clientTimezone` would otherwise be clobbered mid-turn.
+      expect(ctx.currentTurnTemporalSnapshot).toEqual({
+        timestamp: "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
         clientTimezone: "America/Los_Angeles",
       });
+      // Neither the timestamp nor the timezones are threaded through the
+      // options bag — `applyRuntimeInjections` sources the timestamp and client
+      // timezone from the snapshot and the config timezones from config
+      // (`ui.userTimezone`, `ui.detectedTimezone`).
+      const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
+      expect(injectionOptions).not.toHaveProperty("timestamp");
+      expect(injectionOptions).not.toHaveProperty("clientTimezone");
       expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
       expect(injectionOptions).not.toHaveProperty("detectedTimezone");
     });

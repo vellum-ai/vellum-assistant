@@ -19,11 +19,12 @@ import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
+  ChannelId,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { parseInterfaceId } from "../channels/types.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
@@ -384,6 +385,24 @@ export class Conversation {
    */
   hostUsername?: string;
   /** @internal */ clientTimezone?: string;
+  /**
+   * Per-turn temporal snapshot frozen by the agent loop and read by
+   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` line
+   * and the client/config timezone-mismatch affordance. Holds the turn's
+   * formatted wall-clock timestamp and the client-reported timezone captured at
+   * turn start.
+   *
+   * Frozen here rather than re-derived in assembly so post-compaction
+   * re-injections reuse the same instant, and so the client timezone is not
+   * clobbered when a newer message for the same conversation overwrites the
+   * live {@link clientTimezone} mid-turn (every inbound message re-applies
+   * transport metadata before it is enqueued).
+   * @internal
+   */
+  currentTurnTemporalSnapshot?: {
+    timestamp: string;
+    clientTimezone: string | null;
+  };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -411,6 +430,14 @@ export class Conversation {
    * @internal
    */
   originInterface: InterfaceId | undefined = undefined;
+  /**
+   * The conversation's recorded origin channel, cached from the DB row at load
+   * time. It is immutable once recorded, so it backs the `<turn_context>`
+   * channel fallback for turns that don't set a per-turn channel context
+   * (regenerate, wake, subagent) without a per-injection DB lookup.
+   * @internal
+   */
+  originChannel: ChannelId | undefined = undefined;
   /** @internal */ activityVersion = 0;
   /** Last emitted activity state message, retained for replay on SSE reconnection. */
   /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
@@ -666,6 +693,7 @@ export class Conversation {
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
     this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
+    this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
     this.source = conv?.source ?? undefined;
     this.contextSummary = conv?.contextSummary ?? null;
     this.slackContextCompactionWatermarkTs =

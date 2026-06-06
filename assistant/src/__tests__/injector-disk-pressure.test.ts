@@ -14,10 +14,7 @@ import {
   defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
 } from "../plugins/defaults/memory-retrieval/injectors.js";
-import {
-  buildUnifiedTurnContextBlock,
-  type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
@@ -71,6 +68,10 @@ let liveConversation: {
   workspaceTopLevelDirty: boolean;
   diskPressureCleanupModeActive: boolean;
   channelCapabilities?: ChannelCapabilities;
+  currentTurnTemporalSnapshot?: {
+    timestamp: string;
+    clientTimezone: string | null;
+  };
   currentTurnInterfaceContext?: {
     userMessageInterface: string;
     assistantMessageInterface: string;
@@ -91,6 +92,17 @@ function resetLiveConversation(): void {
       assistantMessageInterface: "macos",
     },
   };
+}
+
+// `applyRuntimeInjections` sources the `<turn_context>` timestamp from the live
+// conversation's frozen temporal snapshot, so seed it for tests that assert the
+// unified-turn-context block is present.
+function seedTemporalSnapshot(timestamp: string): void {
+  liveConversation.currentTurnTemporalSnapshot = {
+    timestamp,
+    clientTimezone: null,
+  };
+  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
 }
 
 function seedChannelCapabilities(caps: ChannelCapabilities): void {
@@ -154,16 +166,15 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       { role: "user", content: [{ type: "text", text: "clean up space" }] },
     ];
     const workspace = "<workspace>\nRoot: /workspace\n</workspace>";
-    const turnContextOptions: UnifiedTurnContextOptions = {
+    const turnContext = buildUnifiedTurnContextBlock({
       timestamp: "2026-04-02T12:00:00Z",
       interfaceName: "macos",
-    };
-    const turnContext = buildUnifiedTurnContextBlock(turnContextOptions);
+    });
 
     seedWorkspaceContext(workspace);
     seedDiskPressure(true);
+    seedTemporalSnapshot("2026-04-02T12:00:00Z");
     const result = await applyRuntimeInjections(runMessages, {
-      ...turnContextOptions,
       turnContext: makeContext(),
     });
 
@@ -181,16 +192,15 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
   });
 
   test("survives minimal mode as safety-critical context", async () => {
-    const turnContextOptions: UnifiedTurnContextOptions = {
+    const turnContext = buildUnifiedTurnContextBlock({
       timestamp: "2026-04-02T12:00:00Z",
       interfaceName: "macos",
-    };
-    const turnContext = buildUnifiedTurnContextBlock(turnContextOptions);
+    });
     seedDiskPressure(true);
+    seedTemporalSnapshot("2026-04-02T12:00:00Z");
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
-        ...turnContextOptions,
         turnContext: makeContext(),
         mode: "minimal",
       },

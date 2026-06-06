@@ -137,6 +137,10 @@ function seedActiveSurfaceConversation(
   data: SurfaceData,
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
+  currentTurnTemporalSnapshot?: {
+    timestamp: string;
+    clientTimezone: string | null;
+  },
 ): void {
   setConversation(conversationId, {
     conversationId,
@@ -150,6 +154,7 @@ function seedActiveSurfaceConversation(
     >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
     channelCapabilities: channelCapabilities ?? undefined,
     commandIntent,
+    currentTurnTemporalSnapshot,
   } as never);
 }
 
@@ -839,9 +844,9 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     // Non-interactive turn so the `<non_interactive_context>` branch fires.
     isNonInteractive: true,
-    // Unified turn-context inputs so the `unified-turn-context` injector emits
-    // the `<turn_context>` block from the options bag.
-    timestamp: "2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)",
+    // Interface label feeds the `<turn_context>` block; its timestamp is
+    // sourced from the live conversation's frozen temporal snapshot (seeded in
+    // `beforeEach`) so the `unified-turn-context` injector emits the block.
     interfaceName: "telegram",
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
@@ -870,6 +875,10 @@ describe("applyRuntimeInjections — injection mode", () => {
       { html: "<div>test</div>" },
       channelCapabilities,
       { type: "start" },
+      {
+        timestamp: "2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)",
+        clientTimezone: null,
+      },
     );
   });
   afterEach(() => {
@@ -1787,29 +1796,43 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     },
   ];
 
-  const sampleOptions: UnifiedTurnContextOptions = {
-    timestamp: "2026-04-02T12:00:00Z",
+  const sampleTimestamp = "2026-04-02T12:00:00Z";
+  const sampleOptions = {
     interfaceName: "macos",
   };
-  const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
+  // The block reflects both the options-bag interface and the timestamp the
+  // loop freezes on the conversation; assembly merges the two.
+  const sampleBlock = buildUnifiedTurnContextBlock({
+    timestamp: sampleTimestamp,
+    ...sampleOptions,
+  });
 
-  test("injects the turn-context block when the inputs are provided", async () => {
-    // The interface label is sourced from the live conversation's turn
-    // interface context, so seed it to match `sampleOptions.interfaceName`.
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
+  // and the turn interface context (so it sources the interface label to match
+  // `sampleOptions.interfaceName`).
+  function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
       conversationId: "runtime-assembly-fallback",
       workingDir: "/sandbox",
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        timestamp: sampleTimestamp,
+        clientTimezone: null,
+      },
       currentTurnInterfaceContext: {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
       },
     } as never);
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      ...sampleOptions,
-    });
+  }
+
+  test("injects the turn-context block when the inputs are provided", async () => {
+    seedTemporalSnapshot();
+
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
@@ -1822,7 +1845,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     );
   });
 
-  test("does not inject when the timestamp input is omitted", async () => {
+  test("does not inject when the timestamp snapshot is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
@@ -1830,6 +1853,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("injected in full mode", async () => {
+    seedTemporalSnapshot();
+
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...sampleOptions,
       mode: "full",
@@ -1844,6 +1869,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("injected in minimal mode (no mode guard)", async () => {
+    seedTemporalSnapshot();
+
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...sampleOptions,
       mode: "minimal",
@@ -1873,6 +1900,27 @@ describe("applyRuntimeInjections timezone resolution", () => {
     { role: "user", content: [{ type: "text", text: "Hello there" }] },
   ];
 
+  const sampleTimestamp =
+    "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)";
+
+  // Seed the live fallback conversation with the per-turn temporal snapshot the
+  // loop freezes after memory retrieval. `applyRuntimeInjections` sources the
+  // `<turn_context>` timestamp and the client timezone from it, so the
+  // turn-context block only emits when this snapshot is present.
+  function seedTemporalSnapshot(clientTimezone: string | null): void {
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        timestamp: sampleTimestamp,
+        clientTimezone,
+      },
+    } as never);
+  }
+
   function injectedText(result: { messages: Message[] }): string {
     return result.messages[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -1893,11 +1941,12 @@ describe("applyRuntimeInjections timezone resolution", () => {
     // AND a different server-detected timezone is configured
     assemblyDetectedTimezone = "America/Los_Angeles";
 
-    // WHEN a turn is assembled whose options bag carries no client timezone
-    // (so the detected timezone is the device-timezone fallback)
-    const result = await applyRuntimeInjections(baseMessages, {
-      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
-    });
+    // AND the turn's frozen snapshot carries no client timezone (so the
+    // detected timezone is the device-timezone fallback)
+    seedTemporalSnapshot(null);
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {});
 
     // THEN the injector surfaces the mismatch using the config-sourced values
     const injected = injectedText(result);
@@ -1905,23 +1954,23 @@ describe("applyRuntimeInjections timezone resolution", () => {
     expect(injected).toContain("client_device_timezone: America/Los_Angeles");
   });
 
-  test("threads clientTimezone from the options bag as a turn-start snapshot", async () => {
+  test("sources clientTimezone from the conversation's frozen turn snapshot", async () => {
     /**
-     * Verifies the per-turn client timezone is taken from the options bag (the
-     * turn-start snapshot) and takes precedence over the config-sourced
-     * detected-timezone fallback.
+     * Verifies the per-turn client timezone is taken from the conversation's
+     * frozen `currentTurnTemporalSnapshot` and takes precedence over the
+     * config-sourced detected-timezone fallback.
      */
     // GIVEN the configured user timezone and a detected fallback in config
     assemblyConfiguredUserTimezone = "America/New_York";
     assemblyDetectedTimezone = "America/Denver";
 
-    // WHEN a turn is assembled whose options bag carries a client timezone
-    const result = await applyRuntimeInjections(baseMessages, {
-      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
-      clientTimezone: "America/Los_Angeles",
-    });
+    // AND the turn's frozen snapshot carries a client timezone
+    seedTemporalSnapshot("America/Los_Angeles");
 
-    // THEN the injector surfaces the mismatch using the threaded client value
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {});
+
+    // THEN the injector surfaces the mismatch using the snapshot's client value
     const injected = injectedText(result);
     expect(injected).toContain("configured_user_timezone: America/New_York");
     expect(injected).toContain("client_device_timezone: America/Los_Angeles");
@@ -1930,16 +1979,16 @@ describe("applyRuntimeInjections timezone resolution", () => {
   test("omits the mismatch lines when config and client timezone agree", async () => {
     /**
      * Verifies no mismatch affordance is emitted when the config-sourced
-     * configured user timezone matches the threaded client timezone.
+     * configured user timezone matches the snapshot's client timezone.
      */
     // GIVEN the configured user timezone matches the client timezone
     assemblyConfiguredUserTimezone = "America/New_York";
 
+    // AND the turn's frozen snapshot carries the matching client timezone
+    seedTemporalSnapshot("America/New_York");
+
     // WHEN a turn is assembled
-    const result = await applyRuntimeInjections(baseMessages, {
-      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
-      clientTimezone: "America/New_York",
-    });
+    const result = await applyRuntimeInjections(baseMessages, {});
 
     // THEN no timezone-mismatch lines are injected
     const injected = injectedText(result);
@@ -1962,34 +2011,50 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     },
   ];
 
-  const sampleOptions: UnifiedTurnContextOptions = {
-    timestamp: "2026-04-02T12:00:00Z",
+  const sampleTimestamp = "2026-04-02T12:00:00Z";
+  const sampleOptions = {
     interfaceName: "macos",
   };
-  const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
+  // The block reflects both the options-bag interface and the timestamp the
+  // loop freezes on the conversation; assembly merges the two.
+  const sampleBlock = buildUnifiedTurnContextBlock({
+    timestamp: sampleTimestamp,
+    ...sampleOptions,
+  });
 
-  test("captures unifiedTurnContext when tail is a user message", async () => {
-    // The interface label is sourced from the live conversation's turn
-    // interface context, so seed it to match `sampleOptions.interfaceName`.
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
+  // and the turn interface context (so it sources the interface label to match
+  // `sampleOptions.interfaceName`).
+  function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
       conversationId: "runtime-assembly-fallback",
       workingDir: "/sandbox",
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        timestamp: sampleTimestamp,
+        clientTimezone: null,
+      },
       currentTurnInterfaceContext: {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
       },
     } as never);
-    const result = await applyRuntimeInjections(userTailMessages, {
-      ...sampleOptions,
-    });
+  }
+
+  test("captures unifiedTurnContext when tail is a user message", async () => {
+    seedTemporalSnapshot();
+
+    const result = await applyRuntimeInjections(userTailMessages, {});
 
     expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
   });
 
   test("does not capture when tail is not a user message", async () => {
+    seedTemporalSnapshot();
+
     const assistantTailMessages: Message[] = [
       {
         role: "user",
@@ -2001,9 +2066,7 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
       },
     ];
 
-    const result = await applyRuntimeInjections(assistantTailMessages, {
-      ...sampleOptions,
-    });
+    const result = await applyRuntimeInjections(assistantTailMessages, {});
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });
