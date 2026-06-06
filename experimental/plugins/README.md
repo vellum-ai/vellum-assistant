@@ -436,11 +436,11 @@ a `name`, an optional `owner`, and a `plugins` array.
   "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
   "plugins": [
     {
-      "name": "caveman",
-      "source": { "source": "github", "repo": "JuliusBrussee/caveman", "ref": "v1.8.2" },
-      "description": "Ultra-compressed communication mode.",
+      "name": "example-plugin",
+      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "v1.0.0" },
+      "description": "Short summary shown in the catalog.",
       "category": "productivity",
-      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "homepage": "https://github.com/example-org/example-plugin",
       "license": "MIT"
     }
   ]
