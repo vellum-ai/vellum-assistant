@@ -831,23 +831,26 @@ describe("session-agent-loop", () => {
       expect(formatTurnTimestampMock).toHaveBeenCalledWith({
         timeZone: "America/New_York",
       });
-      // The formatted timestamp and the turn-start client timezone are frozen
-      // on the conversation as `currentTurnTemporalSnapshot` so every
-      // post-compaction re-injection reuses the same instant; the live
-      // `clientTimezone` would otherwise be clobbered mid-turn.
+      // The formatted timestamp, the turn-start client timezone, and the
+      // long-absence gap are frozen on the conversation as
+      // `currentTurnTemporalSnapshot` so every post-compaction re-injection
+      // reuses the same instant; the live `clientTimezone` would otherwise be
+      // clobbered mid-turn.
       expect(ctx.currentTurnTemporalSnapshot).toEqual({
         timestamp: "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
         clientTimezone: "America/Los_Angeles",
+        timeSinceLastMessage: null,
       });
-      // Neither the timestamp nor the timezones are threaded through the
-      // options bag — `applyRuntimeInjections` sources the timestamp and client
-      // timezone from the snapshot and the config timezones from config
-      // (`ui.userTimezone`, `ui.detectedTimezone`).
+      // Neither the timestamp, the timezones, nor the long-absence gap are
+      // threaded through the options bag — `applyRuntimeInjections` sources the
+      // timestamp, client timezone, and gap from the snapshot and the config
+      // timezones from config (`ui.userTimezone`, `ui.detectedTimezone`).
       const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
       expect(injectionOptions).not.toHaveProperty("timestamp");
       expect(injectionOptions).not.toHaveProperty("clientTimezone");
       expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
       expect(injectionOptions).not.toHaveProperty("detectedTimezone");
+      expect(injectionOptions).not.toHaveProperty("timeSinceLastMessage");
     });
   });
 
