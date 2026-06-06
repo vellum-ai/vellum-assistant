@@ -33,6 +33,7 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
+  maybeEmitActivationMsg5,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
@@ -511,6 +512,7 @@ async function drainSingleMessage(
         metadata: drainChannelMeta,
       });
       conversation.messages.push(llmUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await addMessage(
@@ -624,6 +626,7 @@ async function drainSingleMessage(
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
@@ -715,6 +718,7 @@ async function drainSingleMessage(
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       const result = await conversation.forceClean();
       const responseText = formatCleanResult(result);
@@ -1457,6 +1461,7 @@ export async function processMessage(
         { metadata: routerChannelMeta },
       );
       conversation.messages.push(llmUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       const replyText =
         routerResult.replyText ??
@@ -1550,6 +1555,7 @@ export async function processMessage(
       { metadata: pmChannelMeta },
     );
     conversation.messages.push(llmUserMsg);
+    maybeEmitActivationMsg5(conversation.conversationId);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
     await addMessage(
@@ -1638,6 +1644,7 @@ export async function processMessage(
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
@@ -1720,6 +1727,7 @@ export async function processMessage(
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
+      maybeEmitActivationMsg5(conversation.conversationId);
 
       const result = await conversation.forceClean();
       const responseText = formatCleanResult(result);

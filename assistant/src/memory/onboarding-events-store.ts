@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, or } from "drizzle-orm";
+import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
@@ -112,6 +112,31 @@ export function recordActivationEvent(params: {
     completedAt: new Date(createdAt).toISOString(),
     funnelVersion: ACTIVATION_FUNNEL_VERSION,
   });
+}
+
+/**
+ * Returns true when an onboarding/activation event row already exists for the
+ * given `sessionId` + `stepName`. Used to make milestone emits idempotent:
+ * callers skip recording when the row is already present, guaranteeing exactly
+ * one row per session per step regardless of which persist path crossed the
+ * threshold.
+ */
+export function hasActivationEvent(
+  sessionId: string,
+  stepName: string,
+): boolean {
+  const row = getDb()
+    .select({ one: sql<number>`1`.as("one") })
+    .from(onboardingEvents)
+    .where(
+      and(
+        eq(onboardingEvents.sessionId, sessionId),
+        eq(onboardingEvents.stepName, stepName),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 /**
