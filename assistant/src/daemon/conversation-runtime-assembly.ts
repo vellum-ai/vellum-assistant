@@ -1823,19 +1823,31 @@ function applyInjectionBlock(
  * ephemeral {@link TurnContext} synthesized for test call sites).
  *
  * The active workspace surface, the channel capabilities, the active document
- * list, the channel command context, the voice call-control prompt, the
- * transport hints, and the turn's interactivity are not on this bag:
- * `applyRuntimeInjections` resolves them from the live conversation itself
- * (its surface state, `channelCapabilities`, the document store keyed by
- * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
- * `transportHints`, and its `currentTurnIsNonInteractive` respectively — the
- * last driving the `<non_interactive_context>` branch and the `background-turn`
- * injector), so the orchestrator does not compute or thread any of them per
- * turn.
+ * list, the channel command context, the voice call-control prompt, and the
+ * transport hints are not on this bag: `applyRuntimeInjections` resolves them
+ * from the live conversation itself (its surface state, `channelCapabilities`,
+ * the document store keyed by `conversationId`, its `commandIntent`, its
+ * `voiceCallControlPrompt`, and its `transportHints` respectively), so the
+ * orchestrator does not compute or thread any of them per turn.
+ *
+ * The two per-turn derived booleans below ({@link isNonInteractive} and
+ * {@link isBackgroundConversation}) remain on this bag: the agent loop resolves
+ * each once at turn start and threads it here so the same value flows to every
+ * `applyRuntimeInjections` call within the turn, including the post-compaction
+ * re-injection hook (whose context spreads these options) — keeping the hook
+ * free of agent-loop closure state.
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
   subagentStatusBlock?: string | null;
+  /**
+   * True when the in-flight turn has no human present to answer clarification
+   * questions (resolved by the agent loop from its `isInteractive` option,
+   * falling back to the conversation's `hasNoClient` / `headlessLock` state).
+   * Drives the `<non_interactive_context>` branch and gates the `background-turn`
+   * injector.
+   */
+  isNonInteractive?: boolean;
   /**
    * True when the active conversation's type is "background" or "scheduled".
    * Forwarded to {@link TurnInjectionInputs.isBackgroundConversation} so the
@@ -1906,7 +1918,6 @@ function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
   channelCapabilities: ChannelCapabilities | null,
   activeDocuments: TurnInjectionInputs["activeDocuments"],
-  isNonInteractive: boolean,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1915,7 +1926,7 @@ function buildTurnInjectionInputs(
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    isNonInteractive,
+    isNonInteractive: options.isNonInteractive,
     isBackgroundConversation: options.isBackgroundConversation,
     activeDocuments,
   };
@@ -2009,8 +2020,7 @@ export async function applyRuntimeInjections(
   const voiceCallControlPrompt =
     liveConversation?.voiceCallControlPrompt ?? null;
   const transportHints = liveConversation?.transportHints ?? null;
-  const isNonInteractive =
-    liveConversation?.currentTurnIsNonInteractive ?? false;
+  const isNonInteractive = options.isNonInteractive ?? false;
 
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
@@ -2021,7 +2031,6 @@ export async function applyRuntimeInjections(
     options,
     channelCapabilities,
     activeDocuments,
-    isNonInteractive,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }

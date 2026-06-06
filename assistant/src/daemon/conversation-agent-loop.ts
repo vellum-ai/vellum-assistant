@@ -321,16 +321,6 @@ export interface AgentLoopConversationContext {
    * conversation. Per-turn mutable, mirroring {@link currentRequestId}.
    */
   currentCallSite?: LLMCallSite;
-  /**
-   * Whether the in-flight turn has no human present to answer clarification
-   * questions, set at turn start from the resolved interactivity signal
-   * (`options?.isInteractive` override, falling back to `hasNoClient` /
-   * `headlessLock`). Read back from the live conversation by runtime assembly
-   * to drive the `<non_interactive_context>` branch and the `background-turn`
-   * injector, so the orchestrator does not thread it per turn. Per-turn
-   * mutable, mirroring {@link currentCallSite}.
-   */
-  currentTurnIsNonInteractive?: boolean;
 
   readonly agentLoop: AgentLoop;
   readonly provider: Provider;
@@ -752,10 +742,6 @@ export async function runAgentLoopImpl(
 
   const isInteractiveResolved =
     options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-  // Expose the turn's interactivity to plugin pipeline/injector contexts (read
-  // by buildPluginTurnContext) so runtime assembly can drive the
-  // `<non_interactive_context>` branch and the background-turn injector.
-  ctx.currentTurnIsNonInteractive = !isInteractiveResolved;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
@@ -1313,15 +1299,19 @@ export async function runAgentLoopImpl(
       getConfig(),
     );
 
-    // Shared injection options — reused whenever we need to re-inject after reduction.
+    // Shared injection options — reused whenever we need to re-inject after
+    // reduction. The two per-turn derived booleans are resolved once here so
+    // the same value flows to every re-injection (including the post-compaction
+    // hook), rather than being re-read from mutable conversation state.
     const injectionOpts = {
       unifiedTurnContext: unifiedTurnContextStr,
-      isBackgroundConversation: isBackgroundConversationType(
-        turnStartConversation?.conversationType,
-      ),
       subagentStatusBlock,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
+      isNonInteractive: !isInteractiveResolved,
+      isBackgroundConversation: isBackgroundConversationType(
+        turnStartConversation?.conversationType,
+      ),
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
