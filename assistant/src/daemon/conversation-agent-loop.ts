@@ -99,7 +99,6 @@ import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -143,7 +142,6 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
@@ -1245,14 +1243,6 @@ export async function runAgentLoopImpl(
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
-    // Subagent status injection — gives the parent LLM visibility into active/completed children.
-    // Skipped when this conversation IS a subagent (no nesting) or has no children.
-    const subagentStatusBlock = ctx.isSubagent
-      ? null
-      : buildSubagentStatusBlock(
-          getSubagentManager().getChildrenOf(ctx.conversationId),
-        );
-
     // For any Slack conversation (channels and DMs alike), build a
     // chronological transcript from the persisted message rows so the
     // model sees one channel-wide view instead of the gateway's per-turn
@@ -1307,7 +1297,6 @@ export async function runAgentLoopImpl(
       isBackgroundConversation: isBackgroundConversationType(
         turnStartConversation?.conversationType,
       ),
-      subagentStatusBlock,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
     } as const;

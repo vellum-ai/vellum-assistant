@@ -38,8 +38,11 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-const { applyRuntimeInjections, composeInjectorChain } =
-  await import("../daemon/conversation-runtime-assembly.js");
+const {
+  applyRuntimeInjections,
+  buildSubagentStatusBlock,
+  composeInjectorChain,
+} = await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/memory-retrieval/injectors.js");
 const { getInjectorChain } =
@@ -52,6 +55,8 @@ import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
 // `makeTurnContext` and the workspace registry seed share this id so the
@@ -116,11 +121,63 @@ function seedWorkspaceContext(text: string): void {
   } as never);
 }
 
+// `applyRuntimeInjections` self-resolves the `<active_subagents>` block from the
+// global subagent manager keyed by the conversation, so tests seed children
+// directly into the manager's private maps rather than threading a pre-built
+// block through options.
+interface SubagentManagerTestInternals {
+  subagents: Map<string, { state: SubagentState }>;
+  parentToChildren: Map<string, Set<string>>;
+}
+
+function makeSubagentState(
+  id: string,
+  label: string,
+  status: SubagentState["status"],
+): SubagentState {
+  return {
+    config: {
+      id,
+      parentConversationId: TEST_CONVERSATION_ID,
+      label,
+      objective: "obj",
+    },
+    status,
+    conversationId: `conv-${id}`,
+    isFork: false,
+    createdAt: Date.now() - 60_000,
+    startedAt: Date.now() - 55_000,
+    completedAt: status === "completed" ? Date.now() : undefined,
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+  };
+}
+
+function seedSubagentChild(
+  parentConversationId: string,
+  state: SubagentState,
+): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.set(state.config.id, { state });
+  const ids =
+    internals.parentToChildren.get(parentConversationId) ?? new Set<string>();
+  ids.add(state.config.id);
+  internals.parentToChildren.set(parentConversationId, ids);
+}
+
+function clearSeededSubagents(): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.clear();
+  internals.parentToChildren.clear();
+}
+
 describe("injector chain", () => {
   beforeEach(() => {
     clearPkbContent();
     clearNowScratchpad();
     clearConversations();
+    clearSeededSubagents();
   });
 
   test("defaultInjectors lists the defaults in the documented order", () => {
@@ -273,14 +330,16 @@ describe("injector chain", () => {
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
     const unifiedTurn =
       "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
-    const subagentBlock =
-      '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
+    // A completed child renders deterministically (no elapsed clock), so the
+    // block the injector self-resolves matches `buildSubagentStatusBlock`.
+    const subagentChild = makeSubagentState("sub-1", "worker", "completed");
+    seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
+    const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
     seedWorkspaceContext(workspaceText);
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeTurnContext(),
       unifiedTurnContext: unifiedTurn,
-      subagentStatusBlock: subagentBlock,
     });
 
     // Extract the tail user message content as a list of text strings.
@@ -391,7 +450,12 @@ describe("injector chain", () => {
     // injector except `unified-turn-context` checks `mode === "full"` and
     // opts out in minimal mode, so the tail should carry only the turn
     // context prepend plus any non-injector hardcoded content (none
-    // here).
+    // here). A live child subagent is seeded so the subagent-status injector
+    // has a block to skip.
+    seedSubagentChild(
+      TEST_CONVERSATION_ID,
+      makeSubagentState("sub-1", "worker", "running"),
+    );
     const result = await applyRuntimeInjections(
       [
         {
@@ -403,7 +467,6 @@ describe("injector chain", () => {
         turnContext: makeTurnContext(),
         mode: "minimal",
         unifiedTurnContext: "<turn_context>...</turn_context>",
-        subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },
     );
 

@@ -821,9 +821,9 @@ ${sections.join("\n\n")}
  * Appends a pre-built `<active_subagents>` block to the tail user message
  * so the parent LLM has visibility into active/completed child subagents.
  *
- * The orchestrator builds the block via `buildSubagentStatusBlock` before
- * the chain runs; this injector is a thin passthrough that applies gating
- * and positioning.
+ * `applyRuntimeInjections` resolves the block from the live subagent manager
+ * before the chain runs; this injector is a thin passthrough that applies
+ * gating and positioning.
  *
  * Gating:
  *  - `mode === "full"`.

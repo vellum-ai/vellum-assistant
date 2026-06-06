@@ -75,6 +75,7 @@ import {
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -1914,6 +1915,35 @@ function makeSubagentState(
   };
 }
 
+// `applyRuntimeInjections` self-resolves the `<active_subagents>` block from the
+// global subagent manager keyed by the conversation, so tests seed children
+// directly into the manager's private maps (mirroring the production source)
+// rather than threading a pre-built block through options.
+interface SubagentManagerTestInternals {
+  subagents: Map<string, { state: SubagentState }>;
+  parentToChildren: Map<string, Set<string>>;
+}
+
+function seedSubagentChild(
+  parentConversationId: string,
+  state: SubagentState,
+): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.set(state.config.id, { state });
+  const ids =
+    internals.parentToChildren.get(parentConversationId) ?? new Set<string>();
+  ids.add(state.config.id);
+  internals.parentToChildren.set(parentConversationId, ids);
+}
+
+function clearSeededSubagents(): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.clear();
+  internals.parentToChildren.clear();
+}
+
 describe("buildSubagentStatusBlock", () => {
   test("returns null for empty children array", () => {
     expect(buildSubagentStatusBlock([])).toBeNull();
@@ -1991,25 +2021,75 @@ describe("applyRuntimeInjections — subagent status", () => {
     content: [{ type: "text", text: "user message" }],
   };
 
-  test("includes subagent status in full mode", async () => {
+  afterEach(() => {
+    clearSeededSubagents();
+    clearConversations();
+  });
+
+  test("includes self-resolved subagent status in full mode", async () => {
+    // GIVEN the (fallback) parent conversation has one running child subagent
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in full mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
-      subagentStatusBlock:
-        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
     });
+
+    // THEN the tail user message carries the `<active_subagents>` block the
+    // injector self-resolved from the subagent manager
     const tail = result[result.length - 1];
     const texts = tail.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text);
     expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(true);
+    expect(texts.some((t) => t.includes('"worker"'))).toBe(true);
   });
 
   test("skips subagent status in minimal mode", async () => {
+    // GIVEN the (fallback) parent conversation has one running child subagent
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in minimal mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
-      subagentStatusBlock:
-        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
     });
+
+    // THEN the subagent status block is gated out
+    const tail = result[result.length - 1];
+    const texts = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(false);
+  });
+
+  test("skips subagent status when the conversation is itself a subagent", async () => {
+    // GIVEN the live conversation is itself a subagent (no nesting)
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      isSubagent: true,
+    } as never);
+    // AND a child is registered under its id
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in full mode
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
+      mode: "full",
+    });
+
+    // THEN no `<active_subagents>` block is emitted
     const tail = result[result.length - 1];
     const texts = tail.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
