@@ -454,11 +454,19 @@ const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
 
 /**
  * Whether a block matching any of the given matchers is already present in the
- * turn's working messages. Mirrors `stripUserTextBlocksByPrefix` (a
- * user-message text block whose content matches a bare-prefix or a
- * `{ prefix, suffix }` wrapper matcher), so presence detection stays in
- * lockstep with what compaction strips: a block is present here exactly when
- * compaction would strip it.
+ * turn's working messages — used to skip re-injection of a block the history
+ * already carries.
+ *
+ * Recognizes both the canonical standalone form (a text block that IS the
+ * wrapper) and the "flattened" form where the wrapper sits as a newline-
+ * delimited section inside a larger text block (see {@link textCarriesInjection}).
+ *
+ * Detection is intentionally BROADER than `stripUserTextBlocksByPrefix`, which
+ * stays whole-block-only: re-injection must be suppressed even when a historical
+ * user message's separate injection blocks have been collapsed into one text
+ * block, whereas the strip must never delete a block that also holds the user's
+ * own text. (A flattened block is summarized away at the next compaction, where
+ * fresh injection resumes.)
  */
 function hasInjectedUserTextBlock(
   runMessages: Message[] | undefined,
@@ -471,14 +479,42 @@ function hasInjectedUserTextBlock(
       message.content.some(
         (block) =>
           block.type === "text" &&
-          matchers.some((m) =>
-            typeof m === "string"
-              ? block.text.startsWith(m)
-              : block.text.startsWith(m.prefix) &&
-                block.text.endsWith(m.suffix),
-          ),
+          matchers.some((m) => textCarriesInjection(block.text, m)),
       ),
   );
+}
+
+/**
+ * Whether `text` carries an injected block matching `matcher`, recognizing both
+ * the canonical standalone form (the text IS the wrapper) and a "flattened"
+ * form where the wrapper sits as a newline-delimited section inside a larger
+ * text block.
+ *
+ * The flattened form arises when a historical user message's separate injection
+ * content blocks get collapsed into a single text block joined with "\n" —
+ * observed when a daemon restart / plugin hot-reload rebuilt the rendered
+ * history mid-conversation. Without recognizing it, the standalone-only check
+ * returns false for the carried block and the injector re-injects a duplicate
+ * `<workspace>` / `<info>` onto the new tail.
+ *
+ * Anchoring on line boundaries ("\n" before the opening tag, and "\n" or the
+ * block edge after the closing tag) keeps the false-positive surface as narrow
+ * as the standalone check: ordinary prose would have to contain the exact
+ * wrapper as its own line-delimited section to be mistaken for an injection. The
+ * `{ prefix, suffix }` form still requires BOTH tags, so a message that opens
+ * (but never closes) an injection-like tag never suppresses injection.
+ */
+function textCarriesInjection(
+  text: string,
+  matcher: InjectionMatcher,
+): boolean {
+  if (typeof matcher === "string") {
+    return text.startsWith(matcher) || text.includes(`\n${matcher}`);
+  }
+  const { prefix, suffix } = matcher;
+  const hasOpen = text.startsWith(prefix) || text.includes(`\n${prefix}`);
+  const hasClose = text.endsWith(suffix) || text.includes(`${suffix}\n`);
+  return hasOpen && hasClose;
 }
 
 /**
