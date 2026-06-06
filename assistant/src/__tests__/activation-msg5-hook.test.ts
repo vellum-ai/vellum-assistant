@@ -111,6 +111,31 @@ describe("maybeEmitActivationMsg5", () => {
     expect(msg5RowsFor(conv.id)).toBe(0);
   });
 
+  test("emits once when the threshold is first crossed by a path that ran the hook only once", async () => {
+    // Simulates the slash-command persist scenario: 5 real user rows land in
+    // the DB but the hook runs only AFTER the threshold is already crossed
+    // (e.g. a slash message was the 5th turn and went through a path that now
+    // calls the hook). A threshold-based (>= 5) emit must still fire exactly
+    // once even though no `=== 5` transition was observed.
+    const conv = createConversation({ conversationType: "standard" });
+    markActivationSession(conv.id);
+
+    for (let i = 1; i <= 5; i++) {
+      await addMessage(conv.id, "user", `turn ${i}`, { skipIndexing: true });
+      // deliberately do NOT call the hook for turns 1–4
+    }
+
+    // First hook invocation at count >= 5 fires the single row.
+    maybeEmitActivationMsg5(conv.id);
+    expect(msg5RowsFor(conv.id)).toBe(1);
+
+    // Calling again (e.g. the next normal turn at count 6) is a no-op thanks
+    // to the hasActivationEvent exists-check.
+    await addMessage(conv.id, "user", "turn 6", { skipIndexing: true });
+    maybeEmitActivationMsg5(conv.id);
+    expect(msg5RowsFor(conv.id)).toBe(1);
+  });
+
   test("ignores tool_result role=user rows when counting to 5", async () => {
     const conv = createConversation({ conversationType: "standard" });
     markActivationSession(conv.id);

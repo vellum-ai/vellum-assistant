@@ -37,7 +37,10 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+import {
+  hasActivationEvent,
+  recordActivationEvent,
+} from "../memory/onboarding-events-store.js";
 import { countRealUserTurns } from "../memory/turn-events-store.js";
 import {
   buildSlackTimezoneMetadata,
@@ -383,24 +386,36 @@ export interface PersistMessageOptions {
 // ── activation north-star (msg_5) ────────────────────────────────────
 
 /**
- * Emit the activation north-star event (`activation_msg_5_sent`) when the 5th
- * real user turn lands in an activation-rail conversation.
+ * Emit the activation north-star event (`activation_msg_5_sent`) once the
+ * conversation reaches its 5th real user turn in an activation-rail
+ * conversation.
+ *
+ * Idempotent and threshold-based: emits when there are `>= 5` real user turns
+ * AND no `activation_msg_5_sent` row exists yet for this session. This is
+ * resilient to ANY real-user persist path crossing the threshold — including
+ * slash-command paths that bypass {@link persistQueuedMessageBody} — where an
+ * exact `=== 5` check could be skipped if the 5th turn was persisted by a path
+ * that never called the hook, and the next turn already saw count 6. The
+ * exists-check also prevents duplicate rows on turns 6, 7, ….
+ *
+ * The {@link isActivationSession} short-circuit runs FIRST so non-activation
+ * traffic does no extra queries.
  *
  * Best-effort and fire-and-forget: wrapped in try/catch so it can never throw
- * into or block turn persistence. Triggers only on the exact `=== 5`
- * transition so no row is written on turns 6, 7, …; the deterministic
- * `daemon_event_id` (built by the reporter) dedups any residual double-emit
- * downstream.
+ * into or block turn persistence.
  *
  * Must be called AFTER the user turn is persisted so {@link countRealUserTurns}
  * counts this turn as the conversation's Nth real user message.
  */
+const ACTIVATION_MSG_5_STEP = "activation_msg_5_sent" as const;
+
 export function maybeEmitActivationMsg5(conversationId: string): void {
   try {
     if (!isActivationSession(conversationId)) return;
-    if (countRealUserTurns(conversationId) !== 5) return;
+    if (countRealUserTurns(conversationId) < 5) return;
+    if (hasActivationEvent(conversationId, ACTIVATION_MSG_5_STEP)) return;
     recordActivationEvent({
-      stepName: "activation_msg_5_sent",
+      stepName: ACTIVATION_MSG_5_STEP,
       sessionId: conversationId,
     });
   } catch (err) {
