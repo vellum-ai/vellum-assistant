@@ -83,6 +83,36 @@ Identity writes (IDENTITY.md, SOUL.md), user-profile writes, journal entries: al
 
 The base BOOTSTRAP task_preferences fallback is not on this rail. Your opener is the Port pitch.
 
+## Telemetry: emit_activation_event
+
+The activation funnel is measured by the `emit_activation_event` tool. Call it
+with a single `step_name` to record a milestone. This is the JARVIS-1102 "naming
+check" intent: emit from the SCOPED tool call that does the rail work, NOT on
+every text turn. A milestone records once; a duplicate emit is harmless (deduped
+downstream) but don't fire one just because you produced text.
+
+Firing conditions, bound to the moves above:
+
+- `activation_moment_1_complete` — background + top-of-mind captured, OR the user
+  explicitly skipped. Fire at the end of the Port move (after the paste lands, or
+  after the no-port intake `choice` resolves / the single context question is
+  answered).
+- `activation_moment_2_complete` — the bundle/intent selection is resolved: the
+  user picked an offer in Propose (the `ui_show` offer surface was committed).
+- `activation_moment_3_complete` — the first task is selected (the specific thing
+  you're about to run is chosen).
+- `activation_first_wow_executed` — the execution surface rendered / the wow
+  action actually ran against real data in Run.
+- `activation_first_wow_interacted` — the user clicked an action button on the
+  result surface, or sent a follow-up after the wow.
+
+`activation_msg_5_sent` is emitted AUTOMATICALLY by the daemon turn hook. The
+model must NEVER emit it — passing it to `emit_activation_event` is rejected.
+
+The tool no-ops outside an activation session and never errors a turn, so a
+missed or mistimed emit is non-fatal — but accurate, move-bound emits are what
+make the funnel meaningful.
+
 ## Wrap
 
 <!-- Open question: the default wrap tone below is opinionated (brisk, dataset-first). Whether that's the right note to end the activation rail on is a conscious call we haven't made yet — flag, don't silently change. -->

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "emit_activation_event",
+      "description": "Record an activation-funnel milestone for the current activation-rail conversation. Used only by the activation rail to mark when a rail move lands (e.g. context captured, bundle selected, first task chosen, first wow executed/interacted). No-op outside an activation session.",
+      "category": "activation",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "step_name": {
+            "type": "string",
+            "description": "Activation funnel step name to record. One of: activation_moment_1_complete, activation_moment_2_complete, activation_moment_3_complete, activation_first_wow_executed, activation_first_wow_interacted. NEVER pass activation_msg_5_sent (daemon-owned)."
+          }
+        },
+        "required": ["step_name"]
+      },
+      "executor": "tools/emit-activation-event.ts",
+      "execution_target": "host"
+    }
+  ]
+}
