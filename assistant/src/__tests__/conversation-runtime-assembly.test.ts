@@ -1807,8 +1807,10 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     ...sampleOptions,
   });
 
-  // Seed the live fallback conversation with the per-turn temporal snapshot so
-  // `applyRuntimeInjections` sources the `<turn_context>` timestamp from it.
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
+  // and the turn interface context (so it sources the interface label to match
+  // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
       conversationId: "runtime-assembly-fallback",
@@ -1820,15 +1822,17 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
         timestamp: sampleTimestamp,
         clientTimezone: null,
       },
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
     } as never);
   }
 
   test("injects the turn-context block when the inputs are provided", async () => {
     seedTemporalSnapshot();
 
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      ...sampleOptions,
-    });
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
@@ -2018,8 +2022,10 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     ...sampleOptions,
   });
 
-  // Seed the live fallback conversation with the per-turn temporal snapshot so
-  // `applyRuntimeInjections` sources the `<turn_context>` timestamp from it.
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
+  // and the turn interface context (so it sources the interface label to match
+  // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
       conversationId: "runtime-assembly-fallback",
@@ -2031,15 +2037,17 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
         timestamp: sampleTimestamp,
         clientTimezone: null,
       },
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
     } as never);
   }
 
   test("captures unifiedTurnContext when tail is a user message", async () => {
     seedTemporalSnapshot();
 
-    const result = await applyRuntimeInjections(userTailMessages, {
-      ...sampleOptions,
-    });
+    const result = await applyRuntimeInjections(userTailMessages, {});
 
     expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
   });
@@ -2058,9 +2066,7 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
       },
     ];
 
-    const result = await applyRuntimeInjections(assistantTailMessages, {
-      ...sampleOptions,
-    });
+    const result = await applyRuntimeInjections(assistantTailMessages, {});
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });

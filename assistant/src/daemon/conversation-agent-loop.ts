@@ -934,14 +934,9 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Resolve the channel/interface labels and the guardian flag for this
-    // turn. These derive only from the captured turn context and the resolved
-    // actor trust class — never from retrieval — so they settle before context
-    // assembly.
-    const interfaceName =
-      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
-    const channelName =
-      capturedTurnChannelContext?.userMessageChannel ?? undefined;
+    // Resolve the guardian flag for this turn. It derives only from the
+    // resolved actor trust class — never from retrieval — so it settles before
+    // context assembly.
     const isGuardian =
       resolvedInboundActorContext?.trustClass === "guardian" ||
       !resolvedInboundActorContext;
@@ -1091,14 +1086,13 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
-      // Unified `<turn_context>` inputs (channel, interface, actor); the
-      // `unified-turn-context` injector builds the block from these. Actor
-      // identity is included only for non-guardian turns. The timestamp and
-      // client timezone are sourced from the conversation's frozen
-      // `currentTurnTemporalSnapshot`, and the configured and detected
-      // timezones from config — all self-resolved in `applyRuntimeInjections`.
-      interfaceName,
-      channelName,
+      // Unified `<turn_context>` actor input; the `unified-turn-context`
+      // injector builds the block from it. Actor identity is included only for
+      // non-guardian turns. The timestamp and client timezone are sourced from
+      // the conversation's frozen `currentTurnTemporalSnapshot`, the interface
+      // and channel labels from the live conversation's turn interface/channel
+      // context, and the configured and detected timezones from config — all
+      // self-resolved in `applyRuntimeInjections`.
       timeSinceLastMessage,
       modelProfile: modelProfileStr,
       actorContext: isGuardian ? null : resolvedInboundActorContext,

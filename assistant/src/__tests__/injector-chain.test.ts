@@ -119,6 +119,7 @@ function seedWorkspaceContext(
     timestamp: string;
     clientTimezone: string | null;
   },
+  interfaceName?: string,
 ): void {
   setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
@@ -126,6 +127,12 @@ function seedWorkspaceContext(
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
     currentTurnTemporalSnapshot,
+    currentTurnInterfaceContext: interfaceName
+      ? {
+          userMessageInterface: interfaceName,
+          assistantMessageInterface: interfaceName,
+        }
+      : undefined,
   } as never);
 }
 
@@ -309,8 +316,12 @@ describe("injector chain", () => {
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ];
 
+    // The fallback conversation has no per-turn or origin interface, so the
+    // unified-turn-context injector resolves the interface label to the `web`
+    // default.
     const synthesizedBlock = buildUnifiedTurnContextBlock({
       timestamp: "synthesized",
+      interfaceName: "web",
     });
     seedFallbackTemporalSnapshot("synthesized");
     const result = await applyRuntimeInjections(runMessages, {});
@@ -362,12 +373,12 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText, {
-      timestamp: "2026-04-22",
-      clientTimezone: null,
-    });
+    seedWorkspaceContext(
+      workspaceText,
+      { timestamp: "2026-04-22", clientTimezone: null },
+      "macos",
+    );
     const result = await applyRuntimeInjections(runMessages, {
-      interfaceName: "macos",
       turnContext: makeTurnContext(),
     });
 
@@ -482,10 +493,13 @@ describe("injector chain", () => {
     // here).
     // Empty workspace text keeps that injector inert while the unified
     // turn-context timestamp flows through the conversation's frozen temporal
-    // snapshot. A live child subagent is seeded so the subagent-status injector
-    // has a block to skip.
+    // snapshot. The interface label is sourced from the live conversation,
+    // which has no per-turn or origin interface here and so resolves to the
+    // `web` default. A live child subagent is seeded so the subagent-status
+    // injector has a block to skip.
     const minimalTurnBlock = buildUnifiedTurnContextBlock({
       timestamp: "2026-04-22",
+      interfaceName: "web",
     });
     seedWorkspaceContext("", { timestamp: "2026-04-22", clientTimezone: null });
     seedSubagentChild(

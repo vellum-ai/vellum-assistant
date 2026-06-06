@@ -72,6 +72,10 @@ let liveConversation: {
     timestamp: string;
     clientTimezone: string | null;
   };
+  currentTurnInterfaceContext?: {
+    userMessageInterface: string;
+    assistantMessageInterface: string;
+  };
 };
 
 function resetLiveConversation(): void {
@@ -81,6 +85,12 @@ function resetLiveConversation(): void {
     workspaceTopLevelContext: "",
     workspaceTopLevelDirty: false,
     diskPressureCleanupModeActive: false,
+    // The unified-turn-context injector sources the interface label from the
+    // live conversation's turn interface context; match the expected blocks.
+    currentTurnInterfaceContext: {
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
+    },
   };
 }
 
@@ -165,7 +175,6 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     seedDiskPressure(true);
     seedTemporalSnapshot("2026-04-02T12:00:00Z");
     const result = await applyRuntimeInjections(runMessages, {
-      interfaceName: "macos",
       turnContext: makeContext(),
     });
 
@@ -192,7 +201,6 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
-        interfaceName: "macos",
         turnContext: makeContext(),
         mode: "minimal",
       },

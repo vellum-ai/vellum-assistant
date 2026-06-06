@@ -1610,17 +1610,21 @@ function applyInjectionBlock(
  *
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, the
- * transport hints, the background-conversation flag, the
- * `<active_subagents>` status block, the per-turn temporal snapshot (the
- * `<turn_context>` timestamp and the client timezone), and the two
- * config-sourced timezones are not on this bag: `applyRuntimeInjections`
- * resolves them from the live conversation itself (its surface state,
- * `channelCapabilities`, the document store keyed by `conversationId`, its
- * `commandIntent`, its `voiceCallControlPrompt`, its `transportHints`, its
- * `conversationType`, its `currentTurnTemporalSnapshot`, and the subagent
- * manager's children of `conversationId` respectively) or from config (the
- * configured user timezone and the detected-timezone fallback), so the
- * orchestrator does not compute or thread any of them per turn.
+ * transport hints, the interface label, the channel label, the
+ * background-conversation flag, the `<active_subagents>` status block, the
+ * per-turn temporal snapshot (the `<turn_context>` timestamp and the client
+ * timezone), and the two config-sourced timezones are not on this bag:
+ * `applyRuntimeInjections` resolves them from the live conversation itself (its
+ * surface state, `channelCapabilities`, the document store keyed by
+ * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
+ * `transportHints`, its turn interface context's `userMessageInterface`
+ * (falling back to its recorded `originInterface`, then `web`), its turn
+ * channel context's `userMessageChannel` (falling back to its recorded
+ * `originChannel`, then `vellum`), its `conversationType`, its
+ * `currentTurnTemporalSnapshot`, and the subagent manager's children of
+ * `conversationId` respectively) or from config (the configured user timezone
+ * and the detected-timezone fallback), so the orchestrator does not compute or
+ * thread any of them per turn.
  *
  * {@link isNonInteractive} is the exception: it is derived from the agent
  * loop's `isInteractive` option (not re-derivable from live conversation
@@ -1629,12 +1633,12 @@ function applyInjectionBlock(
  * hook receives the same value through its context, keeping the hook free of
  * agent-loop closure state.
  *
- * The remaining unified `<turn_context>` inputs (`interfaceName`,
- * `channelName`, `actorContext`, `timeSinceLastMessage`, and `modelProfile`)
- * are flat top-level fields here. They flow through to the matching
- * {@link TurnInjectionInputs} fields, and the `unified-turn-context` injector
- * builds the block from them — combined with the turn's frozen timestamp and
- * client timezone (from `currentTurnTemporalSnapshot`) and the two
+ * The remaining unified `<turn_context>` inputs (`actorContext`,
+ * `timeSinceLastMessage`, and `modelProfile`) are flat top-level fields here.
+ * They flow through to the matching {@link TurnInjectionInputs} fields, and the
+ * `unified-turn-context` injector builds the block from them — combined with
+ * the turn's frozen timestamp and client timezone (from
+ * `currentTurnTemporalSnapshot`), the interface and channel labels, and the two
  * self-resolved config timezones — via `buildUnifiedTurnContextBlock`.
  */
 export interface RuntimeInjectionOptions {
@@ -1681,10 +1685,6 @@ export interface RuntimeInjectionOptions {
    */
   slackActiveThreadFocusBlock?: string | null;
   mode?: InjectionMode;
-  /** Human-readable interface label (e.g. "vellum", "telegram"). */
-  interfaceName?: string;
-  /** Channel label gating response-discretion guidance in `<turn_context>`. */
-  channelName?: string;
   /**
    * Inbound actor identity and trust fields. Populated only on non-guardian
    * turns; `null`/absent suppresses the actor section of `<turn_context>`.
@@ -1734,6 +1734,8 @@ function buildTurnInjectionInputs(
   configuredUserTimezone: string | null,
   clientTimezone: string | null,
   detectedTimezone: string | null,
+  interfaceName: string | undefined,
+  channelName: string | undefined,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1745,8 +1747,8 @@ function buildTurnInjectionInputs(
     isBackgroundConversation,
     activeDocuments,
     timestamp,
-    interfaceName: options.interfaceName,
-    channelName: options.channelName,
+    interfaceName,
+    channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,
     clientTimezone,
@@ -1844,6 +1846,16 @@ export async function applyRuntimeInjections(
   const voiceCallControlPrompt =
     liveConversation?.voiceCallControlPrompt ?? null;
   const transportHints = liveConversation?.transportHints ?? null;
+  const interfaceName = liveConversation
+    ? (liveConversation.currentTurnInterfaceContext?.userMessageInterface ??
+      liveConversation.originInterface ??
+      "web")
+    : undefined;
+  const channelName = liveConversation
+    ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
+      liveConversation.originChannel ??
+      "vellum")
+    : undefined;
   const isBackgroundConversation = isBackgroundConversationType(
     liveConversation?.conversationType,
   );
@@ -1897,6 +1909,8 @@ export async function applyRuntimeInjections(
     configuredUserTimezone,
     clientTimezone,
     detectedTimezone,
+    interfaceName,
+    channelName,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
