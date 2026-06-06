@@ -1267,16 +1267,13 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
-      // Unified `<turn_context>` inputs (temporal, channel, interface, actor).
-      // The `unified-turn-context` injector builds the block from these via
-      // `buildUnifiedTurnContextBlock`. Actor identity is included only for
-      // non-guardian turns. The configured user timezone is not threaded here:
-      // `applyRuntimeInjections` sources it from config (`ui.userTimezone`).
+      // Unified `<turn_context>` inputs (temporal, channel, interface, actor);
+      // the `unified-turn-context` injector builds the block from these. Actor
+      // identity is included only for non-guardian turns. The timezone trio is
+      // self-resolved in `applyRuntimeInjections`, not threaded here.
       timestamp,
       interfaceName,
       channelName,
-      clientTimezone: timezoneContext.clientTimezone,
-      detectedTimezone: timezoneContext.detectedTimezone,
       timeSinceLastMessage,
       modelProfile: modelProfileStr,
       actorContext: isGuardian ? null : resolvedInboundActorContext,

@@ -1843,10 +1843,10 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 });
 
 // ---------------------------------------------------------------------------
-// applyRuntimeInjections self-resolves the configured user timezone
+// applyRuntimeInjections self-resolves the timezone trio
 // ---------------------------------------------------------------------------
 
-describe("applyRuntimeInjections configured user timezone self-resolution", () => {
+describe("applyRuntimeInjections timezone trio self-resolution", () => {
   afterEach(() => {
     assemblyConfiguredUserTimezone = undefined;
     clearConversations();
@@ -1863,23 +1863,38 @@ describe("applyRuntimeInjections configured user timezone self-resolution", () =
       .join("\n");
   }
 
-  test("sources configured_user_timezone from config, not the options bag", async () => {
+  // The client-reported timezone is live transport state on the conversation,
+  // so seed it on the fallback instance `applyRuntimeInjections` looks up when
+  // the caller omits a `turnContext`.
+  function seedClientTimezone(clientTimezone: string | null): void {
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      clientTimezone: clientTimezone ?? undefined,
+    } as never);
+  }
+
+  test("sources the timezone trio from config and the live conversation, not the options bag", async () => {
     /**
-     * Verifies the re-homed configured user timezone is read from
-     * `config.ui.userTimezone` inside `applyRuntimeInjections` rather than
-     * threaded through the options bag.
+     * Verifies the re-homed timezone trio is read from `config.ui` and the
+     * live conversation's `clientTimezone` inside `applyRuntimeInjections`
+     * rather than threaded through the options bag.
      */
     // GIVEN the guardian has configured a user timezone in config
     assemblyConfiguredUserTimezone = "America/New_York";
 
-    // WHEN a turn is assembled whose client reports a different timezone
-    // (the options bag carries no `configuredUserTimezone`)
+    // AND the live conversation reports a different client timezone
+    seedClientTimezone("America/Los_Angeles");
+
+    // WHEN a turn is assembled (the options bag carries no timezone fields)
     const result = await applyRuntimeInjections(baseMessages, {
       timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
-      clientTimezone: "America/Los_Angeles",
     });
 
-    // THEN the injector surfaces the mismatch using the config-sourced value
+    // THEN the injector surfaces the mismatch using the self-resolved values
     const injected = injectedText(result);
     expect(injected).toContain("configured_user_timezone: America/New_York");
     expect(injected).toContain("client_device_timezone: America/Los_Angeles");
@@ -1888,15 +1903,15 @@ describe("applyRuntimeInjections configured user timezone self-resolution", () =
   test("omits the mismatch lines when config and client timezone agree", async () => {
     /**
      * Verifies no mismatch affordance is emitted when the config-sourced
-     * configured user timezone matches the client-reported timezone.
+     * configured user timezone matches the conversation's client timezone.
      */
     // GIVEN the configured user timezone matches the client timezone
     assemblyConfiguredUserTimezone = "America/New_York";
+    seedClientTimezone("America/New_York");
 
     // WHEN a turn is assembled
     const result = await applyRuntimeInjections(baseMessages, {
       timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
-      clientTimezone: "America/New_York",
     });
 
     // THEN no timezone-mismatch lines are injected
