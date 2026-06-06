@@ -128,13 +128,6 @@
       color-mix(in srgb, var(--cast-shroud) 94%, transparent) 100%
     );
 }
-/* On selection: glide to the podium and tighten the pool around the pick. */
-.cast-spotlight.is-settling {
-  --spot-core: 170px;
-  --spot-edge: 250px;
-  transition: --mx 0.55s ease, --my 0.55s ease, --spot-core 0.55s ease,
-    --spot-edge 0.55s ease;
-}
 
 .cast-cell {
   appearance: none;
@@ -281,13 +274,6 @@
   left: 0;
   right: 0;
   text-align: center;
-}
-/* anchored over the raised dude's column (left set inline; x:-50% via framer) */
-.cast-name--above {
-  right: auto;
-  width: max-content;
-  max-width: 90vw;
-  z-index: 3;
 }
 
 .cast-name__edit {
@@ -982,19 +968,6 @@
   0% { transform: translateY(0) scale(0.6); opacity: 0; }
   20% { opacity: 1; }
   100% { transform: translateY(-130px) scale(1); opacity: 0; }
-}
-
-/* ---- Beat 1 → 2: pedestal raise ---- */
-
-/* click-away layer over the dimmed crowd */
-.cast-focus__scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  appearance: none;
-  border: none;
-  background: none;
-  cursor: pointer;
 }
 
 /* ---- bottom controls ---- */

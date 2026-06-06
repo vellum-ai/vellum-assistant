@@ -40,19 +40,10 @@ function rowsFor(height: number): number {
   return Math.max(10, Math.min(30, Math.ceil(height / 70) + 1));
 }
 
-/** Where a picked dude is raised to: anchored at its own tile, lifted up and
- * scaled up modestly so it pops out of the crowd in place — not a jump to a
- * centered "new page". Clamped to stay fully on-screen with room above for the
- * name. */
-function raiseBoxFor(tile: Rect, panelW: number, panelH: number): Rect {
-  const size = Math.max(150, Math.min(248, tile.size * 1.9));
-  const cx = tile.left + tile.size / 2;
-  const cy = tile.top + tile.size / 2;
-  const left = Math.max(12, Math.min(panelW - size - 12, cx - size / 2));
-  // lift up ~0.7×size from where it stood; keep the head (and name above it)
-  // clear of the top and don't sink past mid-screen
-  const top = Math.max(86, Math.min(panelH * 0.46, cy - size * 0.7));
-  return { left, top, size };
+/** Beat 2 hero box: centered, large. */
+function focusBoxFor(w: number, h: number): Rect {
+  const size = Math.max(220, Math.min(360, Math.min(w, h) * 0.34));
+  return { left: w / 2 - size / 2, top: h * 0.26, size };
 }
 /** Beats 3/4 hero box: smaller, near the top. */
 function topBoxFor(w: number, h: number): Rect {
@@ -74,14 +65,11 @@ export function CastPage() {
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [flyFrom, setFlyFrom] = useState<Rect | null>(null);
-  // Where the picked dude is raised TO — computed from its tile so it lifts in
-  // place (a bit up + bigger) rather than flying to a centered "new page".
-  const [raiseBox, setRaiseBox] = useState<Rect | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
 
   const [boxes, setBoxes] = useState(() => {
     const { w, h } = win();
-    return { top: topBoxFor(w, h) };
+    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h) };
   });
   const [grid, setGrid] = useState(() => {
     const { w, h } = win();
@@ -109,7 +97,7 @@ export function CastPage() {
     const onResize = () => {
       const { w, h } = win();
       setGrid({ cols: colsFor(w), rows: rowsFor(h) });
-      setBoxes({ top: topBoxFor(w, h) });
+      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h) });
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -121,25 +109,10 @@ export function CastPage() {
   const { cols, rows } = grid;
   const visible = CAST.slice(0, Math.min(cols * rows, 600));
   const inGrid = phase === "grid";
-  // The crowd stays as a dimmed backdrop while a pick is elevated on its podium
-  // (Beat 2), then fully clears for the deeper beats so they read as their own
-  // steps.
-  const floorOpacity = inGrid ? 1 : phase === "flying" || phase === "focus" ? 0.4 : 0;
   const name = selected ? (names[selected.id] ?? selected.name) : "";
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-
-  // Esc returns from the elevated (pedestal) view back to the grid.
-  useEffect(() => {
-    if (phase !== "focus") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") backToGrid();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
 
   function moveSpotlight(e: React.PointerEvent) {
     const panel = panelRef.current;
@@ -161,21 +134,11 @@ export function CastPage() {
     const p = panel.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     const size = Math.min(r.width, r.height);
-    const from: Rect = {
+    setFlyFrom({
       left: r.left - p.left + (r.width - size) / 2,
       top: r.top - p.top + (r.height - size) / 2,
       size,
-    };
-    const to = raiseBoxFor(from, p.width, p.height);
-    setFlyFrom(from);
-    setRaiseBox(to);
-    // Tighten + glide the spotlight onto the raised dude (in place, not center).
-    const spot = spotlightRef.current;
-    if (spot) {
-      spot.classList.add("is-settling");
-      spot.style.setProperty("--mx", `${to.left + to.size / 2}px`);
-      spot.style.setProperty("--my", `${to.top + to.size / 2}px`);
-    }
+    });
     setSelected(char);
     setPhase("flying");
   }, []);
@@ -183,11 +146,9 @@ export function CastPage() {
   function backToGrid() {
     clearBeatTimers();
     cardScheduled.current = false;
-    spotlightRef.current?.classList.remove("is-settling");
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
-    setRaiseBox(null);
     setJobs([]);
     setJobEdges({});
     setRathers([]);
@@ -287,8 +248,8 @@ export function CastPage() {
               gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
               columnGap: `${GAP}px`,
             }}
-            animate={{ opacity: floorOpacity }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
+            animate={{ opacity: inGrid ? 1 : 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
           >
             {visible.map((c) => (
               <Billboard
@@ -303,13 +264,13 @@ export function CastPage() {
           <div className="cast-spotlight" ref={spotlightRef} />
         </div>
 
-        {/* Flying clone — short in-place rise from the tile to the raise box */}
+        {/* Flying clone — screen-space FLIP from tapped tile to center */}
         <AnimatePresence>
-          {phase === "flying" && flyFrom && raiseBox && selected && (
+          {phase === "flying" && flyFrom && selected && (
             <motion.div
               className="cast-fly"
               initial={{ left: flyFrom.left, top: flyFrom.top, width: flyFrom.size, height: flyFrom.size }}
-              animate={{ left: raiseBox.left, top: raiseBox.top, width: raiseBox.size, height: raiseBox.size }}
+              animate={{ left: boxes.focus.left, top: boxes.focus.top, width: boxes.focus.size, height: boxes.focus.size }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               onAnimationComplete={() => setPhase("focus")}
             >
@@ -318,12 +279,12 @@ export function CastPage() {
           )}
         </AnimatePresence>
 
-        {/* Beat 2 — named (raised in place) */}
-        {phase === "focus" && selected && raiseBox && (
+        {/* Beat 2 — named */}
+        {phase === "focus" && selected && (
           <CastFocus
             character={selected}
             name={name}
-            box={raiseBox}
+            box={boxes.focus}
             onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
             onContinue={() => setPhase("job")}
             onBack={backToGrid}
@@ -468,32 +429,20 @@ function CastFocus({
 }) {
   const [editing, setEditing] = useState(false);
 
-  // Name above the raised dude's head, anchored to its own column.
-  const dudeCx = box.left + box.size / 2;
-  const nameTop = Math.max(10, box.top - 50);
-
   return (
     <motion.div className="cast-focus">
-      {/* click-away on the dim crowd lowers the pick back into the grid */}
-      <button
-        className="cast-focus__scrim"
-        aria-label="Back to grid"
-        onClick={onBack}
-      />
-
       <button className="cast-back" onClick={onBack} aria-label="Back to grid">
         ‹
       </button>
 
       <HeroCharacter character={character} box={box} interactive autoReact />
 
-      {/* name above the dude's head, anchored over its column */}
       <motion.div
-        className="cast-name cast-name--above"
-        style={{ left: dudeCx, top: nameTop }}
-        initial={{ opacity: 0, y: 10, x: "-50%" }}
-        animate={{ opacity: 1, y: 0, x: "-50%" }}
-        transition={{ delay: 0.32, duration: 0.4, ease: "easeOut" }}
+        className="cast-name"
+        style={{ top: box.top + box.size + 28 }}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.4, ease: "easeOut" }}
       >
         {editing ? (
           <input
