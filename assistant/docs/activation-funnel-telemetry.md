@@ -156,10 +156,22 @@ When the flag is ON, the web prechat context selects
 `BOOTSTRAP-ACTIVATION-RAIL.md` as the bootstrap template, and the daemon marks
 the conversation in `activation_sessions` on first build of the system prompt.
 
-### 5.2 Confirm usage-data collection is enabled
+### 5.2 Confirm usage-data collection is enabled — and do NOT run in dev mode
 
-`recordActivationEvent` no-ops when `collectUsageData` is false. Make sure the dev
-build/config has usage-data collection enabled, or no rows will be written.
+Two gates must both be satisfied or no rows reach BigQuery:
+
+1. `recordActivationEvent` no-ops when `config.collectUsageData` is false, so the
+   dev build/config must have usage-data collection enabled, or no rows are
+   written to SQLite.
+2. **Dev mode disables the flush entirely.** `assistant/src/daemon/lifecycle.ts`
+   computes the effective setting as `collectUsageData = !isDevMode &&
+config.collectUsageData`, so when the daemon runs in dev mode (`VELLUM_DEV=1`)
+   the `UsageTelemetryReporter` is never started — rows accumulate in SQLite but
+   are never POSTed, and the "wait/restart for flush" steps below will never
+   reach BigQuery. For an end-to-end smoke test, run the daemon **outside dev
+   mode** (so the reporter starts), or explicitly invoke the reporter's
+   `flush()` via a dev hook. The SQLite rows can still be inspected directly in
+   dev mode, but the BigQuery verification (§6) requires a real flush.
 
 ### 5.3 Start a fresh activation conversation and capture its id
 
@@ -270,11 +282,11 @@ collapses it earliest-wins).
   moves (documented in `BOOTSTRAP-ACTIVATION-RAIL.md`); `activation_msg_5_sent` is
   daemon-owned. This resolves the naming-check open interpretation.
 - **Stream B (multivariate cohort flag conversion) is NOT in this work.** It is
-  gated on Noa's platform string-flag serving — until the platform can serve
-  string/multivariate flags, flipping
+  gated on the platform team's in-flight string-flag serving — until the platform
+  can serve string/multivariate flags, flipping
   `experiment-activation-flow-2026-06-03` boolean→multivariate client-side would
   silently disable the live allowlisted rail. Until then, `ab_variant` is the
   constant `"variant-a"` (only treatment runs the rail), and the **control side**
-  of the comparison is measured from generic `turn` events split by Noa's
-  exposure mapping. Once Stream B lands, the daemon tags the real assigned arm
-  and the cross-cohort comparison works with zero rework.
+  of the comparison is measured from generic `turn` events split by the
+  platform's experiment exposure mapping. Once Stream B lands, the daemon tags the
+  real assigned arm and the cross-cohort comparison works with zero rework.
