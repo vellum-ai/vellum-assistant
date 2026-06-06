@@ -7,6 +7,8 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
+import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
@@ -268,6 +270,13 @@ export async function startAuthFlow(
       );
       window.location.href = destination;
     }
+    return;
+  }
+
+  // Standalone local mode (no local Django serving the SPA): redirect
+  // through the platform's login page and back to a loopback callback.
+  if (isLocalMode() && !isPlatformLocal()) {
+    await startLoopbackAuth(options.returnTo ?? undefined);
     return;
   }
 

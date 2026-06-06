@@ -11,7 +11,7 @@ import {
 } from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
-import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
+import { useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
     getActiveAssistant,
     isLocalAssistant,
@@ -113,14 +113,10 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setPlatformError(null);
       setPlatformLoading(true);
       try {
-        if (isPlatformLocal || isElectron()) {
-          await startAuthFlow(PROVIDER_ID, callbackUrl, {
-            ...(providerHint ? { providerHint } : {}),
-            returnTo,
-          });
-        } else {
-          await startLoopbackAuth(returnTo ?? undefined);
-        }
+        await startAuthFlow(PROVIDER_ID, callbackUrl, {
+          ...(providerHint ? { providerHint } : {}),
+          returnTo,
+        });
       } catch (err) {
         console.error("[local-login] platform auth flow failed:", err);
         setPlatformError("Something went wrong. Please try again.");
