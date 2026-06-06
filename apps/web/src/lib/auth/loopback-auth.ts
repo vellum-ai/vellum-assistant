@@ -38,7 +38,10 @@ export function useIsPlatformLocal(): boolean {
   return isPlatformLocal();
 }
 
-export async function startLoopbackAuth(returnTo?: string): Promise<void> {
+export async function startLoopbackAuth(
+  returnTo?: string,
+  options?: { intent?: string },
+): Promise<void> {
   const { webUrl } = getLocalConfig();
   const state = generateState();
   const port = window.location.port || "3000";
@@ -49,7 +52,8 @@ export async function startLoopbackAuth(returnTo?: string): Promise<void> {
   }
 
   const callbackReturnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-  const loginUrl = `${webUrl}/account/login?returnTo=${encodeURIComponent(callbackReturnTo)}`;
+  const page = options?.intent === "signup" ? "signup" : "login";
+  const loginUrl = `${webUrl}/account/${page}?returnTo=${encodeURIComponent(callbackReturnTo)}`;
 
   window.location.href = loginUrl;
 }
