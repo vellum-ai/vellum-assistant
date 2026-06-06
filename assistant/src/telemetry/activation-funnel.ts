@@ -14,6 +14,16 @@
 export const ACTIVATION_FUNNEL_VERSION = "activation_v1_2026_06";
 
 /**
+ * Filename of the bootstrap template that drives the activation rail. The web
+ * prechat-context sets this as `onboardingContext.bootstrapTemplate` (mirrored
+ * there as `ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE`); the daemon recognizes it to
+ * mark the conversation as an activation session. Single source of truth on the
+ * daemon side so the literal isn't duplicated across modules.
+ */
+export const ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE =
+  "BOOTSTRAP-ACTIVATION-RAIL.md";
+
+/**
  * Cohort arm tag for Stream-A emission. The daemon only runs the rail for
  * treatment users, so activation events are tagged with the treatment arm
  * name ("variant-a"), mirroring `pre-chat-onboarding-experiment-2026-06-06`.

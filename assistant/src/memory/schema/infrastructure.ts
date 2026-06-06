@@ -299,6 +299,14 @@ export const authFallbackEvents = sqliteTable("auth_fallback_events", {
   windowEnd: integer("window_end").notNull(),
 });
 
+// One row per conversation started on the activation-rail bootstrap template.
+// Lets the activation funnel telemetry scope its events to activation
+// conversations without inspecting the bootstrap template at emit time.
+export const activationSessions = sqliteTable("activation_sessions", {
+  conversationId: text("conversation_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {

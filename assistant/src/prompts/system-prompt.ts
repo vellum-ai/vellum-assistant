@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { markActivationSession } from "../memory/activation-session-store.js";
+import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -268,6 +270,13 @@ export interface BuildSystemPromptOptions {
   trustContext?: TrustContext;
   channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
+  /**
+   * Conversation this prompt is being built for. Optional because several
+   * callers build a prompt outside a conversation (e.g. home greeting,
+   * suggested prompts). When present and the activation-rail bootstrap template
+   * is selected, the conversation is marked as an activation session.
+   */
+  conversationId?: string;
 }
 
 /**
@@ -281,8 +290,18 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // One-shot bootstrap swap: if the onboarding context specifies a bootstrap
   // template and BOOTSTRAP.md is still the generic template, replace it with
   // the specified variant before the prompt reads the file.
-  if (options?.onboardingContext?.bootstrapTemplate) {
-    maybeReseedBootstrap(options.onboardingContext.bootstrapTemplate);
+  const bootstrapTemplate = options?.onboardingContext?.bootstrapTemplate;
+  if (bootstrapTemplate) {
+    maybeReseedBootstrap(bootstrapTemplate);
+    // Mark activation-rail conversations so the funnel telemetry can scope its
+    // events. Best-effort and guarded inside the store; only when we know which
+    // conversation this prompt is for.
+    if (
+      bootstrapTemplate === ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE &&
+      options?.conversationId
+    ) {
+      markActivationSession(options.conversationId);
+    }
   }
 
   // Slugs used by the persona sections (`10-user-persona`,
