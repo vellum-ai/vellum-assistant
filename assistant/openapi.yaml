@@ -19426,6 +19426,182 @@ paths:
           required: true
           schema:
             type: string
+    get:
+      operationId: plugins_by_name_get
+      summary: Get a plugin's detail view
+      description:
+        Resolve a single plugin's tracked metadata (description, homepage, license, version, source) plus its
+        README markdown. Unions the locally installed copy, the marketplace manifest, and the plugin's repository at the
+        pinned ref — preferring the installed copy. Names that are neither installed nor present in the catalog return
+        404. Powers the web plugin detail page; mirrors `GET /v1/skills/:id`.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  installed:
+                    type: boolean
+                    description: Whether a copy is materialized under `<workspaceDir>/plugins/<name>/`.
+                  description:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Short description, best-effort across disk, manifest, and repo.
+                  homepage:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Project homepage URL, when known.
+                  license:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: SPDX license expression, when known.
+                  version:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Resolved version (installed copy first, then repo `package.json`).
+                  source:
+                    oneOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: first-party
+                        required:
+                          - kind
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: github
+                          repo:
+                            type: string
+                            description: "`owner/repo` of the external plugin repository."
+                          path:
+                            description: Directory within the repo, when the plugin is not at the root.
+                            type: string
+                          ref:
+                            type: string
+                            description: Pinned git ref the plugin is fetched from.
+                        required:
+                          - kind
+                          - repo
+                          - ref
+                        additionalProperties: false
+                    description: "Origin of the match: a first-party in-repo plugin or a whitelisted external one."
+                  readme:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: README markdown, or null when the plugin ships none.
+                  ref:
+                    type: string
+                    description: Git ref the catalog metadata / README were resolved at.
+                required:
+                  - name
+                  - installed
+                  - description
+                  - homepage
+                  - license
+                  - version
+                  - source
+                  - readme
+                  - ref
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No installed copy and no catalog entry claims the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ref
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional git ref to read catalog metadata / README at. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.
+  /v1/plugins/install:
+    post:
+      operationId: plugins_install_post
+      summary: Install a plugin
+      description:
+        Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json`
+        entry, else the first-party `experimental/plugins/<name>/` convention. Materializes the plugin under
+        `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant
+        plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing
+        at the ref returns 404. Sibling to `POST /v1/skills/install`.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  name:
+                    type: string
+                    description: Install name that was materialized.
+                  target:
+                    type: string
+                    description: Absolute path the plugin was materialized into on the host.
+                  fileCount:
+                    type: number
+                    description: Number of files written for the installed plugin.
+                  ref:
+                    type: string
+                    description: Git ref the plugin was fetched from.
+                required:
+                  - ok
+                  - name
+                  - target
+                  - fileCount
+                  - ref
+                additionalProperties: false
+        "400":
+          description: The request body was missing `name` or the name failed sanitization.
+        "404":
+          description: No plugin resolves to the given name at the requested ref.
+        "409":
+          description: A plugin with the same name is already installed and `force` was not set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Install name to resolve against the catalog (first-party directory or marketplace entry).
+                ref:
+                  description: Optional git ref to install from. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.
+                  type: string
+                force:
+                  description: Overwrite an existing install in place. Defaults to false.
+                  type: boolean
+              required:
+                - name
+              additionalProperties: false
   /v1/plugins/search:
     get:
       operationId: plugins_search_get
