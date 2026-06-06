@@ -132,6 +132,30 @@ describe("PluginsTab", () => {
     expect(html).toContain("assistant plugins install apollo-bot-brain");
   });
 
+  test("renders a catalog match from a daemon that omits source", () => {
+    // Renders a catalog whose match has no `source`, as served by a daemon
+    // predating the marketplace whitelist, and asserts the row degrades to
+    // first-party instead of crashing on `match.source.kind`.
+
+    // GIVEN a catalog match with no `source` field. The cast models the older
+    // wire shape, which the current generated type no longer expresses.
+    const legacyMatch = {
+      name: "apollo-bot-brain",
+      path: "experimental/plugins/apollo-bot-brain",
+    } as PluginsSearchGetResponse["matches"][number];
+
+    // WHEN the tab renders that catalog
+    const html = renderTab({
+      installed: { plugins: [] },
+      catalog: { query: "", ref: "main", matches: [legacyMatch] },
+    });
+
+    // THEN the row renders with its install hint
+    expect(html).toContain("assistant plugins install apollo-bot-brain");
+    // AND it is treated as first-party — no "external" badge
+    expect(html).not.toContain("external");
+  });
+
   test("suppresses catalog entries that are already installed", () => {
     const html = renderTab({
       installed: {

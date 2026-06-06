@@ -13,7 +13,10 @@ interface CatalogRowProps {
  */
 export function CatalogRow({ match }: CatalogRowProps) {
   const installHint = `assistant plugins install ${match.name}`;
-  const isExternal = match.source.kind === "github";
+  // `source` is omitted by daemons predating the marketplace whitelist. Treat
+  // a missing source as first-party so an older daemon degrades to an
+  // unbadged row instead of crashing the catalog.
+  const isExternal = match.source?.kind === "github";
 
   return (
     <Card.Root asChild>
