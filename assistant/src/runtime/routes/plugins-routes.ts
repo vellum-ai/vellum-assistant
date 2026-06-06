@@ -83,17 +83,43 @@ const pluginsListResponseSchema = z.object({
   plugins: z.array(pluginInfoSchema),
 });
 
+const pluginMatchSourceSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("first-party"),
+    }),
+    z.object({
+      kind: z.literal("github"),
+      repo: z
+        .string()
+        .describe("`owner/repo` of the external plugin repository."),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Directory within the repo, when the plugin is not at the root.",
+        ),
+      ref: z.string().describe("Pinned git ref the plugin is fetched from."),
+    }),
+  ])
+  .describe(
+    "Origin of the match: a first-party in-repo plugin or a whitelisted external one.",
+  );
+
 const pluginSearchMatchSchema = z.object({
   name: z
     .string()
-    .describe(
-      "Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.",
-    ),
+    .describe("Install name. Matches `assistant plugins install <name>`."),
   path: z
     .string()
     .describe(
-      "Repo-relative path of the match (e.g. `experimental/plugins/<name>`).",
+      "Human-readable origin: a repo-relative path (`experimental/plugins/<name>`) for first-party plugins or a `github:owner/repo@ref` locator for external ones.",
     ),
+  description: z
+    .string()
+    .optional()
+    .describe("Short description, when known (external entries only today)."),
+  source: pluginMatchSourceSchema,
 });
 
 const pluginsSearchResponseSchema = z.object({
@@ -149,6 +175,41 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   return view;
 }
 
+/** Wire shape for a catalog match. Mirrors {@link pluginSearchMatchSchema}. */
+interface PluginMatchView {
+  name: string;
+  path: string;
+  description?: string;
+  source:
+    | { kind: "first-party" }
+    | { kind: "github"; repo: string; path?: string; ref: string };
+}
+
+/**
+ * Re-pack a `readonly` lib match into a mutable wire object so the route
+ * serializer's `Record<string, unknown>` contract holds. The wire shape is
+ * identical to {@link PluginSearchMatch}.
+ */
+function projectMatch(m: PluginSearchMatch): PluginMatchView {
+  const view: PluginMatchView = {
+    name: m.name,
+    path: m.path,
+    source:
+      m.source.kind === "github"
+        ? {
+            kind: "github",
+            repo: m.source.repo,
+            ref: m.source.ref,
+            ...(m.source.path !== undefined ? { path: m.source.path } : {}),
+          }
+        : { kind: "first-party" },
+  };
+  if (m.description !== undefined) {
+    view.description = m.description;
+  }
+  return view;
+}
+
 function matchesQuery(plugin: PluginView, needle: string): boolean {
   const q = needle.toLowerCase();
   if (plugin.id.toLowerCase().includes(q)) return true;
@@ -180,7 +241,7 @@ function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
 interface PluginsSearchResponse {
   query: string;
   ref: string;
-  matches: PluginSearchMatch[];
+  matches: PluginMatchView[];
 }
 
 async function handleSearchPlugins({
@@ -202,7 +263,7 @@ async function handleSearchPlugins({
     return {
       query: result.query,
       ref: result.ref,
-      matches: result.matches.map((m) => ({ name: m.name, path: m.path })),
+      matches: result.matches.map(projectMatch),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {

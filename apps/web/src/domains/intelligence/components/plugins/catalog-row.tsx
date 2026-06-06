@@ -13,6 +13,7 @@ interface CatalogRowProps {
  */
 export function CatalogRow({ match }: CatalogRowProps) {
   const installHint = `assistant plugins install ${match.name}`;
+  const isExternal = match.source.kind === "github";
 
   return (
     <Card.Root asChild>
@@ -28,7 +29,26 @@ export function CatalogRow({ match }: CatalogRowProps) {
             >
               {match.name}
             </span>
+            {isExternal && (
+              <span
+                className="shrink-0 rounded px-1.5 py-0.5 text-body-small-default"
+                style={{
+                  backgroundColor: "var(--surface-secondary)",
+                  color: "var(--content-tertiary)",
+                }}
+              >
+                external
+              </span>
+            )}
           </div>
+          {match.description && (
+            <p
+              className="mt-1 truncate text-body-small-default"
+              style={{ color: "var(--content-secondary)" }}
+            >
+              {match.description}
+            </p>
+          )}
           <p
             className="mt-1 truncate text-body-small-default"
             style={{ color: "var(--content-tertiary)" }}

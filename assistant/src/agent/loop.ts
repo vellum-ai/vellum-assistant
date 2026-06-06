@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/node";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
@@ -536,15 +538,6 @@ export interface AgentLoopRunOptions {
    * convergence/auto-compress reruns) omit this and keep yielding for budget.
    */
   compaction?: MidLoopCompaction;
-  /**
-   * When true, the latest user message carries a volatile per-turn block
-   * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
-   * identical turns. Forwarded to each `SendMessageOptions.config` so the
-   * provider anchors its long-TTL cache breakpoint on the most recent STABLE
-   * user message instead of the volatile latest one, keeping the cached
-   * prefix reusable. Default unset → existing behavior.
-   */
-  mutableLatestUserMessage?: boolean;
 }
 
 /**
@@ -796,7 +789,6 @@ export class AgentLoop {
       resolveOverrideProfile,
       resolveContextWindow,
       compaction,
-      mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -913,12 +905,14 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for volatile latest-user-message turns (e.g.
-        // memory-v3 injects its `<memory>` block into the latest user
-        // message). Not part of the call-site schema, so it is always sourced
-        // from the per-run option regardless of `callSite`. Only set when true
-        // so the wire/config stays byte-identical when off.
-        if (mutableLatestUserMessage) {
+        // Cache-anchor signal for volatile latest-user-message turns: when
+        // memory-v3 is live it injects a per-turn `<memory>` block into the
+        // latest user message, so the provider must anchor its long-TTL cache
+        // breakpoint on the most recent STABLE user message instead of the
+        // volatile latest one. Read here alongside the rest of the provider
+        // config; only set when true so the wire/config stays byte-identical
+        // when off.
+        if (isAssistantFeatureFlagEnabled("memory-v3-live", getConfig())) {
           providerConfig.mutableLatestUserMessage = true;
         }
 

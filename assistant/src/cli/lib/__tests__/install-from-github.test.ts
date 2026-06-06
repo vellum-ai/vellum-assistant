@@ -75,8 +75,7 @@ function fixtureFetch(
       path: `experimental/plugins/${prefix}${name}`,
       type,
       size: type === "file" ? (tree[`${prefix}${name}`] as string).length : 0,
-      download_url:
-        type === "file" ? `${PREFIX_RAW}${prefix}${name}` : null,
+      download_url: type === "file" ? `${PREFIX_RAW}${prefix}${name}` : null,
     }));
   }
 
@@ -332,6 +331,253 @@ describe("installPlugin", () => {
     // is gone because the failed install rolled back the staging dir.
     expect(existsSync(join(pluginsDir, "..", "escape"))).toBe(false);
     expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+});
+
+/**
+ * Build a fixture that serves a marketplace manifest from the canonical repo
+ * plus an external plugin repo's contents.
+ *
+ * `manifest` is served raw at the canonical marketplace URL. `externalTree`
+ * maps repo-relative paths within `externalRepo` (e.g. `package.json`,
+ * `hooks/init.ts`) to file contents or `null` for directories.
+ */
+function marketplaceFixtureFetch(
+  manifest: unknown,
+  externalRepo: string,
+  externalTree: Record<string, string | null>,
+  // First-party plugin trees keyed by their full repo path (e.g.
+  // `experimental/plugins/caveman/package.json`). Anything not defined here
+  // resolves to a 404 so the fallback path surfaces a clean not-found.
+  firstPartyTree: Record<string, string | null> = {},
+): FetchLike {
+  const MANIFEST_URL =
+    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
+  const EXTERNAL_API = `https://api.github.com/repos/${externalRepo}/contents/`;
+  const EXTERNAL_RAW = `https://raw.githubusercontent.com/${externalRepo}/`;
+  const FIRST_PARTY_API =
+    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/";
+  const FIRST_PARTY_RAW =
+    "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/";
+
+  function listing(
+    rel: string,
+    tree: Record<string, string | null>,
+    rawPrefix: string,
+  ): unknown {
+    const prefix = rel ? rel + "/" : "";
+    const direct = new Map<string, "file" | "dir">();
+    for (const key of Object.keys(tree)) {
+      if (!key.startsWith(prefix)) continue;
+      const remainder = key.slice(prefix.length);
+      if (!remainder) continue;
+      const [head, ...rest] = remainder.split("/");
+      if (!direct.has(head!)) {
+        direct.set(
+          head!,
+          rest.length === 0 && tree[key] !== null ? "file" : "dir",
+        );
+      }
+    }
+    if (direct.size === 0) return null;
+    return Array.from(direct.entries()).map(([name, type]) => ({
+      name,
+      path: `${prefix}${name}`,
+      type,
+      size: type === "file" ? (tree[`${prefix}${name}`] as string).length : 0,
+      download_url:
+        type === "file" ? `${rawPrefix}<ref>/${prefix}${name}` : null,
+    }));
+  }
+
+  function rawFile(
+    url: string,
+    rawPrefix: string,
+    tree: Record<string, string | null>,
+  ): Response {
+    // Strip the `<ref>/` segment we baked into download_url.
+    const rel = decodeURIComponent(url.slice(rawPrefix.length)).replace(
+      /^[^/]+\//,
+      "",
+    );
+    const file = tree[rel];
+    if (file === null || file === undefined) {
+      return new Response("not found", { status: 404 });
+    }
+    return new Response(Buffer.from(new TextEncoder().encode(file)), {
+      status: 200,
+    });
+  }
+
+  return (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+
+    if (url.startsWith(MANIFEST_URL)) {
+      return new Response(JSON.stringify(manifest), { status: 200 });
+    }
+
+    if (url.startsWith(EXTERNAL_API)) {
+      const after = url.slice(EXTERNAL_API.length).split("?")[0]!;
+      const body = listing(
+        decodeURIComponent(after),
+        externalTree,
+        EXTERNAL_RAW,
+      );
+      if (body === null) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+
+    if (url.startsWith(EXTERNAL_RAW)) {
+      return rawFile(url, EXTERNAL_RAW, externalTree);
+    }
+
+    // First-party plugin directory listings, served from the canonical repo.
+    if (url.startsWith(FIRST_PARTY_API)) {
+      const after = url.slice(FIRST_PARTY_API.length).split("?")[0]!;
+      const body = listing(
+        decodeURIComponent(after),
+        firstPartyTree,
+        `${FIRST_PARTY_RAW}`,
+      );
+      if (body === null) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+
+    if (url.startsWith(FIRST_PARTY_RAW)) {
+      return rawFile(url, FIRST_PARTY_RAW, firstPartyTree);
+    }
+
+    return new Response("unexpected url: " + url, { status: 500 });
+  }) as FetchLike;
+}
+
+describe("installPlugin — marketplace resolution", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-mkt-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const CAVEMAN_MANIFEST = {
+    name: "vellum-assistant",
+    plugins: [
+      {
+        name: "caveman",
+        source: {
+          source: "github",
+          repo: "JuliusBrussee/caveman",
+          ref: "v1.8.2",
+        },
+        description: "Ultra-compressed communication mode.",
+      },
+    ],
+  };
+
+  test("installs a whitelisted plugin from its pinned external repo + ref", async () => {
+    // GIVEN a marketplace whitelisting caveman at its repo root, pinned to a tag
+    const fetch = marketplaceFixtureFetch(
+      CAVEMAN_MANIFEST,
+      "JuliusBrussee/caveman",
+      {
+        "package.json": '{"name":"caveman"}',
+        "README.md": "# caveman",
+        ".claude-plugin": null,
+        ".claude-plugin/plugin.json": "{}",
+      },
+    );
+
+    // WHEN we install by name (the install ref is ignored in favor of the
+    // manifest's pinned ref)
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the external tree is materialized under <pluginsDir>/caveman, and
+    // the result reports the pinned ref
+    const target = join(pluginsDir, "caveman");
+    expect(result.target).toBe(target);
+    expect(result.ref).toBe("v1.8.2");
+    expect(result.fileCount).toBe(3);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"caveman"}',
+    );
+    expect(existsSync(join(target, ".claude-plugin", "plugin.json"))).toBe(
+      true,
+    );
+  });
+
+  test("a name absent from the manifest falls back to the first-party source", async () => {
+    // GIVEN a manifest that does NOT whitelist "simple-memory", and an external
+    // fixture that would 404 any external lookup
+    const fetch = marketplaceFixtureFetch(
+      CAVEMAN_MANIFEST,
+      "JuliusBrussee/caveman",
+      {},
+    );
+
+    // WHEN we install a first-party name, the canonical repo has no such tree
+    // (the fixture only knows the manifest + caveman repo)
+    // THEN resolution falls back to the first-party path and surfaces a clean
+    // not-found pointing at the first-party source
+    await expect(
+      installPlugin(
+        { name: "simple-memory", ref: "main" },
+        { fetch, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toMatchObject({
+      constructor: PluginNotFoundError,
+      message: expect.stringContaining("vellum-ai/vellum-assistant"),
+    });
+  });
+
+  test("first-party plugin wins a name collision with the marketplace", async () => {
+    // GIVEN a manifest whitelisting "caveman" externally
+    // AND an in-repo first-party plugin that also claims the name "caveman"
+    const fetch = marketplaceFixtureFetch(
+      CAVEMAN_MANIFEST,
+      "JuliusBrussee/caveman",
+      {
+        "package.json": '{"name":"external-caveman"}',
+        hooks: null,
+        "hooks/init.ts": "// external",
+      },
+      {
+        "experimental/plugins/caveman/package.json":
+          '{"name":"@vellumai/caveman"}',
+        "experimental/plugins/caveman/hooks": null,
+        "experimental/plugins/caveman/hooks/init.ts": "// first-party",
+      },
+    );
+
+    // WHEN we install by the colliding name
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the in-repo plugin is installed (matching what the search catalog
+    // advertises for the name), not the external repo — the marketplace is
+    // additive and never overrides a first-party plugin
+    const target = join(pluginsDir, "caveman");
+    expect(result.ref).toBe("main");
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"@vellumai/caveman"}',
+    );
+    expect(readFileSync(join(target, "hooks", "init.ts"), "utf-8")).toBe(
+      "// first-party",
+    );
   });
 });
 

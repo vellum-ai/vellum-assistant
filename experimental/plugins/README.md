@@ -16,6 +16,7 @@ canonical reference implementation and exercises every wired surface.
 - [Public API surface](#public-api-surface--vellumaiplugin-api)
 - [Hooks](#hooks)
 - [Tools](#tools)
+- [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
 ---
@@ -412,6 +413,69 @@ defaults when an author omits a field:
 `export default {}` is therefore a valid (if useless) tool — broken
 individual tools never block plugin load; misconfigurations surface at
 call time.
+
+---
+
+## Marketplace — whitelisting external plugins
+
+The catalog shown by `assistant plugins search` (and the web plugins tab) is
+computed live from two sources:
+
+1. **First-party plugins** — the directories in this folder.
+2. **Whitelisted external plugins** — entries in
+   [`marketplace.json`](./marketplace.json).
+
+The manifest lets us surface plugins that live in other repos without copying
+their code here. Its shape is a subset of the
+[Claude Code marketplace schema](https://code.claude.com/docs/en/plugin-marketplaces):
+a `name`, an optional `owner`, and a `plugins` array.
+
+```json
+{
+  "name": "vellum-assistant",
+  "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
+  "plugins": [
+    {
+      "name": "caveman",
+      "source": { "source": "github", "repo": "JuliusBrussee/caveman", "ref": "v1.8.2" },
+      "description": "Ultra-compressed communication mode.",
+      "category": "productivity",
+      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "license": "MIT"
+    }
+  ]
+}
+```
+
+Per-entry fields:
+
+- **`name`** _(required)_ — the install name. `assistant plugins install <name>`
+  resolves to this entry, and the name must be a single kebab-case segment.
+- **`source`** _(required)_ — only `github` sources are resolved today:
+  - **`repo`** _(required)_ — `owner/repo` of the external repository.
+  - **`path`** — directory within the repo holding the plugin root. Omit for
+    the repository root. Must not escape the repo (`..` segments are rejected).
+  - **`ref`** _(required)_ — the git ref (tag, SHA, or branch) to fetch from.
+    **Every external entry must pin a ref** so the fetched code is
+    version-locked rather than tracking a floating branch. Prefer a release
+    tag or commit SHA.
+- **`description`**, **`category`**, **`homepage`**, **`license`** —
+  informational; surfaced in the catalog where present.
+
+Resolution rules:
+
+- **Curation is the whitelist.** Only repos listed here appear in the catalog;
+  there is no open registry.
+- **First-party wins name collisions.** If a directory in this folder and a
+  marketplace entry share a name, the in-repo plugin takes precedence.
+- **The manifest is supplementary.** A missing or malformed `marketplace.json`
+  degrades to the first-party listing — it never blocks core plugin discovery
+  or installation.
+
+Whitelisting makes an external plugin **appear in the catalog and install by
+name**. It does not guarantee the plugin's hooks/tools match this loader's
+conventions — a plugin authored for another ecosystem may install yet
+contribute nothing on boot until a compatibility adapter exists.
 
 ---
 

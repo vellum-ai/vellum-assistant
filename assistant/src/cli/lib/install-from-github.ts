@@ -1,11 +1,16 @@
 /**
- * Install an external plugin by name from the canonical GitHub source.
+ * Install a plugin by name from the canonical GitHub source.
  *
- * The plugin source convention is fixed at
- * `vellum-ai/vellum-assistant/experimental/plugins/<name>/` on the configured
- * git ref. The {@link installPlugin} entry point fetches the directory tree
- * via the GitHub Contents API and materializes it into
- * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start.
+ * A name resolves to one of two sources, both fetched via the GitHub Contents
+ * API and materialized into `<workspacePluginsDir>/<name>/` so the daemon
+ * discovers it on next start:
+ *   1. A whitelisted external ecosystem plugin, when the name matches an entry
+ *      in the curated `experimental/plugins/marketplace.json` manifest — fetched
+ *      from that entry's pinned `owner/repo[/path]@ref` (see
+ *      {@link ./plugin-marketplace}).
+ *   2. Otherwise the first-party convention
+ *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
+ *      configured ref.
  *
  * Designed for direct programmatic use. The CLI command
  * `assistant plugins install <name>` is a thin wrapper that supplies
@@ -15,10 +20,20 @@
  * a test fixture) and an override workspace directory.
  */
 
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import {
+  fetchMarketplaceEntries,
+  resolveMarketplaceSource,
+} from "./plugin-marketplace.js";
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
@@ -77,7 +92,9 @@ export interface InstallPluginResult {
 /** Plugin name failed sanitization. */
 export class InvalidPluginNameError extends Error {
   constructor(name: string) {
-    super(`Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`);
+    super(
+      `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
+    );
     this.name = "InvalidPluginNameError";
   }
 }
@@ -98,11 +115,108 @@ export class PluginNotFoundError extends Error {
   constructor(
     readonly pluginName: string,
     readonly ref: string,
+    /** `owner/repo/path` the plugin was looked for at. */
+    sourceLabel: string,
   ) {
-    const sourcePath = `${PLUGIN_SOURCE_OWNER}/${PLUGIN_SOURCE_REPO}/${PLUGIN_SOURCE_PATH_PREFIX}/${pluginName}`;
-    super(`Plugin "${pluginName}" not found at ${sourcePath} (ref ${ref}).`);
+    super(`Plugin "${pluginName}" not found at ${sourceLabel} (ref ${ref}).`);
     this.name = "PluginNotFoundError";
   }
+}
+
+/** Resolved GitHub coordinates a plugin name is fetched from. */
+interface PluginFetchSource {
+  readonly owner: string;
+  readonly repo: string;
+  /** Repo-relative directory holding the plugin root; `""` = repo root. */
+  readonly rootPath: string;
+  readonly ref: string;
+}
+
+/** Build the `owner/repo/path` label used in not-found errors. */
+function sourceLabel(source: PluginFetchSource): string {
+  return source.rootPath
+    ? `${source.owner}/${source.repo}/${source.rootPath}`
+    : `${source.owner}/${source.repo}`;
+}
+
+/** First-party `experimental/plugins/<name>` coordinates at a given ref. */
+function firstPartySource(name: string, ref: string): PluginFetchSource {
+  return {
+    owner: PLUGIN_SOURCE_OWNER,
+    repo: PLUGIN_SOURCE_REPO,
+    rootPath: `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
+    ref,
+  };
+}
+
+/**
+ * Probe whether a first-party plugin directory exists at the given source.
+ *
+ * A transient listing failure resolves to `false` so a marketplace-claimed
+ * name still reaches its external source — the rare collision guarantee gives
+ * way to keeping the common external-only install path working under flaky
+ * network conditions.
+ */
+async function firstPartyPluginExists(
+  source: PluginFetchSource,
+  fetchFn: FetchLike,
+): Promise<boolean> {
+  try {
+    const entries = await listDir(
+      source.owner,
+      source.repo,
+      source.rootPath,
+      source.ref,
+      fetchFn,
+    );
+    return entries !== null && entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a plugin name to concrete GitHub coordinates.
+ *
+ * First-party plugins win a name collision: a name claimed by the curated
+ * marketplace is fetched from its pinned external repo only when no
+ * `experimental/plugins/<name>` directory exists in-repo. This mirrors the
+ * search catalog, where an in-repo plugin suppresses a same-named marketplace
+ * entry — install must advertise and install the same source.
+ *
+ * A missing or malformed manifest degrades to first-party resolution — the
+ * whitelist is supplementary and must never block installing a first-party
+ * plugin. An external name then surfaces a clear not-found error downstream.
+ */
+async function resolvePluginSource(
+  name: string,
+  marketplaceRef: string,
+  fetchFn: FetchLike,
+): Promise<PluginFetchSource> {
+  let resolved = null;
+  try {
+    const entries = await fetchMarketplaceEntries(
+      { fetch: fetchFn },
+      { ref: marketplaceRef },
+    );
+    resolved = resolveMarketplaceSource(name, entries);
+  } catch {
+    // Degrade to first-party resolution below.
+  }
+
+  const firstParty = firstPartySource(name, marketplaceRef);
+  if (!resolved) return firstParty;
+
+  if (await firstPartyPluginExists(firstParty, fetchFn)) {
+    return firstParty;
+  }
+
+  return {
+    owner: resolved.owner,
+    repo: resolved.repo,
+    rootPath: resolved.path,
+    ref: resolved.ref,
+  };
 }
 
 /**
@@ -141,7 +255,9 @@ function assertSafeFilename(label: string, candidate: string): void {
     candidate.includes("\0") ||
     candidate.split(/[/\\]/).some((seg) => seg === "..")
   ) {
-    throw new Error(`Unsafe ${label} from GitHub response: ${JSON.stringify(candidate)}`);
+    throw new Error(
+      `Unsafe ${label} from GitHub response: ${JSON.stringify(candidate)}`,
+    );
   }
 }
 
@@ -158,8 +274,11 @@ export async function installPlugin(
   deps: InstallPluginDeps,
 ): Promise<InstallPluginResult> {
   const name = sanitizePluginName(opts.name);
-  const ref = opts.ref ?? DEFAULT_PLUGIN_REF;
+  const marketplaceRef = opts.ref ?? DEFAULT_PLUGIN_REF;
   const force = opts.force ?? false;
+
+  const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
+  const ref = source.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
@@ -180,7 +299,9 @@ export async function installPlugin(
   let fileCount: number;
   try {
     fileCount = await copyDir(
-      `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
+      source.owner,
+      source.repo,
+      source.rootPath,
       ref,
       stagingDir,
       deps.fetch,
@@ -192,7 +313,7 @@ export async function installPlugin(
 
   if (fileCount === 0) {
     rmSync(stagingDir, { recursive: true, force: true });
-    throw new PluginNotFoundError(name, ref);
+    throw new PluginNotFoundError(name, ref, sourceLabel(source));
   }
 
   // Atomic-ish swap: rmSync + renameSync. On POSIX the rename itself is
@@ -207,12 +328,14 @@ export async function installPlugin(
 }
 
 async function copyDir(
+  owner: string,
+  repo: string,
   apiPath: string,
   ref: string,
   destDir: string,
   fetchFn: FetchLike,
 ): Promise<number> {
-  const entries = await listDir(apiPath, ref, fetchFn);
+  const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
   if (entries === null) return 0;
 
   let count = 0;
@@ -221,7 +344,7 @@ async function copyDir(
     if (entry.type === "dir") {
       const subDest = join(destDir, entry.name);
       mkdirSync(subDest, { recursive: true });
-      count += await copyDir(entry.path, ref, subDest, fetchFn);
+      count += await copyDir(owner, repo, entry.path, ref, subDest, fetchFn);
       continue;
     }
     if (entry.type === "file") {
@@ -237,12 +360,14 @@ async function copyDir(
 }
 
 async function listDir(
+  owner: string,
+  repo: string,
   apiPath: string,
   ref: string,
   fetchFn: FetchLike,
 ): Promise<readonly GitHubContentEntry[] | null> {
   const url =
-    `https://api.github.com/repos/${PLUGIN_SOURCE_OWNER}/${PLUGIN_SOURCE_REPO}` +
+    `https://api.github.com/repos/${owner}/${repo}` +
     `/contents/${encodeURIComponent(apiPath).replaceAll("%2F", "/")}?ref=${encodeURIComponent(ref)}`;
 
   const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
@@ -271,7 +396,11 @@ async function copyFile(
   if (!entry.download_url) {
     throw new Error(`GitHub contents entry has no download_url: ${entry.path}`);
   }
-  const res = await githubFetch(entry.download_url, "application/octet-stream", fetchFn);
+  const res = await githubFetch(
+    entry.download_url,
+    "application/octet-stream",
+    fetchFn,
+  );
   if (!res.ok) {
     throw new Error(`Download failed for ${entry.path}: HTTP ${res.status}`);
   }
