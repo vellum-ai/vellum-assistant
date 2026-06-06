@@ -1092,9 +1092,11 @@ export async function runAgentLoopImpl(
       // the conversation's frozen `currentTurnTemporalSnapshot`, the interface
       // and channel labels from the live conversation's turn interface/channel
       // context, and the configured and detected timezones from config — all
-      // self-resolved in `applyRuntimeInjections`.
+      // self-resolved in `applyRuntimeInjections`. `modelProfile` is resolved
+      // once at turn start and threaded per call site (like `isNonInteractive`)
+      // so post-compaction re-injection receives it as an explicit hook input
+      // rather than via this closure.
       timeSinceLastMessage,
-      modelProfile: modelProfileStr,
       actorContext: isGuardian ? null : resolvedInboundActorContext,
     } as const;
 
@@ -1109,6 +1111,7 @@ export async function runAgentLoopImpl(
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
       isNonInteractive,
+      modelProfile: modelProfileStr,
       slackChronologicalMessages: state.reducerCompacted
         ? null
         : injectionOpts.slackChronologicalMessages,
@@ -1279,6 +1282,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
             isNonInteractive,
+            modelProfile: modelProfileStr,
             // Once ANY iteration has compacted `ctx.messages`, the captured
             // `slackChronologicalMessages` snapshot (built from the full
             // persisted transcript) would overwrite the compacted history
@@ -1404,6 +1408,7 @@ export async function runAgentLoopImpl(
         turnContext,
         isNonInteractive,
         mode,
+        modelProfile,
       }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // memory-static block, so re-inject the current content regardless of
@@ -1413,6 +1418,7 @@ export async function runAgentLoopImpl(
         const injection = await postCompactReinject({
           ...injectionOpts,
           isNonInteractive,
+          modelProfile,
           // Suppress the chronological-transcript snapshot once the reducer
           // has collapsed `ctx.messages`; the captured snapshot reflects the
           // full persisted transcript and would overwrite compaction.
@@ -1451,6 +1457,7 @@ export async function runAgentLoopImpl(
           resolveContextWindow,
           compaction,
           isNonInteractive,
+          modelProfile: modelProfileStr,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
@@ -1791,6 +1798,7 @@ export async function runAgentLoopImpl(
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           isNonInteractive,
+          modelProfile: modelProfileStr,
           slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
@@ -1882,6 +1890,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             isNonInteractive,
+            modelProfile: modelProfileStr,
             slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,

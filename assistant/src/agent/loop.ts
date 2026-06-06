@@ -546,6 +546,16 @@ export interface AgentLoopRunOptions {
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
   isNonInteractive?: boolean;
+  /**
+   * The `model_profile:` turn-context label resolved once by the orchestrator
+   * at turn start, or `null` when the active inference profile is unchanged
+   * since the last notified one. Forwarded to the
+   * {@link MidLoopCompaction.postCompactionHook} so post-compaction re-injection
+   * re-emits the turn-start value rather than re-deriving the change-detected
+   * label (which flips once the notification is persisted mid-turn). Defaults to
+   * `null` when omitted.
+   */
+  modelProfile?: string | null;
 }
 
 /**
@@ -722,6 +732,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
     isNonInteractive: boolean,
+    modelProfile: string | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -783,6 +794,7 @@ export class AgentLoop {
       isNonInteractive,
       // Mid-loop re-injection always runs at full injection volume.
       mode: "full",
+      modelProfile,
     });
   }
 
@@ -802,6 +814,7 @@ export class AgentLoop {
       resolveContextWindow,
       compaction,
       isNonInteractive = false,
+      modelProfile = null,
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -1646,6 +1659,7 @@ export class AgentLoop {
                 onEvent,
                 resolveEffectiveOverrideProfile() ?? null,
                 isNonInteractive,
+                modelProfile,
               );
               if (compacted) {
                 history = compacted;
