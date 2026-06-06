@@ -208,6 +208,7 @@ export function HeroCharacter({
   heldProps = [],
   mime = null,
   ascended = false,
+  nod = null,
 }: {
   character: CastCharacter;
   box: Rect;
@@ -216,6 +217,7 @@ export function HeroCharacter({
   heldProps?: HeldProp[];
   mime?: MimeState | null;
   ascended?: boolean;
+  nod?: { dir: "left" | "right"; nonce: number } | null;
 }) {
   const controls = useAnimationControls();
   // Zzz floats whenever a yawn plays — the grumpy-eyed character in Beat 2 and
@@ -260,6 +262,19 @@ export function HeroCharacter({
   useEffect(() => {
     if (ascended) void play("spin");
   }, [ascended, play]);
+
+  // Nod toward the picked side (Beat 5 this/that): a quick lean + tilt.
+  const nodDir = nod?.dir;
+  const nodNonce = nod?.nonce;
+  useEffect(() => {
+    if (!nodDir) return;
+    const s = nodDir === "left" ? -1 : 1;
+    void controls.start({
+      x: [0, s * 22, s * 14, 0],
+      rotate: [0, s * 10, s * 6, 0],
+      transition: { duration: 0.7, ease: "easeInOut", times: [0, 0.35, 0.6, 1] },
+    });
+  }, [nodNonce, nodDir, controls]);
 
   const m = mime?.rather.mime;
   const hideHeld = m?.replaceJob;

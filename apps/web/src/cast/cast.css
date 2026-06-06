@@ -451,6 +451,72 @@
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* ---- Beat 5: this or that ---- */
+
+.cast-thisthat {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.cast-thisthat__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.cast-vs {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 22px;
+  min-height: 132px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: #f4f4f6;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.cast-vs:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cast-thisthat__dots {
+  display: flex;
+  gap: 8px;
+}
+.cast-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background 200ms ease, transform 200ms ease;
+}
+.cast-dot.is-on {
+  background: rgba(255, 255, 255, 0.85);
+  transform: scale(1.25);
+}
+
+.cast-done__sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: rgba(244, 244, 246, 0.45);
+}
+
 /* ---- Easter egg: Super-Saiyan ascension (select everything) ---- */
 
 .cast-hero.is-ascended .cast-hero__body {

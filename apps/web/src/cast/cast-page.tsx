@@ -4,19 +4,27 @@ import { AnimatePresence, motion } from "motion/react";
 import { CastAvatar } from "@/cast/cast-avatar";
 import {
   EDGES,
+  JOBS,
   RATHERS,
   type Edge,
   type JobKey,
   type RatherKey,
 } from "@/cast/cast-content";
 import { HeroCharacter, type MimeState, type Rect } from "@/cast/cast-hero";
+import {
+  kickoffJobContext,
+  kickoffRatherContext,
+  kickoffStyleContext,
+  type StyleProfile,
+} from "@/cast/cast-hooks";
 import { CastJob } from "@/cast/cast-job";
 import { CastRather } from "@/cast/cast-rather";
+import { CastStyle } from "@/cast/cast-style";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
 import "@/cast/cast.css";
 
-type Phase = "grid" | "flying" | "focus" | "job" | "rather";
+type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done";
 
 /** Columns and rows derive from the window so the crowd fills it at any size. */
 function colsFor(width: number): number {
@@ -67,6 +75,7 @@ export function CastPage() {
   const [jobs, setJobs] = useState<JobKey[]>([]);
   const [jobEdges, setJobEdges] = useState<Record<string, Edge>>({});
   const [rathers, setRathers] = useState<RatherKey[]>([]);
+  const [style, setStyle] = useState<StyleProfile>({});
   const [mime, setMime] = useState<MimeState | null>(null);
   const [showCard, setShowCard] = useState(false);
   const tapRef = useRef(0);
@@ -145,17 +154,23 @@ export function CastPage() {
   // Beat 3: toggle a job. Each newly-added job keeps a stable fly-in edge so its
   // prop arcs in once and then stays clustered around the character.
   function toggleJob(key: JobKey) {
-    setJobs((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    const next = jobs.includes(key) ? jobs.filter((k) => k !== key) : [...jobs, key];
+    setJobs(next);
     setJobEdges((prev) =>
       prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
     );
+    // Warm up job context in the background (stub for now).
+    void kickoffJobContext(next);
   }
 
   // Beat 4: toggle a rather. Adding one plays its mime (transient) and, the
   // first time, schedules the card.
   function toggleRather(key: RatherKey) {
     const has = rathers.includes(key);
-    setRathers((prev) => (has ? prev.filter((k) => k !== key) : [...prev, key]));
+    const next = has ? rathers.filter((k) => k !== key) : [...rathers, key];
+    setRathers(next);
+    // Warm up rather context in the background (stub for now).
+    void kickoffRatherContext(next);
     if (has) return;
     const choice = RATHERS.find((r) => r.key === key)!;
     const nonce = (tapRef.current += 1);
@@ -178,6 +193,26 @@ export function CastPage() {
       rathers,
       answer: a,
     });
+    if (a === "yeah") {
+      clearBeatTimers();
+      setShowCard(false);
+      setMime(null);
+      setPhase("style");
+    }
+  }
+
+  // Beat 5: each round picked warms style context; the final round transitions
+  // out to whatever comes next (placeholder "done" route for now).
+  function onStyleRound(next: StyleProfile) {
+    setStyle(next);
+    void kickoffStyleContext(next);
+  }
+  function onStyleDone(next: StyleProfile) {
+    // The final round's kickoffStyleContext already fired via onStyleRound; here
+    // we only persist + transition out.
+    setStyle(next);
+    console.log("[Cast] complete", { character: selected?.id, name, jobs, rathers, style: next });
+    setPhase("done");
   }
 
   return (
@@ -273,6 +308,32 @@ export function CastPage() {
               setShowCard(false);
               setPhase("job");
             }}
+          />
+        )}
+
+        {/* Beat 5 — this or that */}
+        {phase === "style" && selected && (
+          <CastStyle
+            character={selected}
+            heroBox={boxes.top}
+            jobs={jobs}
+            ascended={rathers.length === RATHERS.length}
+            onRoundPicked={onStyleRound}
+            onDone={onStyleDone}
+            onBack={() => setPhase("rather")}
+          />
+        )}
+
+        {/* Placeholder for whatever comes next (Proof beat) */}
+        {phase === "done" && selected && (
+          <CastDone
+            character={selected}
+            name={name}
+            box={boxes.focus}
+            jobs={jobs}
+            style={style}
+            ascended={rathers.length === RATHERS.length}
+            onRestart={backToGrid}
           />
         )}
 
@@ -390,6 +451,56 @@ function CastFocus({
 
       <button className="cast-continue" onClick={onContinue}>
         Continue
+      </button>
+    </motion.div>
+  );
+}
+
+/* ---------------- Placeholder for what comes next (Proof beat) ---------------- */
+
+function CastDone({
+  character,
+  name,
+  box,
+  jobs,
+  style,
+  ascended,
+  onRestart,
+}: {
+  character: CastCharacter;
+  name: string;
+  box: Rect;
+  jobs: JobKey[];
+  style: StyleProfile;
+  ascended: boolean;
+  onRestart: () => void;
+}) {
+  const styleSummary = [style.execution, style.tone, style.latitude]
+    .filter(Boolean)
+    .join(" · ")
+    .replace(/_/g, " ");
+  const heldProps = ascended
+    ? jobs.map((k) => {
+        const idx = JOBS.findIndex((j) => j.key === k);
+        return { key: JOBS[idx].prop, slot: idx, fly: null };
+      })
+    : [];
+  return (
+    <motion.div className="cast-focus" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <HeroCharacter character={character} box={box} interactive heldProps={heldProps} ascended={ascended} />
+      <motion.div
+        className="cast-name"
+        style={{ top: box.top + box.size + 28 }}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.4 }}
+      >
+        <div className="cast-name__text">{name} is ready.</div>
+        {styleSummary && <p className="cast-done__sub">{styleSummary}</p>}
+        <p className="cast-done__sub">Proof beat goes here next.</p>
+      </motion.div>
+      <button className="cast-continue" onClick={onRestart}>
+        Start over
       </button>
     </motion.div>
   );
