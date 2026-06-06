@@ -38,12 +38,17 @@ function initialCastTheme(): CastTheme {
   return t === "light" || t === "velvet" ? t : "dark";
 }
 
-/** Columns and rows derive from the window so the crowd fills it at any size. */
+/** The crowd floor spans wider than the viewport so characters bleed off both
+ * edges ("already outside the window"). Columns/rows derive from that wider
+ * area at a roughly constant cell size, so growing the window reveals MORE
+ * characters rather than scaling them up. */
+const FLOOR_W = 1.7; // floor width as a fraction of the viewport (170%)
+const CELL = 132; // target on-screen cell size (px)
 function colsFor(width: number): number {
-  return Math.max(4, Math.min(16, Math.round(width / 134)));
+  return Math.max(6, Math.min(28, Math.round((width * FLOOR_W) / CELL)));
 }
 function rowsFor(height: number): number {
-  return Math.max(10, Math.min(20, Math.round(height / 74)));
+  return Math.max(10, Math.min(28, Math.round(height / 70)));
 }
 
 /** Beat 2 hero box: centered, large. */
@@ -118,7 +123,7 @@ export function CastPage() {
   const [theme, setTheme] = useState<CastTheme>(() => initialCastTheme());
 
   const { cols, rows } = grid;
-  const visible = CAST.slice(0, Math.min(cols * rows, 260));
+  const visible = CAST.slice(0, Math.min(cols * rows, 600));
   const inGrid = phase === "grid";
   const name = selected ? (names[selected.id] ?? selected.name) : "";
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
@@ -256,7 +261,10 @@ export function CastPage() {
         >
           <motion.div
             className="cast-floor"
-            style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+            style={{
+              width: `${FLOOR_W * 100}%`,
+              gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            }}
             animate={{ opacity: inGrid ? 1 : 0 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
           >

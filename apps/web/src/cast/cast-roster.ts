@@ -90,8 +90,10 @@ function hash(n: number, salt: number): number {
   return v >>> 0;
 }
 
-/** Large pool so a full-window crowd can be sliced to fit any viewport. */
-const COUNT = 180;
+/** Large pool so a full-bleed crowd can be sliced to fit any viewport — the
+ * floor extends well past the window edges and grows with the window, so this
+ * needs enough characters to cover large screens without repeating. */
+const COUNT = 720;
 
 /**
  * Generate the roster. Each axis is hashed with its own salt so neighbours

@@ -88,8 +88,10 @@
 .cast-floor {
   display: grid;
   column-gap: 2px;
-  width: 120%;
-  padding: 0 1%;
+  /* width set inline (FLOOR_W) so the crowd bleeds past both edges; no gutter.
+     flex-shrink:0 stops the centering flex parent from collapsing it back to
+     viewport width (which would shrink the dudes instead of overflowing). */
+  flex-shrink: 0;
   transform: rotateX(var(--tilt));
   transform-origin: bottom center;
   transform-style: preserve-3d;
