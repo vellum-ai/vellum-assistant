@@ -3,8 +3,8 @@
  * drives the per-turn injection sequence consumed by
  * `applyRuntimeInjections`.
  *
- * Each default injector reads its per-turn inputs from
- * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
+ * Each default injector reads its per-turn inputs directly off the
+ * {@link TurnContext}, runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
  * {@link InjectionPlacement} that yields the canonical positional
@@ -73,7 +73,6 @@ import {
   type InjectionBlock,
   type Injector,
   type TurnContext,
-  type TurnInjectionInputs,
 } from "../../types.js";
 import { buildUnifiedTurnContextBlock } from "./unified-turn-context.js";
 
@@ -113,10 +112,6 @@ export const DEFAULT_INJECTOR_ORDER = {
   slackMessages: 60,
   threadFocus: 70,
 } as const satisfies Record<string, number>;
-
-function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
-  return ctx.injectionInputs ?? {};
-}
 
 export const DISK_PRESSURE_WARNING_PROMPT = `<disk_pressure_warning>
 Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is critically full.
@@ -202,8 +197,7 @@ const workspaceContextInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const text = resolveWorkspaceTopLevelContext(ctx.conversationId);
     if (!text) return null;
@@ -237,9 +231,8 @@ const backgroundTurnInjector: Injector = {
   name: "background-turn",
   order: DEFAULT_INJECTOR_ORDER.backgroundTurn,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (!inputs.isBackgroundConversation) return null;
-    if (!inputs.isNonInteractive) return null;
+    if (!ctx.isBackgroundConversation) return null;
+    if (!ctx.isNonInteractive) return null;
     const inner = getConfig().conversations.backgroundInjection;
     if (!inner) return null;
     return {
@@ -255,7 +248,7 @@ const backgroundTurnInjector: Injector = {
  *
  * Injects the `<turn_context>` block that combines temporal, actor, channel,
  * and interface context. The orchestrator resolves the block's inputs onto the
- * per-turn {@link TurnInjectionInputs}; this injector builds the text from them
+ * per-turn {@link TurnContext}; this injector builds the text from them
  * via `buildUnifiedTurnContextBlock`. Emits nothing when no `timestamp` is
  * present (the inputs were not resolved for this turn).
  *
@@ -266,19 +259,18 @@ const unifiedTurnContextInjector: Injector = {
   name: "unified-turn-context",
   order: DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const { timestamp } = inputs;
+    const { timestamp } = ctx;
     if (!timestamp) return null;
     const text = buildUnifiedTurnContextBlock({
       timestamp,
-      interfaceName: inputs.interfaceName,
-      channelName: inputs.channelName,
-      actorContext: inputs.actorContext,
-      configuredUserTimezone: inputs.configuredUserTimezone,
-      clientTimezone: inputs.clientTimezone,
-      detectedTimezone: inputs.detectedTimezone,
-      timeSinceLastMessage: inputs.timeSinceLastMessage,
-      modelProfile: inputs.modelProfile,
+      interfaceName: ctx.interfaceName,
+      channelName: ctx.channelName,
+      actorContext: ctx.actorContext,
+      configuredUserTimezone: ctx.configuredUserTimezone,
+      clientTimezone: ctx.clientTimezone,
+      detectedTimezone: ctx.detectedTimezone,
+      timeSinceLastMessage: ctx.timeSinceLastMessage,
+      modelProfile: ctx.modelProfile,
     });
     return {
       id: "unified-turn-context",
@@ -320,8 +312,7 @@ const pkbContextInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     if (isPkbInjectionSilencedByV2()) return null;
     const content = readGatedPkbContext(ctx.trust);
@@ -356,8 +347,7 @@ const pkbReminderInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     if (!isPkbActive(ctx.trust)) return null;
     if (isPkbInjectionSilencedByV2()) return null;
@@ -653,8 +643,7 @@ const memoryV2StaticInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const content = readGatedMemoryV2Static(ctx.trust);
     if (!content) return null;
@@ -708,8 +697,7 @@ const nowMdInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const content = readGatedNowScratchpad(ctx.trust);
     if (!content) return null;
@@ -739,10 +727,9 @@ const activeDocumentsInjector: Injector = {
   name: "active-documents",
   order: DEFAULT_INJECTOR_ORDER.activeDocuments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const docs = inputs.activeDocuments;
+    const docs = ctx.activeDocuments;
     if (!docs || docs.length === 0) return null;
     const lines = docs.map(
       (d) =>
@@ -787,10 +774,9 @@ const documentCommentsInjector: Injector = {
   name: "document-comments",
   order: DEFAULT_INJECTOR_ORDER.documentComments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const docs = inputs.activeDocuments;
+    const docs = ctx.activeDocuments;
     if (!docs || docs.length === 0) return null;
 
     const sections: string[] = [];
@@ -846,10 +832,9 @@ const subagentStatusInjector: Injector = {
   name: "subagent-status",
   order: DEFAULT_INJECTOR_ORDER.subagentStatus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const block = inputs.subagentStatusBlock;
+    const block = ctx.subagentStatusBlock;
     if (!block) return null;
     return {
       id: "subagent-status",
@@ -884,9 +869,8 @@ const slackMessagesInjector: Injector = {
   name: "slack-messages",
   order: DEFAULT_INJECTOR_ORDER.slackMessages,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (inputs.channelCapabilities?.channel !== "slack") return null;
-    const messages = inputs.slackChronologicalMessages;
+    if (ctx.channelCapabilities?.channel !== "slack") return null;
+    const messages = ctx.slackChronologicalMessages;
     if (!messages || messages.length === 0) return null;
     return {
       id: "slack-messages",
@@ -923,14 +907,13 @@ const threadFocusInjector: Injector = {
   name: "thread-focus",
   order: DEFAULT_INJECTOR_ORDER.threadFocus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const caps = inputs.channelCapabilities;
+    const caps = ctx.channelCapabilities;
     if (!caps || caps.channel !== "slack" || caps.chatType !== "channel") {
       return null;
     }
-    const block = inputs.slackActiveThreadFocusBlock;
+    const block = ctx.slackActiveThreadFocusBlock;
     if (typeof block !== "string" || block.length === 0) return null;
     return {
       id: "thread-focus",

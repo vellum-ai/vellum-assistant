@@ -48,7 +48,6 @@ import type {
   InjectionBlock,
   InjectionPlacement,
   TurnContext,
-  TurnInjectionInputs,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
@@ -1604,9 +1603,9 @@ function applyInjectionBlock(
 /**
  * Per-turn options accepted by {@link applyRuntimeInjections}.
  *
- * Most fields flow through to the per-injector {@link TurnInjectionInputs}
- * bag attached to the {@link TurnContext} the caller provides (or to an
- * ephemeral {@link TurnContext} synthesized for test call sites).
+ * Most fields are layered onto the {@link TurnContext} the caller provides
+ * (or onto an ephemeral {@link TurnContext} synthesized for test call sites)
+ * as the per-injector inputs consumed by the default injector chain.
  *
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, the
@@ -1636,7 +1635,7 @@ function applyInjectionBlock(
  *
  * The remaining unified `<turn_context>` inputs (`actorContext` and
  * `modelProfile`) are flat top-level fields here. They flow through to the
- * matching {@link TurnInjectionInputs} fields, and the `unified-turn-context`
+ * matching {@link TurnContext} fields, and the `unified-turn-context`
  * injector builds the block from them — combined with the turn's frozen
  * timestamp, client timezone, and long-absence gap (from
  * `currentTurnTemporalSnapshot`), the interface and channel labels, and the two
@@ -1705,54 +1704,10 @@ export interface RuntimeInjectionOptions {
    * `TurnContext` get the same chain output.
    *
    * When provided, the caller's `trust`, `conversationId`, `turnIndex`,
-   * etc. are preserved; the function layers its per-turn
-   * {@link TurnInjectionInputs} onto a shallow clone so the caller's
-   * `TurnContext` is not mutated.
+   * etc. are preserved; the function layers its per-turn injection inputs
+   * onto a shallow clone so the caller's `TurnContext` is not mutated.
    */
   turnContext?: TurnContext;
-}
-
-/**
- * Build the {@link TurnInjectionInputs} bag from the options bag.
- *
- * Exposed so callers that already hold a {@link TurnContext} can layer the
- * same per-turn inputs onto it before handing control to
- * {@link collectInjectorBlocks} directly — useful for tests and for the
- * overflow-reducer reinject path.
- */
-function buildTurnInjectionInputs(
-  options: RuntimeInjectionOptions,
-  channelCapabilities: ChannelCapabilities | null,
-  activeDocuments: TurnInjectionInputs["activeDocuments"],
-  isBackgroundConversation: boolean,
-  subagentStatusBlock: string | null,
-  timestamp: string | undefined,
-  configuredUserTimezone: string | null,
-  clientTimezone: string | null,
-  detectedTimezone: string | null,
-  interfaceName: string | undefined,
-  channelName: string | undefined,
-  timeSinceLastMessage: string | null,
-): TurnInjectionInputs {
-  return {
-    mode: options.mode,
-    subagentStatusBlock,
-    channelCapabilities,
-    slackChronologicalMessages: options.slackChronologicalMessages,
-    slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
-    isNonInteractive: options.isNonInteractive,
-    isBackgroundConversation,
-    activeDocuments,
-    timestamp,
-    interfaceName,
-    channelName,
-    actorContext: options.actorContext,
-    configuredUserTimezone,
-    clientTimezone,
-    detectedTimezone,
-    timeSinceLastMessage,
-    modelProfile: options.modelProfile,
-  };
 }
 
 /**
@@ -1763,19 +1718,18 @@ const RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
 /** Minimal synthetic TurnContext used when the caller omits one. */
 function synthesizeFallbackTurnContext(
-  inputs: TurnInjectionInputs,
+  channelCapabilities: ChannelCapabilities | null,
 ): TurnContext {
   return {
     requestId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
     conversationId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
     turnIndex: 0,
     trust: {
-      sourceChannel: inputs.channelCapabilities?.channel
-        ? (inputs.channelCapabilities.channel as TrustContext["sourceChannel"])
+      sourceChannel: channelCapabilities?.channel
+        ? (channelCapabilities.channel as TrustContext["sourceChannel"])
         : "vellum",
       trustClass: "unknown",
     },
-    injectionInputs: inputs,
   };
 }
 
@@ -1784,20 +1738,21 @@ function synthesizeFallbackTurnContext(
  *
  * The canonical per-turn assembly pipeline for every provider call:
  *
- *  1. Build the per-turn {@link TurnInjectionInputs} bag from `options`.
- *  2. Layer it onto a {@link TurnContext} — either the one the caller
- *     supplies via `options.turnContext` (preserving its `requestId`,
- *     trust, and other fields) or an ephemeral fallback synthesized here.
- *  3. Drive the default + third-party {@link Injector} chain via
+ *  1. Resolve the per-turn injection inputs from `options` and the live
+ *     conversation, and layer them onto a {@link TurnContext} — either the
+ *     one the caller supplies via `options.turnContext` (preserving its
+ *     `requestId`, trust, and other fields) or an ephemeral fallback
+ *     synthesized here.
+ *  2. Drive the default + third-party {@link Injector} chain via
  *     {@link collectInjectorBlocks}.
- *  4. Apply the chain's `"replace-run-messages"` block (Slack chronological
+ *  3. Apply the chain's `"replace-run-messages"` block (Slack chronological
  *     transcript) first so subsequent branches operate on the replaced
  *     tail. When replacement fires, re-prepend any memory-prefix blocks
  *     that `graphMemory.prepareMemory` had attached to the original tail —
  *     the Slack transcript is rendered fresh from persisted rows and
  *     carries no memory prefix of its own.
- *  5. Apply the chain's `"after-memory-prefix"` blocks in ascending
- *     `order`. This runs BEFORE step 6's hardcoded prepends so the
+ *  4. Apply the chain's `"after-memory-prefix"` blocks in ascending
+ *     `order`. This runs BEFORE step 5's hardcoded prepends so the
  *     memory-prefix counter sees only the memory blocks on the tail —
  *     any `<channel_capabilities>` / `<channel_command_context>` /
  *     `<transport_hints>` prepended first would push the count to zero
@@ -1805,13 +1760,13 @@ function synthesizeFallbackTurnContext(
  *     after-memory block, each successive splice lands at the memory
  *     boundary, pushing earlier splices further from memory — so
  *     higher-`order` blocks end up closer to the memory prefix.
- *  6. Run the remaining hardcoded branches (`isNonInteractive`,
+ *  5. Run the remaining hardcoded branches (`isNonInteractive`,
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, `transportHints`) in their historical order.
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, and `transportHints` are sourced from the live
  *     conversation rather than `options`.
- *  7. Finally, apply the chain's remaining blocks by placement:
+ *  6. Finally, apply the chain's remaining blocks by placement:
  *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
  *     in descending `order` so the lowest-`order` prepend lands topmost in
  *     the user tail content.
@@ -1892,28 +1847,34 @@ export async function applyRuntimeInjections(
         getSubagentManager().getChildrenOf(conversationId),
       );
 
-  // Build the per-injector inputs and attach them to the caller's
-  // TurnContext (without mutating it). When the caller didn't supply one,
-  // synthesize a minimal fallback so the chain still runs — test call sites
-  // that drive injection via `options` without constructing a full context
-  // continue to work.
-  const injectionInputs = buildTurnInjectionInputs(
-    options,
-    channelCapabilities,
-    activeDocuments,
-    isBackgroundConversation,
+  // Layer the per-injector inputs onto the caller's TurnContext (without
+  // mutating it). When the caller didn't supply one, synthesize a minimal
+  // fallback so the chain still runs — test call sites that drive injection
+  // via `options` without constructing a full context continue to work.
+  const injectionInputs = {
+    mode: options.mode,
     subagentStatusBlock,
+    channelCapabilities,
+    slackChronologicalMessages: options.slackChronologicalMessages,
+    slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
+    isNonInteractive: options.isNonInteractive,
+    isBackgroundConversation,
+    activeDocuments,
     timestamp,
+    interfaceName,
+    channelName,
+    actorContext: options.actorContext,
     configuredUserTimezone,
     clientTimezone,
     detectedTimezone,
-    interfaceName,
-    channelName,
     timeSinceLastMessage,
-  );
-  const turnCtx: TurnContext = options.turnContext
-    ? { ...options.turnContext, injectionInputs }
-    : synthesizeFallbackTurnContext(injectionInputs);
+    modelProfile: options.modelProfile,
+  };
+  const turnCtx: TurnContext = {
+    ...(options.turnContext ??
+      synthesizeFallbackTurnContext(channelCapabilities)),
+    ...injectionInputs,
+  };
 
   const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
 

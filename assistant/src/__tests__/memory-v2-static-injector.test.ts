@@ -57,7 +57,6 @@ function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
     conversationId: "conv-test",
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
-    injectionInputs: {},
     ...overrides,
   };
 }
@@ -99,7 +98,7 @@ describe("memory-v2-static injector", () => {
 
   test("returns null in minimal mode even with content", async () => {
     seedEssentials("Alice prefers VS Code.");
-    const ctx = makeContext({ injectionInputs: { mode: "minimal" } });
+    const ctx = makeContext({ mode: "minimal" });
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });
 
