@@ -181,7 +181,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     </DarkLoginShell>
   );
 
-  if (!hasLocal && isPlatformLocal) {
+  if (!hasLocal && (isPlatformLocal || isElectron())) {
     return platformLoginCard;
   }
 
