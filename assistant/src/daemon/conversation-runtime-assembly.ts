@@ -1862,21 +1862,6 @@ export interface RuntimeInjectionOptions {
    * and remains easy to test.
    */
   slackChronologicalMessages?: Message[] | null;
-  /**
-   * Pre-rendered `<active_thread>` focus block listing the messages of
-   * the thread the current inbound user message belongs to.
-   *
-   * Appended to the FINAL user message ONLY when `channelCapabilities`
-   * describes a Slack non-DM channel. The block is non-persisted: history
-   * rebuilds re-derive it from storage on each turn, and
-   * `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>` blocks from
-   * prior turns so they do not accumulate.
-   *
-   * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
-   * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
-   * `undefined` when the inbound is a top-level (non-thread) post.
-   */
-  slackActiveThreadFocusBlock?: string | null;
   mode?: InjectionMode;
   /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
@@ -1908,6 +1893,7 @@ function buildTurnInjectionInputs(
   activeDocuments: TurnInjectionInputs["activeDocuments"],
   isNonInteractive: boolean,
   subagentStatusBlock: string | null,
+  slackActiveThreadFocusBlock: string | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1915,7 +1901,7 @@ function buildTurnInjectionInputs(
     subagentStatusBlock,
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
-    slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
+    slackActiveThreadFocusBlock,
     isNonInteractive,
     isBackgroundConversation: options.isBackgroundConversation,
     activeDocuments,
@@ -2022,6 +2008,22 @@ export async function applyRuntimeInjections(
         getSubagentManager().getChildrenOf(conversationId),
       );
 
+  // The `<active_thread>` focus block lists the parent + replies of the Slack
+  // thread the inbound user message belongs to. Resolved from the live
+  // conversation's persisted Slack rows, scoped by its trust class and bounded
+  // by its compaction watermark. Non-Slack conversations and Slack DMs (DMs
+  // have no threads) short-circuit to null inside the loader.
+  const slackActiveThreadFocusBlock =
+    slackConversation && channelCapabilities
+      ? loadSlackActiveThreadFocusBlock(conversationId, channelCapabilities, {
+          trustClass: liveConversation?.trustContext?.trustClass,
+          contextCompactedMessageCount:
+            liveConversation?.contextCompactedMessageCount,
+          slackContextCompactionWatermarkTs:
+            liveConversation?.slackContextCompactionWatermarkTs,
+        })
+      : null;
+
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
@@ -2033,6 +2035,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     isNonInteractive,
     subagentStatusBlock,
+    slackActiveThreadFocusBlock,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }

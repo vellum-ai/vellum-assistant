@@ -146,7 +146,6 @@ import {
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
@@ -336,6 +335,13 @@ export interface AgentLoopConversationContext {
   readonly contextWindowManager: ContextWindowManager;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  /**
+   * Durable Slack-timestamp compaction watermark mirrored from the persisted
+   * row. Runtime injection reads it from the live conversation to bound the
+   * Slack transcript and active-thread focus block. Updated by
+   * `applyCompactionResult` whenever a Slack-aware compaction advances it.
+   */
+  slackContextCompactionWatermarkTs: string | null;
   /**
    * Set by `applyCompactionResult` when compaction strips runtime injections
    * from the preserved tail. The next agent loop turn promotes this into a
@@ -1268,27 +1274,6 @@ export async function runAgentLoopImpl(
     const slackChronologicalMessages =
       slackChronologicalContext?.messages ?? null;
 
-    // Active-thread focus block: when the inbound user message belongs to
-    // a Slack thread, append a non-persisted `<active_thread>` tail block
-    // to the final user turn listing the thread's parent + replies. Helps
-    // the model orient when the channel transcript is long and
-    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
-    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
-    // since DMs do not have threads.
-    const slackActiveThreadFocusBlock = isSlackConversation
-      ? loadSlackActiveThreadFocusBlock(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          {
-            trustClass: ctx.trustContext?.trustClass,
-            contextCompactedMessageCount:
-              slackConversationForInjection?.contextCompactedMessageCount,
-            slackContextCompactionWatermarkTs:
-              slackConversationForInjection?.slackContextCompactionWatermarkTs,
-          },
-        )
-      : null;
-
     state.reducerCompacted = compactedThisTurn;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
@@ -1298,7 +1283,6 @@ export async function runAgentLoopImpl(
         turnStartConversation?.conversationType,
       ),
       slackChronologicalMessages,
-      slackActiveThreadFocusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
@@ -2728,6 +2712,7 @@ export interface CompactionApplyContext {
   messages: Message[];
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  slackContextCompactionWatermarkTs: string | null;
   pendingPostCompactReinject: boolean;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
@@ -2790,6 +2775,8 @@ export async function applyCompactionResult(
   );
   markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
+    ctx.slackContextCompactionWatermarkTs =
+      options.slackContextCompactionWatermarkTs;
     updateConversationSlackContextWatermark(
       ctx.conversationId,
       options.slackContextCompactionWatermarkTs,

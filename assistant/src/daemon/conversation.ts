@@ -201,6 +201,17 @@ export class Conversation {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /**
+   * Durable Slack-timestamp watermark marking the newest message folded into
+   * the context summary during a Slack-aware compaction. Mirrors the DB
+   * `conversations.slackContextCompactionWatermarkTs` column so the live
+   * conversation carries the same Slack compaction boundary the persisted row
+   * does, letting runtime injection resolve the Slack transcript boundary from
+   * the live conversation without a separate row read. Slack transcript
+   * assembly omits rows at or before this ts; `null` means no Slack compaction
+   * has produced a watermark yet.
+   */
+  /** @internal */ slackContextCompactionWatermarkTs: string | null = null;
+  /**
    * Set true by `applyCompactionResult` when compaction strips runtime
    * injections from the tail. The next agent loop turn reads this flag at
    * entry, treats it as a `compactedThisTurn` trigger (re-injecting NOW.md,

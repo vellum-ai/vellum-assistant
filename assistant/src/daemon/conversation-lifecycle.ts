@@ -81,6 +81,7 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  slackContextCompactionWatermarkTs: string | null;
   trustContext?: TrustContext;
   loadedHistoryTrustClass?: TrustClass;
   loadedHistoryPersonalMemoryAllowed?: boolean;
@@ -152,6 +153,14 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     );
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
+
+  // The Slack compaction watermark is a durable timestamp boundary, not a
+  // trusted summary, and Slack transcript rows stay visible to untrusted
+  // actors (they are scoped to the external chat the actor can already read).
+  // Mirror it from the row regardless of trust so runtime injection resolves
+  // the same Slack transcript boundary the persisted row carries.
+  ctx.slackContextCompactionWatermarkTs =
+    conv?.slackContextCompactionWatermarkTs ?? null;
 
   // Every injection-strip event (`/clean` or compaction) updates
   // `historyStrippedAt`. Messages older than this should skip metadata
