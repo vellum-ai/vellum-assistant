@@ -1794,6 +1794,7 @@ export async function runAgentLoopImpl(
         const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           isNonInteractive,
+          modelProfile: modelProfileStr,
           slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
@@ -1885,6 +1886,7 @@ export async function runAgentLoopImpl(
           const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             isNonInteractive,
+            modelProfile: modelProfileStr,
             slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
