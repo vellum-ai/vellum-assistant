@@ -19,6 +19,7 @@ import {
     loadLockfile,
 } from "@/lib/local-mode";
 import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
+import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
@@ -112,7 +113,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setPlatformError(null);
       setPlatformLoading(true);
       try {
-        if (isPlatformLocal) {
+        if (isPlatformLocal || isElectron()) {
           await startAuthFlow(PROVIDER_ID, callbackUrl, {
             ...(providerHint ? { providerHint } : {}),
             returnTo,
@@ -143,7 +144,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     }
   }, [autoConnectId, connectingId, connectError, connectToLocal]);
 
-  // Auto-redirect to loopback login when only platform assistants exist
+  // Auto-redirect to platform login when only platform assistants exist
   // and we're in standalone mode (no local Django).
   useEffect(() => {
     if (

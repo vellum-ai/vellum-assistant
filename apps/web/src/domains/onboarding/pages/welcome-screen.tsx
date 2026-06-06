@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -15,7 +16,7 @@ export function WelcomeScreen() {
 
   const handleLogin = async () => {
     if (isLocalMode()) {
-      if (isPlatformLocal()) {
+      if (isPlatformLocal() || isElectron()) {
         const returnTo = routes.onboarding.hosting;
         void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
         return;
