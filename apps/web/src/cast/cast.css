@@ -1,5 +1,14 @@
 /* Cast — activation-surface prototype styles.
- * Pre-visual-design: neutral surface, the characters carry the energy. */
+ *
+ * Chrome (text, surfaces, borders, radii, on-scale spacing) uses the Vellum
+ * design tokens from @vellumai/design-library/tokens.css. The Cast stage forces
+ * `data-theme="dark"` so these semantic tokens resolve to the dark "cave"
+ * palette no matter the app theme.
+ *
+ * Deliberate ART is intentionally NOT tokenized — the cursor spotlight, the
+ * gold Super-Saiyan aura/flash/sparks, drop shadows, skeleton shimmer, and the
+ * deep cave vignette are bespoke effects (the avatar SVG colors are likewise
+ * fixed), so they stay as literal values. */
 
 .cast-stage {
   position: fixed;
@@ -7,7 +16,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0e0f13;
+  background: var(--surface-base);
+  color: var(--content-default);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -18,8 +28,8 @@
   width: 100vw;
   height: 100dvh;
   overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 0%, #20222b 0%, #15161c 55%, #101116 100%);
-  color: #f4f4f6;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, #101116 100%);
+  color: var(--content-default);
 }
 
 .cast-panel__header {
@@ -27,7 +37,7 @@
   top: 0;
   left: 0;
   right: 0;
-  padding: 30px 24px 40px;
+  padding: var(--app-spacing-xl) var(--app-spacing-xl) 40px;
   text-align: center;
   z-index: 2;
   pointer-events: none;
@@ -45,7 +55,7 @@
 .cast-panel__subtitle {
   margin: 6px 0 0;
   font-size: 13px;
-  color: rgba(244, 244, 246, 0.55);
+  color: var(--content-secondary);
 }
 
 /* ---- Beat 1: the crowd on a tilted ground plane ---- */
@@ -74,8 +84,7 @@
 }
 
 /* Spotlight — a lit pool that tracks the cursor (--mx/--my); the rest of the
-   crowd sits in shadow. Layers (top→bottom): warm core glow, the shadow mask
-   with a transparent disc at the cursor, and a horizon fade at the top. */
+   crowd sits in shadow. Bespoke art effect, intentionally not tokenized. */
 .cast-spotlight {
   --mx: 50%;
   --my: 58%;
@@ -216,8 +225,8 @@
   filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
 }
 .cast-hero__body:focus-visible {
-  border-radius: 18px;
-  outline: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-xl);
+  outline: 2px solid var(--border-element);
   outline-offset: 10px;
 }
 
@@ -257,9 +266,9 @@
   gap: 9px;
   background: none;
   border: none;
-  color: #f4f4f6;
+  color: var(--content-default);
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 2px var(--app-spacing-sm);
   outline: none;
 }
 
@@ -282,7 +291,7 @@
 }
 .cast-name__edit:hover .cast-name__text,
 .cast-name__edit:focus-visible .cast-name__text {
-  text-decoration-color: rgba(244, 244, 246, 0.55);
+  text-decoration-color: var(--content-secondary);
 }
 .cast-name__edit:hover .cast-name__pencil,
 .cast-name__edit:focus-visible .cast-name__pencil {
@@ -294,10 +303,10 @@
   font-weight: 680;
   letter-spacing: -0.02em;
   text-align: center;
-  color: #f4f4f6;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 10px;
+  color: var(--content-default);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-element);
+  border-radius: var(--radius-md);
   padding: 2px 10px;
   width: 70%;
   outline: none;
@@ -309,7 +318,7 @@
   left: 70%;
   font-size: 22px;
   font-weight: 700;
-  color: rgba(244, 244, 246, 0.7);
+  color: var(--content-secondary);
   pointer-events: none;
 }
 .cast-zzz--hero {
@@ -326,12 +335,12 @@
 
 .cast-beat__prompt {
   margin: 0 0 18px;
-  padding: 0 24px;
+  padding: 0 var(--app-spacing-xl);
   text-align: center;
   font-size: 21px;
   font-weight: 640;
   letter-spacing: -0.01em;
-  color: #f4f4f6;
+  color: var(--content-default);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 
@@ -342,7 +351,7 @@
   padding: 0 20px 120px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: var(--app-spacing-md);
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -352,10 +361,10 @@
 
 .cast-tile2 {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 18px;
-  padding: 14px 8px 11px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
+  padding: 14px var(--app-spacing-sm) 11px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -365,12 +374,12 @@
 }
 .cast-tile2:hover {
   transform: translateY(-4px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--surface-active);
+  border-color: var(--border-base);
 }
 .cast-tile2.is-active {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: var(--surface-active);
+  border-color: var(--border-element);
 }
 
 .cast-tile2__icon {
@@ -386,7 +395,7 @@
 .cast-tile2__label {
   font-size: 12.5px;
   font-weight: 560;
-  color: rgba(244, 244, 246, 0.82);
+  color: var(--content-secondary);
   text-align: center;
   line-height: 1.1;
 }
@@ -405,20 +414,20 @@
   bottom: 0;
   /* centered via margin (not translateX) so framer's y-transform can't clobber it */
   width: min(520px, calc(100% - 32px));
-  margin: 0 auto 24px;
-  background: #1c1e26;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 22px;
+  margin: 0 auto var(--app-spacing-xl);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
   padding: 22px 22px 20px;
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
   z-index: 8;
 }
 .cast-card__copy {
-  margin: 0 0 16px;
+  margin: 0 0 var(--app-spacing-lg);
   font-size: 18px;
   font-weight: 620;
   line-height: 1.35;
-  color: #f4f4f6;
+  color: var(--content-default);
   text-align: center;
 }
 .cast-card__actions {
@@ -430,25 +439,25 @@
   flex: 1;
   appearance: none;
   border: none;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   font-size: 15px;
   font-weight: 640;
   cursor: pointer;
 }
 .cast-card__primary {
-  background: #f4f4f6;
-  color: #15161c;
+  background: var(--primary-base);
+  color: var(--content-inset);
 }
 .cast-card__primary:hover {
-  background: #fff;
+  background: var(--primary-hover);
 }
 .cast-card__secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(244, 244, 246, 0.8);
+  background: var(--surface-hover);
+  color: var(--content-secondary);
 }
 .cast-card__secondary:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--surface-active);
 }
 
 /* ---- Beat 5: this or that ---- */
@@ -473,9 +482,9 @@
 
 .cast-vs {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 22px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
   min-height: 132px;
   padding: 20px;
   display: flex;
@@ -486,35 +495,35 @@
   font-weight: 640;
   letter-spacing: -0.01em;
   line-height: 1.25;
-  color: #f4f4f6;
+  color: var(--content-default);
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease;
 }
 .cast-vs:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--surface-active);
+  border-color: var(--border-element);
 }
 
 .cast-thisthat__dots {
   display: flex;
-  gap: 8px;
+  gap: var(--app-spacing-sm);
 }
 .cast-dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-pill);
+  background: var(--border-element);
   transition: background 200ms ease, transform 200ms ease;
 }
 .cast-dot.is-on {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--content-default);
   transform: scale(1.25);
 }
 
 .cast-done__sub {
-  margin: 8px 0 0;
+  margin: var(--app-spacing-sm) 0 0;
   font-size: 13px;
-  color: rgba(244, 244, 246, 0.45);
+  color: var(--content-tertiary);
 }
 
 /* ---- Beat 6: proof (receipt + artifact) ---- */
@@ -548,15 +557,15 @@
   text-align: center;
 }
 .cast-receipt__line {
-  margin: 0 0 8px;
+  margin: 0 0 var(--app-spacing-sm);
   font-size: 18px;
   font-weight: 560;
   line-height: 1.45;
-  color: #f4f4f6;
+  color: var(--content-default);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 .cast-receipt__offer {
-  color: rgba(244, 244, 246, 0.86);
+  color: var(--content-secondary);
   font-weight: 600;
 }
 .cast-receipt__cta {
@@ -570,10 +579,10 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 18px;
-  padding: 14px 16px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 14px var(--app-spacing-lg);
 }
 .cast-artifact__icon {
   width: 44px;
@@ -589,31 +598,31 @@
   margin: 0 0 3px;
   font-size: 15px;
   font-weight: 650;
-  color: #f4f4f6;
+  color: var(--content-default);
 }
 .cast-artifact__desc {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
-  color: rgba(244, 244, 246, 0.6);
+  color: var(--content-tertiary);
 }
 .cast-artifact__open {
   flex-shrink: 0;
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.12);
-  color: #f4f4f6;
+  background: var(--surface-active);
+  color: var(--content-default);
   font-size: 13px;
   font-weight: 620;
-  padding: 9px 16px;
-  border-radius: 12px;
+  padding: 9px var(--app-spacing-lg);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 .cast-artifact__open:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border-element);
 }
 
-/* skeletons */
+/* skeletons — shimmer is a bespoke loading effect, not tokenized */
 .cast-skeleton {
   display: flex;
   flex-direction: column;
@@ -630,12 +639,12 @@
 .cast-skel-btn,
 .cast-skel-icon {
   display: block;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.06) 25%,
-    rgba(255, 255, 255, 0.13) 37%,
-    rgba(255, 255, 255, 0.06) 63%
+    rgba(233, 230, 226, 0.05) 25%,
+    rgba(233, 230, 226, 0.12) 37%,
+    rgba(233, 230, 226, 0.05) 63%
   );
   background-size: 400% 100%;
   animation: cast-shimmer 1.4s ease infinite;
@@ -647,13 +656,13 @@
 .cast-skel-btn {
   height: 50px;
   width: 100%;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   margin-top: 6px;
 }
 .cast-skel-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
 }
 
@@ -668,7 +677,7 @@
   position: absolute;
   inset: 0;
   z-index: 9;
-  background: radial-gradient(120% 90% at 50% 0%, #1b1d24 0%, #121319 60%, #0e0f13 100%);
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-overlay) 0%, var(--surface-base) 60%, #101116 100%);
   display: flex;
   justify-content: center;
   overflow-y: auto;
@@ -680,22 +689,22 @@
 
 .cast-overlay__close {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: var(--app-spacing-lg);
+  right: var(--app-spacing-lg);
   z-index: 2;
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(244, 244, 246, 0.85);
+  background: var(--surface-hover);
+  color: var(--content-secondary);
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
 }
 .cast-overlay__close:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--surface-active);
 }
 
 /* small persistent dude in the corner */
@@ -737,18 +746,18 @@
   font-weight: 680;
   letter-spacing: -0.02em;
   line-height: 1.2;
-  color: #f6f6f8;
+  color: var(--content-default);
 }
 .cast-overlay__body {
   font-size: 16px;
   line-height: 1.75;
-  color: rgba(244, 244, 246, 0.82);
+  color: var(--content-secondary);
   min-height: 120px;
 }
 .cast-overlay__body h1,
 .cast-overlay__body h2,
 .cast-overlay__body h3 {
-  color: #f6f6f8;
+  color: var(--content-default);
   font-weight: 650;
   letter-spacing: -0.01em;
   margin: 22px 0 10px;
@@ -759,34 +768,34 @@
 .cast-overlay__body p { margin: 0 0 14px; }
 .cast-overlay__body ul,
 .cast-overlay__body ol { margin: 0 0 14px; padding-left: 22px; }
-.cast-overlay__body li { margin: 0 0 8px; }
-.cast-overlay__body strong { color: #f6f6f8; font-weight: 640; }
-.cast-overlay__body a { color: #7fd0ff; }
+.cast-overlay__body li { margin: 0 0 var(--app-spacing-sm); }
+.cast-overlay__body strong { color: var(--content-default); font-weight: 640; }
+.cast-overlay__body a { color: var(--primary-base); }
 .cast-overlay__body code {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-hover);
   padding: 1px 5px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
 }
 .cast-overlay__writing {
-  color: rgba(244, 244, 246, 0.5);
+  color: var(--content-tertiary);
   font-style: italic;
 }
 
 .cast-overlay__save {
   margin-top: 26px;
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f4f4f6;
+  border: 1px solid var(--border-element);
+  background: var(--surface-hover);
+  color: var(--content-default);
   font-size: 15px;
   font-weight: 620;
   padding: 13px 26px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 .cast-overlay__save:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface-active);
 }
 
 @keyframes cast-scribble-pen {
@@ -799,7 +808,7 @@
   75% { transform: translate(1.5px, 0.5px) rotate(1.5deg); }
 }
 
-/* ---- Easter egg: Super-Saiyan ascension (select everything) ---- */
+/* ---- Easter egg: Super-Saiyan ascension — bespoke gold art, not tokenized ---- */
 
 .cast-hero.is-ascended .cast-hero__body {
   filter: drop-shadow(0 0 26px rgba(255, 210, 60, 0.92)) brightness(1.12) saturate(1.2);
@@ -810,7 +819,7 @@
   position: absolute;
   inset: -20%;
   z-index: 6;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   pointer-events: none;
   background: radial-gradient(
     circle,
@@ -831,7 +840,7 @@
 .cast-aura__glow {
   position: absolute;
   inset: 10%;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: radial-gradient(
     circle,
     rgba(255, 216, 60, 0.55) 0%,
@@ -860,7 +869,7 @@
   bottom: 26%;
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: #ffe680;
   box-shadow: 0 0 10px 2px rgba(255, 210, 60, 0.9);
   animation: cast-spark-rise 0.9s ease-in infinite;
@@ -898,41 +907,41 @@
 
 .cast-build-link {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
+  left: var(--app-spacing-lg);
+  bottom: var(--app-spacing-lg);
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(244, 244, 246, 0.78);
+  background: var(--surface-hover);
+  color: var(--content-secondary);
   font-size: 12px;
   font-weight: 550;
   padding: 9px 13px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   z-index: 3;
 }
 .cast-build-link:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  background: var(--surface-active);
+  color: var(--content-default);
 }
 
 .cast-continue {
   position: absolute;
-  left: 24px;
-  right: 24px;
+  left: var(--app-spacing-xl);
+  right: var(--app-spacing-xl);
   bottom: 40px;
   appearance: none;
   border: none;
-  background: #f4f4f6;
-  color: #15161c;
+  background: var(--primary-base);
+  color: var(--content-inset);
   font-size: 16px;
   font-weight: 650;
-  padding: 16px;
-  border-radius: 16px;
+  padding: var(--app-spacing-lg);
+  border-radius: var(--radius-xl);
   cursor: pointer;
 }
 .cast-continue:hover {
-  background: #fff;
+  background: var(--primary-hover);
 }
 
 .cast-back {
@@ -941,18 +950,18 @@
   top: 14px;
   appearance: none;
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(244, 244, 246, 0.8);
+  background: var(--surface-hover);
+  color: var(--content-secondary);
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
   z-index: 5;
 }
 .cast-back:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface-active);
 }
 
 /* ---- placeholder "Build your own" modal ---- */
@@ -965,36 +974,36 @@
   align-items: center;
   justify-content: center;
   z-index: 7;
-  padding: 24px;
+  padding: var(--app-spacing-xl);
 }
 
 .cast-modal {
   width: 100%;
-  background: #1c1e26;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
   padding: 22px;
   text-align: center;
 }
 .cast-modal h2 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--app-spacing-sm);
   font-size: 18px;
 }
 .cast-modal p {
   margin: 0 0 18px;
   font-size: 13px;
-  color: rgba(244, 244, 246, 0.6);
+  color: var(--content-secondary);
   line-height: 1.5;
 }
 .cast-modal button {
   appearance: none;
   border: none;
-  background: #f4f4f6;
-  color: #15161c;
+  background: var(--primary-base);
+  color: var(--content-inset);
   font-weight: 600;
   font-size: 14px;
   padding: 11px 18px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 

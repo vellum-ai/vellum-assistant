@@ -220,7 +220,10 @@ export function CastPage() {
   }
 
   return (
-    <div className="cast-stage">
+    // Force the dark token theme so Cast's "cave" palette is consistent
+    // regardless of the app's active theme — semantic tokens resolve to their
+    // dark values within this subtree.
+    <div className="cast-stage" data-theme="dark">
       <div className="cast-panel" ref={panelRef}>
         {inGrid && (
           <header className="cast-panel__header">

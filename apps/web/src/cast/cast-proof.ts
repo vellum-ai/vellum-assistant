@@ -15,6 +15,7 @@
  * if the live call is unavailable or fails. The prototype always renders.
  */
 
+import { listAssistants } from "@/assistant/api";
 import { JOBS, RATHERS, type JobKey, type RatherKey } from "@/cast/cast-content";
 import type { StyleProfile } from "@/cast/cast-hooks";
 import { inferenceSendPost } from "@/generated/daemon/sdk.gen";
@@ -29,6 +30,26 @@ export interface Picks {
   jobs: JobKey[];
   rathers: RatherKey[];
   style: StyleProfile;
+}
+
+/**
+ * Resolve an assistant id for the live model calls. `/assistant/cast` is a
+ * public route with no ActiveAssistantGate, so the selection store is usually
+ * empty here — fall back to listing assistants (works when the browser has a
+ * session). Returns null when unauthenticated, which routes every generation
+ * to its local fallback. Resolved once and memoized.
+ */
+let resolvedAssistantId: string | null | undefined;
+export async function resolveAssistantId(fromStore: string | null): Promise<string | null> {
+  if (fromStore) return fromStore;
+  if (resolvedAssistantId !== undefined) return resolvedAssistantId;
+  try {
+    const result = await listAssistants();
+    resolvedAssistantId = result.ok && result.data.length ? result.data[0].id : null;
+  } catch {
+    resolvedAssistantId = null;
+  }
+  return resolvedAssistantId;
 }
 
 export interface Receipt {

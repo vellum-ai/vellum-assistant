@@ -11,6 +11,7 @@ import {
   generateArtifact,
   generateFullArtifact,
   generateReceipt,
+  resolveAssistantId,
   type Artifact,
   type Picks,
   type Receipt,
@@ -76,13 +77,19 @@ export function CastProof({
   useEffect(() => {
     const picks = picksRef.current;
     let alive = true;
-    void generateReceipt(picks, assistantId).then((r) => alive && setReceipt(r));
-    void generateArtifact(picks, assistantId).then((a) => {
+    // Resolve a usable assistant id (store is empty on this public route; falls
+    // back to listing assistants when a session exists), then generate. Null →
+    // every call uses its local fallback.
+    void resolveAssistantId(assistantId).then((id) => {
       if (!alive) return;
-      setArtifact(a);
-      void generateFullArtifact(picks, a, assistantId).then(
-        (full) => alive && setFullContent(full),
-      );
+      void generateReceipt(picks, id).then((r) => alive && setReceipt(r));
+      void generateArtifact(picks, id).then((a) => {
+        if (!alive) return;
+        setArtifact(a);
+        void generateFullArtifact(picks, a, id).then(
+          (full) => alive && setFullContent(full),
+        );
+      });
     });
     return () => {
       alive = false;
