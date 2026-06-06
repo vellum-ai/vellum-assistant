@@ -1635,7 +1635,6 @@ export async function runAgentLoopImpl(
           resolveContextWindow,
           compaction,
           isNonInteractive,
-          injectionMode: currentInjectionMode,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
