@@ -1794,6 +1794,19 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
 
   test("injects the turn-context block when the inputs are provided", async () => {
+    // The interface label is sourced from the live conversation's turn
+    // interface context, so seed it to match `sampleOptions.interfaceName`.
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
+    } as never);
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...sampleOptions,
     });
@@ -1956,6 +1969,19 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
   const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
 
   test("captures unifiedTurnContext when tail is a user message", async () => {
+    // The interface label is sourced from the live conversation's turn
+    // interface context, so seed it to match `sampleOptions.interfaceName`.
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
+    } as never);
     const result = await applyRuntimeInjections(userTailMessages, {
       ...sampleOptions,
     });

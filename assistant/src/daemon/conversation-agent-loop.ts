@@ -91,7 +91,10 @@ import { runHook } from "../plugins/pipeline.js";
 import type { TurnContext as PluginTurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import {
+  isUntrustedTrustClass,
+  resolveActorTrust,
+} from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -921,12 +924,9 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Resolve the channel/interface labels and the guardian flag for this
-    // turn. These derive only from the captured turn context and the resolved
-    // actor trust class — never from retrieval — so they settle before context
-    // assembly.
-    const interfaceName =
-      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
+    // Resolve the channel label and the guardian flag for this turn. These
+    // derive only from the captured turn context and the resolved actor trust
+    // class — never from retrieval — so they settle before context assembly.
     const channelName =
       capturedTurnChannelContext?.userMessageChannel ?? undefined;
     const isGuardian =
@@ -1067,13 +1067,14 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
-      // Unified `<turn_context>` inputs (temporal, channel, interface, actor);
-      // the `unified-turn-context` injector builds the block from these. Actor
+      // Unified `<turn_context>` inputs (temporal, channel, actor); the
+      // `unified-turn-context` injector builds the block from these. Actor
       // identity is included only for non-guardian turns. `clientTimezone` is a
       // turn-start snapshot threaded here; the configured and detected
-      // timezones are self-resolved from config in `applyRuntimeInjections`.
+      // timezones are self-resolved from config, and the interface label from
+      // the live conversation's turn interface context, in
+      // `applyRuntimeInjections`.
       timestamp,
-      interfaceName,
       channelName,
       clientTimezone: timezoneContext.clientTimezone,
       timeSinceLastMessage,
@@ -2564,7 +2565,19 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  // Compaction operates on the in-context history. Untrusted actor views
+  // render that history unsliced (boundary 0); trusted views start past the
+  // already-compacted prefix (the mirrored DB count). Advance from that
+  // in-context boundary rather than the raw mirror so the persisted count
+  // stays consistent with what the new summary represents and never
+  // double-counts an unsliced untrusted view.
+  const inContextCompactedCount = isUntrustedTrustClass(
+    ctx.trustContext?.trustClass,
+  )
+    ? 0
+    : ctx.contextCompactedMessageCount;
+  ctx.contextCompactedMessageCount =
+    inContextCompactedCount + result.compactedPersistedMessages;
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;

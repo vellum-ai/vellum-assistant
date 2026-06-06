@@ -116,12 +116,18 @@ function clearNowScratchpad(): void {
 // workspace cache under the id `makeTurnContext()` uses so the injector emits
 // the block; `clearConversations()` between tests keeps suites that assert the
 // workspace block is absent unaffected.
-function seedWorkspaceContext(text: string): void {
+function seedWorkspaceContext(text: string, interfaceName?: string): void {
   setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
+    currentTurnInterfaceContext: interfaceName
+      ? {
+          userMessageInterface: interfaceName,
+          assistantMessageInterface: interfaceName,
+        }
+      : undefined,
   } as never);
 }
 
@@ -345,7 +351,7 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText);
+    seedWorkspaceContext(workspaceText, "macos");
     const result = await applyRuntimeInjections(runMessages, {
       ...unifiedTurnOptions,
       turnContext: makeTurnContext(),
@@ -461,10 +467,13 @@ describe("injector chain", () => {
     // context prepend plus any non-injector hardcoded content (none
     // here).
     // Empty workspace text keeps that injector inert while the unified
-    // turn-context inputs flow through the injection options bag. A live child
-    // subagent is seeded so the subagent-status injector has a block to skip.
+    // turn-context inputs flow through. The interface label is sourced from the
+    // live conversation, which has no per-turn or origin interface here and so
+    // resolves to the `web` default. A live child subagent is seeded so the
+    // subagent-status injector has a block to skip.
     const minimalTurnOptions: UnifiedTurnContextOptions = {
       timestamp: "2026-04-22",
+      interfaceName: "web",
     };
     const minimalTurnBlock = buildUnifiedTurnContextBlock(minimalTurnOptions);
     seedWorkspaceContext("");
