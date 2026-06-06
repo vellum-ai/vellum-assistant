@@ -467,10 +467,13 @@ describe("injector chain", () => {
     // context prepend plus any non-injector hardcoded content (none
     // here).
     // Empty workspace text keeps that injector inert while the unified
-    // turn-context inputs flow through the injection options bag. A live child
-    // subagent is seeded so the subagent-status injector has a block to skip.
+    // turn-context inputs flow through. The interface label is sourced from the
+    // live conversation, which has no per-turn or origin interface here and so
+    // resolves to the `web` default. A live child subagent is seeded so the
+    // subagent-status injector has a block to skip.
     const minimalTurnOptions: UnifiedTurnContextOptions = {
       timestamp: "2026-04-22",
+      interfaceName: "web",
     };
     const minimalTurnBlock = buildUnifiedTurnContextBlock(minimalTurnOptions);
     seedWorkspaceContext("");

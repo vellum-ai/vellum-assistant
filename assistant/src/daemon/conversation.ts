@@ -23,6 +23,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
@@ -396,6 +397,14 @@ export class Conversation {
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
+  /**
+   * The conversation's recorded origin interface, cached from the DB row at
+   * load time. It is immutable once recorded, so it backs the `<turn_context>`
+   * interface fallback for turns that don't set a per-turn interface context
+   * (regenerate, wake, subagent) without a per-injection DB lookup.
+   * @internal
+   */
+  originInterface: InterfaceId | undefined = undefined;
   /** @internal */ activityVersion = 0;
   /** Last emitted activity state message, retained for replay on SSE reconnection. */
   /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
@@ -650,6 +659,7 @@ export class Conversation {
 
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
+    this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
     const contextSummary = !isUntrustedTrustClass(trustClass)
       ? conv?.contextSummary?.trim() || null
       : null;
