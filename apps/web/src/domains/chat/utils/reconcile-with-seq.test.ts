@@ -282,4 +282,81 @@ describe("reconcileMessagesWithSeq", () => {
     expect(assistants[0]!.id).toBe("srv-a1");
     expect(messageText(assistants[0])).toBe("Hello there");
   });
+
+  test("returns the same reference when the snapshot has not advanced the frontier", () => {
+    /**
+     * Stability is seq-driven: a snapshot at or behind the applied frontier
+     * carries no new content for an existing row, and an identical row-id
+     * sequence proves the merge was structurally a no-op — so the original
+     * reference comes back without a deep content comparison.
+     */
+    // GIVEN a local transcript
+    const local = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
+    ];
+
+    // AND a snapshot of the same rows at a watermark behind the frontier
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
+    ];
+
+    // WHEN the snapshot has not advanced the frontier (S <= F)
+    const result = reconcileMessagesWithSeq(local, server, {
+      snapshotSeq: 5,
+      appliedSeq: 10,
+    });
+
+    // THEN the original reference is returned (no-op merge)
+    expect(result).toBe(local);
+  });
+
+  test("returns a new result when the snapshot advances the frontier, even with identical row ids", () => {
+    /**
+     * The case a row-id walk alone would miss: the row set is unchanged but the
+     * snapshot advanced the frontier (`S > F`), so an existing row's content
+     * genuinely changed and the authoritative server copy must surface.
+     */
+    // GIVEN a local row
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("v1"), timestamp: 1000 }),
+    ];
+
+    // AND a fresher snapshot of the same row id with updated content
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("v2"), timestamp: 1000 }),
+    ];
+
+    // WHEN the snapshot advances the frontier (S > F)
+    const result = reconcileMessagesWithSeq(local, server, {
+      snapshotSeq: 10,
+      appliedSeq: 5,
+    });
+
+    // THEN a new result carrying the updated content surfaces
+    expect(result).not.toBe(local);
+    expect(messageText(result[0])).toBe("v2");
+  });
+
+  test("falls back to content equality for reference stability when seq is unknown", () => {
+    /**
+     * On the no-seq skew path there is no watermark to trust, so a structural
+     * content comparison still lets the reconciliation poll loop settle by
+     * returning the original reference for a no-op merge.
+     */
+    // GIVEN a local transcript and a snapshot that introduces nothing
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // WHEN the merge runs with no honest seq and no new server content
+    const result = reconcileMessagesWithSeq(local, [], {
+      snapshotSeq: null,
+      appliedSeq: null,
+    });
+
+    // THEN the original reference is returned
+    expect(result).toBe(local);
+  });
 });

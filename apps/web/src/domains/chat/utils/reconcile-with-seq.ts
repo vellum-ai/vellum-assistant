@@ -138,10 +138,44 @@ export function reconcileMessagesWithSeq(
   sortByTimestamp(reconciled);
 
   const deduped = dedupeDisplayMessages(reconciled);
-  if (messagesEqual(local, deduped)) {
-    return local;
+
+  const { snapshotSeq, appliedSeq } = options;
+  if (snapshotSeq != null && appliedSeq != null) {
+    // Stability is seq-driven. The watermark fully encodes snapshot state, so
+    // when the snapshot advanced the applied frontier (`S > F`) it carries new
+    // content and the merged result is authoritative. When it did not
+    // (`S <= F`), regression protection guarantees no existing row's content
+    // changed, so the only differences the merge can introduce are structural
+    // — rows added, dropped, folded, or re-identified — which the row-identity
+    // sequence captures with an O(n) walk instead of a deep content compare.
+    if (snapshotSeq > appliedSeq) {
+      return deduped;
+    }
+    return sameIdentitySequence(local, deduped) ? local : deduped;
   }
-  return deduped;
+
+  // No honest seq on this snapshot (a daemon predating seq reporting): there is
+  // no watermark to trust, so fall back to a structural content comparison and
+  // the reconciliation poll loop still settles instead of treating every
+  // refetch as a change.
+  return messagesEqual(local, deduped) ? local : deduped;
+}
+
+/**
+ * Whether two transcripts carry the same rows in the same order, compared by
+ * the server-assigned row id. The seq-path stability signal: when the snapshot
+ * has not advanced the applied frontier, no row's content can have changed, so
+ * an identical id sequence means the merge was a no-op and the original
+ * reference can be returned for caller-side reference-equality stability.
+ */
+function sameIdentitySequence(
+  a: DisplayMessage[],
+  b: DisplayMessage[],
+): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((row, i) => row.id === b[i]?.id);
 }
 
 /**

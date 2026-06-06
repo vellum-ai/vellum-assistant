@@ -25,7 +25,7 @@ import {
   type DisplayMessage,
 } from "@/domains/chat/utils/reconcile";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
-import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
@@ -397,13 +397,16 @@ export function useSendMessage({
             // Reconciliation is best-effort
           }
           if (!isCurrentSendScope(effectiveConversationId)) return;
+          // Capture the applied frontier `F` before advancing it so the merge
+          // can tell whether this snapshot moved the frontier (`S > F`).
+          const appliedSeq = getAppliedSeq(effectiveConversationId);
           recordAppliedSeq(effectiveConversationId, snapshotSeq);
           setMessages((prev) => {
             if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
               return reconcileSnapshot(prev, serverMessages, {
-                conversationId: effectiveConversationId,
                 snapshotSeq,
+                appliedSeq,
               });
             }
             const mapped = mapRuntimeToDisplayMessage(reply);

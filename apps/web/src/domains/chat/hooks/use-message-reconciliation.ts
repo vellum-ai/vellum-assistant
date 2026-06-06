@@ -11,7 +11,7 @@ import {
 } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
-import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
@@ -166,10 +166,11 @@ export function useMessageReconciliation({
         return { changed: false, assistantProgress: false, messagesAdded: 0 };
       }
 
-      // Advance the applied frontier to the snapshot watermark before the
-      // merge. Kept outside the updater so the updater stays pure; the merge
-      // decision is unaffected since advancing F to S only collapses the
-      // S >= F case (which is server-authoritative either way).
+      // Capture the applied frontier `F` before advancing it, so the merge
+      // can tell whether this snapshot moved the frontier (`S > F`). Then
+      // advance the frontier to the snapshot watermark for later consumers.
+      // Both run outside the updater so the updater stays pure.
+      const appliedSeq = getAppliedSeq(conversationId);
       recordAppliedSeq(conversationId, snapshotSeq);
 
       let changed = false;
@@ -185,8 +186,8 @@ export function useMessageReconciliation({
           isSending(useTurnStore.getState().phase),
         );
         const next = reconcileSnapshot(prev, serverMessages, {
-          conversationId,
           snapshotSeq,
+          appliedSeq,
           oldestPageTimestamp: initialPageOldestTsRef.current,
         });
         changed = next !== prev;

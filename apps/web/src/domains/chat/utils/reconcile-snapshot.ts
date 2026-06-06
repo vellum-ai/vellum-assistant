@@ -5,7 +5,6 @@ import {
 import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
-import { getAppliedSeq } from "@/lib/streaming/applied-seq";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 
@@ -14,15 +13,17 @@ import type { ConversationMessage } from "@vellumai/assistant-api";
  * transcript, routing between the legacy heuristic reconcile and the seq-aware
  * monotonic merge based on `isSeqGapDetectionEnabled()`.
  *
- * Pure with respect to module state (it only reads the applied frontier), so
- * it is safe to call inside a React state updater. Advancing the frontier
+ * Fully pure (reads no module state): the caller passes the applied frontier
+ * `F` — captured before advancing it — so the seq-aware merge can tell whether
+ * this snapshot advanced the frontier. Advancing the frontier
  * (`recordAppliedSeq`) is the caller's responsibility and must run outside the
  * updater.
  */
 export interface ReconcileSnapshotOptions {
-  conversationId: string;
   /** Watermark `seq` the snapshot was persisted at (top-level `/messages` seq). */
   snapshotSeq: number | null;
+  /** Applied frontier `F` as of before this snapshot is applied. */
+  appliedSeq: number | null;
   oldestPageTimestamp?: number | null;
 }
 
@@ -39,7 +40,7 @@ export function reconcileSnapshot(
 
   return reconcileMessagesWithSeq(local, server.map(mapRuntimeToDisplayMessage), {
     snapshotSeq: options.snapshotSeq,
-    appliedSeq: getAppliedSeq(options.conversationId),
+    appliedSeq: options.appliedSeq,
     oldestPageTimestamp: options.oldestPageTimestamp,
   });
 }
@@ -56,9 +57,10 @@ export function reconcileSnapshot(
  * is off, the legacy cache-merge runs unchanged.
  */
 export interface ReconcileLatestHistoryOptions {
-  conversationId: string;
   /** Watermark `seq` of the latest history page (`latestPage.seq`). */
   snapshotSeq: number | null;
+  /** Applied frontier `F` as of before this page is applied. */
+  appliedSeq: number | null;
   isProcessing: boolean;
 }
 
@@ -70,7 +72,7 @@ export function reconcileLatestHistorySnapshot(
   if (isSeqGapDetectionEnabled()) {
     return reconcileMessagesWithSeq(current, latestHistory, {
       snapshotSeq: options.snapshotSeq,
-      appliedSeq: getAppliedSeq(options.conversationId),
+      appliedSeq: options.appliedSeq,
     });
   }
 
