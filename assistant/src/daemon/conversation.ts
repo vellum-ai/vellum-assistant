@@ -246,6 +246,14 @@ export class Conversation {
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /**
+   * The conversation's immutable creation type (`interactive`, `background`,
+   * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
+   * for subagent conversations) so the runtime-assembly path can derive the
+   * background-turn flag from live state without a per-injection DB read.
+   * @internal
+   */
+  conversationType?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;

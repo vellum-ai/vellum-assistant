@@ -77,6 +77,7 @@ export function reinjectImageSourcePaths(
 
 export interface LoadFromDbContext {
   readonly conversationId: string;
+  conversationType?: string;
   messages: Message[];
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
@@ -137,6 +138,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     : allDbMessages;
 
   const conv = getConversation(ctx.conversationId);
+  ctx.conversationType = conv?.conversationType ?? undefined;
   const contextSummary = !isUntrustedTrustClass(trustClass)
     ? conv?.contextSummary?.trim() || null
     : null;

@@ -24,6 +24,7 @@ import {
   getMessages as defaultGetMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
+import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
@@ -1823,19 +1824,20 @@ function applyInjectionBlock(
  * ephemeral {@link TurnContext} synthesized for test call sites).
  *
  * The active workspace surface, the channel capabilities, the active document
- * list, the channel command context, the voice call-control prompt, and the
- * transport hints are not on this bag: `applyRuntimeInjections` resolves them
- * from the live conversation itself (its surface state, `channelCapabilities`,
- * the document store keyed by `conversationId`, its `commandIntent`, its
- * `voiceCallControlPrompt`, and its `transportHints` respectively), so the
+ * list, the channel command context, the voice call-control prompt, the
+ * transport hints, and the background-conversation flag are not on this bag:
+ * `applyRuntimeInjections` resolves them from the live conversation itself (its
+ * surface state, `channelCapabilities`, the document store keyed by
+ * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
+ * `transportHints`, and its `conversationType` respectively), so the
  * orchestrator does not compute or thread any of them per turn.
  *
- * The two per-turn derived booleans below ({@link isNonInteractive} and
- * {@link isBackgroundConversation}) remain on this bag: the agent loop resolves
- * each once at turn start and threads it here so the same value flows to every
- * `applyRuntimeInjections` call within the turn, including the post-compaction
- * re-injection hook (whose context spreads these options) — keeping the hook
- * free of agent-loop closure state.
+ * {@link isNonInteractive} is the exception: it is derived from the agent
+ * loop's `isInteractive` option (not re-derivable from live conversation
+ * state, which can flip mid-turn on SSE reconnect), so the loop resolves it
+ * once at turn start and threads it here. The post-compaction re-injection
+ * hook receives the same value through its context, keeping the hook free of
+ * agent-loop closure state.
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
@@ -1848,13 +1850,6 @@ export interface RuntimeInjectionOptions {
    * injector.
    */
   isNonInteractive?: boolean;
-  /**
-   * True when the active conversation's type is "background" or "scheduled".
-   * Forwarded to {@link TurnInjectionInputs.isBackgroundConversation} so the
-   * `background-turn` injector can wrap the tail user message with the
-   * configured reminder.
-   */
-  isBackgroundConversation?: boolean;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -1918,6 +1913,7 @@ function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
   channelCapabilities: ChannelCapabilities | null,
   activeDocuments: TurnInjectionInputs["activeDocuments"],
+  isBackgroundConversation: boolean,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1927,7 +1923,7 @@ function buildTurnInjectionInputs(
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
     isNonInteractive: options.isNonInteractive,
-    isBackgroundConversation: options.isBackgroundConversation,
+    isBackgroundConversation,
     activeDocuments,
   };
 }
@@ -2020,6 +2016,9 @@ export async function applyRuntimeInjections(
   const voiceCallControlPrompt =
     liveConversation?.voiceCallControlPrompt ?? null;
   const transportHints = liveConversation?.transportHints ?? null;
+  const isBackgroundConversation = isBackgroundConversationType(
+    liveConversation?.conversationType,
+  );
   const isNonInteractive = options.isNonInteractive ?? false;
 
   // Build the per-injector inputs and attach them to the caller's
@@ -2031,6 +2030,7 @@ export async function applyRuntimeInjections(
     options,
     channelCapabilities,
     activeDocuments,
+    isBackgroundConversation,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }
