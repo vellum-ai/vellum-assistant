@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type FetchLike,
   InvalidSearchPatternError,
+  PluginCatalogUnavailableError,
   searchPlugins,
 } from "../search-plugins.js";
 
@@ -180,44 +181,73 @@ describe("searchPlugins", () => {
     expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
   });
 
-  test("HTTP 5xx from GitHub propagates with the status code", async () => {
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("upstream broken", { status: 503 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 503/);
+  test("HTTP 5xx is a transient PluginCatalogUnavailableError", async () => {
+    // GIVEN GitHub returns a 5xx (upstream outage)
+    // WHEN we search
+    // THEN the failure is classified transient so the caller can serve a
+    // stale cache and the route can map it to 503 (not a misleading 500).
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("upstream broken", { status: 503 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as PluginCatalogUnavailableError).status).toBe(503);
   });
 
-  test("HTTP 403 (rate-limited / forbidden) surfaces as an error", async () => {
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("rate limit exceeded", { status: 403 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 403/);
+  test("rate-limited 403 (x-ratelimit-remaining: 0) is transient", async () => {
+    // GIVEN GitHub returns 403 with the rate-limit budget exhausted
+    // WHEN we search
+    // THEN it's transient — this is exactly the unauthenticated 60 req/hr
+    // exhaustion that empties the catalog, and it must surface as 503.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("rate limit exceeded", {
+            status: 403,
+            headers: { "x-ratelimit-remaining": "0" },
+          })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as PluginCatalogUnavailableError).status).toBe(403);
   });
 
-  test("404 on the plugins prefix surfaces as an error (not silently empty)", async () => {
+  test("a 403 without the rate-limit signal is a hard error", async () => {
+    // GIVEN a bare 403 (genuine permissions problem, not rate limiting)
+    // WHEN we search
+    // THEN it is NOT transient — serving a stale catalog would mask a real
+    // misconfiguration, so it propagates as a plain error.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("forbidden", { status: 403 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as Error).message).toMatch(/HTTP 403/);
+  });
+
+  test("404 on the plugins prefix is a hard error (not silently empty)", async () => {
     // Distinct from `installPlugin`, where 404 on a specific plugin name is
     // normal "not found". For the search, 404 on the prefix means the
-    // canonical source path itself is gone — that's an upstream problem
-    // worth surfacing, not a clean empty result.
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("not found", { status: 404 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 404/);
+    // canonical source path itself is gone — that's a real misconfiguration
+    // worth surfacing, not a clean empty result and not a transient outage.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("not found", { status: 404 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as Error).message).toMatch(/HTTP 404/);
   });
 
   test("returns matches sorted by name", async () => {
