@@ -57,6 +57,7 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -569,9 +570,8 @@ export function buildSubagentStatusBlock(
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
 // injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
-// placement. Use {@link applyRuntimeInjections} with
-// `options.subagentStatusBlock` set, or drive the injector chain directly
-// via `collectInjectorBlocks`.
+// placement. `applyRuntimeInjections` resolves the block from the live
+// subagent manager keyed by the conversation, so callers do not pass it in.
 
 /**
  * Append voice call-control protocol instructions to the last user
@@ -1825,12 +1825,14 @@ function applyInjectionBlock(
  *
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, the
- * transport hints, and the background-conversation flag are not on this bag:
+ * transport hints, the background-conversation flag, and the
+ * `<active_subagents>` status block are not on this bag:
  * `applyRuntimeInjections` resolves them from the live conversation itself (its
  * surface state, `channelCapabilities`, the document store keyed by
  * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
- * `transportHints`, and its `conversationType` respectively), so the
- * orchestrator does not compute or thread any of them per turn.
+ * `transportHints`, its `conversationType`, and the subagent manager's children
+ * of `conversationId` respectively), so the orchestrator does not compute or
+ * thread any of them per turn.
  *
  * {@link isNonInteractive} is the exception: it is derived from the agent
  * loop's `isInteractive` option (not re-derivable from live conversation
@@ -1841,7 +1843,6 @@ function applyInjectionBlock(
  */
 export interface RuntimeInjectionOptions {
   unifiedTurnContext?: string | null;
-  subagentStatusBlock?: string | null;
   /**
    * True when the in-flight turn has no human present to answer clarification
    * questions (resolved by the agent loop from its `isInteractive` option,
@@ -1914,11 +1915,12 @@ function buildTurnInjectionInputs(
   channelCapabilities: ChannelCapabilities | null,
   activeDocuments: TurnInjectionInputs["activeDocuments"],
   isBackgroundConversation: boolean,
+  subagentStatusBlock: string | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
     unifiedTurnContext: options.unifiedTurnContext,
-    subagentStatusBlock: options.subagentStatusBlock,
+    subagentStatusBlock,
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
     slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
@@ -2021,6 +2023,15 @@ export async function applyRuntimeInjections(
   );
   const isNonInteractive = options.isNonInteractive ?? false;
 
+  // The `<active_subagents>` status block is sourced from the live subagent
+  // manager's children of this conversation. Skipped when this conversation is
+  // itself a subagent (no nesting) or has no children.
+  const subagentStatusBlock = liveConversation?.isSubagent
+    ? null
+    : buildSubagentStatusBlock(
+        getSubagentManager().getChildrenOf(conversationId),
+      );
+
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
@@ -2031,6 +2042,7 @@ export async function applyRuntimeInjections(
     channelCapabilities,
     activeDocuments,
     isBackgroundConversation,
+    subagentStatusBlock,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }

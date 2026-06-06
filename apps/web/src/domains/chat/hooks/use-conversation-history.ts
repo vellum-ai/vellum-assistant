@@ -19,6 +19,7 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { reconcileLatestHistorySnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
@@ -324,6 +325,40 @@ export function useConversationHistory({
     setIsLoadingHistory,
     setError,
   ]);
+
+  // -------------------------------------------------------------------------
+  // Refetch history when the SSE connection reopens after a disconnect.
+  //
+  // The daemon's replay ring only holds ~30s of events, so a connection
+  // that reopens later than that (e.g. the device slept or the tab was
+  // backgrounded — routine for this app) can't be ring-replayed. The
+  // daemon then goes live silently and relies on the consumer's seq-gap
+  // detector to notice and refetch, but that detector only fires on the
+  // next conversation-scoped live event. An idle conversation receives
+  // no such event, so the persisted tail emitted before the disconnect
+  // stays invisible until the query remounts on a manual refresh.
+  //
+  // `refetchOnReconnect`/`refetchOnWindowFocus` are off (they key off the
+  // browser's network/focus state, not this app's SSE reconnect), so the
+  // reopen itself is the signal to refetch. Invalidating the query routes
+  // the catch-up through the same fetch-and-merge path as the initial
+  // load, which the monotonic seq merge makes a no-op when nothing new
+  // landed. `"fresh"`/`"anchor"` reopens are skipped: the first connect's
+  // `refetchOnMount` already loaded the snapshot, and the anchor bounce
+  // fires immediately after that load with the ring still warm.
+  // -------------------------------------------------------------------------
+  useBusSubscription("sse.opened", ({ assistantId: openedAssistantId, cause }) => {
+    if (cause === "fresh" || cause === "anchor") return;
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationId ||
+      openedAssistantId !== assistantId
+    ) {
+      return;
+    }
+    void pagination.invalidate();
+  });
 
   // -------------------------------------------------------------------------
   // Sync older-page loading state (both true → false transitions)

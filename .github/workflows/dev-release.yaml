@@ -1330,12 +1330,16 @@ jobs:
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
           LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
           RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
+          # Prefix "@" only for GitHub logins. Email-style authors (resolved from
+          # a Co-authored-by trailer, e.g. "user@example.com") are left bare so
+          # Slack doesn't render a leading "@" + email as a noisy keyword mention.
+          MENTION='if test("@") then . else "@" + . end'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1345,7 +1349,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
             fi
           fi
 
