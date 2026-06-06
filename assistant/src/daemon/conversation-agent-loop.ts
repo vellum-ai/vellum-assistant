@@ -1018,10 +1018,16 @@ export async function runAgentLoopImpl(
 
     // Capture wall-clock "now" at its point of use, after the blocking memory
     // retrieval, so the injected `<turn_context>` timestamp reflects current
-    // time rather than the moment the turn began.
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
-    });
+    // time rather than the moment the turn began. Freeze it (with the
+    // turn-start client timezone) on the conversation so `applyRuntimeInjections`
+    // sources it from live state — like the channel/voice/transport hints — and
+    // every post-compaction re-injection reuses the same instant.
+    ctx.currentTurnTemporalSnapshot = {
+      timestamp: formatTurnTimestamp({
+        timeZone: timezoneContext.effectiveTimezone,
+      }),
+      clientTimezone: timezoneContext.clientTimezone,
+    };
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
@@ -1080,18 +1086,16 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
-      // Unified `<turn_context>` inputs (temporal, actor); the
-      // `unified-turn-context` injector builds the block from these. Actor
-      // identity is included only for non-guardian turns. `clientTimezone` is a
-      // turn-start snapshot threaded here; the configured and detected
-      // timezones are self-resolved from config, and the interface and channel
-      // labels from the live conversation's turn interface/channel context, in
-      // `applyRuntimeInjections`. `modelProfile` is resolved once at turn start
-      // and threaded per call site (like `isNonInteractive`) so post-compaction
-      // re-injection receives it as an explicit hook input rather than via this
-      // closure.
-      timestamp,
-      clientTimezone: timezoneContext.clientTimezone,
+      // Unified `<turn_context>` actor input; the `unified-turn-context`
+      // injector builds the block from it. Actor identity is included only for
+      // non-guardian turns. The timestamp and client timezone are sourced from
+      // the conversation's frozen `currentTurnTemporalSnapshot`, the interface
+      // and channel labels from the live conversation's turn interface/channel
+      // context, and the configured and detected timezones from config — all
+      // self-resolved in `applyRuntimeInjections`. `modelProfile` is resolved
+      // once at turn start and threaded per call site (like `isNonInteractive`)
+      // so post-compaction re-injection receives it as an explicit hook input
+      // rather than via this closure.
       timeSinceLastMessage,
       actorContext: isGuardian ? null : resolvedInboundActorContext,
     } as const;
