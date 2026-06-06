@@ -1612,8 +1612,9 @@ function applyInjectionBlock(
  * list, the channel command context, the voice call-control prompt, the
  * transport hints, the interface label, the channel label, the
  * background-conversation flag, the `<active_subagents>` status block, the
- * per-turn temporal snapshot (the `<turn_context>` timestamp and the client
- * timezone), and the two config-sourced timezones are not on this bag:
+ * per-turn temporal snapshot (the `<turn_context>` timestamp, the client
+ * timezone, and the long-absence gap), and the two config-sourced timezones
+ * are not on this bag:
  * `applyRuntimeInjections` resolves them from the live conversation itself (its
  * surface state, `channelCapabilities`, the document store keyed by
  * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
@@ -1633,11 +1634,11 @@ function applyInjectionBlock(
  * hook receives the same value through its context, keeping the hook free of
  * agent-loop closure state.
  *
- * The remaining unified `<turn_context>` inputs (`actorContext`,
- * `timeSinceLastMessage`, and `modelProfile`) are flat top-level fields here.
- * They flow through to the matching {@link TurnInjectionInputs} fields, and the
- * `unified-turn-context` injector builds the block from them — combined with
- * the turn's frozen timestamp and client timezone (from
+ * The remaining unified `<turn_context>` inputs (`actorContext` and
+ * `modelProfile`) are flat top-level fields here. They flow through to the
+ * matching {@link TurnInjectionInputs} fields, and the `unified-turn-context`
+ * injector builds the block from them — combined with the turn's frozen
+ * timestamp, client timezone, and long-absence gap (from
  * `currentTurnTemporalSnapshot`), the interface and channel labels, and the two
  * self-resolved config timezones — via `buildUnifiedTurnContextBlock`.
  */
@@ -1691,11 +1692,6 @@ export interface RuntimeInjectionOptions {
    */
   actorContext?: InboundActorContext | null;
   /**
-   * Human-readable gap since the previous user message (e.g. "14h ago"), only
-   * set when the gap exceeds the long-absence threshold.
-   */
-  timeSinceLastMessage?: string | null;
-  /**
    * Human-readable active inference profile, only set when it changed since
    * the last turn (or on the first turn).
    */
@@ -1736,6 +1732,7 @@ function buildTurnInjectionInputs(
   detectedTimezone: string | null,
   interfaceName: string | undefined,
   channelName: string | undefined,
+  timeSinceLastMessage: string | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1753,7 +1750,7 @@ function buildTurnInjectionInputs(
     configuredUserTimezone,
     clientTimezone,
     detectedTimezone,
-    timeSinceLastMessage: options.timeSinceLastMessage,
+    timeSinceLastMessage,
     modelProfile: options.modelProfile,
   };
 }
@@ -1863,15 +1860,15 @@ export async function applyRuntimeInjections(
 
   // The configured user timezone and the server-detected fallback are stable
   // settings, so they are read from config here rather than threaded through
-  // `options`. The per-turn timestamp and the client-reported timezone are
-  // sourced from the conversation's frozen `currentTurnTemporalSnapshot`
-  // instead: the loop captures them once after memory retrieval so every
-  // post-compaction re-injection reuses the same instant, and so the live
-  // `Conversation.clientTimezone` (overwritten when a newer message for the
-  // same conversation arrives mid-turn) cannot leak a queued message's
-  // timezone into the in-flight turn. The `unified-turn-context` injector
-  // compares the configured and client timezones to surface a mismatch
-  // affordance.
+  // `options`. The per-turn timestamp, the client-reported timezone, and the
+  // long-absence gap are sourced from the conversation's frozen
+  // `currentTurnTemporalSnapshot` instead: the loop captures them once after
+  // memory retrieval so every post-compaction re-injection reuses the same
+  // instant, and so the live `Conversation.clientTimezone` (overwritten when a
+  // newer message for the same conversation arrives mid-turn) cannot leak a
+  // queued message's timezone into the in-flight turn. The
+  // `unified-turn-context` injector compares the configured and client
+  // timezones to surface a mismatch affordance.
   const uiConfig = getConfig().ui;
   const configuredUserTimezone = canonicalizeTimeZone(
     uiConfig?.userTimezone ?? null,
@@ -1884,6 +1881,7 @@ export async function applyRuntimeInjections(
   const clientTimezone = canonicalizeTimeZone(
     temporalSnapshot?.clientTimezone ?? null,
   );
+  const timeSinceLastMessage = temporalSnapshot?.timeSinceLastMessage ?? null;
 
   // The `<active_subagents>` status block is sourced from the live subagent
   // manager's children of this conversation. Skipped when this conversation is
@@ -1911,6 +1909,7 @@ export async function applyRuntimeInjections(
     detectedTimezone,
     interfaceName,
     channelName,
+    timeSinceLastMessage,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }

@@ -1905,9 +1905,12 @@ describe("applyRuntimeInjections timezone resolution", () => {
 
   // Seed the live fallback conversation with the per-turn temporal snapshot the
   // loop freezes after memory retrieval. `applyRuntimeInjections` sources the
-  // `<turn_context>` timestamp and the client timezone from it, so the
-  // turn-context block only emits when this snapshot is present.
-  function seedTemporalSnapshot(clientTimezone: string | null): void {
+  // `<turn_context>` timestamp, the client timezone, and the long-absence gap
+  // from it, so the turn-context block only emits when this snapshot is present.
+  function seedTemporalSnapshot(
+    clientTimezone: string | null,
+    timeSinceLastMessage: string | null = null,
+  ): void {
     setConversation("runtime-assembly-fallback", {
       conversationId: "runtime-assembly-fallback",
       workingDir: "/sandbox",
@@ -1917,6 +1920,7 @@ describe("applyRuntimeInjections timezone resolution", () => {
       currentTurnTemporalSnapshot: {
         timestamp: sampleTimestamp,
         clientTimezone,
+        timeSinceLastMessage,
       },
     } as never);
   }
@@ -1994,6 +1998,39 @@ describe("applyRuntimeInjections timezone resolution", () => {
     const injected = injectedText(result);
     expect(injected).not.toContain("configured_user_timezone:");
     expect(injected).not.toContain("client_device_timezone:");
+  });
+
+  test("sources time_since_last_message from the conversation's frozen turn snapshot", async () => {
+    /**
+     * Verifies the long-absence gap is taken from the conversation's frozen
+     * `currentTurnTemporalSnapshot` rather than threaded through the options
+     * bag, so every post-compaction re-injection reuses the turn-start value.
+     */
+    // GIVEN the turn's frozen snapshot carries a long-absence gap
+    seedTemporalSnapshot(null, "2d ago");
+
+    // WHEN a turn is assembled without the gap in the options bag
+    const result = await applyRuntimeInjections(baseMessages, {});
+
+    // THEN the injector surfaces the gap from the snapshot
+    const injected = injectedText(result);
+    expect(injected).toContain("time_since_last_message: 2d ago");
+  });
+
+  test("omits time_since_last_message when the snapshot carries no gap", async () => {
+    /**
+     * Verifies no `time_since_last_message` line is emitted when the frozen
+     * snapshot's gap is null (the normal back-and-forth case).
+     */
+    // GIVEN the turn's frozen snapshot carries no long-absence gap
+    seedTemporalSnapshot(null, null);
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {});
+
+    // THEN no gap line is injected
+    const injected = injectedText(result);
+    expect(injected).not.toContain("time_since_last_message");
   });
 });
 
