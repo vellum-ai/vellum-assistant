@@ -802,13 +802,14 @@ describe("session-agent-loop", () => {
       });
       // The loop resolves the unified turn-context inputs into the injection
       // options bag; the `unified-turn-context` injector later builds the block
-      // from them.
+      // from them. `configuredUserTimezone` is not threaded here —
+      // `applyRuntimeInjections` sources it from config (`ui.userTimezone`).
       const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
       expect(injectionOptions).toMatchObject({
-        configuredUserTimezone: "America/New_York",
         clientTimezone: "America/Los_Angeles",
         detectedTimezone: "America/Chicago",
       });
+      expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
     });
   });
 

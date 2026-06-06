@@ -62,6 +62,7 @@ import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import { canonicalizeTimeZone } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
@@ -1609,14 +1610,15 @@ function applyInjectionBlock(
  *
  * The active workspace surface, the channel capabilities, the active document
  * list, the channel command context, the voice call-control prompt, the
- * transport hints, the background-conversation flag, and the
- * `<active_subagents>` status block are not on this bag:
- * `applyRuntimeInjections` resolves them from the live conversation itself (its
- * surface state, `channelCapabilities`, the document store keyed by
- * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
- * `transportHints`, its `conversationType`, and the subagent manager's children
- * of `conversationId` respectively), so the orchestrator does not compute or
- * thread any of them per turn.
+ * transport hints, the background-conversation flag, the
+ * `<active_subagents>` status block, and the configured user timezone are not
+ * on this bag: `applyRuntimeInjections` resolves them from the live
+ * conversation itself (its surface state, `channelCapabilities`, the document
+ * store keyed by `conversationId`, its `commandIntent`, its
+ * `voiceCallControlPrompt`, its `transportHints`, its `conversationType`, and
+ * the subagent manager's children of `conversationId` respectively) or, for
+ * the configured user timezone, from config (`ui.userTimezone`), so the
+ * orchestrator does not compute or thread any of them per turn.
  *
  * {@link isNonInteractive} is the exception: it is derived from the agent
  * loop's `isInteractive` option (not re-derivable from live conversation
@@ -1625,11 +1627,12 @@ function applyInjectionBlock(
  * hook receives the same value through its context, keeping the hook free of
  * agent-loop closure state.
  *
- * The unified `<turn_context>` inputs (`timestamp`, `interfaceName`,
- * `channelName`, `actorContext`, the timezone trio, `timeSinceLastMessage`,
- * and `modelProfile`) are flat top-level fields here. They flow through to the
- * matching {@link TurnInjectionInputs} fields, and the `unified-turn-context`
- * injector builds the block from them via `buildUnifiedTurnContextBlock`.
+ * The remaining unified `<turn_context>` inputs (`timestamp`, `interfaceName`,
+ * `channelName`, `actorContext`, `clientTimezone`, `detectedTimezone`,
+ * `timeSinceLastMessage`, and `modelProfile`) are flat top-level fields here.
+ * They flow through to the matching {@link TurnInjectionInputs} fields, and the
+ * `unified-turn-context` injector builds the block from them (combined with the
+ * self-resolved `configuredUserTimezone`) via `buildUnifiedTurnContextBlock`.
  */
 export interface RuntimeInjectionOptions {
   /**
@@ -1690,8 +1693,6 @@ export interface RuntimeInjectionOptions {
    * turns; `null`/absent suppresses the actor section of `<turn_context>`.
    */
   actorContext?: InboundActorContext | null;
-  /** Guardian-configured timezone, used to detect a client/config mismatch. */
-  configuredUserTimezone?: string | null;
   /** Client-reported timezone, used to detect a client/config mismatch. */
   clientTimezone?: string | null;
   /** Server-detected timezone fallback when the client does not report one. */
@@ -1736,6 +1737,7 @@ function buildTurnInjectionInputs(
   activeDocuments: TurnInjectionInputs["activeDocuments"],
   isBackgroundConversation: boolean,
   subagentStatusBlock: string | null,
+  configuredUserTimezone: string | null,
 ): TurnInjectionInputs {
   return {
     mode: options.mode,
@@ -1750,7 +1752,7 @@ function buildTurnInjectionInputs(
     interfaceName: options.interfaceName,
     channelName: options.channelName,
     actorContext: options.actorContext,
-    configuredUserTimezone: options.configuredUserTimezone,
+    configuredUserTimezone,
     clientTimezone: options.clientTimezone,
     detectedTimezone: options.detectedTimezone,
     timeSinceLastMessage: options.timeSinceLastMessage,
@@ -1851,6 +1853,14 @@ export async function applyRuntimeInjections(
   );
   const isNonInteractive = options.isNonInteractive ?? false;
 
+  // The guardian-configured timezone is a stable user setting, not a per-turn
+  // value, so it is sourced from config here rather than threaded through
+  // `options`. The `unified-turn-context` injector compares it against the
+  // client-reported timezone to surface a mismatch affordance.
+  const configuredUserTimezone = canonicalizeTimeZone(
+    getConfig().ui?.userTimezone ?? null,
+  );
+
   // The `<active_subagents>` status block is sourced from the live subagent
   // manager's children of this conversation. Skipped when this conversation is
   // itself a subagent (no nesting) or has no children.
@@ -1871,6 +1881,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     isBackgroundConversation,
     subagentStatusBlock,
+    configuredUserTimezone,
   );
   const turnCtx: TurnContext = options.turnContext
     ? { ...options.turnContext, injectionInputs }

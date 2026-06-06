@@ -1270,11 +1270,11 @@ export async function runAgentLoopImpl(
       // Unified `<turn_context>` inputs (temporal, channel, interface, actor).
       // The `unified-turn-context` injector builds the block from these via
       // `buildUnifiedTurnContextBlock`. Actor identity is included only for
-      // non-guardian turns.
+      // non-guardian turns. The configured user timezone is not threaded here:
+      // `applyRuntimeInjections` sources it from config (`ui.userTimezone`).
       timestamp,
       interfaceName,
       channelName,
-      configuredUserTimezone: timezoneContext.configuredUserTimezone,
       clientTimezone: timezoneContext.clientTimezone,
       detectedTimezone: timezoneContext.detectedTimezone,
       timeSinceLastMessage,
