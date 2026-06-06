@@ -538,6 +538,14 @@ export interface AgentLoopRunOptions {
    * convergence/auto-compress reruns) omit this and keep yielding for budget.
    */
   compaction?: MidLoopCompaction;
+  /**
+   * Whether the in-flight turn has no human present to answer clarification
+   * questions. Resolved once by the orchestrator at turn start and forwarded to
+   * the {@link MidLoopCompaction.postCompactionHook} so post-compaction
+   * re-injection uses the turn-start snapshot rather than re-reading mutable
+   * client/headless state mid-turn. Defaults to `false` when omitted.
+   */
+  isNonInteractive?: boolean;
 }
 
 /**
@@ -713,6 +721,7 @@ export class AgentLoop {
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
+    isNonInteractive: boolean,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -771,6 +780,7 @@ export class AgentLoop {
     return compaction.postCompactionHook({
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       turnContext,
+      isNonInteractive,
     });
   }
 
@@ -789,6 +799,7 @@ export class AgentLoop {
       resolveOverrideProfile,
       resolveContextWindow,
       compaction,
+      isNonInteractive = false,
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -1632,6 +1643,7 @@ export class AgentLoop {
                 signal,
                 onEvent,
                 resolveEffectiveOverrideProfile() ?? null,
+                isNonInteractive,
               );
               if (compacted) {
                 history = compacted;

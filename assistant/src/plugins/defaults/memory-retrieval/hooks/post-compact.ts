@@ -47,6 +47,15 @@ export interface PostCompactionHookInput {
   history: Message[];
   /** Per-turn conversation context forwarded to the injector chain. */
   turnContext?: TurnContext;
+  /**
+   * Whether the in-flight turn has no human present to answer clarification
+   * questions. Resolved once by the agent loop at turn start (from its
+   * `isInteractive` option, which can fall back to mutable client/headless
+   * state that flips mid-turn on SSE reconnect) and handed to the hook here, so
+   * re-injection uses the loop's turn-start snapshot rather than re-reading
+   * live conversation state.
+   */
+  isNonInteractive: boolean;
 }
 
 /**
@@ -62,6 +71,13 @@ export interface PostCompactContext
   extends RuntimeInjectionOptions, PostCompactionHookInput {
   /** Turn-scoped logger for diagnostics emitted while re-injecting. */
   logger: PluginLogger;
+  /**
+   * Re-declared to reconcile the optional {@link RuntimeInjectionOptions} field
+   * with the required {@link PostCompactionHookInput} one: the hook always
+   * receives this from the loop, and it flows into {@link applyRuntimeInjections}
+   * via the spread options.
+   */
+  isNonInteractive: boolean;
 }
 
 export default async function postCompactReinject(

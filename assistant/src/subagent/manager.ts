@@ -298,6 +298,10 @@ export class SubagentManager {
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
     conversation.setIsSubagent(true);
+    // Subagents are created as background conversations (see the
+    // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
+    // the type on the live conversation directly for the runtime-assembly path.
+    conversation.conversationType = "background";
 
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without

@@ -198,8 +198,26 @@ export class Conversation {
   };
   /** @internal */ readonly systemPrompt: string;
   /** @internal */ contextWindowManager: ContextWindowManager;
+  /**
+   * Number of leading persisted messages replaced by the context summary in
+   * the view assembled for this actor. Reset to `0` for untrusted actors
+   * because the summary may carry trusted/guardian-only detail and is withheld
+   * from them, so their history is assembled uncompacted. Drives summary-based
+   * slicing of the main message history.
+   */
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
+  /**
+   * Raw persisted `conversations.contextCompactedMessageCount`, mirrored
+   * regardless of trust. Unlike {@link contextCompactedMessageCount} this is
+   * never reset for untrusted actors: it is the durable compaction boundary,
+   * not a summary-exposure decision. Slack transcript assembly uses it to drop
+   * rows folded into a prior compaction when no Slack timestamp watermark
+   * exists yet (conversations compacted before the watermark migration), where
+   * the trust-reset live count would otherwise resurrect those rows for
+   * untrusted actors.
+   */
+  /** @internal */ persistedContextCompactedMessageCount = 0;
   /**
    * Durable Slack-timestamp watermark marking the newest message folded into
    * the context summary during a Slack-aware compaction. Mirrors the DB
@@ -258,13 +276,13 @@ export class Conversation {
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
-   * Whether the in-flight turn has no human present to answer clarification
-   * questions, set at turn start from the resolved interactivity signal.
-   * Read back by runtime assembly to drive the `<non_interactive_context>`
-   * branch and the `background-turn` injector.
+   * The conversation's immutable creation type (`interactive`, `background`,
+   * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
+   * for subagent conversations) so the runtime-assembly path can derive the
+   * background-turn flag from live state without a per-injection DB read.
    * @internal
    */
-  currentTurnIsNonInteractive?: boolean;
+  conversationType?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;

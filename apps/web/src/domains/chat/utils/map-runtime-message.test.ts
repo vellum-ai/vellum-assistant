@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import {
   mapRuntimeToDisplayMessage,
-  prepareServerMessage,
   runtimeMessagePlainText,
 } from "@/domains/chat/utils/map-runtime-message";
 
@@ -16,17 +15,20 @@ function makeMessage(overrides: Partial<ConversationMessage>): ConversationMessa
   return makeServerMessage({ id: "msg-1", role: "assistant", ...overrides });
 }
 
-describe("prepareServerMessage", () => {
+describe("text-segment cleaning", () => {
+  // The `[File attachment]` stripping logic now lives inside the single
+  // `ConversationMessage → DisplayMessage` boundary; it is exercised through
+  // the public `mapRuntimeToDisplayMessage` (which surfaces it on
+  // `textSegments`) and `runtimeMessagePlainText` (which joins the cleaned
+  // segments).
   test("returns unchanged segments when no attachment markers appear", () => {
     const m = makeMessage({
       textSegments: ["hello world"],
       contentOrder: ["text:0"],
     });
 
-    const prepared = prepareServerMessage(m);
-
     expect(runtimeMessagePlainText(m)).toBe("hello world");
-    expect(prepared.normalizedSegments).toEqual(["hello world"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["hello world"]);
   });
 
   test("strips attachment summary appended to the only segment", () => {
@@ -37,10 +39,8 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0"],
     });
 
-    const prepared = prepareServerMessage(m);
-
     expect(runtimeMessagePlainText(m)).toBe("here you go");
-    expect(prepared.normalizedSegments).toEqual(["here you go"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["here you go"]);
   });
 
   test("strips attachment summary from the trailing segment for interleaved messages (LUM-1527)", () => {
@@ -57,10 +57,11 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "tool:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
     expect(runtimeMessagePlainText(m)).toBe("preamble after-tool");
-    expect(prepared.normalizedSegments).toEqual(["preamble", "after-tool"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
+      "preamble",
+      "after-tool",
+    ]);
   });
 
   test("strips attachment summary when it lands in segment[1] but segment[0] is unrelated", () => {
@@ -75,9 +76,7 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "surface:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(prepared.normalizedSegments).toEqual([
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
       "Connected as user@example.com",
       "Here is the analysis.",
     ]);
@@ -98,11 +97,11 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(prepared.normalizedSegments).toEqual(["look at this", ""]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
+      "look at this",
+      "",
+    ]);
   });
-
 });
 
 describe("mapRuntimeToDisplayMessage", () => {

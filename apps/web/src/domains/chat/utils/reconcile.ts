@@ -1,4 +1,4 @@
-import { mapServerSurfaces, prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, mergeThinkingSegments, messagesEqual } from "@/domains/chat/utils/message-merge";
@@ -262,11 +262,12 @@ export function reconcileMessages(
   const reconciled: DisplayMessage[] = server
     .filter((m) => m.role === "user" || m.role === "assistant")
     .flatMap((m) => {
-      // Parse and normalize all server fields through the shared entry point.
-      // This ensures content cleaning, segment normalization, and attachment
-      // mapping stay in sync with history.ts — preventing the class of bug
-      // where one code path forgets a transformation step.
-      const prepared = prepareServerMessage(m);
+      // Project the server row to a DisplayMessage through the single
+      // ConversationMessage → DisplayMessage boundary, so reconciliation runs
+      // DisplayMessage → DisplayMessage and content cleaning, segment
+      // normalization, and attachment mapping stay in sync with the history
+      // load, which projects through the same function.
+      const serverDisplay = mapRuntimeToDisplayMessage(m);
 
       const localMsg = findDisplayMessageByRuntimeIdentity(localById, m);
 
@@ -283,8 +284,8 @@ export function reconcileMessages(
       const msg: DisplayMessage = { id: m.id, role: m.role };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
       if (m.subagentNotification) msg.isSubagentNotification = true;
-      if (prepared.slackMessage ?? localMsg?.slackMessage) {
-        msg.slackMessage = prepared.slackMessage ?? localMsg?.slackMessage;
+      if (serverDisplay.slackMessage ?? localMsg?.slackMessage) {
+        msg.slackMessage = serverDisplay.slackMessage ?? localMsg?.slackMessage;
       }
 
       // Prefer local toolCalls (accumulated during SSE streaming with richer
@@ -302,10 +303,10 @@ export function reconcileMessages(
         // corrects message_complete's force-completion when the server
         // actually recorded an error.  Matches by index (position) because
         // multiple calls to the same tool share a toolName.
-        if (prepared.toolCalls) {
+        if (serverDisplay.toolCalls) {
           let upgraded = false;
           const mergedToolCalls = localTcs.map((ltc, idx) => {
-            const stc = prepared.toolCalls![idx];
+            const stc = serverDisplay.toolCalls![idx];
             if (!stc) return ltc;
             const localRank = toolCallRank(ltc);
             const serverRank = toolCallRank(stc);
@@ -337,7 +338,7 @@ export function reconcileMessages(
         // live stream missed deltas (e.g. dropped while the tab was hidden).
         const thinking = mergeThinkingSegments(
           localMsg!.thinkingSegments,
-          prepared.thinkingSegments,
+          serverDisplay.thinkingSegments,
         );
         if (thinking) msg.thinkingSegments = thinking;
       } else {
@@ -345,11 +346,11 @@ export function reconcileMessages(
         // over server surfaces which may be stale.
         if (localMsg?.surfaces != null) {
           msg.surfaces = localMsg.surfaces;
-        } else if (m.surfaces) {
-          msg.surfaces = mapServerSurfaces(m.surfaces);
+        } else if (serverDisplay.surfaces) {
+          msg.surfaces = serverDisplay.surfaces;
         }
-        if (prepared.toolCalls) {
-          const serverToolCalls = [...prepared.toolCalls];
+        if (serverDisplay.toolCalls) {
+          const serverToolCalls = [...serverDisplay.toolCalls];
           // Monotonic: never downgrade tool call status from completed/error
           // back to running. The local state from SSE events is more current
           // than the server's periodic snapshot.
@@ -373,21 +374,21 @@ export function reconcileMessages(
           }
           msg.toolCalls = serverToolCalls;
         }
-        if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
-        if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
+        if (serverDisplay.contentOrder) msg.contentOrder = serverDisplay.contentOrder;
+        if (serverDisplay.textSegments) msg.textSegments = serverDisplay.textSegments;
         // Prefer locally-accumulated thinking deltas (richer, in-progress) over
         // the server snapshot, but heal each block from the server when the
         // live stream missed deltas (e.g. dropped while the tab was hidden).
         const thinking = mergeThinkingSegments(
           localMsg?.thinkingSegments,
-          prepared.thinkingSegments,
+          serverDisplay.thinkingSegments,
         );
         if (thinking) msg.thinkingSegments = thinking;
       }
 
       // Use server timestamp when available, otherwise preserve client-side one.
-      if (prepared.timestamp != null) {
-        msg.timestamp = prepared.timestamp;
+      if (serverDisplay.timestamp != null) {
+        msg.timestamp = serverDisplay.timestamp;
       } else if (localMsg?.timestamp) {
         msg.timestamp = localMsg.timestamp;
       }
@@ -397,17 +398,29 @@ export function reconcileMessages(
       // "rehydrated:N" stubs (from text-parsing fallback), prefer server
       // structured metadata when available — those carry real daemon UUIDs
       // that resolve against the content endpoint.
+      //
+      // `mapRuntimeToDisplayMessage` collapses the server's structured
+      // attachments and the rehydrated text-fallback stubs into one field
+      // (structured preferred). Split them back apart by the same
+      // `rehydrated:` id marker the stubs carry, so local attachments can
+      // still slot between real server metadata and synthetic stubs.
+      const serverAtts = serverDisplay.attachments;
+      const serverAttsAreStubs =
+        !!serverAtts && serverAtts.every((a) => a.id.startsWith("rehydrated:"));
+      const serverStructured =
+        serverAtts && !serverAttsAreStubs ? serverAtts : undefined;
+      const serverStubs = serverAtts && serverAttsAreStubs ? serverAtts : undefined;
       const localAtts = localMsg?.attachments;
       const hasRealLocalAtts = localAtts && localAtts.length > 0 &&
         !localAtts.every((a) => a.id.startsWith("rehydrated:"));
       if (hasRealLocalAtts) {
         msg.attachments = localAtts;
-      } else if (prepared.structuredAttachments) {
-        msg.attachments = prepared.structuredAttachments;
+      } else if (serverStructured) {
+        msg.attachments = serverStructured;
       } else if (localAtts && localAtts.length > 0) {
         msg.attachments = localAtts;
-      } else if (prepared.parsedAttachments) {
-        msg.attachments = prepared.parsedAttachments;
+      } else if (serverStubs) {
+        msg.attachments = serverStubs;
       }
 
       return [msg];

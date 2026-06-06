@@ -77,9 +77,11 @@ export function reinjectImageSourcePaths(
 
 export interface LoadFromDbContext {
   readonly conversationId: string;
+  conversationType?: string;
   messages: Message[];
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
+  persistedContextCompactedMessageCount: number;
   contextCompactedAt: number | null;
   slackContextCompactionWatermarkTs: string | null;
   trustContext?: TrustContext;
@@ -138,6 +140,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     : allDbMessages;
 
   const conv = getConversation(ctx.conversationId);
+  ctx.conversationType = conv?.conversationType ?? undefined;
   const contextSummary = !isUntrustedTrustClass(trustClass)
     ? conv?.contextSummary?.trim() || null
     : null;
@@ -154,11 +157,18 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
-  // The Slack compaction watermark is a durable timestamp boundary, not a
-  // trusted summary, and Slack transcript rows stay visible to untrusted
-  // actors (they are scoped to the external chat the actor can already read).
-  // Mirror it from the row regardless of trust so runtime injection resolves
-  // the same Slack transcript boundary the persisted row carries.
+  // The raw persisted compaction count and the Slack watermark are durable
+  // compaction boundaries, not trusted summaries, and Slack transcript rows
+  // stay visible to untrusted actors (they are scoped to the external chat the
+  // actor can already read). Mirror both from the row regardless of trust so
+  // runtime injection resolves the same Slack transcript boundary the
+  // persisted row carries; the trust-reset `contextCompactedMessageCount`
+  // above would otherwise resurrect already-compacted rows for untrusted
+  // actors on conversations that predate the watermark.
+  ctx.persistedContextCompactedMessageCount = Math.max(
+    0,
+    conv?.contextCompactedMessageCount ?? 0,
+  );
   ctx.slackContextCompactionWatermarkTs =
     conv?.slackContextCompactionWatermarkTs ?? null;
 

@@ -134,7 +134,6 @@ function seedActiveSurfaceConversation(
   data: SurfaceData,
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
-  currentTurnIsNonInteractive?: boolean,
 ): void {
   setConversation(conversationId, {
     conversationId,
@@ -148,7 +147,6 @@ function seedActiveSurfaceConversation(
     >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
     channelCapabilities: channelCapabilities ?? undefined,
     commandIntent,
-    currentTurnIsNonInteractive,
   } as never);
 }
 
@@ -836,6 +834,8 @@ describe("applyRuntimeInjections — injection mode", () => {
   };
 
   const fullOptions = {
+    // Non-interactive turn so the `<non_interactive_context>` branch fires.
+    isNonInteractive: true,
     unifiedTurnContext:
       "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     // Guardian trust so the personal-memory gate admits the actor regardless
@@ -865,8 +865,6 @@ describe("applyRuntimeInjections — injection mode", () => {
       { html: "<div>test</div>" },
       channelCapabilities,
       { type: "start" },
-      // Non-interactive turn so the `<non_interactive_context>` branch fires.
-      true,
     );
   });
   afterEach(() => {
@@ -3512,6 +3510,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   interface SeededCompactionState {
     slackContextCompactionWatermarkTs?: string | null;
     contextCompactedMessageCount?: number;
+    // Raw persisted count mirrored onto the live conversation. Defaults to
+    // `contextCompactedMessageCount` (the trusted case where the two match);
+    // set independently to simulate an untrusted actor whose
+    // `contextCompactedMessageCount` view is reset to 0 while the persisted
+    // boundary stays non-zero.
+    persistedContextCompactedMessageCount?: number;
   }
 
   // Persist the Slack rows under the runtime-assembly fallback conversation and
@@ -3566,6 +3570,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         compaction.slackContextCompactionWatermarkTs ?? null,
       contextCompactedMessageCount:
         compaction.contextCompactedMessageCount ?? 0,
+      persistedContextCompactedMessageCount:
+        compaction.persistedContextCompactedMessageCount ??
+        compaction.contextCompactedMessageCount ??
+        0,
     } as never);
   }
 
@@ -3599,7 +3607,11 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       slackChannelCaps,
       {
         trustClass: "guardian",
-        contextCompactedMessageCount: compaction.contextCompactedMessageCount,
+        // Production self-resolve bounds the block by the raw persisted count,
+        // so the expected block mirrors that (not the trust-reset live count).
+        contextCompactedMessageCount:
+          compaction.persistedContextCompactedMessageCount ??
+          compaction.contextCompactedMessageCount,
         slackContextCompactionWatermarkTs:
           compaction.slackContextCompactionWatermarkTs,
       },
@@ -3852,6 +3864,76 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(focusBlock!).not.toContain("compacted reply");
     // `applyRuntimeInjections` injected exactly that self-resolved block — proof
     // it read the watermark + count off the live conversation, not the options.
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<active_thread>");
+    expect(allText).toContain(focusBlock!);
+  });
+
+  test("focus block bounds by the persisted count for untrusted actors with no watermark", async () => {
+    // Untrusted actors load with `contextCompactedMessageCount` reset to 0
+    // (the summary is withheld), but the Slack active-thread boundary must use
+    // the raw persisted count so already-compacted thread rows stay folded.
+    // Legacy conversations (compacted before the watermark migration) have no
+    // watermark, so the count is the sole boundary — reading the trust-reset 0
+    // would resurrect the compacted rows.
+
+    // GIVEN a thread whose first two rows were folded into a prior compaction
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000005_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000020_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    // WHEN the live conversation mirrors the untrusted load state: the
+    // trust-reset count is 0, the persisted count is 2, and there is no
+    // watermark (a pre-watermark legacy conversation)
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+      {
+        slackContextCompactionWatermarkTs: null,
+        contextCompactedMessageCount: 0,
+        persistedContextCompactedMessageCount: 2,
+      },
+    );
+
+    // THEN the self-resolved focus block drops the two compacted rows and
+    // keeps only the live reply — proof it read the persisted count, not the
+    // trust-reset 0 that would have resurrected the compacted rows
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("live reply");
+    expect(focusBlock!).not.toContain("compacted root");
+    expect(focusBlock!).not.toContain("compacted reply");
     const allText = messages
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
