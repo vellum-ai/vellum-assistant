@@ -343,13 +343,18 @@ export class UsageTelemetryReporter {
             type: "onboarding",
             // Wire-only override for activation rows: a deterministic id keyed
             // on funnel_version/session/step lets dbt collapse a moment that
-            // fires more than once. The SQLite watermark cursor still uses
-            // `e.id`/`e.createdAt`, so this override is checkpoint-safe.
+            // fires more than once. Key on the ROW's stored `funnelVersion`
+            // (not the binary's current constant) so rows recorded under an
+            // older version — flushed offline or after an upgrade — keep a
+            // stable id and still collapse with already-ingested rows. The
+            // SQLite watermark cursor still uses `e.id`/`e.createdAt`, so this
+            // override is checkpoint-safe.
             daemon_event_id:
               e.sessionId && e.stepName && e.funnelVersion
                 ? buildActivationDaemonEventId(
                     e.sessionId,
                     e.stepName as ActivationStepName,
+                    e.funnelVersion,
                   )
                 : e.id,
             recorded_at: e.createdAt,

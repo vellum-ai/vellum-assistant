@@ -1265,6 +1265,49 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
+  test("activation daemon_event_id is keyed on the row's stored funnel_version, not the binary constant", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const sessionId = "sess-activation-old";
+    const stepName = "activation_moment_1_complete";
+    // A row recorded under an OLDER funnel version, queued across an upgrade.
+    const oldVersion = "activation_v0_2026_05";
+    expect(oldVersion).not.toBe(ACTIVATION_FUNNEL_VERSION);
+    mockQueryUnreportedOnboardingEvents.mockReturnValue([
+      makeOnboardingEvent({
+        id: "onb-activation-old",
+        screen: stepName,
+        abVariant: "variant-a",
+        sessionId,
+        stepName,
+        stepIndex: 1,
+        completedAt: "2026-05-01T00:00:00.000Z",
+        funnelVersion: oldVersion,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events[0]).toMatchObject({
+      funnel_version: oldVersion,
+      daemon_event_id: buildActivationDaemonEventId(
+        sessionId,
+        stepName,
+        oldVersion,
+      ),
+    });
+    // Guard: the id must carry the row's version, not the binary constant.
+    expect(body.events[0].daemon_event_id).toBe(
+      `${oldVersion}:${sessionId}:${stepName}`,
+    );
+  });
+
   test("legacy onboarding row keeps daemon_event_id: e.id and omits funnel fields", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     mockQueryUnreportedOnboardingEvents.mockReturnValue([

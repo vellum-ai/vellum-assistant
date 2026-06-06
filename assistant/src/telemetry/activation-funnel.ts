@@ -84,10 +84,18 @@ export function activationStepIndex(stepName: ActivationStepName): number {
  * `${funnel_version}:${sessionId}:${stepName}` lets the existing dbt
  * dedup (keyed on `daemon_event_id`, earliest-wins) collapse a moment that
  * fires more than once into a single row.
+ *
+ * `funnelVersion` defaults to the current `ACTIVATION_FUNNEL_VERSION` but
+ * callers that have a per-row stored version (e.g. the telemetry reporter
+ * flushing rows recorded under an older version) MUST pass the row's own
+ * `funnel_version` so the id stays stable across a version bump — otherwise
+ * queued/offline v1 rows would be keyed with the new binary's version and
+ * stop collapsing with already-ingested v1 rows from the same session.
  */
 export function buildActivationDaemonEventId(
   sessionId: string,
   stepName: ActivationStepName,
+  funnelVersion: string = ACTIVATION_FUNNEL_VERSION,
 ): string {
-  return `${ACTIVATION_FUNNEL_VERSION}:${sessionId}:${stepName}`;
+  return `${funnelVersion}:${sessionId}:${stepName}`;
 }
