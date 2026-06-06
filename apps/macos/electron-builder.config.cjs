@@ -12,6 +12,11 @@ const appId =
     ? "com.vellum.vellum-assistant-electron"
     : `com.vellum.vellum-assistant-electron-${env}`;
 
+const schemes = ["vellum", "vellum-assistant"];
+if (env !== "production") {
+  schemes.push(`vellum-assistant-${env}`);
+}
+
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
   appId,
@@ -28,7 +33,7 @@ module.exports = {
   protocols: [
     {
       name: "Vellum Deep Links",
-      schemes: ["vellum", "vellum-assistant"],
+      schemes,
     },
   ],
   fileAssociations: [

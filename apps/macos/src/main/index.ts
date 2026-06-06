@@ -1,3 +1,5 @@
+import "./env-seed";
+
 import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
