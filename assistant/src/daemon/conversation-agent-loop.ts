@@ -141,7 +141,6 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
@@ -1211,27 +1210,6 @@ export async function runAgentLoopImpl(
       timeZone: timezoneContext.effectiveTimezone,
     });
 
-    // Build unified turn context block that replaces the separate temporal,
-    // channel, interface, and actor context blocks.
-    const baseTurnContext = {
-      timestamp,
-      interfaceName,
-      channelName,
-      configuredUserTimezone: timezoneContext.configuredUserTimezone,
-      clientTimezone: timezoneContext.clientTimezone,
-      detectedTimezone: timezoneContext.detectedTimezone,
-      timeSinceLastMessage,
-      modelProfile: modelProfileStr,
-    };
-    const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
-      isGuardian
-        ? baseTurnContext
-        : {
-            ...baseTurnContext,
-            actorContext: resolvedInboundActorContext,
-          },
-    );
-
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     // For any Slack conversation (channels and DMs alike), build a
@@ -1287,9 +1265,21 @@ export async function runAgentLoopImpl(
     // separately (alongside the loop's other per-turn state) so this bag holds
     // only channel/conversation content the orchestrator assembles.
     const injectionOpts = {
-      unifiedTurnContext: unifiedTurnContextStr,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,
+      // Unified `<turn_context>` inputs (temporal, channel, interface, actor).
+      // The `unified-turn-context` injector builds the block from these via
+      // `buildUnifiedTurnContextBlock`. Actor identity is included only for
+      // non-guardian turns.
+      timestamp,
+      interfaceName,
+      channelName,
+      configuredUserTimezone: timezoneContext.configuredUserTimezone,
+      clientTimezone: timezoneContext.clientTimezone,
+      detectedTimezone: timezoneContext.detectedTimezone,
+      timeSinceLastMessage,
+      modelProfile: modelProfileStr,
+      actorContext: isGuardian ? null : resolvedInboundActorContext,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";

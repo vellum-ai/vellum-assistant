@@ -14,6 +14,10 @@ import {
   defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
 } from "../plugins/defaults/memory-retrieval/injectors.js";
+import {
+  buildUnifiedTurnContextBlock,
+  type UnifiedTurnContextOptions,
+} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
@@ -140,13 +144,17 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       { role: "user", content: [{ type: "text", text: "clean up space" }] },
     ];
     const workspace = "<workspace>\nRoot: /workspace\n</workspace>";
-    const turnContext = "<turn_context>\ninterface: macos\n</turn_context>";
+    const turnContextOptions: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+    };
+    const turnContext = buildUnifiedTurnContextBlock(turnContextOptions);
 
     seedWorkspaceContext(workspace);
     seedDiskPressure(true);
     const result = await applyRuntimeInjections(runMessages, {
+      ...turnContextOptions,
       turnContext: makeContext(),
-      unifiedTurnContext: turnContext,
     });
 
     expect(tailTexts(result.messages).slice(0, 4)).toEqual([
@@ -163,19 +171,24 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
   });
 
   test("survives minimal mode as safety-critical context", async () => {
+    const turnContextOptions: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "macos",
+    };
+    const turnContext = buildUnifiedTurnContextBlock(turnContextOptions);
     seedDiskPressure(true);
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
+        ...turnContextOptions,
         turnContext: makeContext(),
         mode: "minimal",
-        unifiedTurnContext: "<turn_context>...</turn_context>",
       },
     );
 
     expect(tailTexts(result.messages)).toEqual([
       DISK_PRESSURE_WARNING_PROMPT,
-      "<turn_context>...</turn_context>",
+      turnContext,
       "status",
     ]);
   });

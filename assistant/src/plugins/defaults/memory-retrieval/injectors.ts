@@ -75,6 +75,7 @@ import {
   type TurnContext,
   type TurnInjectionInputs,
 } from "../../types.js";
+import { buildUnifiedTurnContextBlock } from "./unified-turn-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -252,10 +253,11 @@ const backgroundTurnInjector: Injector = {
 /**
  * `unified-turn-context` injector — order 20, prepend-user-tail.
  *
- * Injects the pre-built `<turn_context>` block that combines temporal,
- * actor, channel, and interface context. The orchestrator builds the text
- * via `buildUnifiedTurnContextBlock` before the chain runs and hands it in
- * via `ctx.injectionInputs.unifiedTurnContext`.
+ * Injects the `<turn_context>` block that combines temporal, actor, channel,
+ * and interface context. The orchestrator resolves the block's inputs onto the
+ * per-turn {@link TurnInjectionInputs}; this injector builds the text from them
+ * via `buildUnifiedTurnContextBlock`. Emits nothing when no `timestamp` is
+ * present (the inputs were not resolved for this turn).
  *
  * Active in both `full` and `minimal` mode — unified turn context is
  * safety-critical grounding that must survive injection downgrade.
@@ -265,8 +267,19 @@ const unifiedTurnContextInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
-    const text = inputs.unifiedTurnContext;
-    if (!text) return null;
+    const { timestamp } = inputs;
+    if (!timestamp) return null;
+    const text = buildUnifiedTurnContextBlock({
+      timestamp,
+      interfaceName: inputs.interfaceName,
+      channelName: inputs.channelName,
+      actorContext: inputs.actorContext,
+      configuredUserTimezone: inputs.configuredUserTimezone,
+      clientTimezone: inputs.clientTimezone,
+      detectedTimezone: inputs.detectedTimezone,
+      timeSinceLastMessage: inputs.timeSinceLastMessage,
+      modelProfile: inputs.modelProfile,
+    });
     return {
       id: "unified-turn-context",
       text,
