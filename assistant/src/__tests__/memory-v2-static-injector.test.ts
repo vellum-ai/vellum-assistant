@@ -195,4 +195,48 @@ describe("memory-v2-static injector", () => {
     expect(block!.id).toBe("memory-v2-static");
     expect(block!.text).toContain("## Essentials");
   });
+
+  test("skips (re)injection when the <info> block is carried in a flattened history block", async () => {
+    // Regression: when a historical user message's separate injection content
+    // blocks get collapsed into one text block (observed after a daemon restart
+    // / plugin hot-reload rebuilt the rendered history mid-conversation — the
+    // blocks are joined with "\n"), the `<info>` wrapper is no longer its own
+    // block but a newline-delimited section inside a larger block. Presence
+    // detection must still recognize it; otherwise the injector re-injects a
+    // duplicate `<info>` onto the new tail (the double-injection bug).
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const flattenedFirstUser = [
+      "<workspace>\nRoot: /ws\nFiles: a.md\n</workspace>",
+      "<turn_context>\ncurrent_time: now\n</turn_context>",
+      "<memory>\nactivated page summary\n</memory>",
+      "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      "what should we do next?",
+    ].join("\n");
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: flattenedFirstUser }] },
+      { role: "assistant", content: [{ type: "text", text: "On it." }] },
+      { role: "user", content: [{ type: "text", text: "great, continue" }] },
+    ];
+    expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
+  });
+
+  test("still injects when a user message opens an <info> tag without closing it", async () => {
+    // False-positive guard: the wrapper matcher requires BOTH the opening and
+    // closing tags, so user prose that merely opens an injection-like tag must
+    // not be mistaken for a carried block and suppress injection.
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\n is this how the tag works?" },
+        ],
+      },
+    ];
+    const block = await memoryV2StaticInjector.produce(ctx, runMessages);
+    expect(block).not.toBeNull();
+    expect(block!.id).toBe("memory-v2-static");
+  });
 });
