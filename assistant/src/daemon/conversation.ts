@@ -557,6 +557,7 @@ export class Conversation {
               trustContext: this.currentTurnTrustContext,
               channelCapabilities: this.currentTurnChannelCapabilities,
               onboardingContext: this.getOnboardingContext(),
+              conversationId: this.conversationId,
             }),
       };
       if (configuredMaxTokens !== undefined) {
@@ -640,6 +641,7 @@ export class Conversation {
           trustContext: this.currentTurnTrustContext,
           channelCapabilities: this.currentTurnChannelCapabilities,
           onboardingContext: this.getOnboardingContext(),
+          conversationId: this.conversationId,
         });
     const tools = getAllToolDefinitions();
     const provider = this.provider;

@@ -16,6 +16,7 @@ import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
+  createActivationSessionsTable,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
   createAuthFallbackEventsTable,
@@ -482,6 +483,7 @@ export function initializeDb(): void {
     createAuthFallbackEventsTable,
     migrateAcpSessionHistoryCwd,
     migrateOnboardingEventsFunnelColumns,
+    createActivationSessionsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one
