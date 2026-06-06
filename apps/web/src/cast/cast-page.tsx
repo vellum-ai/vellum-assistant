@@ -468,13 +468,8 @@ function CastFocus({
 }) {
   const [editing, setEditing] = useState(false);
 
-  // A modest riser under the dude + the name above its head — both anchored to
-  // the dude's own column so the raise reads as "in place".
+  // Name above the raised dude's head, anchored to its own column.
   const dudeCx = box.left + box.size / 2;
-  const podW = box.size * 1.32;
-  const podH = box.size * 0.42;
-  const podTop = box.top + box.size * 0.82;
-  const podLeft = dudeCx - podW / 2;
   const nameTop = Math.max(10, box.top - 50);
 
   return (
@@ -489,23 +484,6 @@ function CastFocus({
       <button className="cast-back" onClick={onBack} aria-label="Back to grid">
         ‹
       </button>
-
-      {/* podium the pick is elevated onto — rises in under the landing dude */}
-      <motion.div
-        className="cast-podium"
-        style={{ left: podLeft, top: podTop, width: podW, height: podH }}
-        initial={{ opacity: 0, y: 26, scaleX: 0.7 }}
-        animate={{ opacity: 1, y: 0, scaleX: 1 }}
-        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-      >
-        <div className="cast-podium__glow" />
-        <svg className="cast-podium__art" viewBox="0 0 220 130" preserveAspectRatio="xMidYMin meet">
-          <ellipse cx="110" cy="100" rx="80" ry="16" fill="rgba(0,0,0,0.45)" />
-          <path d="M22 30 H198 V86 A88 26 0 0 1 22 86 Z" fill="var(--surface-lift)" />
-          <ellipse cx="110" cy="30" rx="88" ry="26" fill="var(--surface-active)" />
-          <ellipse cx="110" cy="27" rx="68" ry="17" fill="rgba(255,255,255,0.05)" />
-        </svg>
-      </motion.div>
 
       <HeroCharacter character={character} box={box} interactive autoReact />
 

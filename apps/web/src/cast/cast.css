@@ -997,34 +997,6 @@
   cursor: pointer;
 }
 
-/* the pedestal the pick is elevated onto (rises in beneath the dude) */
-.cast-podium {
-  position: absolute;
-  z-index: 1;
-  pointer-events: none;
-}
-.cast-podium__art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: visible;
-  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.55));
-}
-/* warm pool of light where the dude stands on the pedestal */
-.cast-podium__glow {
-  position: absolute;
-  left: 50%;
-  top: -14%;
-  width: 64%;
-  height: 56%;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 240, 214, 0.18) 0%, transparent 70%);
-  filter: blur(5px);
-}
-
 /* ---- bottom controls ---- */
 
 .cast-build-link {
