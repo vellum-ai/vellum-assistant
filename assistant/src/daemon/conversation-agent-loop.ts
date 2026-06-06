@@ -1593,7 +1593,11 @@ export async function runAgentLoopImpl(
     // loop is intentionally blind to. Durable persistence is signalled via
     // events; re-injection stays orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      postCompactionHook: async ({ history, turnContext }) => {
+      postCompactionHook: async ({
+        history,
+        turnContext,
+        isNonInteractive,
+      }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // memory-static block, so re-inject the current content regardless of
         // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
@@ -1640,6 +1644,7 @@ export async function runAgentLoopImpl(
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
           compaction,
+          isNonInteractive,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
