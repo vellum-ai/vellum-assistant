@@ -52,6 +52,7 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
+import { initializeDb } from "../memory/db-init.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
@@ -62,6 +63,11 @@ import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+
+// `applyRuntimeInjections` self-resolves the Slack active-thread focus block
+// from the persisted message rows, so the schema must exist for Slack-channel
+// turns; with no seeded rows the focus loader resolves to null.
+initializeDb();
 
 // `makeTurnContext` and the workspace registry seed share this id so the
 // `workspace-context` injector resolves the seeded block for the turn.
