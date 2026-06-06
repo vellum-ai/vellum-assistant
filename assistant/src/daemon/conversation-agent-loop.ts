@@ -1302,17 +1302,6 @@ export async function runAgentLoopImpl(
 
     state.reducerCompacted = compactedThisTurn;
 
-    // memory-v3-live: when on, the provider anchors its long-TTL cache
-    // breakpoint on the most recent STABLE user message, since the latest user
-    // message now carries the volatile per-turn `<memory>` block the v3
-    // injector emits. The matching v2-suppression strip is owned by
-    // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
-    // bit-for-bit identical to today's v2 path.
-    const memoryV3Live = isAssistantFeatureFlagEnabled(
-      "memory-v3-live",
-      getConfig(),
-    );
-
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       unifiedTurnContext: unifiedTurnContextStr,
@@ -1658,6 +1647,16 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
+      // memory-v3-live: when on, the provider anchors its long-TTL cache
+      // breakpoint on the most recent STABLE user message, since the latest
+      // user message now carries the volatile per-turn `<memory>` block the v3
+      // injector emits. The matching v2-suppression strip is owned by
+      // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
+      // bit-for-bit identical to today's v2 path.
+      const memoryV3Live = isAssistantFeatureFlagEnabled(
+        "memory-v3-live",
+        getConfig(),
+      );
       const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
@@ -1669,9 +1668,6 @@ export async function runAgentLoopImpl(
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
           compaction,
-          // memory-v3-live: the latest user message carries the volatile v3
-          // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
-          // on the most recent stable message instead.
           mutableLatestUserMessage: memoryV3Live,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
