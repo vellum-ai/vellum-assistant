@@ -1,16 +1,21 @@
 /* Cast — activation-surface prototype styles.
  *
  * Chrome (text, surfaces, borders, radii, on-scale spacing) uses the Vellum
- * design tokens from @vellumai/design-library/tokens.css. The Cast stage forces
- * `data-theme="dark"` so these semantic tokens resolve to the dark "cave"
- * palette no matter the app theme.
+ * design tokens from @vellumai/design-library/tokens.css. The Cast stage sets a
+ * switchable `data-theme` (light/dark/velvet) so the chrome matches the app in
+ * any theme. The cursor-spotlight "shroud" derives from the theme surface
+ * (`--cast-shroud`) so the cave is deep on dark and a gentle dim on light.
  *
- * Deliberate ART is intentionally NOT tokenized — the cursor spotlight, the
- * gold Super-Saiyan aura/flash/sparks, drop shadows, skeleton shimmer, and the
- * deep cave vignette are bespoke effects (the avatar SVG colors are likewise
- * fixed), so they stay as literal values. */
+ * The gold Super-Saiyan aura/flash/sparks, drop shadows, skeleton shimmer, and
+ * the warm spotlight core are bespoke effects (like the avatar SVG colors) and
+ * stay as literal values. */
 
 .cast-stage {
+  /* `--cast-shroud` is the "unlit" color the spotlight/vignette fades toward —
+     derived from the theme's own surface so it's a deep cave on dark and a
+     gentle dim on light. `--cast-dim` controls how far it sinks toward black. */
+  --cast-dim: 62%;
+  --cast-shroud: color-mix(in srgb, var(--surface-base), #000 var(--cast-dim));
   position: fixed;
   inset: 0;
   display: flex;
@@ -21,6 +26,12 @@
   user-select: none;
   -webkit-user-select: none;
 }
+.cast-stage[data-theme="light"] {
+  --cast-dim: 22%; /* light theme dims gently rather than to a black cave */
+}
+.cast-stage[data-theme="velvet"] {
+  --cast-dim: 56%;
+}
 
 /* Full-window stage. */
 .cast-panel {
@@ -28,7 +39,7 @@
   width: 100vw;
   height: 100dvh;
   overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, #101116 100%);
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
   color: var(--content-default);
 }
 
@@ -41,8 +52,9 @@
   text-align: center;
   z-index: 2;
   pointer-events: none;
-  background: linear-gradient(to bottom, rgba(14, 15, 19, 0.7) 0%, rgba(14, 15, 19, 0) 100%);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  /* fade from the theme surface so the title reads over the crowd in any theme */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--surface-base) 82%, transparent) 0%, transparent 100%);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
 }
 
 .cast-panel__title {
@@ -100,16 +112,16 @@
     ),
     radial-gradient(
       circle 320px at var(--mx) var(--my),
-      rgba(14, 15, 19, 0) 0%,
-      rgba(14, 15, 19, 0) 30%,
-      rgba(14, 15, 19, 0.55) 64%,
-      rgba(14, 15, 19, 0.92) 100%
+      transparent 0%,
+      transparent 30%,
+      color-mix(in srgb, var(--cast-shroud) 55%, transparent) 64%,
+      color-mix(in srgb, var(--cast-shroud) 92%, transparent) 100%
     ),
     linear-gradient(
       to top,
-      rgba(14, 15, 19, 0) 60%,
-      rgba(14, 15, 19, 0.55) 84%,
-      rgba(14, 15, 19, 0.94) 100%
+      transparent 60%,
+      color-mix(in srgb, var(--cast-shroud) 55%, transparent) 84%,
+      color-mix(in srgb, var(--cast-shroud) 94%, transparent) 100%
     );
 }
 
@@ -341,7 +353,7 @@
   font-weight: 640;
   letter-spacing: -0.01em;
   color: var(--content-default);
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
 }
 
 .cast-tiles {
@@ -562,7 +574,7 @@
   font-weight: 560;
   line-height: 1.45;
   color: var(--content-default);
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
 }
 .cast-receipt__offer {
   color: var(--content-secondary);
@@ -677,7 +689,7 @@
   position: absolute;
   inset: 0;
   z-index: 9;
-  background: radial-gradient(120% 90% at 50% 0%, var(--surface-overlay) 0%, var(--surface-base) 60%, #101116 100%);
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-overlay) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
   display: flex;
   justify-content: center;
   overflow-y: auto;
@@ -901,6 +913,41 @@
   0% { transform: translateY(0) scale(0.6); opacity: 0; }
   20% { opacity: 1; }
   100% { transform: translateY(-130px) scale(1); opacity: 0; }
+}
+
+/* ---- theme switcher ---- */
+
+.cast-theme-switch {
+  position: absolute;
+  top: var(--app-spacing-md);
+  right: var(--app-spacing-md);
+  z-index: 6;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(8px);
+}
+.cast-theme-switch__btn {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-secondary);
+  font-size: 11px;
+  font-weight: 560;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-theme-switch__btn:hover:not(.is-active) {
+  color: var(--content-default);
+}
+.cast-theme-switch__btn.is-active {
+  background: var(--surface-active);
+  color: var(--content-default);
 }
 
 /* ---- bottom controls ---- */

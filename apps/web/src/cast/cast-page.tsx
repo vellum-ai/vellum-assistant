@@ -27,6 +27,17 @@ import "@/cast/cast.css";
 
 type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done";
 
+export type CastTheme = "light" | "dark" | "velvet";
+const CAST_THEMES: CastTheme[] = ["light", "dark", "velvet"];
+
+/** Seed Cast's theme from whatever the app currently has on <html>, so Cast
+ * opens looking like the rest of the app. */
+function initialCastTheme(): CastTheme {
+  if (typeof document === "undefined") return "dark";
+  const t = document.documentElement.getAttribute("data-theme");
+  return t === "light" || t === "velvet" ? t : "dark";
+}
+
 /** Columns and rows derive from the window so the crowd fills it at any size. */
 function colsFor(width: number): number {
   return Math.max(4, Math.min(16, Math.round(width / 134)));
@@ -100,6 +111,11 @@ export function CastPage() {
       clearBeatTimers();
     };
   }, []);
+
+  // Theme is scoped to the Cast stage (non-destructive — doesn't touch the
+  // app-wide preference). Defaults to the app's current theme so Cast matches
+  // the rest of the app on load, and is switchable in-surface.
+  const [theme, setTheme] = useState<CastTheme>(() => initialCastTheme());
 
   const { cols, rows } = grid;
   const visible = CAST.slice(0, Math.min(cols * rows, 260));
@@ -220,11 +236,11 @@ export function CastPage() {
   }
 
   return (
-    // Force the dark token theme so Cast's "cave" palette is consistent
-    // regardless of the app's active theme — semantic tokens resolve to their
-    // dark values within this subtree.
-    <div className="cast-stage" data-theme="dark">
+    // Cast follows its own (switchable) theme — semantic tokens resolve within
+    // this subtree, so the chrome matches the app in light/dark/velvet.
+    <div className="cast-stage" data-theme={theme}>
       <div className="cast-panel" ref={panelRef}>
+        <CastThemeSwitcher theme={theme} onChange={setTheme} />
         {inGrid && (
           <header className="cast-panel__header">
             <h1 className="cast-panel__title">Meet the Cast</h1>
@@ -471,6 +487,34 @@ function CastFocus({
         Continue
       </button>
     </motion.div>
+  );
+}
+
+/* ---------------- Theme switcher ---------------- */
+
+const THEME_LABEL: Record<CastTheme, string> = { light: "Light", dark: "Dark", velvet: "Velvet" };
+
+function CastThemeSwitcher({
+  theme,
+  onChange,
+}: {
+  theme: CastTheme;
+  onChange: (t: CastTheme) => void;
+}) {
+  return (
+    <div className="cast-theme-switch" role="group" aria-label="Theme">
+      {CAST_THEMES.map((t) => (
+        <button
+          key={t}
+          type="button"
+          className={`cast-theme-switch__btn${t === theme ? " is-active" : ""}`}
+          aria-pressed={t === theme}
+          onClick={() => onChange(t)}
+        >
+          {THEME_LABEL[t]}
+        </button>
+      ))}
+    </div>
   );
 }
 
