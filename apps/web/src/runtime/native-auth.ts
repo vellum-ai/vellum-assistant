@@ -276,7 +276,9 @@ export async function startAuthFlow(
   // Standalone local mode (no local Django serving the SPA): redirect
   // through the platform's login page and back to a loopback callback.
   if (isLocalMode() && !isPlatformLocal()) {
-    await startLoopbackAuth(options.returnTo ?? undefined);
+    await startLoopbackAuth(options.returnTo ?? undefined, {
+      intent: options.intent,
+    });
     return;
   }
 
