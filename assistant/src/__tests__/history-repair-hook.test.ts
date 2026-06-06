@@ -21,8 +21,8 @@ import type {
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
 import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
-import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair/register.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { defaultHistoryRepairPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,

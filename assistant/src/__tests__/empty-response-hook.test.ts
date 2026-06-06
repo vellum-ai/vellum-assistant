@@ -31,7 +31,7 @@ import {
   REFUSAL_NUDGE_TEXT,
 } from "../plugins/defaults/empty-response/hooks/stop.js";
 import stop from "../plugins/defaults/empty-response/hooks/stop.js";
-import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response/register.js";
+import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
