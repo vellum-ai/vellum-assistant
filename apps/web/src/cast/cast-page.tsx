@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { CastAvatar } from "@/cast/cast-avatar";
 import {
   EDGES,
-  JOBS,
   RATHERS,
   type Edge,
   type JobKey,
@@ -18,10 +17,12 @@ import {
   type StyleProfile,
 } from "@/cast/cast-hooks";
 import { CastJob } from "@/cast/cast-job";
+import { CastProof } from "@/cast/cast-proof-view";
 import { CastRather } from "@/cast/cast-rather";
 import { CastStyle } from "@/cast/cast-style";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import "@/cast/cast.css";
 
 type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done";
@@ -104,6 +105,9 @@ export function CastPage() {
   const visible = CAST.slice(0, Math.min(cols * rows, 260));
   const inGrid = phase === "grid";
   const name = selected ? (names[selected.id] ?? selected.name) : "";
+  // Nullable on this public route (no ActiveAssistantGate); the proof beat's
+  // model calls fall back to local generation when it's absent.
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
   function moveSpotlight(e: React.PointerEvent) {
     const panel = panelRef.current;
@@ -324,16 +328,27 @@ export function CastPage() {
           />
         )}
 
-        {/* Placeholder for whatever comes next (Proof beat) */}
+        {/* Beat 6 — proof */}
         {phase === "done" && selected && (
-          <CastDone
+          <CastProof
             character={selected}
-            name={name}
-            box={boxes.focus}
+            box={boxes.top}
             jobs={jobs}
+            rathers={rathers}
             style={style}
             ascended={rathers.length === RATHERS.length}
-            onRestart={backToGrid}
+            assistantId={assistantId}
+            onAction={(which) => {
+              console.log("[Cast] proof action", {
+                which,
+                character: selected.id,
+                name,
+                jobs,
+                rathers,
+                style,
+              });
+            }}
+            onBack={() => setPhase("style")}
           />
         )}
 
@@ -451,56 +466,6 @@ function CastFocus({
 
       <button className="cast-continue" onClick={onContinue}>
         Continue
-      </button>
-    </motion.div>
-  );
-}
-
-/* ---------------- Placeholder for what comes next (Proof beat) ---------------- */
-
-function CastDone({
-  character,
-  name,
-  box,
-  jobs,
-  style,
-  ascended,
-  onRestart,
-}: {
-  character: CastCharacter;
-  name: string;
-  box: Rect;
-  jobs: JobKey[];
-  style: StyleProfile;
-  ascended: boolean;
-  onRestart: () => void;
-}) {
-  const styleSummary = [style.execution, style.tone, style.latitude]
-    .filter(Boolean)
-    .join(" · ")
-    .replace(/_/g, " ");
-  const heldProps = ascended
-    ? jobs.map((k) => {
-        const idx = JOBS.findIndex((j) => j.key === k);
-        return { key: JOBS[idx].prop, slot: idx, fly: null };
-      })
-    : [];
-  return (
-    <motion.div className="cast-focus" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <HeroCharacter character={character} box={box} interactive heldProps={heldProps} ascended={ascended} />
-      <motion.div
-        className="cast-name"
-        style={{ top: box.top + box.size + 28 }}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.4 }}
-      >
-        <div className="cast-name__text">{name} is ready.</div>
-        {styleSummary && <p className="cast-done__sub">{styleSummary}</p>}
-        <p className="cast-done__sub">Proof beat goes here next.</p>
-      </motion.div>
-      <button className="cast-continue" onClick={onRestart}>
-        Start over
       </button>
     </motion.div>
   );
