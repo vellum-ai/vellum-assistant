@@ -24,7 +24,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -1647,16 +1646,6 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compaction?: MidLoopCompaction,
     ): Promise<Message[]> => {
-      // memory-v3-live: when on, the provider anchors its long-TTL cache
-      // breakpoint on the most recent STABLE user message, since the latest
-      // user message now carries the volatile per-turn `<memory>` block the v3
-      // injector emits. The matching v2-suppression strip is owned by
-      // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
-      // bit-for-bit identical to today's v2 path.
-      const memoryV3Live = isAssistantFeatureFlagEnabled(
-        "memory-v3-live",
-        getConfig(),
-      );
       const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
           signal: abortController.signal,
@@ -1668,7 +1657,6 @@ export async function runAgentLoopImpl(
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
           compaction,
-          mutableLatestUserMessage: memoryV3Live,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
