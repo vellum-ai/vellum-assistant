@@ -147,6 +147,16 @@ export async function searchPlugins(
 }
 
 /**
+ * Validate that {@link query} compiles as a case-insensitive ECMAScript regex,
+ * throwing {@link InvalidSearchPatternError} if not. Lets a caching caller
+ * (the daemon) reject a malformed query before loading the catalog, so a typo
+ * is a cheap deterministic 400 rather than a wasted GitHub request.
+ */
+export function assertValidSearchPattern(query: string): void {
+  buildMatcher(query);
+}
+
+/**
  * Filter a pre-loaded {@link PluginCatalog} by {@link query}, compiling it as
  * a case-insensitive ECMAScript regex (an empty query matches everything).
  * Lets a caching caller (the daemon) reuse one catalog load across many

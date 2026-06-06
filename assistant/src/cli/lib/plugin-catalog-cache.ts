@@ -20,6 +20,7 @@ import { getLogger } from "../../util/logger.js";
 import {
   loadPluginCatalog,
   type PluginCatalog,
+  PluginCatalogUnavailableError,
   type SearchPluginsDeps,
 } from "./search-plugins.js";
 
@@ -39,11 +40,15 @@ const cache = new Map<string, CacheEntry>();
  * Resolve the full plugin catalog at {@link ref} with in-memory caching.
  *
  * Within the TTL window the cached catalog is returned without touching the
- * network. After the TTL elapses a refresh is attempted; if it fails and a
- * cached catalog exists, the stale catalog is served (and its TTL window is
- * reset so a sustained outage doesn't re-enter the failing fetch on every
- * call). With no cache to fall back on, the underlying error propagates so
- * the caller can surface it (e.g. the route maps a rate-limit failure to 503).
+ * network. After the TTL elapses a refresh is attempted; if it fails with a
+ * transient upstream error ({@link PluginCatalogUnavailableError} — rate
+ * limiting or a 5xx) and a cached catalog exists, the stale catalog is served
+ * (and its TTL window is reset so a sustained outage doesn't re-enter the
+ * failing fetch on every call). A hard error (e.g. the canonical plugins
+ * prefix returning 404, or a deleted ref) always propagates — serving stale
+ * there would silently mask a real misconfiguration. With no cache to fall
+ * back on, the underlying error propagates regardless so the caller can
+ * surface it (e.g. the route maps a rate-limit failure to 503).
  */
 export async function getPluginCatalog(
   ref: string,
@@ -59,7 +64,7 @@ export async function getPluginCatalog(
     cache.set(ref, { catalog, timestamp: Date.now() });
     return catalog;
   } catch (err) {
-    if (cached) {
+    if (cached && err instanceof PluginCatalogUnavailableError) {
       log.warn(
         { err, ref },
         "Failed to refresh plugin catalog, serving stale cache",

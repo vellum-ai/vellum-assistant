@@ -42,6 +42,7 @@ import {
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
 import {
+  assertValidSearchPattern,
   filterPluginCatalog,
   InvalidSearchPatternError,
   PluginCatalogUnavailableError,
@@ -332,6 +333,10 @@ async function handleSearchPlugins({
   const ref = queryParams.ref?.trim() || DEFAULT_PLUGIN_REF;
 
   try {
+    // Reject a malformed regex before any network I/O so a user typo is a
+    // cheap deterministic 400 — never a wasted GitHub request that could
+    // surface as 503 on a cold cache when upstream is rate-limited.
+    assertValidSearchPattern(query);
     // The catalog is cached per ref (and served stale on upstream failure),
     // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
     // Filtering by the query is an in-memory operation over that catalog.

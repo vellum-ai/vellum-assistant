@@ -158,6 +158,29 @@ describe("getPluginCatalog", () => {
     expect(loadSpy.mock.calls.length).toBe(callsAfterFirstStale);
   });
 
+  test("propagates a hard error even with a cache, and does not serve stale", async () => {
+    // GIVEN a good catalog cached at t0
+    setSystemTime(new Date(BASE_TIME_MS));
+    loadSpy.mockImplementation(async ({ ref }) => catalog(ref, ["good"]));
+    await getPluginCatalog("main", deps);
+
+    // AND the upstream later fails with a HARD error (e.g. the prefix is
+    // gone), NOT a transient PluginCatalogUnavailableError
+    loadSpy.mockImplementation(async () => {
+      throw new Error("GitHub contents listing failed: HTTP 404");
+    });
+
+    // WHEN the TTL has elapsed and the refresh hard-fails
+    setSystemTime(new Date(BASE_TIME_MS + PLUGIN_CATALOG_CACHE_TTL_MS + 1));
+    const err = await getPluginCatalog("main", deps).catch((e: unknown) => e);
+
+    // THEN the hard error propagates instead of masking the misconfiguration
+    // with stale data
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as Error).message).toMatch(/HTTP 404/);
+  });
+
   test("propagates the error when there is no cache to fall back on", async () => {
     // GIVEN no prior successful load and a failing upstream
     loadSpy.mockImplementation(async () => {

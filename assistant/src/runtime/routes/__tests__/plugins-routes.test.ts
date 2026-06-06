@@ -441,11 +441,16 @@ describe("GET /v1/plugins/search", () => {
     expect(typeof deps.fetch).toBe("function");
   });
 
-  test("InvalidSearchPatternError → BadRequestError (400)", async () => {
-    // A malformed regex is rejected by the real filter, not the loader.
+  test("InvalidSearchPatternError → BadRequestError (400), before any catalog load", async () => {
+    // GIVEN a malformed regex query and a cold cache
+    // WHEN the search runs
+    // THEN it's a deterministic 400 AND the catalog is never loaded, so a
+    // user typo can't waste a GitHub request (which would otherwise surface
+    // as 503 on a rate-limited cold cache).
     await expect(
       invokeSearch({ queryParams: { q: "(" } }),
     ).rejects.toBeInstanceOf(BadRequestError);
+    expect(getCatalogSpy).not.toHaveBeenCalled();
   });
 
   test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
