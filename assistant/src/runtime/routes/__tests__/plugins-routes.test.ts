@@ -34,8 +34,19 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { InvalidPluginNameError } from "../../../cli/lib/install-from-github.js";
+import {
+  type InstallPluginOptions,
+  type InstallPluginResult,
+  InvalidPluginNameError,
+  PluginAlreadyInstalledError,
+  PluginNotFoundError,
+} from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
+import {
+  type PluginDetails,
+  PluginDetailsNotFoundError,
+  type PluginDetailsOptions,
+} from "../../../cli/lib/plugin-details.js";
 import type {
   PluginSearchMatch,
   SearchPluginsDeps,
@@ -89,16 +100,47 @@ mock.module("../../../cli/lib/uninstall-plugin.js", () => ({
   uninstallPlugin: uninstallSpy,
 }));
 
+// Mock installPlugin. As with the other libs, the handler's error mapping
+// is the wiring under test; the lib's own behavior is covered separately.
+const installSpy = mock(
+  async (_opts: InstallPluginOptions): Promise<InstallPluginResult> => {
+    throw new Error("installSpy default impl not configured");
+  },
+);
+
 // `InvalidPluginNameError` is re-exported from uninstall-plugin.js but
 // the canonical definition lives in install-from-github.js. The
 // handler imports from install-from-github.js, so mock that too so the
-// `instanceof` check inside the handler resolves to the same class as
-// the one the spy throws.
+// `instanceof` checks inside the handler resolve to the same classes as
+// the ones the spies throw. The error classes are passed through real so
+// `instanceof` aligns.
 mock.module("../../../cli/lib/install-from-github.js", () => ({
   InvalidPluginNameError,
+  PluginAlreadyInstalledError,
+  PluginNotFoundError,
+  installPlugin: installSpy,
 }));
 
-import { BadRequestError, InternalError, NotFoundError } from "../errors.js";
+// Mock getPluginDetails: the detail handler unions disk + manifest + repo
+// in the lib (covered by plugin-details.test.ts); here we isolate the
+// route's error mapping and pass-through.
+const detailsSpy = mock(
+  async (_opts: PluginDetailsOptions): Promise<PluginDetails> => {
+    throw new Error("detailsSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/plugin-details.js", () => ({
+  PluginDetailsNotFoundError,
+  getPluginDetails: detailsSpy,
+}));
+
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "../errors.js";
 import { ROUTES as PLUGINS_ROUTES } from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -111,6 +153,8 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 const listHandler = findHandler("plugins_list");
 const searchHandler = findHandler("plugins_search");
 const uninstallHandler = findHandler("plugins_uninstall");
+const getHandler = findHandler("plugins_get");
+const installHandler = findHandler("plugins_install");
 
 function invoke(args: RouteHandlerArgs = {}): {
   plugins: Array<Record<string, unknown>>;
@@ -548,5 +592,212 @@ describe("DELETE /v1/plugins/:name", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toBe("plugin uninstall failed");
+  });
+});
+
+function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
+  return {
+    name: overrides.name ?? "caveman",
+    installed: overrides.installed ?? false,
+    description: overrides.description ?? null,
+    homepage: overrides.homepage ?? null,
+    license: overrides.license ?? null,
+    version: overrides.version ?? null,
+    source: overrides.source ?? { kind: "first-party" },
+    readme: overrides.readme ?? null,
+    ref: overrides.ref ?? "main",
+  };
+}
+
+async function invokeGet(args: RouteHandlerArgs = {}): Promise<PluginDetails> {
+  return (await getHandler(args)) as PluginDetails;
+}
+
+describe("GET /v1/plugins/:name", () => {
+  beforeEach(() => {
+    detailsSpy.mockReset();
+  });
+
+  test("forwards name + ref to getPluginDetails and returns the detail view", async () => {
+    const view = pluginDetails({
+      name: "caveman",
+      installed: true,
+      description: "A loud agent plugin",
+      homepage: "https://example.com/caveman",
+      license: "MIT",
+      version: "1.8.2",
+      source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
+      readme: "# Caveman\n\nHello.",
+      ref: "v1.8.2",
+    });
+    detailsSpy.mockImplementation(async () => view);
+
+    const result = await invokeGet({
+      pathParams: { name: "caveman" },
+      queryParams: { ref: "v1.8.2" },
+    });
+
+    expect(result).toEqual(view);
+    expect(detailsSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "v1.8.2",
+    });
+  });
+
+  test("omits ref (passes undefined) when the query param is absent or blank", async () => {
+    detailsSpy.mockImplementation(async () => pluginDetails());
+
+    await invokeGet({ pathParams: { name: "caveman" }, queryParams: {} });
+    expect(detailsSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: undefined,
+    });
+
+    await invokeGet({
+      pathParams: { name: "caveman" },
+      queryParams: { ref: "   " },
+    });
+    expect(detailsSpy.mock.calls[1]?.[0]).toEqual({
+      name: "caveman",
+      ref: undefined,
+    });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginDetailsNotFoundError → NotFoundError (404)", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new PluginDetailsNotFoundError("ghost", "main");
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new Error("ENOTFOUND api.github.com");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeGet({ pathParams: { name: "caveman" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ENOTFOUND");
+  });
+});
+
+async function invokeInstall(args: RouteHandlerArgs = {}): Promise<{
+  ok: true;
+  name: string;
+  target: string;
+  fileCount: number;
+  ref: string;
+}> {
+  return (await installHandler(args)) as {
+    ok: true;
+    name: string;
+    target: string;
+    fileCount: number;
+    ref: string;
+  };
+}
+
+describe("POST /v1/plugins/install", () => {
+  beforeEach(() => {
+    installSpy.mockReset();
+  });
+
+  test("forwards name/ref/force to installPlugin and shapes the result", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+    }));
+
+    const result = await invokeInstall({
+      body: { name: "caveman", ref: "v1.8.2", force: true },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      name: "caveman",
+      target: "/workspace/.vellum/plugins/caveman",
+      fileCount: 7,
+      ref: "v1.8.2",
+    });
+    expect(installSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "v1.8.2",
+      force: true,
+    });
+  });
+
+  test("a missing name short-circuits to BadRequestError without calling the lib", async () => {
+    await expect(invokeInstall({ body: {} })).rejects.toBeInstanceOf(
+      BadRequestError,
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    installSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginAlreadyInstalledError → ConflictError (409)", async () => {
+    installSpy.mockImplementation(async (opts) => {
+      throw new PluginAlreadyInstalledError(
+        opts.name,
+        `/workspace/.vellum/plugins/${opts.name}`,
+      );
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("PluginNotFoundError → NotFoundError (404)", async () => {
+    installSpy.mockImplementation(async (opts) => {
+      throw new PluginNotFoundError(opts.name, "main", "example-org/ghost");
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    installSpy.mockImplementation(async () => {
+      throw new Error("ECONNRESET");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeInstall({ body: { name: "caveman" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ECONNRESET");
   });
 });

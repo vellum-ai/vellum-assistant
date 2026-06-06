@@ -87,6 +87,7 @@ export const routes = {
   home: r("/assistant/home"),
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
+  plugin: (name: string) => dyn(r("/assistant/plugins"), name),
   skills: r("/assistant/skills"),
   workspace: r("/assistant/workspace"),
   library: {

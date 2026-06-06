@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 
 import {
   pluginsGetQueryKey,
@@ -71,7 +72,13 @@ function renderTab(state: CachedState): string {
 }
 
 function Wrapper({ children }: { children: ReactNode }) {
-  return <div>{children}</div>;
+  // Catalog/installed rows render react-router `<Link>`s, which need a
+  // router context to resolve their `to` into an `<a href>`.
+  return (
+    <MemoryRouter>
+      <div>{children}</div>
+    </MemoryRouter>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +119,7 @@ describe("PluginsTab", () => {
     expect(html).toContain("Memory plugin");
   });
 
-  test("renders catalog matches with the install hint", () => {
+  test("renders catalog matches linking to the detail page", () => {
     const html = renderTab({
       installed: { plugins: [] },
       catalog: {
@@ -129,7 +136,9 @@ describe("PluginsTab", () => {
     });
     expect(html).toContain("apollo-bot-brain");
     expect(html).toContain("experimental/plugins/apollo-bot-brain");
-    expect(html).toContain("assistant plugins install apollo-bot-brain");
+    expect(html).toContain('href="/assistant/plugins/apollo-bot-brain"');
+    // The inline CLI install hint was replaced by the detail page.
+    expect(html).not.toContain("assistant plugins install");
   });
 
   test("suppresses catalog entries that are already installed", () => {
@@ -161,8 +170,11 @@ describe("PluginsTab", () => {
         ],
       },
     });
-    expect(html).not.toContain("assistant plugins install simple-memory");
-    expect(html).toContain("assistant plugins install apollo-bot-brain");
+    // The catalog path string is rendered only by CatalogRow, so its
+    // absence proves the already-installed entry was suppressed there
+    // (the installed row links to the same detail page but omits the path).
+    expect(html).not.toContain("experimental/plugins/simple-memory");
+    expect(html).toContain("experimental/plugins/apollo-bot-brain");
   });
 
   test("shows the installed empty state when nothing is installed", () => {
