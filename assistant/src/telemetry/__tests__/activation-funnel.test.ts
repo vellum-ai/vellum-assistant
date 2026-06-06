@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  ACTIVATION_STEP_NAMES,
   ACTIVATION_STEPS,
   activationStepIndex,
   buildActivationDaemonEventId,
   isActivationStepName,
 } from "../activation-funnel.js";
+
+const ALL_STEP_NAMES = Object.values(ACTIVATION_STEPS).map((s) => s.stepName);
 
 describe("activation funnel vocabulary", () => {
   test("step indices are 1-6 and unique", () => {
@@ -22,8 +23,8 @@ describe("activation funnel vocabulary", () => {
   });
 
   test("isActivationStepName accepts all six step names", () => {
-    expect(ACTIVATION_STEP_NAMES).toHaveLength(6);
-    for (const stepName of ACTIVATION_STEP_NAMES) {
+    expect(ALL_STEP_NAMES).toHaveLength(6);
+    for (const stepName of ALL_STEP_NAMES) {
       expect(isActivationStepName(stepName)).toBe(true);
     }
   });
