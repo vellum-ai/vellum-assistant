@@ -933,7 +933,7 @@
   100% { transform: translateY(-130px) scale(1); opacity: 0; }
 }
 
-/* ---- Beat 1 → 2: pedestal raise + pick-me jump ---- */
+/* ---- Beat 1 → 2: pedestal raise ---- */
 
 /* click-away layer over the dimmed crowd */
 .cast-focus__scrim {
@@ -972,20 +972,6 @@
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255, 240, 214, 0.18) 0%, transparent 70%);
   filter: blur(5px);
-}
-
-/* pick-me: a random idle dude jumps to grab attention. Transform-only on the
-   inner element so nothing else in the grid shifts or repaints. */
-.cast-cell.is-jumping .cast-hover {
-  animation: cast-pickme 0.65s cubic-bezier(0.3, 0.9, 0.4, 1);
-}
-
-@keyframes cast-pickme {
-  0% { transform: translateY(0) scale(1, 1); }
-  18% { transform: translateY(0) scale(1.12, 0.86); }
-  50% { transform: translateY(-46px) scale(0.92, 1.1); }
-  78% { transform: translateY(0) scale(1.08, 0.92); }
-  100% { transform: translateY(0) scale(1, 1); }
 }
 
 /* ---- bottom controls ---- */

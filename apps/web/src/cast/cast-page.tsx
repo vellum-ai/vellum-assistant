@@ -131,29 +131,6 @@ export function CastPage() {
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
-  // "Pick me" — while the grid is idle, a random dude jumps every ~5s to grab
-  // attention (paused while hovering or once a pick is made).
-  const [jumpingId, setJumpingId] = useState<string | null>(null);
-  const hoveringRef = useRef(false);
-  const lastJumpRef = useRef<string | null>(null);
-  const visibleRef = useRef(visible);
-  useEffect(() => {
-    visibleRef.current = visible;
-  }, [visible]);
-  useEffect(() => {
-    if (!inGrid) return;
-    const tick = window.setInterval(() => {
-      if (hoveringRef.current || document.visibilityState !== "visible") return;
-      const pool = visibleRef.current.filter((c) => c.id !== lastJumpRef.current);
-      const choice = pool[Math.floor(Math.random() * pool.length)];
-      if (!choice) return;
-      lastJumpRef.current = choice.id;
-      setJumpingId(choice.id);
-      window.setTimeout(() => setJumpingId((id) => (id === choice.id ? null : id)), 700);
-    }, 5000);
-    return () => window.clearInterval(tick);
-  }, [inGrid]);
-
   // Esc returns from the elevated (pedestal) view back to the grid.
   useEffect(() => {
     if (phase !== "focus") return;
@@ -304,8 +281,6 @@ export function CastPage() {
           className="cast-stage3d"
           style={{ pointerEvents: inGrid ? "auto" : "none" }}
           onPointerMove={inGrid ? moveSpotlight : undefined}
-          onPointerEnter={() => (hoveringRef.current = true)}
-          onPointerLeave={() => (hoveringRef.current = false)}
         >
           <motion.div
             className="cast-floor"
@@ -324,7 +299,6 @@ export function CastPage() {
                 key={c.id}
                 character={c}
                 dimmed={!inGrid && selected?.id === c.id}
-                jumping={jumpingId === c.id}
                 onPick={pick}
               />
             ))}
@@ -450,12 +424,10 @@ export function CastPage() {
 const Billboard = memo(function Billboard({
   character,
   dimmed,
-  jumping,
   onPick,
 }: {
   character: CastCharacter;
   dimmed: boolean;
-  jumping: boolean;
   onPick: (c: CastCharacter, el: HTMLElement) => void;
 }) {
   if (dimmed) {
@@ -464,13 +436,12 @@ const Billboard = memo(function Billboard({
   return (
     <button
       type="button"
-      className={`cast-cell${jumping ? " is-jumping" : ""}`}
+      className="cast-cell"
       aria-label={`Choose ${character.name}`}
       onClick={(e) => onPick(character, e.currentTarget)}
     >
       <span className="cast-cell__stand">
         <span className="cast-idle">
-          {/* `is-jumping` swaps in the bigger attention jump over the idle bob */}
           <span className="cast-hover" data-anim={character.hover}>
             <CastAvatar character={character} />
           </span>
