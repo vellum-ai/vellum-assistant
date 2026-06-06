@@ -202,7 +202,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   setLastNotifiedInferenceProfile: () => {},
   getLastUserTimestampBefore: () => 0,
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 

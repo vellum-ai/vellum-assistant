@@ -53,6 +53,11 @@ mock.module("../config/loader.js", () => ({
 // Real DB — same pattern as conversation-crud-inference-profile.test.ts
 // ---------------------------------------------------------------------------
 
+import type { Conversation } from "../daemon/conversation.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import {
   createConversation,
   getConversation,
@@ -76,6 +81,37 @@ function resetDb() {
   const db = getDb();
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
+}
+
+/**
+ * Minimal live `Conversation` stub exposing just the inference-profile
+ * mirror fields and {@link Conversation.applyInferenceProfileState}, so the
+ * handler's live-instance sync can be observed without constructing a full
+ * conversation.
+ */
+function makeLiveConversationStub(conversationId: string): Conversation {
+  return {
+    conversationId,
+    inferenceProfile: null as string | null,
+    inferenceProfileSessionId: null as string | null,
+    inferenceProfileExpiresAt: null as number | null,
+    applyInferenceProfileState(
+      this: {
+        inferenceProfile: string | null;
+        inferenceProfileSessionId: string | null;
+        inferenceProfileExpiresAt: number | null;
+      },
+      state: {
+        profile: string | null;
+        sessionId: string | null;
+        expiresAt: number | null;
+      },
+    ) {
+      this.inferenceProfile = state.profile;
+      this.inferenceProfileSessionId = state.sessionId;
+      this.inferenceProfileExpiresAt = state.expiresAt;
+    },
+  } as unknown as Conversation;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +209,56 @@ describe("setInferenceProfileSession", () => {
     expect(second.replaced!.profile).toBe("balanced");
     expect(second.replaced!.sessionId).toBe(first.sessionId);
     expect(second.replaced!.expiresAt).toBe(first.expiresAt);
+  });
+
+  test("mirrors the session state onto the live in-memory Conversation on open", async () => {
+    // GIVEN a conversation with a live in-memory instance registered for it
+    const conv = createConversation("sess-handler-live-sync-open");
+    const liveConversation = makeLiveConversationStub(conv.id);
+    setConversation(conv.id, liveConversation);
+
+    // WHEN a session-backed override is opened
+    const opened = await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: "balanced",
+      ttlSeconds: 600,
+    });
+
+    // THEN the live instance mirrors the persisted session state, so the
+    // per-turn override derivation reads it without re-fetching the DB row
+    expect(liveConversation.inferenceProfile).toBe("balanced");
+    expect(liveConversation.inferenceProfileSessionId).toBe(opened.sessionId);
+    expect(liveConversation.inferenceProfileExpiresAt).toBe(opened.expiresAt);
+
+    deleteConversation(conv.id);
+  });
+
+  test("clears the live in-memory Conversation state on clear", async () => {
+    // GIVEN a conversation with a live in-memory instance registered for it
+    const conv = createConversation("sess-handler-live-sync-clear");
+    const liveConversation = makeLiveConversationStub(conv.id);
+    setConversation(conv.id, liveConversation);
+
+    // AND an active session-backed override mirrored onto that instance
+    await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: "balanced",
+      ttlSeconds: 600,
+    });
+    expect(liveConversation.inferenceProfile).toBe("balanced");
+
+    // WHEN the override is cleared
+    await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: null,
+    });
+
+    // THEN the live instance is cleared in lock-step with the DB row
+    expect(liveConversation.inferenceProfile).toBeNull();
+    expect(liveConversation.inferenceProfileSessionId).toBeNull();
+    expect(liveConversation.inferenceProfileExpiresAt).toBeNull();
+
+    deleteConversation(conv.id);
   });
 
   test("open with profile=null — all three cleared; replaced set if prior existed", async () => {
