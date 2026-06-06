@@ -4,9 +4,25 @@ import { AnimatePresence, motion } from "motion/react";
 import { HeroCharacter, type HeldProp, type Rect } from "@/cast/cast-hero";
 import type { StyleProfile } from "@/cast/cast-hooks";
 import { JOBS, type JobKey } from "@/cast/cast-content";
-import type { CastCharacter } from "@/cast/cast-roster";
+import type { CastCharacter, Reaction } from "@/cast/cast-roster";
 
 type Side = "left" | "right";
+
+/**
+ * Each chosen value gets a reaction that *means* the choice, so the character
+ * reads as reacting to the answer (not just the tap):
+ *  - just_do_it → startle (leaps into action)   show_work → peer (considers, methodical)
+ *  - sharp      → huff (quick decisive snap)     warm      → sway (soft, patient)
+ *  - surprise   → spin (playful, unpredictable)  literal   → tilt (precise, measured)
+ */
+const VALUE_REACTION: Record<string, Reaction> = {
+  just_do_it: "startle",
+  show_work: "peer",
+  sharp: "huff",
+  warm: "sway",
+  surprise: "spin",
+  literal: "tilt",
+};
 
 interface Round {
   field: keyof StyleProfile;
@@ -57,7 +73,7 @@ export function CastStyle({
 }) {
   const [roundIdx, setRoundIdx] = useState(0);
   const [picked, setPicked] = useState<Side | null>(null);
-  const [nod, setNod] = useState<{ dir: Side; nonce: number } | null>(null);
+  const [cue, setCue] = useState<{ reaction: Reaction; dir: Side; nonce: number } | null>(null);
   const [style, setStyle] = useState<StyleProfile>({});
 
   const heldProps: HeldProp[] = ascended
@@ -72,8 +88,9 @@ export function CastStyle({
   function choose(side: Side) {
     if (picked) return; // ignore taps mid-transition
     setPicked(side);
-    setNod({ dir: side, nonce: roundIdx + 1 });
-    const next: StyleProfile = { ...style, [round.field]: round[side].value };
+    const value = round[side].value;
+    setCue({ reaction: VALUE_REACTION[value] ?? "sway", dir: side, nonce: roundIdx + 1 });
+    const next: StyleProfile = { ...style, [round.field]: value };
     setStyle(next);
     onRoundPicked(next);
 
@@ -99,7 +116,7 @@ export function CastStyle({
         interactive
         heldProps={heldProps}
         ascended={ascended}
-        nod={nod}
+        cue={cue}
       />
 
       <div className="cast-thisthat">

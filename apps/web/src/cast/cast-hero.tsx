@@ -208,7 +208,7 @@ export function HeroCharacter({
   heldProps = [],
   mime = null,
   ascended = false,
-  nod = null,
+  cue = null,
 }: {
   character: CastCharacter;
   box: Rect;
@@ -217,7 +217,9 @@ export function HeroCharacter({
   heldProps?: HeldProp[];
   mime?: MimeState | null;
   ascended?: boolean;
-  nod?: { dir: "left" | "right"; nonce: number } | null;
+  /** Beat 5: play a reaction matched to the chosen value, leaning toward the
+   * picked side. */
+  cue?: { reaction: Reaction; dir: "left" | "right"; nonce: number } | null;
 }) {
   const controls = useAnimationControls();
   // Zzz floats whenever a yawn plays — the grumpy-eyed character in Beat 2 and
@@ -263,18 +265,22 @@ export function HeroCharacter({
     if (ascended) void play("spin");
   }, [ascended, play]);
 
-  // Nod toward the picked side (Beat 5 this/that): a quick lean + tilt.
-  const nodDir = nod?.dir;
-  const nodNonce = nod?.nonce;
+  // Beat 5 this/that: play the reaction matched to the chosen value, with a
+  // lean toward the picked side layered on so it still nods at the card.
+  const cueReaction = cue?.reaction;
+  const cueDir = cue?.dir;
+  const cueNonce = cue?.nonce;
   useEffect(() => {
-    if (!nodDir) return;
-    const s = nodDir === "left" ? -1 : 1;
-    void controls.start({
-      x: [0, s * 22, s * 14, 0],
-      rotate: [0, s * 10, s * 6, 0],
-      transition: { duration: 0.7, ease: "easeInOut", times: [0, 0.35, 0.6, 1] },
-    });
-  }, [nodNonce, nodDir, controls]);
+    if (!cueReaction) return;
+    if (cueReaction === "yawn") setYawnNonce((n) => n + 1);
+    const s = cueDir === "left" ? -1 : 1;
+    const r = REACTIONS[cueReaction];
+    // Overlay a directional lean on top of the value's own reaction motion.
+    void controls.start(
+      { ...r.intro.animate, x: [0, s * 24, s * 10, 0] },
+      { ...r.intro.transition, x: { duration: 0.7, ease: "easeInOut" } },
+    );
+  }, [cueNonce, cueReaction, cueDir, controls]);
 
   const m = mime?.rather.mime;
   const hideHeld = m?.replaceJob;
