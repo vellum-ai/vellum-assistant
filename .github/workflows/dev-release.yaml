@@ -1263,6 +1263,7 @@ jobs:
           # This is the same anchor the changelog walk-back uses below, so a
           # failure downstream of register-release still posts the changelog.
           RELEASE_RESULT: ${{ needs.register-release.result }}
+          ELECTRON_RESULT: ${{ needs.build-electron.result }}
         run: |
           set -euo pipefail
 
@@ -1363,19 +1364,35 @@ jobs:
           # Top-level blocks: header, "N commits since last dev release", buttons.
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
+          # When the release registered but the Electron build failed,
+          # swap the header emoji and append a warning so the notification
+          # surfaces the failure instead of looking fully green.
+          if [ "${ELECTRON_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            ELECTRON_WARNING='{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }'
+          else
+            HEADER_EMOJI="🚀"
+            ELECTRON_WARNING=""
+          fi
+
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
             --arg run_url "$RUN_URL" \
             --arg compare_url "$COMPARE_URL" \
+            --arg emoji "$HEADER_EMOJI" \
             '[
-              { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
+              { type: "header", text: { type: "plain_text", text: ($emoji + " Dev Release " + $version), emoji: true } },
               { type: "section", text: { type: "mrkdwn", text: $header } },
               { type: "actions", elements: [
                 { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
                 { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
               ] }
             ]')
+
+          if [ -n "$ELECTRON_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$ELECTRON_WARNING" '. += [$warn]')
+          fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
           # respect Slack's 3000-char-per-section limit.
