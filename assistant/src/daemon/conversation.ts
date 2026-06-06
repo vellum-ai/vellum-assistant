@@ -65,7 +65,10 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import {
+  applyBootstrapTemplate,
+  buildSystemPrompt,
+} from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import {
@@ -616,6 +619,13 @@ export class Conversation {
 
   setOnboardingContext(ctx: OnboardingContext): void {
     this.onboardingContext = ctx;
+    // Reseed BOOTSTRAP.md and mark the activation session at the earliest point
+    // the conversation knows its bootstrap selection — before the first turn's
+    // tool resolution, which `buildSystemPrompt` is too late for. See
+    // `applyBootstrapTemplate`.
+    if (ctx.bootstrapTemplate) {
+      applyBootstrapTemplate(ctx.bootstrapTemplate, this.conversationId);
+    }
   }
 
   getOnboardingContext(): OnboardingContext | undefined {

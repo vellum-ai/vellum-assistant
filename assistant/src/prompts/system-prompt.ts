@@ -265,6 +265,44 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
   }
 }
 
+/**
+ * Reseed BOOTSTRAP.md from the requested onboarding template (one-shot,
+ * idempotent) and, when that template is the activation rail AND the rail is
+ * now the active bootstrap, mark the conversation as an activation session.
+ *
+ * Marking happens here — at the single point where the bootstrap selection is
+ * known — so it lands BEFORE the agent loop resolves tools and BEFORE the model
+ * can call the emit tool on the first activation-rail turn. (`resolveTools`
+ * runs before `resolveSystemPrompt` in the loop, so the system-prompt build is
+ * too late to be the *only* marking site.) The marker write is best-effort and
+ * idempotent (`markActivationSession` swallows errors and dedups on the PK), so
+ * calling this from both `setOnboardingContext` and `buildSystemPrompt` is safe.
+ *
+ * The activation mark is gated on the rail actually being the active bootstrap —
+ * either this call just installed it, OR BOOTSTRAP.md already holds the
+ * activation-rail template. When the reseed no-ops because BOOTSTRAP.md is
+ * missing or customized to something else, the rail is NOT active, so we must
+ * NOT mark (otherwise non-rail conversations would pollute activation
+ * telemetry).
+ */
+export function applyBootstrapTemplate(
+  bootstrapTemplate: string,
+  conversationId?: string,
+): void {
+  const installedActivationRail = maybeReseedBootstrap(bootstrapTemplate);
+  if (
+    bootstrapTemplate === ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE &&
+    conversationId &&
+    (installedActivationRail ||
+      isTemplateContent(
+        readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md")),
+        ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+      ))
+  ) {
+    markActivationSession(conversationId);
+  }
+}
+
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
@@ -289,31 +327,13 @@ export interface BuildSystemPromptOptions {
  * file-backed bodies, and runtime-computed transforms.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  // One-shot bootstrap swap: if the onboarding context specifies a bootstrap
-  // template and BOOTSTRAP.md is still the generic template, replace it with
-  // the specified variant before the prompt reads the file.
+  // One-shot bootstrap reseed + activation-rail marking. The marking also runs
+  // earlier, at `setOnboardingContext`, so the activation session is recorded
+  // before the agent loop resolves tools on the first turn; this call is a
+  // harmless idempotent backstop for prompt builds outside that path.
   const bootstrapTemplate = options?.onboardingContext?.bootstrapTemplate;
   if (bootstrapTemplate) {
-    const installedActivationRail = maybeReseedBootstrap(bootstrapTemplate);
-    // Mark activation-rail conversations so the funnel telemetry can scope its
-    // events. Best-effort and guarded inside the store; only when we know which
-    // conversation this prompt is for. Gate on the rail actually being the
-    // active bootstrap — either this build just installed it, OR BOOTSTRAP.md
-    // already holds the activation-rail template (idempotent re-marks on later
-    // turns). When the reseed no-ops because BOOTSTRAP.md is missing or has been
-    // customized to something else, the rail is NOT active, so we must NOT mark
-    // (otherwise non-rail conversations would pollute activation telemetry).
-    if (
-      bootstrapTemplate === ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE &&
-      options?.conversationId &&
-      (installedActivationRail ||
-        isTemplateContent(
-          readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md")),
-          ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
-        ))
-    ) {
-      markActivationSession(options.conversationId);
-    }
+    applyBootstrapTemplate(bootstrapTemplate, options?.conversationId);
   }
 
   // Slugs used by the persona sections (`10-user-persona`,
