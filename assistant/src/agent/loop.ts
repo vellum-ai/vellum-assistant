@@ -781,6 +781,8 @@ export class AgentLoop {
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       turnContext,
       isNonInteractive,
+      // Mid-loop re-injection always runs at full injection volume.
+      mode: "full",
     });
   }
 

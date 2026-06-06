@@ -1587,6 +1587,7 @@ export async function runAgentLoopImpl(
         history,
         turnContext,
         isNonInteractive,
+        mode,
       }) => {
         // stripInjectionsForCompaction() unconditionally removed the existing
         // memory-static block, so re-inject the current content regardless of
@@ -1602,7 +1603,7 @@ export async function runAgentLoopImpl(
           slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
-          mode: currentInjectionMode,
+          mode,
           turnContext,
           history,
         });
