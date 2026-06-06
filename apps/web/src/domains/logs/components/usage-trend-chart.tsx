@@ -41,6 +41,20 @@ type SegmentTooltip = {
 };
 
 type SegmentTooltipContent = Omit<SegmentTooltip, "x" | "y">;
+type UsageLegendState = "active" | "inactive";
+
+export type UsageTrendChartLegendItem = Pick<
+  UsageSeriesLegendItem,
+  "seriesKey" | "label" | "colorIndex"
+> & {
+  state?: UsageLegendState;
+};
+
+interface UsageTrendChartProps {
+  buckets: UsageSeriesBucket[];
+  isHourly: boolean;
+  legendItems?: UsageTrendChartLegendItem[];
+}
 
 function colorForIndex(index: number): string {
   return STACK_COLORS[index % STACK_COLORS.length];
@@ -72,13 +86,13 @@ function resolveTooltipPosition(
 export function UsageTrendChart({
   buckets,
   isHourly,
-}: {
-  buckets: UsageSeriesBucket[];
-  isHourly: boolean;
-}) {
+  legendItems,
+}: UsageTrendChartProps) {
   const [tooltip, setTooltip] = useState<SegmentTooltip | null>(null);
   const sorted = useMemo(() => sortUsageSeriesBuckets(buckets), [buckets]);
-  const legend = useMemo(() => buildUsageSeriesLegend(buckets), [buckets]);
+  const bucketLegend = useMemo(() => buildUsageSeriesLegend(buckets), [buckets]);
+  const stackLegendItems = legendItems ?? bucketLegend.items;
+  const visibleLegendItems = legendItems ?? bucketLegend.visibleItems;
   const maxCost = useMemo(
     () =>
       sorted.reduce(
@@ -101,11 +115,20 @@ export function UsageTrendChart({
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
   if (sorted.length === 0) {
-    return (
+    const emptyState = (
       <EmptyState
         title={isHourly ? "No hourly data" : "No daily data"}
         subtitle="No usage recorded in this time range"
       />
+    );
+    if (visibleLegendItems.length === 0) {
+      return emptyState;
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        {emptyState}
+        <UsageSeriesLegendDisplay items={visibleLegendItems} />
+      </div>
     );
   }
 
@@ -143,7 +166,8 @@ export function UsageTrendChart({
                 <StackedBar
                   bucket={bucket}
                   height={height}
-                  legendItems={legend.items}
+                  legendItems={stackLegendItems}
+                  hasLegendOverride={legendItems != null}
                   onSegmentHover={showTooltip}
                   onSegmentLeave={hideTooltip}
                 />
@@ -176,8 +200,8 @@ export function UsageTrendChart({
             </div>
           ))}
         </div>
-        {legend.visibleItems.length > 0 ? (
-          <UsageSeriesLegendDisplay items={legend.visibleItems} />
+        {visibleLegendItems.length > 0 ? (
+          <UsageSeriesLegendDisplay items={visibleLegendItems} />
         ) : null}
       </div>
       {tooltip ? <SegmentTooltipBubble tooltip={tooltip} /> : null}
@@ -214,19 +238,25 @@ function StackedBar({
   bucket,
   height,
   legendItems,
+  hasLegendOverride,
   onSegmentHover,
   onSegmentLeave,
 }: {
   bucket: UsageSeriesBucket;
   height: number;
-  legendItems: UsageSeriesLegendItem[];
+  legendItems: UsageTrendChartLegendItem[];
+  hasLegendOverride: boolean;
   onSegmentHover: (
     event: MouseEvent<HTMLElement>,
     content: SegmentTooltipContent,
   ) => void;
   onSegmentLeave: () => void;
 }) {
-  const nonEmptyGroups = legendItems.flatMap((item) => {
+  const hasGroupedData = Object.keys(bucket.groups).length > 0;
+  const activeLegendItems = legendItems.filter(
+    (item) => (item.state ?? "active") === "active",
+  );
+  const nonEmptyGroups = activeLegendItems.flatMap((item) => {
     const value = bucket.groups[item.seriesKey];
     if (!value || value.totalEstimatedCostUsd <= 0) {
       return [];
@@ -234,7 +264,7 @@ function StackedBar({
     return [{ item, value }];
   });
 
-  if (nonEmptyGroups.length === 0) {
+  if (nonEmptyGroups.length === 0 && !hasGroupedData && !hasLegendOverride) {
     const bucketLabel = formatBucketLabel(bucket);
     const tooltipContent = {
       label: "Total",
@@ -256,6 +286,9 @@ function StackedBar({
         data-usage-fallback-segment="true"
       />
     );
+  }
+  if (nonEmptyGroups.length === 0) {
+    return null;
   }
 
   return (
@@ -287,6 +320,7 @@ function StackedBar({
             }}
             data-usage-series-segment={item.seriesKey}
             data-usage-series-segment-label={item.label}
+            data-usage-series-color-index={item.colorIndex}
           />
         );
       })}
@@ -325,25 +359,46 @@ function SegmentTooltipBubble({ tooltip }: { tooltip: SegmentTooltip }) {
 function UsageSeriesLegendDisplay({
   items,
 }: {
-  items: UsageSeriesLegendItem[];
+  items: UsageTrendChartLegendItem[];
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
-      {items.map((item) => (
-        <div key={item.seriesKey} className="flex min-w-0 items-center gap-1">
-          <span
-            className="h-[7px] w-[7px] shrink-0 rounded-full"
-            style={{ background: colorForIndex(item.colorIndex) }}
-            aria-hidden="true"
-          />
-          <span
-            className="truncate text-[10px]"
-            style={{ color: "var(--content-tertiary)" }}
+      {items.map((item) => {
+        const state = item.state ?? "active";
+        const isInactive = state === "inactive";
+        return (
+          <div
+            key={item.seriesKey}
+            className="flex min-w-0 items-center gap-1"
+            data-usage-legend-state={state}
           >
-            {item.label}
-          </span>
-        </div>
-      ))}
+            <span
+              className="h-[7px] w-[7px] shrink-0 rounded-full"
+              style={{
+                background: isInactive
+                  ? "var(--content-tertiary)"
+                  : colorForIndex(item.colorIndex),
+                opacity: isInactive ? 0.45 : 1,
+              }}
+              aria-hidden="true"
+              data-usage-series-color-index={item.colorIndex}
+            />
+            <span
+              className={
+                isInactive
+                  ? "truncate text-[10px] line-through"
+                  : "truncate text-[10px]"
+              }
+              style={{
+                color: "var(--content-tertiary)",
+                opacity: isInactive ? 0.65 : 1,
+              }}
+            >
+              {item.label}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

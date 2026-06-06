@@ -82,6 +82,8 @@ import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import type { WorkspaceGitService } from "../workspace/git-service.js";
+import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
@@ -206,6 +208,9 @@ export class Conversation {
   /** @internal */ contextWindowManager: ContextWindowManager;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
+  /** @internal */ contextSummary: string | null = null;
+  /** @internal */ slackContextCompactionWatermarkTs: string | null = null;
+  /** @internal */ lastNotifiedInferenceProfile: string | null = null;
   /**
    * Set true by `applyCompactionResult` when compaction strips runtime
    * injections from the tail. The next agent loop turn reads this flag at
@@ -256,13 +261,7 @@ export class Conversation {
   /** @internal */ currentTurnTrustContext?: TrustContext;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
   /** @internal */ currentTurnOverrideProfile?: string;
-  /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by the agent loop so the next LLM call
-   * uses the switched profile. Reset at turn start.
-   * @internal
-   */
-  toolRoutedProfile?: string;
+  /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
@@ -274,10 +273,10 @@ export class Conversation {
    * implementations in the agent loop when unset.
    * @internal
    */
-  getWorkspaceGitService?: (workspaceDir: string) => {
-    ensureInitialized(): Promise<void>;
-  };
-  /** @internal */ commitTurnChanges?: typeof import("../workspace/turn-commit.js").commitTurnChanges;
+  getWorkspaceGitService?: (
+    workspaceDir: string,
+  ) => Pick<WorkspaceGitService, "ensureInitialized">;
+  /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
   /**
    * The conversation's immutable creation type (`interactive`, `background`,
    * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
@@ -286,6 +285,13 @@ export class Conversation {
    * @internal
    */
   conversationType?: string;
+  /**
+   * The conversation's creation source (`user`, …) as stored on the DB row,
+   * cached on load so the runtime-assembly and disk-pressure paths can read it
+   * from live state without a per-turn DB row read.
+   * @internal
+   */
+  source?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -381,10 +387,12 @@ export class Conversation {
   /** @internal */ clientTimezone?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
-   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` line
-   * and the client/config timezone-mismatch affordance. Holds the turn's
-   * formatted wall-clock timestamp and the client-reported timezone captured at
-   * turn start.
+   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` and
+   * `time_since_last_message` lines and the client/config timezone-mismatch
+   * affordance. Holds the turn's formatted wall-clock timestamp, the
+   * client-reported timezone captured at turn start, and the human-readable gap
+   * since the previous user message (null unless it exceeds the long-absence
+   * threshold).
    *
    * Frozen here rather than re-derived in assembly so post-compaction
    * re-injections reuse the same instant, and so the client timezone is not
@@ -396,6 +404,7 @@ export class Conversation {
   currentTurnTemporalSnapshot?: {
     timestamp: string;
     clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
   };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
@@ -688,30 +697,38 @@ export class Conversation {
     this.conversationType = conv?.conversationType ?? undefined;
     this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
     this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
-    const contextSummary = !isUntrustedTrustClass(trustClass)
-      ? conv?.contextSummary?.trim() || null
-      : null;
-    if (isUntrustedTrustClass(trustClass)) {
-      // Compacted summaries may include trusted/guardian-only details, so we
-      // disable summary-based context for untrusted actor views.
-      this.contextCompactedMessageCount = 0;
-      this.contextCompactedAt = null;
-    } else {
-      this.contextCompactedMessageCount = Math.max(
-        0,
-        Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
-      );
-      this.contextCompactedAt = conv?.contextCompactedAt ?? null;
-    }
+    this.source = conv?.source ?? undefined;
+    this.contextSummary = conv?.contextSummary ?? null;
+    this.slackContextCompactionWatermarkTs =
+      conv?.slackContextCompactionWatermarkTs ?? null;
+    this.lastNotifiedInferenceProfile =
+      conv?.lastNotifiedInferenceProfile ?? null;
+    this.contextCompactedMessageCount = Math.max(
+      0,
+      conv?.contextCompactedMessageCount ?? 0,
+    );
+    this.contextCompactedAt = conv?.contextCompactedAt ?? null;
+
+    // Untrusted actor views never receive summary-based compaction: a
+    // compacted summary can embed trusted/guardian-only detail, so the
+    // summary message is suppressed and the persisted history is rendered
+    // unsliced. The slice boundary is clamped so it can never drop more rows
+    // than exist. Slack chronological context is a separate consumer that
+    // applies its own trust filtering downstream, so it reads the raw
+    // mirrored count rather than this in-context boundary.
+    const inContextCompactedCount = isUntrustedTrustClass(trustClass)
+      ? 0
+      : Math.min(this.contextCompactedMessageCount, dbMessages.length);
+    const contextSummaryForHistory = isUntrustedTrustClass(trustClass)
+      ? null
+      : this.contextSummary?.trim() || null;
 
     // Every injection-strip event (`/clean` or compaction) updates
     // `historyStrippedAt`. Messages older than this should skip metadata
     // rehydration and have any injection prefixes still embedded in their
     // content stripped, so the post-strip view survives reload and forks.
     const historyStrippedAt = conv?.historyStrippedAt ?? null;
-    const slicedDbMessages = dbMessages.slice(
-      this.contextCompactedMessageCount,
-    );
+    const slicedDbMessages = dbMessages.slice(inContextCompactedCount);
     let preStrippedCount = 0;
     if (historyStrippedAt != null) {
       const boundary = slicedDbMessages.findIndex(
@@ -889,8 +906,10 @@ export class Conversation {
     }
     this.messages = repairedMessages;
 
-    if (contextSummary) {
-      this.messages.unshift(createContextSummaryMessage(contextSummary));
+    if (contextSummaryForHistory) {
+      this.messages.unshift(
+        createContextSummaryMessage(contextSummaryForHistory),
+      );
     }
 
     if (conv) {
