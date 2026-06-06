@@ -248,8 +248,6 @@ export function CastPage() {
               gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
               columnGap: `${GAP}px`,
             }}
-            animate={{ opacity: inGrid ? 1 : 0 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
           >
             {visible.map((c) => (
               <Billboard
@@ -262,6 +260,16 @@ export function CastPage() {
           </motion.div>
 
           <div className="cast-spotlight" ref={spotlightRef} />
+
+          {/* Veil — fades over the crowd on selection instead of fading the
+              crowd's own opacity (opacity<1 on the preserve-3d floor would
+              flatten the 3D mid-fade). Crowd stays full-opacity underneath. */}
+          <motion.div
+            className="cast-veil"
+            initial={false}
+            animate={{ opacity: inGrid ? 0 : 1 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          />
         </div>
 
         {/* Flying clone — screen-space FLIP from tapped tile to center */}
@@ -380,6 +388,18 @@ export function CastPage() {
 
 /* ---------------- Beat 1: a standing billboard on the floor ---------------- */
 
+/** Per-dude idle bob phase + speed so the crowd bobs out of sync (otherwise the
+ * whole grid appears to move up and down as one). Negative delay starts each
+ * mid-cycle, so they're already desynced at first paint. */
+function bobStyle(id: string): React.CSSProperties {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return {
+    animationDelay: `${-((h % 3200) / 1000)}s`,
+    animationDuration: `${2.8 + ((h >>> 5) % 1500) / 1000}s`,
+  };
+}
+
 const Billboard = memo(function Billboard({
   character,
   dimmed,
@@ -400,7 +420,7 @@ const Billboard = memo(function Billboard({
       onClick={(e) => onPick(character, e.currentTarget)}
     >
       <span className="cast-cell__stand">
-        <span className="cast-idle">
+        <span className="cast-idle" style={bobStyle(character.id)}>
           <span className="cast-hover" data-anim={character.hover}>
             <CastAvatar character={character} />
           </span>

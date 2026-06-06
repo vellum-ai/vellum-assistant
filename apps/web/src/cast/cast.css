@@ -129,6 +129,15 @@
     );
 }
 
+/* covers the crowd on selection without touching the 3D floor's opacity */
+.cast-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
+}
+
 .cast-cell {
   appearance: none;
   border: none;
