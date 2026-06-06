@@ -66,6 +66,15 @@ export interface PostCompactionHookInput {
    * of re-deriving it.
    */
   mode: InjectionMode;
+  /**
+   * The `model_profile:` turn-context label, or `null` when the active
+   * inference profile is unchanged since the last notified one. The agent loop
+   * resolves it once at turn start from config and the turn's profile override,
+   * and notifies the model only on change — a decision that flips mid-turn once
+   * the notification is persisted, so it cannot be re-derived. Handed to the
+   * hook here so re-injection re-emits the loop's turn-start value.
+   */
+  modelProfile: string | null;
 }
 
 /**
@@ -90,6 +99,11 @@ export interface PostCompactContext
    * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
    */
   mode: InjectionMode;
+  /**
+   * Re-declared for the same reason as {@link isNonInteractive}: required on
+   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
+   */
+  modelProfile: string | null;
 }
 
 export default async function postCompactReinject(
