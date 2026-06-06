@@ -161,6 +161,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateOnboardingEventsFunnelColumns,
   migrateOnboardingEventsPriorAssistants,
   migrateProviderConnectionBaseUrlAndModels,
   migrateProviderConnectionStatusLabel,
@@ -480,6 +481,7 @@ export function initializeDb(): void {
     migrateMessagesRoleCreatedAtIndex,
     createAuthFallbackEventsTable,
     migrateAcpSessionHistoryCwd,
+    migrateOnboardingEventsFunnelColumns,
   ];
 
   // Run each migration step, catching and logging individual failures so one

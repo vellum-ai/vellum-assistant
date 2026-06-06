@@ -260,6 +260,7 @@ export { migrateMessagesRoleCreatedAtIndex } from "./270-messages-role-created-a
 export { migrateScheduleSourceConversation } from "./270-schedule-source-conversation.js";
 export { createAuthFallbackEventsTable } from "./271-create-auth-fallback-events.js";
 export { migrateAcpSessionHistoryCwd } from "./272-acp-session-history-cwd.js";
+export { migrateOnboardingEventsFunnelColumns } from "./273-onboarding-events-funnel-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

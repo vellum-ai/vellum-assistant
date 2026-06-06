@@ -277,6 +277,11 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
   googleScopesJson: text("google_scopes_json"),
   priorAssistantsJson: text("prior_assistants_json"),
   abVariant: text("ab_variant"),
+  sessionId: text("session_id"),
+  stepName: text("step_name"),
+  stepIndex: integer("step_index"),
+  completedAt: text("completed_at"),
+  funnelVersion: text("funnel_version"),
 });
 
 // Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
