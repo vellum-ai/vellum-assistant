@@ -1083,6 +1083,75 @@
   cursor: pointer;
 }
 
+/* ---- Beats 3–6: two-panel (options | live conversation) ---- */
+
+.cast-twopanel {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+}
+.cast-twopanel__left {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.cast-twopanel__right {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+  display: flex;
+  flex-direction: column;
+}
+
+/* watch-only conversation panel */
+.cast-convo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cast-convo__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 28px 22px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cast-convo__scroll::-webkit-scrollbar {
+  display: none;
+}
+.cast-convo__idle {
+  margin: auto;
+  color: var(--content-tertiary);
+  font-size: 14px;
+}
+.cast-convo__user {
+  align-self: flex-end;
+  max-width: 80%;
+  background: var(--surface-active);
+  color: var(--content-default);
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+}
+.cast-convo__assistant {
+  align-self: stretch;
+  max-width: 100%;
+}
+/* watch-only: suppress the real component's hover action bar (copy/fork/inspect
+   + timestamp) so the panel reads as the assistant working, not chat */
+.cast-convo__assistant .h-6.opacity-0 {
+  display: none !important;
+}
+
 /* ---- keyframes ---- */
 
 @keyframes cast-bob {

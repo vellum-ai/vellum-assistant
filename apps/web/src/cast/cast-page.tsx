@@ -15,10 +15,13 @@ import {
   kickoffRatherContext,
   type StyleProfile,
 } from "@/cast/cast-hooks";
+import { CastConversationView, useCastConversation } from "@/cast/cast-conversation";
 import { CastJob } from "@/cast/cast-job";
 import { CastProof } from "@/cast/cast-proof-view";
 import { CastRather } from "@/cast/cast-rather";
 import { CastStyle } from "@/cast/cast-style";
+import { jobTurn } from "@/cast/cast-templates";
+import { CastTwoPanel } from "@/cast/cast-two-panel";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
@@ -69,7 +72,7 @@ export function CastPage() {
 
   const [boxes, setBoxes] = useState(() => {
     const { w, h } = win();
-    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h) };
+    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h), w };
   });
   const [grid, setGrid] = useState(() => {
     const { w, h } = win();
@@ -78,6 +81,7 @@ export function CastPage() {
 
   // Picks (persisted in component state for later beats). Both steps are
   // multi-select.
+  const convo = useCastConversation();
   const [jobs, setJobs] = useState<JobKey[]>([]);
   const [jobEdges, setJobEdges] = useState<Record<string, Edge>>({});
   const [rathers, setRathers] = useState<RatherKey[]>([]);
@@ -97,7 +101,7 @@ export function CastPage() {
     const onResize = () => {
       const { w, h } = win();
       setGrid({ cols: colsFor(w), rows: rowsFor(h) });
-      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h) });
+      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h), w });
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -110,6 +114,8 @@ export function CastPage() {
   const visible = CAST.slice(0, Math.min(cols * rows, 600));
   const inGrid = phase === "grid";
   const name = selected ? (names[selected.id] ?? selected.name) : "";
+  // Hero box centered in the LEFT half for the two-panel beats (3–6).
+  const leftPanelBox: Rect = { ...boxes.top, left: boxes.w / 4 - boxes.top.size / 2 };
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
@@ -146,6 +152,7 @@ export function CastPage() {
   function backToGrid() {
     clearBeatTimers();
     cardScheduled.current = false;
+    convo.reset();
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
@@ -163,13 +170,15 @@ export function CastPage() {
   // Beat 3: toggle a job. Each newly-added job keeps a stable fly-in edge so its
   // prop arcs in once and then stays clustered around the character.
   function toggleJob(key: JobKey) {
-    const next = jobs.includes(key) ? jobs.filter((k) => k !== key) : [...jobs, key];
+    const adding = !jobs.includes(key);
+    const next = adding ? [...jobs, key] : jobs.filter((k) => k !== key);
     setJobs(next);
     setJobEdges((prev) =>
       prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
     );
-    // Warm up job context in the background (stub for now).
     void kickoffJobContext(next);
+    // Drive the live conversation panel (mocked, scripted) on each new pick.
+    if (adding) convo.send(jobTurn(key));
   }
 
   // Beat 4: toggle a rather. Adding one plays its mime (transient) and, the
@@ -299,16 +308,21 @@ export function CastPage() {
           />
         )}
 
-        {/* Beat 3 — what will I be doing for you? (multi-select) */}
+        {/* Beat 3 — what will I be doing for you? (multi-select, two-panel) */}
         {phase === "job" && selected && (
-          <CastJob
-            character={selected}
-            heroBox={boxes.top}
-            jobs={jobs}
-            jobEdges={jobEdges}
-            onToggle={toggleJob}
-            onContinue={goToRather}
-            onBack={() => setPhase("focus")}
+          <CastTwoPanel
+            left={
+              <CastJob
+                character={selected}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                jobEdges={jobEdges}
+                onToggle={toggleJob}
+                onContinue={goToRather}
+                onBack={() => setPhase("focus")}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
