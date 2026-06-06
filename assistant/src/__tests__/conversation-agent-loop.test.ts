@@ -620,8 +620,16 @@ function makeCtx(
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as Conversation["contextWindowManager"],
-    contextCompactedMessageCount: 0,
-    contextCompactedAt: null,
+    conversationType: mockConversationRow?.conversationType ?? undefined,
+    source: mockConversationRow?.source ?? undefined,
+    contextSummary: mockConversationRow?.contextSummary ?? null,
+    contextCompactedMessageCount:
+      mockConversationRow?.contextCompactedMessageCount ?? 0,
+    contextCompactedAt: mockConversationRow?.contextCompactedAt ?? null,
+    slackContextCompactionWatermarkTs:
+      mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
+    lastNotifiedInferenceProfile:
+      mockConversationRow?.lastNotifiedInferenceProfile ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 

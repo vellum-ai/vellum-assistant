@@ -1645,6 +1645,8 @@ export async function handleMessageComplete(
       deps.ctx.conversationId,
       state.pendingNotifiedInferenceProfile,
     );
+    deps.ctx.lastNotifiedInferenceProfile =
+      state.pendingNotifiedInferenceProfile;
     state.pendingNotifiedInferenceProfile = null;
   }
 

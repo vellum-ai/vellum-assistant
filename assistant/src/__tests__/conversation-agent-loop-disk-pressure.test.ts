@@ -135,6 +135,8 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     } as unknown as Context["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
+    conversationType: "background",
+    source: "memory",
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,

@@ -564,8 +564,8 @@ export async function runAgentLoopImpl(
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
-      conversationType: turnStartConversation?.conversationType ?? null,
-      conversationSource: turnStartConversation?.source ?? null,
+      conversationType: ctx.conversationType ?? null,
+      conversationSource: ctx.source ?? null,
       callSite: turnCallSite,
       isInteractive: isInteractiveResolved,
       sourceChannel:
@@ -694,12 +694,6 @@ export async function runAgentLoopImpl(
     let compactedThisTurn = consumedPostCompactReinject;
     let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
-    let currentSlackContextSummary =
-      turnStartConversation?.contextSummary ?? null;
-    let currentSlackContextCompactedMessageCount =
-      turnStartConversation?.contextCompactedMessageCount ?? 0;
-    let currentSlackContextCompactionWatermarkTs =
-      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
         if (!isSlackConversation) return null;
@@ -708,11 +702,10 @@ export async function runAgentLoopImpl(
           ctx.channelCapabilities!,
           {
             trustClass: ctx.trustContext?.trustClass,
-            contextSummary: currentSlackContextSummary,
-            contextCompactedMessageCount:
-              currentSlackContextCompactedMessageCount,
+            contextSummary: ctx.contextSummary,
+            contextCompactedMessageCount: ctx.contextCompactedMessageCount,
             slackContextCompactionWatermarkTs:
-              currentSlackContextCompactionWatermarkTs,
+              ctx.slackContextCompactionWatermarkTs,
           },
         );
       };
@@ -806,12 +799,6 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
-      currentSlackContextSummary = result.summaryText;
-      currentSlackContextCompactedMessageCount =
-        ctx.contextCompactedMessageCount;
-      if (slackWatermarkTs) {
-        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
-      }
       if (isSlackConversation) {
         slackCompactedThisTurn = true;
       }
@@ -973,7 +960,7 @@ export async function runAgentLoopImpl(
       turnOverrideProfile ??
       config.llm.activeProfile ??
       resolveDefaultProfileKey("mainAgent", config.llm);
-    const lastNotified = turnStartConversation?.lastNotifiedInferenceProfile;
+    const lastNotified = ctx.lastNotifiedInferenceProfile;
     let modelProfileStr: string | null = null;
     if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
       const profileEntry = config.llm.profiles?.[effectiveProfileKey];
@@ -1035,20 +1022,16 @@ export async function runAgentLoopImpl(
     // model sees one channel-wide view instead of the gateway's per-turn
     // hints. DMs render as a flat sequence (no thread tags), channels
     // include sibling threads.
-    const slackConversationForInjection = isSlackConversation
-      ? (getConversation(ctx.conversationId) ?? turnStartConversation)
-      : turnStartConversation;
     if (isSlackConversation && !slackCompactedThisTurn) {
       slackChronologicalContext ??= loadSlackChronologicalContext(
         ctx.conversationId,
         ctx.channelCapabilities!,
         {
           trustClass: ctx.trustContext?.trustClass,
-          contextSummary: slackConversationForInjection?.contextSummary,
-          contextCompactedMessageCount:
-            slackConversationForInjection?.contextCompactedMessageCount,
+          contextSummary: ctx.contextSummary,
+          contextCompactedMessageCount: ctx.contextCompactedMessageCount,
           slackContextCompactionWatermarkTs:
-            slackConversationForInjection?.slackContextCompactionWatermarkTs,
+            ctx.slackContextCompactionWatermarkTs,
         },
       );
     }
@@ -1068,10 +1051,9 @@ export async function runAgentLoopImpl(
           ctx.channelCapabilities!,
           {
             trustClass: ctx.trustContext?.trustClass,
-            contextCompactedMessageCount:
-              slackConversationForInjection?.contextCompactedMessageCount,
+            contextCompactedMessageCount: ctx.contextCompactedMessageCount,
             slackContextCompactionWatermarkTs:
-              slackConversationForInjection?.slackContextCompactionWatermarkTs,
+              ctx.slackContextCompactionWatermarkTs,
           },
         )
       : null;
@@ -2533,6 +2515,8 @@ export interface CompactionApplyContext {
   messages: Message[];
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  contextSummary: string | null;
+  slackContextCompactionWatermarkTs: string | null;
   pendingPostCompactReinject: boolean;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
@@ -2581,6 +2565,7 @@ export async function applyCompactionResult(
 ): Promise<void> {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
   // Signal to the next agent loop turn that NOW.md / PKB / v2 static blocks
@@ -2600,6 +2585,8 @@ export async function applyCompactionResult(
       options.slackContextCompactionWatermarkTs,
       compactedAt,
     );
+    ctx.slackContextCompactionWatermarkTs =
+      options.slackContextCompactionWatermarkTs;
   }
   enqueueAutoAnalysisOnCompaction(
     ctx.conversationId,
