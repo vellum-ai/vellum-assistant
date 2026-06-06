@@ -24,10 +24,14 @@
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
+ * - {@link PreModelCallContext} — passed to `pre-model-call` hook, fired
+ *   before each provider call to edit the request / defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, fired when the model yields
  *   a response with no tool calls
+ * - {@link AssistantMessageContext} — passed to `assistant-message` hook,
+ *   fired for each finalized assistant message to transform its content
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -39,11 +43,13 @@
 export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
 export type {
+  AssistantMessageContext,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
   PluginShutdownContext,
   PostToolUseContext,
+  PreModelCallContext,
   StopContext,
   StopDecision,
   ToolContext,

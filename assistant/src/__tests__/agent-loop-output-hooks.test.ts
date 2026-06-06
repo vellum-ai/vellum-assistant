@@ -192,15 +192,104 @@ describe("agent loop output hooks", () => {
     expect(calls[0].systemPrompt).toContain("[EDITED]");
   });
 
-  test("fail-open: a throwing assistant-message hook keeps the original content", async () => {
+  test("fail-open: a hook that mutates in place AND then throws cannot corrupt the persisted content", async () => {
+    // The hook mutates the array it receives before throwing. If the loop
+    // handed the hook the real `assistantMessage.content` array, the
+    // mid-mutation would survive into history. The loop must clone the
+    // content before invoking the hook.
     registerOutputHookPlugin({
-      assistantMessage: () => {
+      assistantMessage: (ctx) => {
+        ctx.content.push({ type: "text", text: "[INJECTED]" });
         throw new Error("boom");
       },
     });
     const { provider } = createMockProvider([textResponse("untouched")]);
     const loop = new AgentLoop(provider, "system");
     const { history } = await loop.run([userMessage], collect([]));
-    expect(textOf(lastAssistant(history).content)).toBe("untouched");
+    const finalContent = lastAssistant(history).content;
+    expect(textOf(finalContent)).toBe("untouched");
+    expect(
+      finalContent.some((b) => b.type === "text" && b.text === "[INJECTED]"),
+    ).toBe(false);
+  });
+
+  test("max_tokens turn: the hook fires and the deferred final text is emitted", async () => {
+    // Without this, an output-filter plugin misses the truncated reply; with
+    // defer set, the live stream was suppressed and the client would see
+    // nothing at all.
+    const seen: { calls: number } = { calls: 0 };
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
+      assistantMessage: (ctx) => {
+        seen.calls += 1;
+        ctx.content = ctx.content.map((b) =>
+          b.type === "text" ? { type: "text", text: b.text.toUpperCase() } : b,
+        );
+      },
+    });
+    const truncated: ProviderResponse = {
+      content: [{ type: "text", text: "partial answer" }],
+      model: "mock-model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "max_tokens",
+    };
+    const { provider } = createMockProvider([truncated]);
+    const loop = new AgentLoop(provider, "system");
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run([userMessage], collect(events));
+    expect(seen.calls).toBe(1);
+    expect(textOf(lastAssistant(history).content)).toBe("PARTIAL ANSWER");
+    // Real stream suppressed; transformed final text emitted once.
+    expect(streamedText(events)).toBe("PARTIAL ANSWER");
+  });
+
+  test("deferred final text passes through sensitive-output substitution", async () => {
+    // A tool returns a sensitive binding; the next assistant turn uses the
+    // placeholder (the persisted message must keep it — model never sees real
+    // values on reload), but the deferred final stream must show the real
+    // value, just like the normal live stream would.
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
+    });
+    const placeholder = "VELLUM_ASSISTANT_INVITE_CODE_TESTXXXX";
+    const real = "real-invite-code-xyz";
+    const toolThenText = [
+      {
+        content: [{ type: "tool_use", id: "t1", name: "issue", input: {} }],
+        model: "mock-model",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        stopReason: "tool_use",
+      } as ProviderResponse,
+      textResponse(`Your code is ${placeholder}.`),
+    ];
+    const { provider } = createMockProvider(toolThenText);
+    const loop = new AgentLoop(provider, "system", {
+      tools: [
+        {
+          name: "issue",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async () => ({
+        content: `code=${placeholder}`,
+        isError: false,
+        sensitiveBindings: [{ kind: "invite_code", placeholder, value: real }],
+      }),
+    });
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run([userMessage], collect(events));
+    // Persisted message keeps the placeholder — model must never see real
+    // values on reload.
+    expect(textOf(lastAssistant(history).content)).toContain(placeholder);
+    expect(textOf(lastAssistant(history).content)).not.toContain(real);
+    // Streamed final text shows the substituted real value, matching the
+    // behavior of the normal live stream.
+    expect(streamedText(events)).toContain(real);
+    expect(streamedText(events)).not.toContain(placeholder);
   });
 });

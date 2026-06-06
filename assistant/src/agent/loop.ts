@@ -1189,6 +1189,46 @@ export class AgentLoop {
           streamingPending = "";
         }
 
+        // Run the `assistant-message` hook on a finalized message and, when
+        // output was deferred, emit the finalized text once (with sensitive-output
+        // substitution applied, matching the live stream). Fail-open: the hook
+        // receives a clone, so a throw — even mid in-place mutation — leaves the
+        // original message intact.
+        const finalizeAssistantMessage = async (
+          message: Message,
+        ): Promise<Message> => {
+          let finalized = message;
+          try {
+            const ctx: AssistantMessageContext = {
+              conversationId: turnCtx.conversationId,
+              callSite: turnCtx.callSite,
+              content: structuredClone(message.content),
+              stopReason: response.stopReason,
+              logger: rlog,
+            };
+            const result = await runHook(HOOKS.ASSISTANT_MESSAGE, ctx);
+            finalized = { role: "assistant", content: result.content };
+          } catch (assistantMessageError) {
+            rlog.error(
+              { err: assistantMessageError },
+              "assistant-message hook failed — keeping the original content",
+            );
+            finalized = message;
+          }
+          if (deferAssistantOutput) {
+            // The persisted message keeps sensitive-output placeholders; the
+            // stream shows real values — substitute before emitting.
+            const finalText = applySubstitutions(
+              assistantTextOf(finalized.content),
+              substitutionMap,
+            );
+            if (finalText.length > 0) {
+              onEvent({ type: "text_delta", text: finalText });
+            }
+          }
+          return finalized;
+        };
+
         // Build the assistant message with placeholder-only text.
         // Both provider history and persisted conversation store must retain
         // placeholders so the model never sees real sensitive values — neither
@@ -1223,10 +1263,6 @@ export class AgentLoop {
               block.type !== "server_tool_use" &&
               block.type !== "web_search_tool_result",
           );
-          const safeAssistantMessage: Message = {
-            role: "assistant",
-            content: safeContent,
-          };
           rlog.warn(
             {
               turn: toolUseTurns,
@@ -1237,6 +1273,13 @@ export class AgentLoop {
             },
             "LLM response reached output token limit",
           );
+          // Run the hook on the truncated reply so output-filter plugins still
+          // see it, and so a deferred turn gets its synthetic final emit (the
+          // live stream was suppressed; without this the client would see nothing).
+          const safeAssistantMessage = await finalizeAssistantMessage({
+            role: "assistant",
+            content: safeContent,
+          });
           history.push(safeAssistantMessage);
           appendedNewMessages = true;
           await onEvent({
@@ -1308,44 +1351,11 @@ export class AgentLoop {
           }
         }
 
-        // Let plugins transform the finalized assistant message before it is
-        // persisted and streamed-final. Fires for every finalized message
-        // (tool-bearing turns included), so a reply carrying both text and tool
-        // calls is covered; hooks transform their own blocks and leave others —
-        // notably `tool_use` — intact. Fail-open: a throwing hook keeps the
-        // original content.
-        try {
-          const assistantMessageCtx: AssistantMessageContext = {
-            conversationId: turnCtx.conversationId,
-            callSite: turnCtx.callSite,
-            content: assistantMessage.content,
-            stopReason: response.stopReason,
-            logger: rlog,
-          };
-          const finalAssistantMessageCtx = await runHook(
-            HOOKS.ASSISTANT_MESSAGE,
-            assistantMessageCtx,
-          );
-          assistantMessage = {
-            role: "assistant",
-            content: finalAssistantMessageCtx.content,
-          };
-        } catch (assistantMessageError) {
-          rlog.error(
-            { err: assistantMessageError },
-            "assistant-message hook failed — keeping the original content",
-          );
-        }
-
-        // When this turn's output was deferred, its live text stream was
-        // suppressed; emit the finalized (possibly transformed) text once so the
-        // client renders it.
-        if (deferAssistantOutput) {
-          const finalText = assistantTextOf(assistantMessage.content);
-          if (finalText.length > 0) {
-            onEvent({ type: "text_delta", text: finalText });
-          }
-        }
+        // Run the `assistant-message` hook + emit any deferred final text.
+        // On a no-tool turn this point is reached only after the `stop` hook
+        // resolves to "stop" (a `continue` already re-queried above), so a
+        // re-queried reply is never transformed-then-discarded.
+        assistantMessage = await finalizeAssistantMessage(assistantMessage);
 
         history.push(assistantMessage);
         appendedNewMessages = true;
