@@ -8,6 +8,8 @@
 
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 /**
@@ -37,16 +39,18 @@ export function stripFrontmatter(content: string): string {
  * heading scale, document-style spacing, and design-token colours.
  */
 export const fileMarkdownComponents: Components = {
-  h1: ({ children }) => (
+  h1: ({ node: _node, children, ...rest }) => (
     <h1
+      {...rest}
       className="mb-3 mt-4 text-title-large first:mt-0"
       style={{ color: "var(--content-default)" }}
     >
       {children}
     </h1>
   ),
-  h2: ({ children }) => (
+  h2: ({ node: _node, children, ...rest }) => (
     <h2
+      {...rest}
       className="mb-2 mt-5 border-b pb-1 text-title-medium first:mt-0"
       style={{
         color: "var(--content-default)",
@@ -56,24 +60,27 @@ export const fileMarkdownComponents: Components = {
       {children}
     </h2>
   ),
-  h3: ({ children }) => (
+  h3: ({ node: _node, children, ...rest }) => (
     <h3
+      {...rest}
       className="mb-2 mt-4 text-title-small first:mt-0"
       style={{ color: "var(--content-default)" }}
     >
       {children}
     </h3>
   ),
-  h4: ({ children }) => (
+  h4: ({ node: _node, children, ...rest }) => (
     <h4
+      {...rest}
       className="mb-1 mt-3 text-body-medium-default first:mt-0"
       style={{ color: "var(--content-default)" }}
     >
       {children}
     </h4>
   ),
-  p: ({ children }) => (
+  p: ({ node: _node, children, ...rest }) => (
     <p
+      {...rest}
       className="mb-3 text-body-medium-lighter last:mb-0"
       style={{ color: "var(--content-default)" }}
     >
@@ -114,18 +121,18 @@ export const fileMarkdownComponents: Components = {
   em: ({ children }) => (
     <em style={{ color: "var(--content-default)" }}>{children}</em>
   ),
-  code: ({ className, children, ...props }) => {
+  code: ({ node: _node, className, children, ...rest }) => {
     const isBlock = className?.startsWith("language-");
     if (isBlock) {
       return (
         <code
+          {...rest}
           className={`block overflow-x-auto rounded p-3 font-mono text-body-small-default ${className ?? ""}`}
           style={{
             backgroundColor:
               "color-mix(in oklab, var(--content-default) 8%, transparent)",
             color: "var(--content-default)",
           }}
-          {...props}
         >
           {children}
         </code>
@@ -173,8 +180,9 @@ export const fileMarkdownComponents: Components = {
       </table>
     </div>
   ),
-  th: ({ children }) => (
+  th: ({ node: _node, children, ...rest }) => (
     <th
+      {...rest}
       className="border px-2 py-1 text-left text-body-small-emphasised"
       style={{
         borderColor: "var(--border-base)",
@@ -184,8 +192,9 @@ export const fileMarkdownComponents: Components = {
       {children}
     </th>
   ),
-  td: ({ children }) => (
+  td: ({ node: _node, children, ...rest }) => (
     <td
+      {...rest}
       className="border px-2 py-1"
       style={{
         borderColor: "var(--border-base)",
@@ -223,6 +232,12 @@ export function FileMarkdown({
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      // `rehype-raw` reparses inline HTML embedded in markdown (READMEs often
+      // use `<p align>`, `<img>`, `<table>` for layout), then `rehype-sanitize`
+      // strips anything unsafe (scripts, event handlers, `javascript:` URLs)
+      // using its GitHub-aligned default schema. Order matters: raw first so
+      // sanitize sees real element nodes.
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
       components={fileMarkdownComponents}
     >
       {rendered}
