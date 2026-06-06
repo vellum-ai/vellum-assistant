@@ -1019,14 +1019,16 @@ export async function runAgentLoopImpl(
     // Capture wall-clock "now" at its point of use, after the blocking memory
     // retrieval, so the injected `<turn_context>` timestamp reflects current
     // time rather than the moment the turn began. Freeze it (with the
-    // turn-start client timezone) on the conversation so `applyRuntimeInjections`
-    // sources it from live state — like the channel/voice/transport hints — and
-    // every post-compaction re-injection reuses the same instant.
+    // turn-start client timezone and the long-absence gap) on the conversation
+    // so `applyRuntimeInjections` sources it from live state — like the
+    // channel/voice/transport hints — and every post-compaction re-injection
+    // reuses the same instant.
     ctx.currentTurnTemporalSnapshot = {
       timestamp: formatTurnTimestamp({
         timeZone: timezoneContext.effectiveTimezone,
       }),
       clientTimezone: timezoneContext.clientTimezone,
+      timeSinceLastMessage,
     };
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
@@ -1088,12 +1090,12 @@ export async function runAgentLoopImpl(
       slackActiveThreadFocusBlock,
       // Unified `<turn_context>` actor input; the `unified-turn-context`
       // injector builds the block from it. Actor identity is included only for
-      // non-guardian turns. The timestamp and client timezone are sourced from
-      // the conversation's frozen `currentTurnTemporalSnapshot`, the interface
-      // and channel labels from the live conversation's turn interface/channel
-      // context, and the configured and detected timezones from config — all
-      // self-resolved in `applyRuntimeInjections`.
-      timeSinceLastMessage,
+      // non-guardian turns. The timestamp, client timezone, and long-absence
+      // gap are sourced from the conversation's frozen
+      // `currentTurnTemporalSnapshot`, the interface and channel labels from the
+      // live conversation's turn interface/channel context, and the configured
+      // and detected timezones from config — all self-resolved in
+      // `applyRuntimeInjections`.
       modelProfile: modelProfileStr,
       actorContext: isGuardian ? null : resolvedInboundActorContext,
     } as const;

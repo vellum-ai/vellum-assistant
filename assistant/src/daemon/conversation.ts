@@ -381,10 +381,12 @@ export class Conversation {
   /** @internal */ clientTimezone?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
-   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` line
-   * and the client/config timezone-mismatch affordance. Holds the turn's
-   * formatted wall-clock timestamp and the client-reported timezone captured at
-   * turn start.
+   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` and
+   * `time_since_last_message` lines and the client/config timezone-mismatch
+   * affordance. Holds the turn's formatted wall-clock timestamp, the
+   * client-reported timezone captured at turn start, and the human-readable gap
+   * since the previous user message (null unless it exceeds the long-absence
+   * threshold).
    *
    * Frozen here rather than re-derived in assembly so post-compaction
    * re-injections reuse the same instant, and so the client timezone is not
@@ -396,6 +398,7 @@ export class Conversation {
   currentTurnTemporalSnapshot?: {
     timestamp: string;
     clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
   };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
