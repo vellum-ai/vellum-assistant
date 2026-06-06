@@ -49,6 +49,7 @@ import {
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
+import { ACTIVATION_STEPS } from "../telemetry/activation-funnel.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -407,15 +408,14 @@ export interface PersistMessageOptions {
  * Must be called AFTER the user turn is persisted so {@link countRealUserTurns}
  * counts this turn as the conversation's Nth real user message.
  */
-const ACTIVATION_MSG_5_STEP = "activation_msg_5_sent" as const;
-
 export function maybeEmitActivationMsg5(conversationId: string): void {
+  const msg5Step = ACTIVATION_STEPS.msg5Sent.stepName;
   try {
     if (!isActivationSession(conversationId)) return;
     if (countRealUserTurns(conversationId) < 5) return;
-    if (hasActivationEvent(conversationId, ACTIVATION_MSG_5_STEP)) return;
+    if (hasActivationEvent(conversationId, msg5Step)) return;
     recordActivationEvent({
-      stepName: ACTIVATION_MSG_5_STEP,
+      stepName: msg5Step,
       sessionId: conversationId,
     });
   } catch (err) {

@@ -60,11 +60,6 @@ const STEP_INDEX_BY_NAME = new Map<ActivationStepName, number>(
   ]),
 );
 
-/** All activation step names, in funnel order. */
-export const ACTIVATION_STEP_NAMES: readonly ActivationStepName[] = [
-  ...STEP_INDEX_BY_NAME.keys(),
-];
-
 /** Type guard: is `value` one of the known activation step names? */
 export function isActivationStepName(
   value: string,
