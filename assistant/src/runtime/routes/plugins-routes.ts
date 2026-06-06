@@ -26,6 +26,7 @@
 import { z } from "zod";
 
 import {
+  DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
@@ -35,14 +36,16 @@ import {
   type InstalledPluginInfo,
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
+import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
 import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
 import {
+  filterPluginCatalog,
   InvalidSearchPatternError,
+  PluginCatalogUnavailableError,
   type PluginSearchMatch,
-  searchPlugins,
 } from "../../cli/lib/search-plugins.js";
 import {
   PluginNotInstalledError,
@@ -54,6 +57,7 @@ import {
   ConflictError,
   InternalError,
   NotFoundError,
+  ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -325,24 +329,34 @@ async function handleSearchPlugins({
   // Empty string is a legitimate "match everything" query per the lib's
   // contract — accept it without forcing the caller to pick a sentinel.
   const query = queryParams.q ?? "";
-  const ref = queryParams.ref?.trim() || undefined;
+  const ref = queryParams.ref?.trim() || DEFAULT_PLUGIN_REF;
 
   try {
-    const result = await searchPlugins(
-      { query, ref },
-      { fetch: globalThis.fetch.bind(globalThis) },
-    );
+    // The catalog is cached per ref (and served stale on upstream failure),
+    // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
+    // Filtering by the query is an in-memory operation over that catalog.
+    const catalog = await getPluginCatalog(ref, {
+      fetch: globalThis.fetch.bind(globalThis),
+    });
+    const matches = filterPluginCatalog(catalog, query);
     // Re-pack `readonly` lib types into mutable copies so the route
     // serializer's `Record<string, unknown>` contract holds. The wire
     // shape is identical.
     return {
-      query: result.query,
-      ref: result.ref,
-      matches: result.matches.map(projectMatch),
+      query,
+      ref: catalog.ref,
+      matches: matches.map(projectMatch),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
+    }
+    // A rate-limited or unavailable upstream (with no cache to fall back on)
+    // is transient and retryable — surface it as 503 rather than a
+    // misleading 500 so the client can show a "temporarily unavailable"
+    // state and retry later.
+    if (err instanceof PluginCatalogUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin catalog search failed",

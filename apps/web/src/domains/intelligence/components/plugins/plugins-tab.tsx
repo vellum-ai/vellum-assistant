@@ -19,7 +19,6 @@ import type {
     PluginsGetResponse,
     PluginsSearchGetResponse,
 } from "@/generated/daemon/types.gen";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Card, Input } from "@vellumai/design-library";
 
 type PluginInfo = PluginsGetResponse["plugins"][number];
@@ -29,30 +28,36 @@ interface PluginsTabProps {
   assistantId: string;
 }
 
-const SEARCH_DEBOUNCE_MS = 300;
+// The installed list (local filesystem) and the catalog (the daemon's
+// cached, rate-limited GitHub listing) both change rarely, so each is
+// fetched once with no query and filtered in memory as the user types.
+// Typing therefore issues zero network requests — and never re-hits the
+// daemon's catalog search on every keystroke. `staleTime` keeps the data
+// warm across tab switches so revisiting doesn't refetch.
+const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
-/**
- * Escape regex meta-characters so the daemon's `plugins_search`
- * endpoint (which takes `q` as an ECMAScript regex) behaves like a
- * case-insensitive substring match.
- */
-function escapeForRegex(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Case-insensitive substring match against a plugin's name + description. */
+function matchesQuery(
+  query: string,
+  ...fields: readonly (string | null | undefined)[]
+): boolean {
+  if (!query) return true;
+  return fields.some((f) => f?.toLowerCase().includes(query));
 }
 
 export function PluginsTab({ assistantId }: PluginsTabProps) {
   const [searchValue, setSearchValue] = useState("");
-  const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
+  const query = searchValue.trim().toLowerCase();
 
   const pluginsQuery = useQuery({
     queryKey: pluginsGetQueryKey({
       path: { assistant_id: assistantId },
-      query: { q: debouncedSearch || undefined },
+      query: { q: undefined },
     }),
     queryFn: async ({ signal }) => {
       const result = await pluginsGet({
         path: { assistant_id: assistantId },
-        query: { q: debouncedSearch || undefined },
+        query: { q: undefined },
         signal,
         throwOnError: false,
       });
@@ -64,16 +69,16 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
       return result.data ?? ({ plugins: [] } as PluginsGetResponse);
     },
     enabled: Boolean(assistantId),
+    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const catalogQuery = useQuery({
     ...pluginsSearchGetOptions({
       path: { assistant_id: assistantId },
-      query: {
-        q: debouncedSearch ? escapeForRegex(debouncedSearch) : undefined,
-      },
+      query: { q: undefined },
     }),
     enabled: Boolean(assistantId),
+    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const installedPlugins = useMemo(
@@ -86,26 +91,38 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     [installedPlugins],
   );
 
-  // Catalog entries that aren't already installed. The list endpoint
-  // and the catalog endpoint are independent — entries the user has
-  // installed locally still appear in the catalog. Suppressing them
-  // here keeps the "Available to install" section honest.
+  const visibleInstalled = useMemo(
+    () =>
+      installedPlugins.filter((p) =>
+        matchesQuery(query, p.name, p.description),
+      ),
+    [installedPlugins, query],
+  );
+
+  // Catalog entries that aren't already installed and match the filter.
+  // The list endpoint and the catalog endpoint are independent — entries
+  // the user has installed locally still appear in the catalog.
+  // Suppressing them here keeps the "Available to install" section honest.
   const catalogMatches = useMemo<readonly PluginCatalogMatch[]>(() => {
     const matches = catalogQuery.data?.matches ?? [];
-    return matches.filter((m) => !installedNames.has(m.name));
-  }, [catalogQuery.data?.matches, installedNames]);
+    return matches.filter(
+      (m) =>
+        !installedNames.has(m.name) &&
+        matchesQuery(query, m.name, m.description),
+    );
+  }, [catalogQuery.data?.matches, installedNames, query]);
 
-  const isSearchingInstalled =
-    pluginsQuery.isFetching && Boolean(debouncedSearch);
-  const isSearchingCatalog =
-    catalogQuery.isFetching && Boolean(debouncedSearch);
-  const isSearching = isSearchingInstalled || isSearchingCatalog;
+  // Filtering is in-memory, so the only spinner-worthy work is a background
+  // refetch of the underlying lists (initial load uses the LoadingState).
+  const isSearching =
+    (pluginsQuery.isFetching && !pluginsQuery.isLoading) ||
+    (catalogQuery.isFetching && !catalogQuery.isLoading);
 
   const isLoadingInstalled = pluginsQuery.isLoading;
   const isLoadingCatalog = catalogQuery.isLoading;
 
   const showInstalledEmpty =
-    !isLoadingInstalled && !pluginsQuery.isError && installedPlugins.length === 0;
+    !isLoadingInstalled && !pluginsQuery.isError && visibleInstalled.length === 0;
   const showCatalogEmpty = !isLoadingCatalog && catalogMatches.length === 0;
 
   return (
@@ -123,10 +140,10 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         ) : pluginsQuery.isError ? (
           <PluginsErrorState />
         ) : showInstalledEmpty ? (
-          <InstalledEmptyState hasQuery={Boolean(debouncedSearch)} />
+          <InstalledEmptyState hasQuery={Boolean(query)} />
         ) : (
           <ul className="flex flex-col gap-2">
-            {installedPlugins.map((plugin) => (
+            {visibleInstalled.map((plugin) => (
               <li key={plugin.id}>
                 <PluginRow plugin={plugin} />
               </li>
@@ -141,7 +158,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         ) : catalogQuery.isError ? (
           <CatalogErrorState />
         ) : showCatalogEmpty ? (
-          <CatalogEmptyState hasQuery={Boolean(debouncedSearch)} />
+          <CatalogEmptyState hasQuery={Boolean(query)} />
         ) : (
           <ul className="flex flex-col gap-2">
             {catalogMatches.map((match) => (
