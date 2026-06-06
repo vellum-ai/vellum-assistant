@@ -433,18 +433,23 @@ const NOW_MD_BLOCK_PREFIXES = [
  * merely starting with `<info>\n` is never mistaken for an injection — matching
  * the full-wrapper requirement the compaction strip uses for this block.
  *
- * The static block is wrapped in `<info>…</info>` today, but rows persisted
- * before that switch rehydrate verbatim as `<memory>…</memory>` (see
- * `conversation-lifecycle`), so the legacy wrapper counts as present too.
- * Matching `<memory>` cannot wrongly skip a needed injection: the static block
- * is only (re)injected on the first turn (empty history) and right after
- * compaction (which strips both wrappers), and on neither is a `<memory>` block
- * present — the dynamic activation `<memory>` block only survives on normal
- * cached turns, which is exactly when this injector must skip anyway.
+ * Match ONLY the `<info>…</info>` wrapper — the form the static block is always
+ * written as today (see {@link buildMemoryV2StaticBlock}). The matcher must NOT
+ * also match `<memory>…</memory>`: the v2 *dynamic* activation block uses that
+ * same wrapper and `prepareMemory` prepends it to the tail user message every
+ * turn, before this injector chain runs. Counting `<memory>` as "static block
+ * already present" made the static injector skip on essentially every turn —
+ * including the first turn and right after compaction, where the dynamic block
+ * is re-added ahead of the chain — which dropped the `<info>` block entirely.
+ *
+ * Tradeoff: a conversation whose static block was persisted under the legacy
+ * `<memory>` wrapper (pre-`<info>` switch) is no longer recognized here, so its
+ * first post-fix turn may briefly carry both the stale `<memory>` view and a
+ * fresh `<info>` block. That is rare (ancient histories only), cosmetic, and
+ * self-heals on the next compaction (which strips both wrappers).
  */
 const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
   { prefix: "<info>\n", suffix: "\n</info>" },
-  { prefix: "<memory>\n", suffix: "\n</memory>" },
 ];
 
 /**
