@@ -13,16 +13,18 @@ mock.module("../../config/loader.js", () => ({
   getConfig: () => ({ collectUsageData: true }),
 }));
 
+import { markActivationSession } from "../../memory/activation-session-store.js";
 import { getDb } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import { queryUnreportedOnboardingEvents } from "../../memory/onboarding-events-store.js";
-import { onboardingEvents } from "../../memory/schema.js";
+import { activationSessions, onboardingEvents } from "../../memory/schema.js";
 import { emitActivationMoment } from "../activation-emit.js";
 
 initializeDb();
 
 function resetTable(): void {
   getDb().delete(onboardingEvents).run();
+  getDb().delete(activationSessions).run();
 }
 
 describe("activation-emit: emitActivationMoment", () => {
@@ -30,7 +32,8 @@ describe("activation-emit: emitActivationMoment", () => {
     resetTable();
   });
 
-  test("records a valid activation moment and writes a row", () => {
+  test("records a valid activation moment for a marked rail session", () => {
+    markActivationSession("conv-1");
     const result = emitActivationMoment({
       stepName: "activation_moment_2_complete",
       conversationId: "conv-1",
@@ -41,6 +44,16 @@ describe("activation-emit: emitActivationMoment", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
     expect(rows[0]!.sessionId).toBe("conv-1");
+  });
+
+  test("rejects a valid step in an unmarked (non-rail) session and writes no row", () => {
+    const result = emitActivationMoment({
+      stepName: "activation_moment_2_complete",
+      conversationId: "conv-not-rail",
+    });
+    expect(result).toEqual({ ok: false, reason: "not_activation_session" });
+
+    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
   });
 
   test("rejects the daemon-owned msg_5 step and writes no row", () => {
