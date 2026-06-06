@@ -62,6 +62,7 @@ export function CastStyle({
   heroBox,
   jobs,
   ascended,
+  onChoose,
   onRoundPicked,
   onDone,
   onBack,
@@ -71,6 +72,7 @@ export function CastStyle({
   heroBox: Rect;
   jobs: JobKey[];
   ascended: boolean;
+  onChoose?: (value: string) => void;
   onRoundPicked: (style: StyleProfile) => void;
   onDone: (style: StyleProfile) => void;
   onBack: () => void;
@@ -98,6 +100,7 @@ export function CastStyle({
     setStyle(next);
     // Warm up style context on every tap (stub for now).
     void kickoffStyleContext(roundIdx + 1, value);
+    onChoose?.(value);
     onRoundPicked(next);
 
     window.setTimeout(() => {

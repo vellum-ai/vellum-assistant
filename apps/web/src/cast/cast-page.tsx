@@ -20,7 +20,7 @@ import { CastJob } from "@/cast/cast-job";
 import { CastProof } from "@/cast/cast-proof-view";
 import { CastRather } from "@/cast/cast-rather";
 import { CastStyle } from "@/cast/cast-style";
-import { jobTurn } from "@/cast/cast-templates";
+import { jobTurn, ratherTurn, styleTurn } from "@/cast/cast-templates";
 import { CastTwoPanel } from "@/cast/cast-two-panel";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
@@ -191,6 +191,7 @@ export function CastPage() {
     void kickoffRatherContext(next);
     if (has) return;
     const choice = RATHERS.find((r) => r.key === key)!;
+    convo.send(ratherTurn(key, choice.label));
     const nonce = (tapRef.current += 1);
     setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
     clearTimeout(mimeTimer.current);
@@ -326,63 +327,79 @@ export function CastPage() {
           />
         )}
 
-        {/* Beat 4 — rather (multi-select) */}
+        {/* Beat 4 — rather (multi-select, two-panel) */}
         {phase === "rather" && selected && (
-          <CastRather
-            character={selected}
-            heroBox={boxes.top}
-            jobs={jobs}
-            rathers={rathers}
-            mime={mime}
-            showCard={showCard}
-            onToggle={toggleRather}
-            onAnswer={answer}
-            onBack={() => {
-              clearBeatTimers();
-              cardScheduled.current = false;
-              setMime(null);
-              setShowCard(false);
-              setPhase("job");
-            }}
+          <CastTwoPanel
+            left={
+              <CastRather
+                character={selected}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                rathers={rathers}
+                mime={mime}
+                showCard={showCard}
+                onToggle={toggleRather}
+                onAnswer={answer}
+                onBack={() => {
+                  clearBeatTimers();
+                  cardScheduled.current = false;
+                  setMime(null);
+                  setShowCard(false);
+                  setPhase("job");
+                }}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
-        {/* Beat 5 — this or that */}
+        {/* Beat 5 — this or that (two-panel) */}
         {phase === "style" && selected && (
-          <CastStyle
-            character={selected}
-            name={name}
-            heroBox={boxes.top}
-            jobs={jobs}
-            ascended={rathers.length === RATHERS.length}
-            onRoundPicked={onStyleRound}
-            onDone={onStyleDone}
-            onBack={() => setPhase("rather")}
+          <CastTwoPanel
+            left={
+              <CastStyle
+                character={selected}
+                name={name}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                ascended={rathers.length === RATHERS.length}
+                onChoose={(value) => convo.send(styleTurn(value))}
+                onRoundPicked={onStyleRound}
+                onDone={onStyleDone}
+                onBack={() => setPhase("rather")}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
-        {/* Beat 6 — proof. Hero sits a little lower than the other top beats so
-            the "juggling" props have headroom above without clipping. */}
+        {/* Beat 6 — proof (two-panel). Hero sits a little lower so juggling props
+            have headroom above without clipping. */}
         {phase === "done" && selected && (
-          <CastProof
-            character={selected}
-            box={{ ...boxes.top, top: boxes.top.top + Math.round(boxes.top.size * 0.7) }}
-            jobs={jobs}
-            rathers={rathers}
-            style={style}
-            ascended={rathers.length === RATHERS.length}
-            assistantId={assistantId}
-            onAction={(which) => {
-              console.log("[Cast] proof action", {
-                which,
-                character: selected.id,
-                name,
-                jobs,
-                rathers,
-                style,
-              });
-            }}
-            onBack={() => setPhase("style")}
+          <CastTwoPanel
+            left={
+              <CastProof
+                character={selected}
+                box={{ ...leftPanelBox, top: leftPanelBox.top + Math.round(leftPanelBox.size * 0.7) }}
+                jobs={jobs}
+                rathers={rathers}
+                style={style}
+                ascended={rathers.length === RATHERS.length}
+                assistantId={assistantId}
+                onAction={(which) => {
+                  console.log("[Cast] proof action", {
+                    which,
+                    character: selected.id,
+                    name,
+                    jobs,
+                    rathers,
+                    style,
+                  });
+                }}
+                onBack={() => setPhase("style")}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
