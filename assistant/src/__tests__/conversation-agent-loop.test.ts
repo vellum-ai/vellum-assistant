@@ -780,7 +780,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("uses the resolved effective timezone for the timestamp and does not thread the timezone trio", async () => {
+    test("threads the client timezone snapshot but not the config timezones", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -797,18 +797,19 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // The loop still resolves the effective timezone to format the turn
-      // timestamp.
+      // The loop resolves the effective timezone to format the turn timestamp.
       expect(formatTurnTimestampMock).toHaveBeenCalledWith({
         timeZone: "America/New_York",
       });
-      // But the timezone trio is no longer threaded into the injection options
-      // bag — `applyRuntimeInjections` self-resolves it from config
-      // (`ui.userTimezone`, `ui.detectedTimezone`) and the live conversation
-      // (`clientTimezone`).
+      // The client timezone is threaded as a turn-start snapshot, but the
+      // configured and detected timezones are not — `applyRuntimeInjections`
+      // self-resolves those from config (`ui.userTimezone`,
+      // `ui.detectedTimezone`).
       const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
+      expect(injectionOptions).toMatchObject({
+        clientTimezone: "America/Los_Angeles",
+      });
       expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
-      expect(injectionOptions).not.toHaveProperty("clientTimezone");
       expect(injectionOptions).not.toHaveProperty("detectedTimezone");
     });
   });
