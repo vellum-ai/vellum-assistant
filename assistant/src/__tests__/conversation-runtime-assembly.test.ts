@@ -42,14 +42,12 @@ import {
 import type {
   ChannelCapabilities,
   SlackTranscriptInputRow,
-  UnifiedTurnContextOptions,
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
   assembleSlackActiveThreadFocusBlock,
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
-  buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
@@ -73,6 +71,10 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
+import {
+  buildUnifiedTurnContextBlock,
+  type UnifiedTurnContextOptions,
+} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -826,8 +828,10 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     // Non-interactive turn so the `<non_interactive_context>` branch fires.
     isNonInteractive: true,
-    unifiedTurnContext:
-      "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
+    // Unified turn-context inputs so the `unified-turn-context` injector emits
+    // the `<turn_context>` block from the options bag.
+    timestamp: "2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)",
+    interfaceName: "telegram",
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
     // gate hinge purely on PKB content presence.
@@ -1763,6 +1767,8 @@ describe("buildUnifiedTurnContextBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections with unifiedTurnContext", () => {
+  afterEach(clearConversations);
+
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -1770,12 +1776,15 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     },
   ];
 
-  const sampleBlock =
-    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+  const sampleOptions: UnifiedTurnContextOptions = {
+    timestamp: "2026-04-02T12:00:00Z",
+    interfaceName: "macos",
+  };
+  const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
 
-  test("injects unifiedTurnContext when provided", async () => {
+  test("injects the turn-context block when the inputs are provided", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      ...sampleOptions,
     });
 
     expect(result).toHaveLength(1);
@@ -1789,16 +1798,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     );
   });
 
-  test("does not inject when unifiedTurnContext is null", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: null,
-    });
-
-    expect(result).toHaveLength(1);
-    expect(result[0].content).toHaveLength(1);
-  });
-
-  test("does not inject when unifiedTurnContext is omitted", async () => {
+  test("does not inject when the timestamp input is omitted", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
@@ -1807,7 +1807,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
   test("injected in full mode", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      ...sampleOptions,
       mode: "full",
     });
 
@@ -1821,7 +1821,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
   test("injected in minimal mode (no mode guard)", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      ...sampleOptions,
       mode: "minimal",
     });
 
@@ -1839,6 +1839,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
+  afterEach(clearConversations);
+
   const userTailMessages: Message[] = [
     {
       role: "user",
@@ -1846,12 +1848,15 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     },
   ];
 
-  const sampleBlock =
-    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+  const sampleOptions: UnifiedTurnContextOptions = {
+    timestamp: "2026-04-02T12:00:00Z",
+    interfaceName: "macos",
+  };
+  const sampleBlock = buildUnifiedTurnContextBlock(sampleOptions);
 
   test("captures unifiedTurnContext when tail is a user message", async () => {
     const result = await applyRuntimeInjections(userTailMessages, {
-      unifiedTurnContext: sampleBlock,
+      ...sampleOptions,
     });
 
     expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
@@ -1870,7 +1875,7 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     ];
 
     const result = await applyRuntimeInjections(assistantTailMessages, {
-      unifiedTurnContext: sampleBlock,
+      ...sampleOptions,
     });
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();

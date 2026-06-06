@@ -15,6 +15,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type {
   ChannelCapabilities,
+  InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -122,8 +123,37 @@ export interface TurnInjectionInputs {
    * context (unified turn context, etc.). Drives per-injector gating.
    */
   readonly mode?: InjectionMode;
-  /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
-  readonly unifiedTurnContext?: string | null;
+  /**
+   * Wall-clock timestamp for the turn, formatted in the actor's effective
+   * timezone. Drives the `current_time` line of the `<turn_context>` block;
+   * when absent the `unified-turn-context` injector emits nothing.
+   */
+  readonly timestamp?: string;
+  /** Human-readable interface label (e.g. "vellum", "telegram"). */
+  readonly interfaceName?: string;
+  /** Channel label gating response-discretion guidance in `<turn_context>`. */
+  readonly channelName?: string;
+  /**
+   * Inbound actor identity and trust fields. Populated only on non-guardian
+   * turns; `null`/absent suppresses the actor section of `<turn_context>`.
+   */
+  readonly actorContext?: InboundActorContext | null;
+  /** Guardian-configured timezone, used to detect a client/config mismatch. */
+  readonly configuredUserTimezone?: string | null;
+  /** Client-reported timezone, used to detect a client/config mismatch. */
+  readonly clientTimezone?: string | null;
+  /** Server-detected timezone fallback when the client does not report one. */
+  readonly detectedTimezone?: string | null;
+  /**
+   * Human-readable gap since the previous user message (e.g. "14h ago"), only
+   * set when the gap exceeds the long-absence threshold.
+   */
+  readonly timeSinceLastMessage?: string | null;
+  /**
+   * Human-readable active inference profile, only set when it changed since
+   * the last turn (or on the first turn).
+   */
+  readonly modelProfile?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
   readonly subagentStatusBlock?: string | null;
   /** Channel capabilities — drives slack gating. */

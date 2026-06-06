@@ -53,6 +53,10 @@ import {
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
+import {
+  buildUnifiedTurnContextBlock,
+  type UnifiedTurnContextOptions,
+} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -280,22 +284,24 @@ describe("injector chain", () => {
   test("applyRuntimeInjections without turnContext still runs the chain under a synthesized context", async () => {
     // The static chain is the canonical injection path, so
     // `applyRuntimeInjections` must drive it even when the caller doesn't
-    // pass a `turnContext`. Call sites that rely on option fields to opt
-    // into injections continue to work because the synthesized fallback
-    // exposes `injectionInputs` built from `options`.
+    // pass a `turnContext`. With no caller-supplied context the assembly
+    // falls back to the runtime-assembly fallback conversation id, so the
+    // live-sourced unified turn context resolves off that conversation.
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ];
 
+    const synthesizedOptions: UnifiedTurnContextOptions = {
+      timestamp: "synthesized",
+    };
+    const synthesizedBlock = buildUnifiedTurnContextBlock(synthesizedOptions);
     const result = await applyRuntimeInjections(runMessages, {
-      unifiedTurnContext: "<turn_context>\nsynthesized\n</turn_context>",
+      ...synthesizedOptions,
     });
 
     // The unified-turn-context injector fires even without a caller-supplied
     // turnContext, proving the chain runs under the synthesized context.
-    expect(result.blocks.unifiedTurnContext).toBe(
-      "<turn_context>\nsynthesized\n</turn_context>",
-    );
+    expect(result.blocks.unifiedTurnContext).toBe(synthesizedBlock);
   });
 
   test("golden-path: default chain injects workspace + unified-turn + PKB + NOW + subagent in the correct positions", async () => {
@@ -328,8 +334,11 @@ describe("injector chain", () => {
 
     const workspaceText =
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
-    const unifiedTurn =
-      "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
+    const unifiedTurnOptions: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-22",
+      interfaceName: "macos",
+    };
+    const unifiedTurn = buildUnifiedTurnContextBlock(unifiedTurnOptions);
     // A completed child renders deterministically (no elapsed clock), so the
     // block the injector self-resolves matches `buildSubagentStatusBlock`.
     const subagentChild = makeSubagentState("sub-1", "worker", "completed");
@@ -338,8 +347,8 @@ describe("injector chain", () => {
 
     seedWorkspaceContext(workspaceText);
     const result = await applyRuntimeInjections(runMessages, {
+      ...unifiedTurnOptions,
       turnContext: makeTurnContext(),
-      unifiedTurnContext: unifiedTurn,
     });
 
     // Extract the tail user message content as a list of text strings.
@@ -450,8 +459,15 @@ describe("injector chain", () => {
     // injector except `unified-turn-context` checks `mode === "full"` and
     // opts out in minimal mode, so the tail should carry only the turn
     // context prepend plus any non-injector hardcoded content (none
-    // here). A live child subagent is seeded so the subagent-status injector
-    // has a block to skip.
+    // here).
+    // Empty workspace text keeps that injector inert while the unified
+    // turn-context inputs flow through the injection options bag. A live child
+    // subagent is seeded so the subagent-status injector has a block to skip.
+    const minimalTurnOptions: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-22",
+    };
+    const minimalTurnBlock = buildUnifiedTurnContextBlock(minimalTurnOptions);
+    seedWorkspaceContext("");
     seedSubagentChild(
       TEST_CONVERSATION_ID,
       makeSubagentState("sub-1", "worker", "running"),
@@ -464,9 +480,9 @@ describe("injector chain", () => {
         },
       ],
       {
+        ...minimalTurnOptions,
         turnContext: makeTurnContext(),
         mode: "minimal",
-        unifiedTurnContext: "<turn_context>...</turn_context>",
       },
     );
 
@@ -475,10 +491,8 @@ describe("injector chain", () => {
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text);
 
-    expect(texts).toEqual(["<turn_context>...</turn_context>", "hi"]);
-    expect(result.blocks.unifiedTurnContext).toBe(
-      "<turn_context>...</turn_context>",
-    );
+    expect(texts).toEqual([minimalTurnBlock, "hi"]);
+    expect(result.blocks.unifiedTurnContext).toBe(minimalTurnBlock);
     expect(result.blocks.workspaceBlock).toBeUndefined();
     expect(result.blocks.pkbContextBlock).toBeUndefined();
     expect(result.blocks.nowScratchpadBlock).toBeUndefined();
