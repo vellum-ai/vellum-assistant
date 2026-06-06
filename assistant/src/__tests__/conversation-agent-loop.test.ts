@@ -312,10 +312,6 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
-const buildUnifiedTurnContextBlockMock = mock(
-  (options: Record<string, unknown>) =>
-    `<turn_context>\ncurrent_time: ${String(options.timestamp)}\n</turn_context>`,
-);
 const defaultApplyRuntimeInjectionsImpl = async (
   msgs: Message[],
   _options?: unknown,
@@ -360,7 +356,6 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  buildUnifiedTurnContextBlock: buildUnifiedTurnContextBlockMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
@@ -746,7 +741,6 @@ beforeEach(() => {
   applyRuntimeInjectionsMock.mockImplementation(
     defaultApplyRuntimeInjectionsImpl,
   );
-  buildUnifiedTurnContextBlockMock.mockClear();
   resolveTurnTimezoneContextMock.mockClear();
   formatTurnTimestampMock.mockClear();
   mockSlackChronologicalContext = null;
@@ -806,10 +800,11 @@ describe("session-agent-loop", () => {
       expect(formatTurnTimestampMock).toHaveBeenCalledWith({
         timeZone: "America/New_York",
       });
-      expect(buildUnifiedTurnContextBlockMock).toHaveBeenCalled();
-      const turnContextOptions =
-        buildUnifiedTurnContextBlockMock.mock.calls[0]?.[0];
-      expect(turnContextOptions).toMatchObject({
+      // The loop resolves the unified turn-context inputs into the injection
+      // options bag; the `unified-turn-context` injector later builds the block
+      // from them.
+      const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
+      expect(injectionOptions).toMatchObject({
         configuredUserTimezone: "America/New_York",
         clientTimezone: "America/Los_Angeles",
         detectedTimezone: "America/Chicago",

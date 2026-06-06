@@ -7,16 +7,32 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { ConversationMessage } from "@vellumai/assistant-api";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
+import type {
+  ConversationContentBlock,
+  ConversationMessage,
+} from "@vellumai/assistant-api";
 import { roleCounts } from "@/lib/diagnostics";
+
+/**
+ * Serialized size of a message's unified `contentBlocks` projection, in KB
+ * (UTF-8 bytes, two-decimal precision). This is the migration's canonical
+ * content payload, so its size is the meaningful weight of a row's body.
+ */
+function contentBlocksSizeKb(
+  blocks: ConversationContentBlock[] | undefined,
+): number {
+  if (!blocks || blocks.length === 0) {
+    return 0;
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(blocks)).length;
+  return Math.round((bytes / 1024) * 100) / 100;
+}
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
-    contentLength: segmentsToPlainText(message.textSegments).length,
+    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
     timestamp: message.timestamp ?? null,
     queueStatus: message.queueStatus ?? null,
     queuePosition: message.queuePosition ?? null,
@@ -32,7 +48,7 @@ export function summarizeRuntimeMessage(message: ConversationMessage): Record<st
   return {
     id: message.id,
     role: message.role,
-    contentLength: runtimeMessagePlainText(message).length,
+    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
     timestamp: message.timestamp ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
     surfaceCount: message.surfaces?.length ?? 0,

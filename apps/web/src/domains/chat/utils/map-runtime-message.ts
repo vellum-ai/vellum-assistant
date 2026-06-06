@@ -4,7 +4,6 @@ import type {
 } from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -162,17 +161,4 @@ export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessa
   if (attachments) msg.attachments = attachments;
 
   return msg;
-}
-
-/**
- * Derive the cleaned, flat plain-text body of a raw `ConversationMessage`.
- *
- * Cleans the wire `textSegments` (stripping inlined attachment summary lines)
- * and joins them with the daemon's spacing rules, yielding text identical to
- * what `DisplayMessage` rows expose via `segmentsToPlainText`. Used where a
- * raw server message must be compared against a display row (reconciliation)
- * or summarized (diagnostics, inspector).
- */
-export function runtimeMessagePlainText(m: ConversationMessage): string {
-  return segmentsToPlainText(cleanTextSegments(m.textSegments).segments);
 }

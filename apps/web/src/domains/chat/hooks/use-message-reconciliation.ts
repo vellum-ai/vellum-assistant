@@ -14,7 +14,7 @@ import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
@@ -92,7 +92,10 @@ function serverHasAssistantProgress(
     const serverUserIndex = serverMessages.findLastIndex((message) => {
       if (message.role !== "user") return false;
       if (lastLocalUser.id && message.id === lastLocalUser.id) return true;
-      return runtimeMessagePlainText(message) === lastLocalUserText;
+      return (
+        segmentsToPlainText(mapRuntimeToDisplayMessage(message).textSegments) ===
+        lastLocalUserText
+      );
     });
     if (serverUserIndex === -1) return false;
     serverSearchStartIndex = serverUserIndex + 1;
@@ -101,7 +104,9 @@ function serverHasAssistantProgress(
   for (const serverMessage of serverMessages.slice(serverSearchStartIndex)) {
     if (serverMessage.role !== "assistant") continue;
 
-    const serverMessageText = runtimeMessagePlainText(serverMessage);
+    const serverMessageText = segmentsToPlainText(
+      mapRuntimeToDisplayMessage(serverMessage).textSegments,
+    );
     const localById = localAssistantById.get(serverMessage.id);
     if (localById) {
       claimedLocal.add(localById);

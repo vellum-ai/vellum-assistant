@@ -32,9 +32,11 @@ import {
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
-import type { PluginLogger } from "../../../../plugin-api/types.js";
 import type { Message } from "../../../../providers/types.js";
+import { getLogger } from "../../../../util/logger.js";
 import type { TurnContext } from "../../../types.js";
+
+const log = getLogger("post-compact-reinject");
 
 /**
  * The slice of the hook's context the agent loop supplies from its own working
@@ -61,16 +63,13 @@ export interface PostCompactionHookInput {
 /**
  * Everything the hook needs in a single context: the loop-supplied
  * {@link PostCompactionHookInput}, the resolved {@link RuntimeInjectionOptions}
- * (spread top-level so each field stays individually addressable), and a
- * turn-scoped logger. The memory graph handle is not part of this context —
- * the hook sources it internally via {@link getLiveGraphMemory} — and the
- * actor's trust class is derived from {@link PostCompactionHookInput.turnContext}
- * rather than threaded in.
+ * (spread top-level so each field stays individually addressable). The memory
+ * graph handle is not part of this context — the hook sources it internally via
+ * {@link getLiveGraphMemory} — and the actor's trust class is derived from
+ * {@link PostCompactionHookInput.turnContext} rather than threaded in.
  */
 export interface PostCompactContext
   extends RuntimeInjectionOptions, PostCompactionHookInput {
-  /** Turn-scoped logger for diagnostics emitted while re-injecting. */
-  logger: PluginLogger;
   /**
    * Re-declared to reconcile the optional {@link RuntimeInjectionOptions} field
    * with the required {@link PostCompactionHookInput} one: the hook always
@@ -83,7 +82,7 @@ export interface PostCompactContext
 export default async function postCompactReinject(
   ctx: PostCompactContext,
 ): Promise<RuntimeInjectionResult> {
-  const { history, logger, ...options } = ctx;
+  const { history, ...options } = ctx;
   const result = await applyRuntimeInjections(history, options);
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
@@ -102,8 +101,12 @@ export default async function postCompactReinject(
   }
   const strip = stripHistoricalWebSearchResults(result.messages);
   if (strip.stats.blocksStripped > 0) {
-    logger.info(
-      { phase: "mid-loop-compact", ...strip.stats },
+    log.info(
+      {
+        phase: "mid-loop-compact",
+        conversationId: options.turnContext?.conversationId,
+        ...strip.stats,
+      },
       "Converted historical web_search_tool_result blocks to text summaries",
     );
   }

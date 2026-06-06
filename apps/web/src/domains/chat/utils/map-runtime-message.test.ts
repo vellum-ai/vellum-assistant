@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ConversationMessage } from "@vellumai/assistant-api";
-import {
-  mapRuntimeToDisplayMessage,
-  runtimeMessagePlainText,
-} from "@/domains/chat/utils/map-runtime-message";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 
 import {
   makeServerMessage,
@@ -16,18 +13,16 @@ function makeMessage(overrides: Partial<ConversationMessage>): ConversationMessa
 }
 
 describe("text-segment cleaning", () => {
-  // The `[File attachment]` stripping logic now lives inside the single
+  // The `[File attachment]` stripping logic lives inside the single
   // `ConversationMessage → DisplayMessage` boundary; it is exercised through
-  // the public `mapRuntimeToDisplayMessage` (which surfaces it on
-  // `textSegments`) and `runtimeMessagePlainText` (which joins the cleaned
-  // segments).
+  // the public `mapRuntimeToDisplayMessage`, which surfaces the cleaned
+  // segments on `textSegments`.
   test("returns unchanged segments when no attachment markers appear", () => {
     const m = makeMessage({
       textSegments: ["hello world"],
       contentOrder: ["text:0"],
     });
 
-    expect(runtimeMessagePlainText(m)).toBe("hello world");
     expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["hello world"]);
   });
 
@@ -39,7 +34,6 @@ describe("text-segment cleaning", () => {
       contentOrder: ["text:0"],
     });
 
-    expect(runtimeMessagePlainText(m)).toBe("here you go");
     expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["here you go"]);
   });
 
@@ -57,7 +51,6 @@ describe("text-segment cleaning", () => {
       contentOrder: ["text:0", "tool:0", "text:1"],
     });
 
-    expect(runtimeMessagePlainText(m)).toBe("preamble after-tool");
     expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
       "preamble",
       "after-tool",
@@ -80,9 +73,6 @@ describe("text-segment cleaning", () => {
       "Connected as user@example.com",
       "Here is the analysis.",
     ]);
-    expect(runtimeMessagePlainText(m)).toBe(
-      "Connected as user@example.com Here is the analysis.",
-    );
   });
 
   test("collapses an attachment-only trailing segment to an empty string", () => {
