@@ -80,17 +80,17 @@ function labelsFor<T extends string>(
 
 function styleWords(style: StyleProfile): string {
   const map: Record<string, string> = {
-    just_do_it: "just do it",
-    show_work: "show their work",
-    sharp: "sharp and fast",
-    warm: "warm and patient",
-    surprise: "be surprised",
-    literal: "stay in the lines",
+    send_it: "act without waiting for approval",
+    show_me: "check with them before acting",
+    point: "keep it short and to the point",
+    walk: "walk them through it",
+    one: "do one thing really well",
+    few: "knock out a few quick wins",
   };
-  return [style.execution, style.tone, style.latitude]
+  return [style.autonomy, style.tone, style.shape]
     .filter(Boolean)
     .map((v) => map[v as string] ?? v)
-    .join(" + ");
+    .join("; ");
 }
 
 /** Pull the first JSON object out of a model response, tolerating prose/fences. */
@@ -174,13 +174,13 @@ export async function generateReceipt(
 function localReceipt(picks: Picks): Receipt {
   const job = labelsFor(picks.jobs, JOBS);
   const rather = labelsFor(picks.rathers, RATHERS);
-  const fast = picks.style.execution === "just_do_it";
-  const warm = picks.style.tone === "warm";
+  const sendIt = picks.style.autonomy === "send_it";
+  const walk = picks.style.tone === "walk";
   return {
     observation: `You're spending your days ${job}.`,
     inference: `But you'd rather be ${rather} — which usually means the busywork is eating the part you actually like.`,
-    offer: `I can take the ${job} grind off your plate${fast ? " and just handle it" : warm ? " and keep you in the loop" : ""}, starting with the most repetitive piece.`,
-    verb: fast ? "Set it up" : "Show me",
+    offer: `I can take the ${job} grind off your plate${sendIt ? " and just handle it" : walk ? " and keep you in the loop" : ""}, starting with the most repetitive piece.`,
+    verb: sendIt ? "Set it up" : "Show me",
   };
 }
 
@@ -214,13 +214,59 @@ export async function generateArtifact(
   return localArtifact(picks);
 }
 
-function localArtifact(picks: Picks): Artifact {
+/**
+ * Generate N artifacts. The "few quick wins" Proof shape asks for 2-3 small
+ * cards; "one thing, well" asks for a single focused one. Each is generated
+ * independently (varied by index) so the stack reads as distinct wins.
+ */
+export async function generateArtifacts(
+  picks: Picks,
+  count: number,
+  assistantId: string | null,
+): Promise<Artifact[]> {
+  if (count <= 1) return [await generateArtifact(picks, assistantId)];
+  const job = labelsFor(picks.jobs, JOBS);
+  const rather = labelsFor(picks.rathers, RATHERS);
+  const tasks = Array.from({ length: count }, async (_, i) => {
+    if (assistantId) {
+      const raw = await callModel(
+        assistantId,
+        ARTIFACT_MODEL,
+        "You are an assistant who quietly made the user a few small useful or delightful artifacts " +
+          "while they were being onboarded. No greeting, no fluff. " +
+          'Return ONLY a JSON object: {"title": string, "description": string}. ' +
+          "title = max 6 words; description = one sentence.",
+        `This is quick win #${i + 1} of ${count}, distinct from the others. ` +
+          `Tie it to their job (${job}) and what they'd rather be doing (${rather}).`,
+      );
+      const j = raw ? extractJson(raw) : null;
+      if (j && typeof j.title === "string" && typeof j.description === "string") {
+        return { title: j.title, description: j.description };
+      }
+    }
+    return localArtifact(picks, i);
+  });
+  return Promise.all(tasks);
+}
+
+function localArtifact(picks: Picks, variant = 0): Artifact {
   const rather = labelsFor(picks.rathers, RATHERS);
   const job = labelsFor(picks.jobs, JOBS);
-  return {
-    title: `A head start on ${rather}`,
-    description: `While you were here I pulled together a few things to make ${rather} easier to get to — between the ${job}.`,
-  };
+  const variants: Artifact[] = [
+    {
+      title: `A head start on ${rather}`,
+      description: `A few things I lined up to make ${rather} easier to get to — between the ${job}.`,
+    },
+    {
+      title: `${job} on autopilot`,
+      description: `The most repetitive part of ${job}, drafted and ready for a glance.`,
+    },
+    {
+      title: `15 minutes back`,
+      description: `One recurring chore I can take off your plate this week.`,
+    },
+  ];
+  return variants[variant % variants.length];
 }
 
 /* ---------------- Full artifact body (Open overlay) ---------------- */

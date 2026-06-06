@@ -6,9 +6,9 @@ import remarkGfm from "remark-gfm";
 import { CastAvatar } from "@/cast/cast-avatar";
 import { JOBS, type JobKey, type RatherKey } from "@/cast/cast-content";
 import { HeroCharacter, type HeldProp, type Rect } from "@/cast/cast-hero";
-import { CastProp } from "@/cast/cast-prop-art";
+import { CastProp, type PropKey } from "@/cast/cast-prop-art";
 import {
-  generateArtifact,
+  generateArtifacts,
   generateFullArtifact,
   generateReceipt,
   resolveAssistantId,
@@ -20,10 +20,12 @@ import type { StyleProfile } from "@/cast/cast-hooks";
 import type { CastCharacter } from "@/cast/cast-roster";
 
 /**
- * Beat 6 — Proof. The character lands center, settles, then holds out an
- * artifact. Below it, two stacked elements fade in: the RECEIPT (observation →
- * inference → one-tap offer) and the ARTIFACT card. Tapping the card's Open
- * button surfaces the full artifact in an overlay, revealed line by line.
+ * Beat 6 — Proof. The character settles, then presents what it made. Round 3 of
+ * This/That shapes this beat:
+ *  - shape "one" → a focused dude holding a single item + ONE artifact card.
+ *  - shape "few" → a juggling dude (props arcing overhead) + a STACK of 2-3
+ *    artifact cards.
+ * The receipt (observation → inference → one-tap offer) sits above either way.
  */
 export function CastProof({
   character,
@@ -46,16 +48,22 @@ export function CastProof({
   onAction: (which: "offer" | "artifact" | "save") => void;
   onBack: () => void;
 }) {
-  const [showProp, setShowProp] = useState(false);
+  const few = style.shape === "few";
+  const count = few ? 3 : 1;
+
+  const [showProps, setShowProps] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const [fullContent, setFullContent] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [fullByIdx, setFullByIdx] = useState<Record<number, string | null>>({});
+  const resolvedIdRef = useRef<string | null>(null);
 
-  const propKey = jobs.length
-    ? (JOBS.find((j) => j.key === jobs[0])?.prop ?? "book")
-    : "book";
+  // Props the dude works with: its chosen job props (padded with defaults).
+  const DEFAULT_PROPS: PropKey[] = ["book", "laptop", "pen"];
+  const jobProps: PropKey[] = jobs.map((k) => JOBS.find((j) => j.key === k)?.prop ?? "book");
+  const propKeys: PropKey[] = [...jobProps, ...DEFAULT_PROPS].slice(0, few ? 3 : 1);
 
+  // Ascended easter-egg keeps the whole prop pile clustered.
   const heldProps: HeldProp[] = ascended
     ? jobs.map((k) => {
         const idx = JOBS.findIndex((j) => j.key === k);
@@ -64,38 +72,38 @@ export function CastProof({
     : [];
 
   useEffect(() => {
-    const t = setTimeout(() => setShowProp(true), 600);
+    const t = setTimeout(() => setShowProps(true), 600);
     return () => clearTimeout(t);
   }, []);
 
-  // Fire all three generations once on entering Proof. The picks are fixed for
-  // the life of this beat, so this runs on mount only (jobs/rathers/style are
-  // fresh array/object references each render and would otherwise re-trigger).
-  // The full artifact depends on the title/blurb, so it chains off that one;
-  // the receipt runs in parallel.
+  // Generate receipt + artifacts on entering Proof (picks fixed for this beat).
   const picksRef = useRef<Picks>({ jobs, rathers, style });
   useEffect(() => {
     const picks = picksRef.current;
     let alive = true;
-    // Resolve a usable assistant id (store is empty on this public route; falls
-    // back to listing assistants when a session exists), then generate. Null →
-    // every call uses its local fallback.
     void resolveAssistantId(assistantId).then((id) => {
       if (!alive) return;
+      resolvedIdRef.current = id;
       void generateReceipt(picks, id).then((r) => alive && setReceipt(r));
-      void generateArtifact(picks, id).then((a) => {
-        if (!alive) return;
-        setArtifact(a);
-        void generateFullArtifact(picks, a, id).then(
-          (full) => alive && setFullContent(full),
-        );
-      });
+      void generateArtifacts(picks, count, id).then((a) => alive && setArtifacts(a));
     });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function openArtifact(i: number) {
+    setOpenIdx(i);
+    onAction("artifact");
+    // Lazily generate the full body for this card the first time it's opened.
+    if (fullByIdx[i] === undefined && artifacts) {
+      setFullByIdx((m) => ({ ...m, [i]: null }));
+      void generateFullArtifact(picksRef.current, artifacts[i], resolvedIdRef.current).then(
+        (full) => setFullByIdx((m) => ({ ...m, [i]: full })),
+      );
+    }
+  }
 
   return (
     <motion.div className="cast-focus" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -105,16 +113,21 @@ export function CastProof({
 
       <HeroCharacter character={character} box={box} interactive heldProps={heldProps} ascended={ascended} />
 
-      {showProp && !ascended && (
-        <motion.div
-          className="cast-proof-prop"
-          style={{ left: box.left + box.size * 0.62, top: box.top + box.size * 0.52, width: box.size * 0.5 }}
-          initial={{ scale: 0, y: -10, rotate: -20, opacity: 0 }}
-          animate={{ scale: [0, 1.15, 0.95, 1], y: [-10, 0, 0, 0], rotate: 0, opacity: 1 }}
-          transition={{ duration: 0.6, ease: "easeOut", times: [0, 0.5, 0.78, 1] }}
-        >
-          <CastProp name={propKey} className="cast-prop__art" />
-        </motion.div>
+      {/* the dude presents what it made: juggling (few) or holding one (one) */}
+      {showProps && !ascended && (
+        few ? (
+          <JuggleProps box={box} props={propKeys} />
+        ) : (
+          <motion.div
+            className="cast-proof-prop"
+            style={{ left: box.left + box.size * 0.6, top: box.top + box.size * 0.56, width: box.size * 0.5 }}
+            initial={{ scale: 0, y: -10, rotate: -20, opacity: 0 }}
+            animate={{ scale: [0, 1.15, 0.95, 1], y: [-10, 0, 0, 0], rotate: 0, opacity: 1 }}
+            transition={{ duration: 0.6, ease: "easeOut", times: [0, 0.5, 0.78, 1] }}
+          >
+            <CastProp name={propKeys[0]} className="cast-prop__art" />
+          </motion.div>
+        )
       )}
 
       <div className="cast-proof" style={{ top: box.top + box.size + 28 }}>
@@ -138,49 +151,83 @@ export function CastProof({
           )}
         </motion.div>
 
-        <motion.div
-          className="cast-artifact"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.75, duration: 0.45, ease: "easeOut" }}
-        >
-          {artifact ? (
-            <>
-              <span className="cast-artifact__icon">
-                <CastProp name={propKey} className="cast-prop__art" />
-              </span>
-              <div className="cast-artifact__body">
-                <p className="cast-artifact__title">{artifact.title}</p>
-                <p className="cast-artifact__desc">{artifact.description}</p>
-              </div>
-              <button
-                className="cast-artifact__open"
-                onClick={() => {
-                  setOpen(true);
-                  onAction("artifact");
-                }}
-              >
-                Open
-              </button>
-            </>
-          ) : (
-            <ArtifactSkeleton />
-          )}
-        </motion.div>
+        {/* artifact card(s): one focused card, or a stack of a few quick wins */}
+        <div className="cast-artifacts">
+          {artifacts
+            ? artifacts.map((a, i) => (
+                <motion.div
+                  key={i}
+                  className="cast-artifact"
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 + i * 0.12, duration: 0.45, ease: "easeOut" }}
+                >
+                  <span className="cast-artifact__icon">
+                    <CastProp name={propKeys[i % propKeys.length]} className="cast-prop__art" />
+                  </span>
+                  <div className="cast-artifact__body">
+                    <p className="cast-artifact__title">{a.title}</p>
+                    <p className="cast-artifact__desc">{a.description}</p>
+                  </div>
+                  <button className="cast-artifact__open" onClick={() => openArtifact(i)}>
+                    Open
+                  </button>
+                </motion.div>
+              ))
+            : Array.from({ length: count }).map((_, i) => <ArtifactSkeleton key={i} />)}
+        </div>
       </div>
 
       <AnimatePresence>
-        {open && artifact && (
+        {openIdx !== null && artifacts && (
           <ArtifactOverlay
             character={character}
-            title={artifact.title}
-            content={fullContent}
-            onClose={() => setOpen(false)}
+            title={artifacts[openIdx].title}
+            content={fullByIdx[openIdx] ?? null}
+            onClose={() => setOpenIdx(null)}
             onSave={() => onAction("save")}
           />
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+/* ---------------- juggling props (shape "few") ---------------- */
+
+function JuggleProps({ box, props }: { box: Rect; props: PropKey[] }) {
+  const size = box.size * 0.36;
+  const A = box.size * 0.5; // throw width
+  const H = box.size * 0.5; // throw height (kept modest so it stays in frame)
+  const dur = 1.25;
+  return (
+    <div
+      className="cast-juggle"
+      style={{ left: box.left, top: box.top - box.size * 0.18, width: box.size, height: box.size }}
+      aria-hidden
+    >
+      {props.map((p, i) => {
+        const dir = i % 2 === 0 ? 1 : -1;
+        return (
+          <motion.div
+            key={i}
+            className="cast-juggle__item"
+            style={{ width: size, height: size, marginLeft: -size / 2, marginTop: -size / 2 }}
+            initial={{ x: -dir * A, y: 0, rotate: 0 }}
+            animate={{ x: [-dir * A, dir * A, -dir * A], y: [0, -H, 0], rotate: [0, dir * 200, dir * 360] }}
+            transition={{
+              duration: dur,
+              repeat: Infinity,
+              ease: "easeInOut",
+              times: [0, 0.5, 1],
+              delay: (i * dur) / props.length,
+            }}
+          >
+            <CastProp name={p} className="cast-prop__art" />
+          </motion.div>
+        );
+      })}
+    </div>
   );
 }
 

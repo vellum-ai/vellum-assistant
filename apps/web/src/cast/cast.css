@@ -503,6 +503,32 @@
   gap: 22px;
 }
 
+.cast-thisthat__group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-spacing-lg);
+}
+/* the dude's question, in its voice — the cards are the user's reply */
+.cast-thisthat__title {
+  margin: 0;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
+}
+.cast-thisthat__asker {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--content-tertiary);
+}
 .cast-thisthat__row {
   width: 100%;
   display: grid;
@@ -563,6 +589,31 @@
   z-index: 5;
   aspect-ratio: 1;
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+}
+
+/* juggling props (shape "few") — arcing overhead */
+.cast-juggle {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.cast-juggle__item {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
+}
+
+/* artifact card(s): a single card, or a stack of a few quick wins */
+.cast-artifacts {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cast-artifacts .cast-artifact {
+  width: 100%;
 }
 
 .cast-proof {

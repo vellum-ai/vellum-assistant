@@ -7,9 +7,9 @@
 import type { JobKey, RatherKey } from "@/cast/cast-content";
 
 export interface StyleProfile {
-  execution?: "just_do_it" | "show_work";
-  tone?: "sharp" | "warm";
-  latitude?: "surprise" | "literal";
+  autonomy?: "send_it" | "show_me";
+  tone?: "point" | "walk";
+  shape?: "one" | "few";
 }
 
 export async function kickoffJobContext(jobs: JobKey[]): Promise<void> {
@@ -20,6 +20,8 @@ export async function kickoffRatherContext(rathers: RatherKey[]): Promise<void> 
   console.log("[Cast] kickoffRatherContext", rathers);
 }
 
-export async function kickoffStyleContext(style: StyleProfile): Promise<void> {
-  console.log("[Cast] kickoffStyleContext", style);
+/** Fires on every This/That tap so real Haiku warm-ups can slot in later
+ * (same call-site pattern as the job/rather kickoffs). */
+export async function kickoffStyleContext(round: number, choice: string): Promise<void> {
+  console.log("[Cast] kickoffStyleContext", { round, choice });
 }

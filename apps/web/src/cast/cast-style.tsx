@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { HeroCharacter, type HeldProp, type Rect } from "@/cast/cast-hero";
-import type { StyleProfile } from "@/cast/cast-hooks";
+import { kickoffStyleContext, type StyleProfile } from "@/cast/cast-hooks";
 import { JOBS, type JobKey } from "@/cast/cast-content";
 import type { CastCharacter, Reaction } from "@/cast/cast-roster";
 
@@ -10,41 +10,43 @@ type Side = "left" | "right";
 
 /**
  * Each chosen value gets a reaction that *means* the choice, so the character
- * reads as reacting to the answer (not just the tap):
- *  - just_do_it → startle (leaps into action)   show_work → peer (considers, methodical)
- *  - sharp      → huff (quick decisive snap)     warm      → sway (soft, patient)
- *  - surprise   → spin (playful, unpredictable)  literal   → tilt (precise, measured)
+ * reads as reacting to the answer (not just the tap).
  */
 const VALUE_REACTION: Record<string, Reaction> = {
-  just_do_it: "startle",
-  show_work: "peer",
-  sharp: "huff",
-  warm: "sway",
-  surprise: "spin",
-  literal: "tilt",
+  send_it: "startle", // leaps into action
+  show_me: "peer", // considers, checks first
+  point: "huff", // quick, to the point
+  walk: "sway", // calm, walks you through
+  one: "tilt", // precise, one thing
+  few: "spin", // playful, juggling
 };
 
 interface Round {
   field: keyof StyleProfile;
+  /** The dude's question — the cards are the user's reply. */
+  title: string;
   left: { label: string; value: NonNullable<StyleProfile[keyof StyleProfile]> };
   right: { label: string; value: NonNullable<StyleProfile[keyof StyleProfile]> };
 }
 
 const ROUNDS: Round[] = [
   {
-    field: "execution",
-    left: { label: "Just do it", value: "just_do_it" },
-    right: { label: "Show your work", value: "show_work" },
+    field: "autonomy",
+    title: "When I'm ready to act…",
+    left: { label: "Send it", value: "send_it" },
+    right: { label: "Show me first", value: "show_me" },
   },
   {
     field: "tone",
-    left: { label: "Sharp and fast", value: "sharp" },
-    right: { label: "Warm and patient", value: "warm" },
+    title: "When I explain something…",
+    left: { label: "Get to the point", value: "point" },
+    right: { label: "Walk me through it", value: "walk" },
   },
   {
-    field: "latitude",
-    left: { label: "Surprise me", value: "surprise" },
-    right: { label: "Stay in the lines", value: "literal" },
+    field: "shape",
+    title: "When I help out…",
+    left: { label: "Focus on one", value: "one" },
+    right: { label: "Juggle a few", value: "few" },
   },
 ];
 
@@ -56,6 +58,7 @@ const ROUNDS: Round[] = [
  */
 export function CastStyle({
   character,
+  name,
   heroBox,
   jobs,
   ascended,
@@ -64,6 +67,7 @@ export function CastStyle({
   onBack,
 }: {
   character: CastCharacter;
+  name: string;
   heroBox: Rect;
   jobs: JobKey[];
   ascended: boolean;
@@ -92,6 +96,8 @@ export function CastStyle({
     setCue({ reaction: VALUE_REACTION[value] ?? "sway", dir: side, nonce: roundIdx + 1 });
     const next: StyleProfile = { ...style, [round.field]: value };
     setStyle(next);
+    // Warm up style context on every tap (stub for now).
+    void kickoffStyleContext(roundIdx + 1, value);
     onRoundPicked(next);
 
     window.setTimeout(() => {
@@ -123,13 +129,19 @@ export function CastStyle({
         <AnimatePresence mode="wait">
           <motion.div
             key={roundIdx}
-            className="cast-thisthat__row"
+            className="cast-thisthat__group"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           >
-            {(["left", "right"] as const).map((side) => {
+            {/* the dude asks — the cards are the user's reply */}
+            <p className="cast-thisthat__title">
+              <span className="cast-thisthat__asker">{name} asks</span>
+              {round.title}
+            </p>
+            <div className="cast-thisthat__row">
+              {(["left", "right"] as const).map((side) => {
               const isPicked = picked === side;
               const isUnpicked = picked !== null && !isPicked;
               return (
@@ -151,7 +163,8 @@ export function CastStyle({
                   {round[side].label}
                 </motion.button>
               );
-            })}
+              })}
+            </div>
           </motion.div>
         </AnimatePresence>
 

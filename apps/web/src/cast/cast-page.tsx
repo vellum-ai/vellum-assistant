@@ -13,7 +13,6 @@ import { HeroCharacter, type MimeState, type Rect } from "@/cast/cast-hero";
 import {
   kickoffJobContext,
   kickoffRatherContext,
-  kickoffStyleContext,
   type StyleProfile,
 } from "@/cast/cast-hooks";
 import { CastJob } from "@/cast/cast-job";
@@ -250,15 +249,12 @@ export function CastPage() {
     }
   }
 
-  // Beat 5: each round picked warms style context; the final round transitions
-  // out to whatever comes next (placeholder "done" route for now).
+  // Beat 5: persist each round's pick (kickoffStyleContext fires per-tap inside
+  // CastStyle); the final round transitions to the Proof beat.
   function onStyleRound(next: StyleProfile) {
     setStyle(next);
-    void kickoffStyleContext(next);
   }
   function onStyleDone(next: StyleProfile) {
-    // The final round's kickoffStyleContext already fired via onStyleRound; here
-    // we only persist + transition out.
     setStyle(next);
     console.log("[Cast] complete", { character: selected?.id, name, jobs, rathers, style: next });
     setPhase("done");
@@ -372,6 +368,7 @@ export function CastPage() {
         {phase === "style" && selected && (
           <CastStyle
             character={selected}
+            name={name}
             heroBox={boxes.top}
             jobs={jobs}
             ascended={rathers.length === RATHERS.length}
@@ -381,11 +378,12 @@ export function CastPage() {
           />
         )}
 
-        {/* Beat 6 — proof */}
+        {/* Beat 6 — proof. Hero sits a little lower than the other top beats so
+            the "juggling" props have headroom above without clipping. */}
         {phase === "done" && selected && (
           <CastProof
             character={selected}
-            box={boxes.top}
+            box={{ ...boxes.top, top: boxes.top.top + Math.round(boxes.top.size * 0.7) }}
             jobs={jobs}
             rathers={rathers}
             style={style}
