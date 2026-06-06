@@ -71,6 +71,10 @@ let liveConversation: {
   workspaceTopLevelDirty: boolean;
   diskPressureCleanupModeActive: boolean;
   channelCapabilities?: ChannelCapabilities;
+  currentTurnInterfaceContext?: {
+    userMessageInterface: string;
+    assistantMessageInterface: string;
+  };
 };
 
 function resetLiveConversation(): void {
@@ -80,6 +84,12 @@ function resetLiveConversation(): void {
     workspaceTopLevelContext: "",
     workspaceTopLevelDirty: false,
     diskPressureCleanupModeActive: false,
+    // The unified-turn-context injector sources the interface label from the
+    // live conversation's turn interface context; match the expected blocks.
+    currentTurnInterfaceContext: {
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
+    },
   };
 }
 

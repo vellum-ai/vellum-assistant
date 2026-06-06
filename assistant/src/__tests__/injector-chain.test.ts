@@ -116,12 +116,18 @@ function clearNowScratchpad(): void {
 // workspace cache under the id `makeTurnContext()` uses so the injector emits
 // the block; `clearConversations()` between tests keeps suites that assert the
 // workspace block is absent unaffected.
-function seedWorkspaceContext(text: string): void {
+function seedWorkspaceContext(text: string, interfaceName?: string): void {
   setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
+    currentTurnInterfaceContext: interfaceName
+      ? {
+          userMessageInterface: interfaceName,
+          assistantMessageInterface: interfaceName,
+        }
+      : undefined,
   } as never);
 }
 
@@ -345,7 +351,7 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText);
+    seedWorkspaceContext(workspaceText, "macos");
     const result = await applyRuntimeInjections(runMessages, {
       ...unifiedTurnOptions,
       turnContext: makeTurnContext(),
