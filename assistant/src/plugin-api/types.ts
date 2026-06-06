@@ -4,6 +4,7 @@
  * removing is breaking and gated on a major bump.
  */
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ContentBlock,
   Message,
@@ -51,8 +52,10 @@ export interface PluginLogger {
  *   - `init` — {@link PluginInitContext}
  *   - `shutdown` — {@link PluginShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
+ *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
+ *   - `assistant-message` — {@link AssistantMessageContext}
  */
 export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
@@ -286,5 +289,77 @@ export interface StopContext {
    * every hook in the chain, so plugins should tag their structured log
    * fields (e.g. `{ plugin: "<name>" }`) for attribution.
    */
+  readonly logger: PluginLogger;
+}
+
+// ─── Pre-model-call hook context ─────────────────────────────────────────────
+
+/**
+ * Context passed to the `pre-model-call` hook. Fires immediately before each
+ * provider call — once per model call within a turn, including tool-result
+ * follow-up calls. Because it runs for every provider call (background, subagent,
+ * and compaction work can share a conversation), hooks MUST self-gate on
+ * {@link callSite} / {@link conversationId} before acting.
+ *
+ * A hook may edit the outbound request by replacing {@link systemPrompt}, and may
+ * opt this turn into deferred output streaming via {@link deferAssistantOutput}.
+ * Mutate the context in place or return a new one; throwing is contained by the
+ * loop (the call proceeds with the original request).
+ */
+export interface PreModelCallContext {
+  /** Conversation ID the call belongs to. */
+  readonly conversationId: string;
+  /**
+   * The call site this provider call serves — `"mainAgent"` for the user-facing
+   * reply, or a background/utility site. Omitted by call sites that don't tag one.
+   */
+  readonly callSite?: LLMCallSite;
+  /**
+   * The system prompt about to be sent. A hook may replace it (e.g. strip or
+   * append a section); the loop sends the resulting value.
+   */
+  systemPrompt: string | undefined;
+  /**
+   * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
+   * live assistant `text_delta` stream; an `assistant-message` hook is then
+   * expected to produce the text the client sees (emitted once, after the reply
+   * is finalized). Lets a plugin replace streamed output wholesale — e.g.
+   * redaction that needs the full message — instead of leaking the raw stream.
+   */
+  deferAssistantOutput: boolean;
+  /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
+  readonly logger: PluginLogger;
+}
+
+// ─── Assistant-message hook context ──────────────────────────────────────────
+
+/**
+ * Context passed to the `assistant-message` hook. Fires for each finalized
+ * assistant message — once per model call, at the message-complete boundary —
+ * before the message is persisted and (if deferred) streamed-final. Unlike
+ * {@link StopContext}'s read-only `responseContent` (which exists for the stop
+ * decision), {@link content} is mutable: the loop adopts the hook's result as the
+ * persisted and streamed message.
+ *
+ * Fires on tool-bearing turns too (a reply can carry both text and `tool_use`),
+ * so a hook should transform only the blocks it owns and leave others — notably
+ * `tool_use` — intact. Runs for every finalized message regardless of call site;
+ * hooks MUST self-gate on {@link callSite} / {@link conversationId}. Mutate in
+ * place or return a new context; throwing is contained by the loop (the original
+ * content is kept).
+ */
+export interface AssistantMessageContext {
+  /** Conversation ID the message belongs to. */
+  readonly conversationId: string;
+  /** The call site this message serves — `"mainAgent"` for the user-facing reply. */
+  readonly callSite?: LLMCallSite;
+  /**
+   * The finalized message content. Mutable — transform the text blocks and leave
+   * `tool_use` (and other non-text blocks) intact.
+   */
+  content: ContentBlock[];
+  /** Provider-reported stop reason for the turn, when reported. */
+  readonly stopReason: string | null | undefined;
+  /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
   readonly logger: PluginLogger;
 }
