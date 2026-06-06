@@ -26,6 +26,7 @@
 
 import {
   applyRuntimeInjections,
+  type InjectionMode,
   type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
@@ -58,6 +59,13 @@ export interface PostCompactionHookInput {
    * live conversation state.
    */
   isNonInteractive: boolean;
+  /**
+   * Injection volume for the re-applied blocks. Owned by the agent loop, which
+   * drops to `"minimal"` when overflow reduction trims the prompt; handed to
+   * the hook here so re-injection matches the loop's committed decision instead
+   * of re-deriving it.
+   */
+  mode: InjectionMode;
 }
 
 /**
@@ -77,6 +85,11 @@ export interface PostCompactContext
    * via the spread options.
    */
   isNonInteractive: boolean;
+  /**
+   * Re-declared for the same reason as {@link isNonInteractive}: required on
+   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
+   */
+  mode: InjectionMode;
 }
 
 export default async function postCompactReinject(

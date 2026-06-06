@@ -11,6 +11,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
+import type { InjectionMode } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
@@ -546,6 +547,14 @@ export interface AgentLoopRunOptions {
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
   isNonInteractive?: boolean;
+  /**
+   * Injection volume the orchestrator committed for this run, dropped to
+   * `"minimal"` when overflow reduction trimmed the prompt. Forwarded to the
+   * {@link MidLoopCompaction.postCompactionHook} so post-compaction
+   * re-injection matches that decision rather than re-deriving it. Defaults to
+   * `"full"` when omitted.
+   */
+  injectionMode?: InjectionMode;
 }
 
 /**
@@ -722,6 +731,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
     isNonInteractive: boolean,
+    mode: InjectionMode,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -781,6 +791,7 @@ export class AgentLoop {
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       turnContext,
       isNonInteractive,
+      mode,
     });
   }
 
@@ -800,6 +811,7 @@ export class AgentLoop {
       resolveContextWindow,
       compaction,
       isNonInteractive = false,
+      injectionMode = "full",
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -1644,6 +1656,7 @@ export class AgentLoop {
                 onEvent,
                 resolveEffectiveOverrideProfile() ?? null,
                 isNonInteractive,
+                injectionMode,
               );
               if (compacted) {
                 history = compacted;
