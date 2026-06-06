@@ -343,10 +343,8 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
-import {
-  type AgentLoopConversationContext,
-  runAgentLoopImpl,
-} from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -362,8 +360,8 @@ let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
 
 function makeCtx(
   captured: CapturedAgentLoopRun[],
-  overrides?: Partial<AgentLoopConversationContext>,
-): AgentLoopConversationContext {
+  overrides?: Partial<Conversation>,
+): Conversation {
   const agentLoopRun = async (
     messages: Message[],
     _onEvent: (event: AgentEvent) => void,
@@ -406,7 +404,7 @@ function makeCtx(
       getResolvedTools: () => [] as ToolDefinition[],
       getActiveModel: () => undefined,
       compactionCircuit: new CompactionCircuit("test-conv"),
-    } as unknown as AgentLoopConversationContext["agentLoop"],
+    } as unknown as Conversation["agentLoop"],
     provider: {
       name: "mock-provider",
       sendMessage: async () => ({
@@ -415,13 +413,13 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
@@ -444,15 +442,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -465,8 +463,8 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
@@ -497,10 +495,10 @@ function makeCtx(
       }),
       retrackCachedNodes: () => {},
       recordPkbQueryVectors: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+    } as unknown as Conversation["graphMemory"],
 
     ...overrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────

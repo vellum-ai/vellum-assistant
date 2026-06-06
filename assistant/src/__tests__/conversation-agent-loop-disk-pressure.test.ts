@@ -2,11 +2,11 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
-import type { AgentLoopConversationContext } from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
-type Context = AgentLoopConversationContext;
+type Context = Conversation;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -106,9 +106,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 
-function makeCtx(
-  overrides: Partial<Context> = {},
-): AgentLoopConversationContext {
+function makeCtx(overrides: Partial<Context> = {}): Conversation {
   let processing = true;
   return {
     conversationId: "conv-123",
@@ -180,7 +178,7 @@ function makeCtx(
     getTurnChannelContext: () => null,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 describe("runAgentLoopImpl disk pressure gate", () => {

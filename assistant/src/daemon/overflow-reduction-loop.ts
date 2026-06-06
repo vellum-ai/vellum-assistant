@@ -19,7 +19,7 @@ import type { InjectionMode } from "./conversation-runtime-assembly.js";
  * injection reassembly, memory reinjection).
  *
  * The callbacks are supplied by the orchestrator because the reducer loop
- * needs to coordinate with state that lives on the `AgentLoopConversationContext`
+ * needs to coordinate with state that lives on the `Conversation`
  * (message mutation, compaction event emission, circuit breaker tracking,
  * injection block reassembly). Keeping them as explicit callbacks keeps the
  * loop free of any dependency on the agent-loop context object.

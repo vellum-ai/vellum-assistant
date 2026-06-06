@@ -35,6 +35,7 @@ import type { ContextWindowConfig } from "../config/types.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
+  createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -53,6 +54,7 @@ import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-st
 import {
   getConversation,
   getConversationOverrideProfileFromRow,
+  getMessages,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -60,10 +62,14 @@ import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import {
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
@@ -85,7 +91,7 @@ import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
-  loadFromDb as loadFromDbImpl,
+  reinjectImageSourcePaths,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -99,10 +105,7 @@ import {
 } from "./conversation-messaging.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
-import type {
-  ProcessConversationContext,
-  ProcessMessageOptions,
-} from "./conversation-process.js";
+import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -138,6 +141,7 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
@@ -212,6 +216,15 @@ export class Conversation {
    */
   /** @internal */ pendingPostCompactReinject = false;
   /** @internal */ currentRequestId?: string;
+  /**
+   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
+   * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
+   * the main reply apart from background agent-loop work (compaction,
+   * subagents, …) on this same conversation. Per-turn mutable, mirroring
+   * {@link currentRequestId}.
+   * @internal
+   */
+  currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
   /** @internal */ headlessLock = false;
@@ -241,11 +254,28 @@ export class Conversation {
   /** @internal */ currentTurnTrustContext?: TrustContext;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /**
+   * Set by the `switch_inference_profile` tool when the model self-selects a
+   * different profile mid-turn. Read by the agent loop so the next LLM call
+   * uses the switched profile. Reset at turn start.
+   * @internal
+   */
+  toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /**
+   * Optional workspace-git seams, overridable in tests to stub the git
+   * initializer and turn-commit behavior. Default to the real
+   * implementations in the agent loop when unset.
+   * @internal
+   */
+  getWorkspaceGitService?: (workspaceDir: string) => {
+    ensureInitialized(): Promise<void>;
+  };
+  /** @internal */ commitTurnChanges?: typeof import("../workspace/turn-commit.js").commitTurnChanges;
   /**
    * The conversation's immutable creation type (`interactive`, `background`,
    * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
@@ -612,7 +642,235 @@ export class Conversation {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
-    await loadFromDbImpl(this);
+    const trustClass = this.trustContext?.trustClass;
+    const allDbMessages = getMessages(this.conversationId);
+    const dbMessages = isUntrustedTrustClass(trustClass)
+      ? filterMessagesForUntrustedActor(allDbMessages)
+      : allDbMessages;
+
+    const conv = getConversation(this.conversationId);
+    this.conversationType = conv?.conversationType ?? undefined;
+    const contextSummary = !isUntrustedTrustClass(trustClass)
+      ? conv?.contextSummary?.trim() || null
+      : null;
+    if (isUntrustedTrustClass(trustClass)) {
+      // Compacted summaries may include trusted/guardian-only details, so we
+      // disable summary-based context for untrusted actor views.
+      this.contextCompactedMessageCount = 0;
+      this.contextCompactedAt = null;
+    } else {
+      this.contextCompactedMessageCount = Math.max(
+        0,
+        Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
+      );
+      this.contextCompactedAt = conv?.contextCompactedAt ?? null;
+    }
+
+    // Every injection-strip event (`/clean` or compaction) updates
+    // `historyStrippedAt`. Messages older than this should skip metadata
+    // rehydration and have any injection prefixes still embedded in their
+    // content stripped, so the post-strip view survives reload and forks.
+    const historyStrippedAt = conv?.historyStrippedAt ?? null;
+    const slicedDbMessages = dbMessages.slice(
+      this.contextCompactedMessageCount,
+    );
+    let preStrippedCount = 0;
+    if (historyStrippedAt != null) {
+      const boundary = slicedDbMessages.findIndex(
+        (m) => m.createdAt >= historyStrippedAt,
+      );
+      preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
+    }
+
+    // Mirror the injection-time gate (`shouldExposePersonalMemory` in
+    // `conversation-agent-loop.ts`) so background/local conversations
+    // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
+    // v2 static memory block. Use `resolveTrustClass` for parity with the
+    // agent loop — it folds in the HTTP-auth-disabled dev bypass so
+    // rehydration and injection agree on the effective trust class.
+    const personalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: this.trustContext?.sourceChannel,
+      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
+    });
+    const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
+      const isPreStripped = index < preStrippedCount;
+      const role = m.role as "user" | "assistant";
+      let content: ContentBlock[];
+      try {
+        const parsed = JSON.parse(m.content);
+        content = Array.isArray(parsed)
+          ? parsed
+          : [{ type: "text", text: m.content }];
+      } catch {
+        log.warn(
+          { conversationId: this.conversationId, messageId: m.id },
+          "Invalid JSON in persisted message content, replacing with safe text block",
+        );
+        content = [{ type: "text", text: m.content }];
+      }
+
+      content = reinjectImageSourcePaths(content, role, m.metadata);
+
+      // Re-inject persisted injection blocks from metadata so it survives
+      // conversation reloads (eviction, restart, fork).
+      if (role === "user" && m.metadata && !isPreStripped) {
+        try {
+          const meta = JSON.parse(m.metadata);
+          const isTail = index === arr.length - 1;
+
+          // Rehydrate in reverse injection order (innermost block first)
+          // so the resulting layout matches `applyRuntimeInjections`'s
+          // after-memory-prefix splices in ascending injector order
+          // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+          // now-md 40 — the v2 static block lands inside the memory
+          // prefix, so now-md splices *after* it):
+          //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
+          //    <info>v2static</info>, <NOW.md>, <system_reminder>,
+          //    <knowledge_base>, ...original]
+          // The v2 static block is replayed verbatim from stored metadata,
+          // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
+          // depending on when they were persisted.
+          // Required so Anthropic's prefix cache keeps matching msg[0]
+          // across daemon restart and conversation eviction. The tail
+          // row only rehydrates `memoryInjectedBlock` — the next turn
+          // re-injects the rest fresh.
+          if (!isTail && typeof meta.pkbContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbContextBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The v2 static memory block (essentials/threads/recent/buffer
+          // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
+          // carries personal user memory. Trust-gated to mirror
+          // `shouldExposePersonalMemory` at injection time — untrusted-actor
+          // views must not read persisted personal memory back through
+          // metadata. Skipped on the tail row because the next turn
+          // re-injects fresh content on full-mode turns.
+          if (
+            !isTail &&
+            personalMemoryAllowed &&
+            typeof meta.memoryV2StaticBlock === "string"
+          ) {
+            content = [
+              { type: "text" as const, text: meta.memoryV2StaticBlock },
+              ...content,
+            ];
+          }
+
+          // Memory remains rehydrated on all rows (existing behavior).
+          // Strip any pre-existing wrapper before re-wrapping so historical
+          // rows persisted with the wrapper (v2 path before the
+          // injectedBlockText contract was unified with v1's unwrapped form)
+          // don't render double-wrapped after rehydrate. Only unwrap when
+          // the full <memory>...</memory> pair is present so we don't mutate
+          // legitimate unwrapped payloads that happen to start with
+          // "<memory>\n" or end with "\n</memory>".
+          if (typeof meta.memoryInjectedBlock === "string") {
+            const block = meta.memoryInjectedBlock;
+            const inner =
+              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
+                ? block.slice("<memory>\n".length, -"\n</memory>".length)
+                : block;
+            content = [
+              {
+                type: "text" as const,
+                text: `<memory>\n${inner}\n</memory>`,
+              },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.turnContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.workspaceBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.workspaceBlock },
+              ...content,
+            ];
+          }
+        } catch {
+          /* ignore parse errors — metadata may be malformed */
+        }
+      }
+
+      return { role, content };
+    });
+
+    // Strip pre-clean messages only; post-clean messages keep the fresh
+    // injections they were generated with.
+    const messagesBeforeRepair =
+      preStrippedCount === 0
+        ? parsedMessages
+        : [
+            ...stripInjectionsForCompaction(
+              parsedMessages.slice(0, preStrippedCount),
+            ),
+            ...parsedMessages.slice(preStrippedCount),
+          ];
+
+    // Normalize the canonical persisted history once at load. Every consumer
+    // of `this.messages` outside the agent loop (history edit/undo, PKB context
+    // tracking, surfaces) reads this list directly, so it must satisfy the
+    // provider pairing/alternation rules before any of them run. The agent
+    // loop's pre-run repair only repairs the transient per-turn message list it
+    // sends to the provider and never writes back here, so this pass is not
+    // redundant with it.
+    const { messages: repairedMessages, stats } =
+      repairHistory(messagesBeforeRepair);
+    if (
+      stats.assistantToolResultsMigrated > 0 ||
+      stats.missingToolResultsInserted > 0 ||
+      stats.orphanToolResultsDowngraded > 0 ||
+      stats.consecutiveSameRoleMerged > 0
+    ) {
+      log.warn(
+        { conversationId: this.conversationId, phase: "load", ...stats },
+        "Repaired persisted history",
+      );
+    }
+    this.messages = repairedMessages;
+
+    if (contextSummary) {
+      this.messages.unshift(createContextSummaryMessage(contextSummary));
+    }
+
+    if (conv) {
+      this.usageStats = {
+        inputTokens: conv.totalInputTokens,
+        outputTokens: conv.totalOutputTokens,
+        estimatedCost: conv.totalEstimatedCost,
+      };
+    }
+
+    this.loadedHistoryTrustClass = trustClass;
+    this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
+
+    log.info(
+      { conversationId: this.conversationId, count: this.messages.length },
+      "Loaded messages from DB",
+    );
+
     this.restoreSurfaceStateFromHistory();
     this.graphMemory.restoreState();
   }
@@ -1314,13 +1572,13 @@ export class Conversation {
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
-    return drainQueueImpl(this as ProcessConversationContext, reason);
+    return drainQueueImpl(this, reason);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
-    return processMessageImpl(this as ProcessConversationContext, {
+    return processMessageImpl(this, {
       ...options,
       onEvent: options.onEvent ?? this.sendToClient,
     });

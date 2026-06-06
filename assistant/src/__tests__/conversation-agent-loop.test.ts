@@ -534,8 +534,8 @@ mock.module("../proactive-artifact/index.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
-  type AgentLoopConversationContext,
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
@@ -549,13 +549,13 @@ import {
 // ── Test helpers ─────────────────────────────────────────────────────
 
 function makeCtx(
-  overrides?: Partial<AgentLoopConversationContext> & {
+  overrides?: Partial<Conversation> & {
     providerResponses?: ScriptedResponse[];
     loopProvider?: Provider;
     loopTools?: ToolDefinition[];
     toolExecutor?: LoopToolExecutor;
   },
-): AgentLoopConversationContext {
+): Conversation {
   const {
     providerResponses,
     loopProvider,
@@ -613,13 +613,13 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
@@ -642,15 +642,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -663,8 +663,8 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
@@ -695,10 +695,10 @@ function makeCtx(
       }),
       retrackCachedNodes: () => {},
       recordPkbQueryVectors: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+    } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -914,7 +914,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
       const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
@@ -979,7 +979,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
       const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
@@ -1007,7 +1007,7 @@ describe("session-agent-loop", () => {
           emit: (...args: unknown[]) => {
             traceEvents.push(args);
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1168,7 +1168,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1217,7 +1217,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1283,7 +1283,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1334,7 +1334,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1345,7 +1345,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1392,7 +1392,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1403,7 +1403,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1459,7 +1459,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1606,7 +1606,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1644,7 +1644,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 200,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1686,7 +1686,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1751,7 +1751,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1851,7 +1851,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1920,7 +1920,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1958,7 +1958,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -2023,7 +2023,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "file content", isError: false }),
         canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2054,7 +2054,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "content", isError: false }),
         canHandoffAtCheckpoint: () => false,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2205,7 +2205,7 @@ describe("session-agent-loop", () => {
         drainQueue: (reason: string) => {
           drainReason = reason;
         },
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
@@ -2649,7 +2649,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
@@ -3153,7 +3153,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3188,7 +3188,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
@@ -3290,7 +3290,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3298,7 +3298,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-overflow", () => {});
@@ -3418,7 +3418,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3444,7 +3444,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-repeat", () => {});
@@ -3541,7 +3541,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3592,7 +3592,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-mid-loop", () => {});
@@ -3670,7 +3670,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3778,7 +3778,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3895,7 +3895,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       // WHEN the orchestrator runs the turn to completion
@@ -3944,7 +3944,7 @@ describe("session-agent-loop", () => {
         contextWindowManager: {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       // Must not throw — the strip-site marker write is wrapped in try/catch.

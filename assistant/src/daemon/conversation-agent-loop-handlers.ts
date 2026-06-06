@@ -76,10 +76,8 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type {
-  AgentLoopConversationContext,
-  AssistantSurface,
-} from "./conversation-agent-loop.js";
+import type { Conversation } from "./conversation.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
@@ -308,7 +306,7 @@ export interface EventHandlerState {
 
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
-  readonly ctx: AgentLoopConversationContext;
+  readonly ctx: Conversation;
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
@@ -645,9 +643,7 @@ function computeToolUseStatusText(
   return `Running ${friendlyToolName(name)}`;
 }
 
-function resolveAssistantReplyTimestampTimezone(
-  ctx: AgentLoopConversationContext,
-): string {
+function resolveAssistantReplyTimestampTimezone(ctx: Conversation): string {
   const config = getConfig();
   return resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui?.userTimezone ?? null,

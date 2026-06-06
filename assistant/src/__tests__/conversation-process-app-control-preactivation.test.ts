@@ -92,7 +92,7 @@ mock.module("../daemon/conversation-messaging.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { TurnInterfaceContext } from "../channels/types.js";
-import type { ProcessConversationContext } from "../daemon/conversation-process.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { drainQueue } from "../daemon/conversation-process.js";
 import {
   MessageQueue,
@@ -102,7 +102,7 @@ import { TraceEmitter } from "../daemon/trace-emitter.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
-// of `ProcessConversationContext`. `runAgentLoop` resolves immediately so
+// of `Conversation`. `runAgentLoop` resolves immediately so
 // the drain-chain does not recurse forever.
 // ---------------------------------------------------------------------------
 
@@ -113,7 +113,7 @@ interface FakeRecord {
 function makeFakeContext(opts: {
   queue: MessageQueue;
   turnInterfaceContext?: TurnInterfaceContext;
-}): ProcessConversationContext & FakeRecord {
+}): Conversation & FakeRecord {
   const calls: string[] = [];
   let preactivatedSkillIds: string[] | undefined = undefined;
   const ctx = {
@@ -177,7 +177,7 @@ function makeFakeContext(opts: {
     setTransportHints() {},
     applyHostEnvFromTransport() {},
     ensureHostProxiesForTurn() {},
-  } as unknown as ProcessConversationContext & FakeRecord;
+  } as unknown as Conversation & FakeRecord;
   return ctx;
 }
 

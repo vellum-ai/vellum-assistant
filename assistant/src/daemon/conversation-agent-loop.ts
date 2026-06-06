@@ -4,7 +4,7 @@
  * This module contains the core agent loop orchestration: pre-flight
  * setup, event handling, retry logic, history reconstruction, and
  * completion event emission.  The Conversation class delegates its
- * runAgentLoop method here via the AgentLoopConversationContext interface.
+ * runAgentLoop method here, passing itself as the loop context.
  */
 
 import { v4 as uuid } from "uuid";
@@ -12,7 +12,6 @@ import { v4 as uuid } from "uuid";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
-  AgentLoop,
   AgentLoopExitReason,
   CheckpointDecision,
   MidLoopCompaction,
@@ -50,7 +49,6 @@ import type {
   ContextWindowCompactOptions,
   ContextWindowManager,
 } from "../context/window-manager.js";
-import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -81,7 +79,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
@@ -104,16 +101,14 @@ import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
-import {
-  type AssistantAttachmentDraft,
-  cleanAssistantContent,
-} from "./assistant-attachments.js";
+import { cleanAssistantContent } from "./assistant-attachments.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
+import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
@@ -132,10 +127,7 @@ import {
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
@@ -149,7 +141,6 @@ import {
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
-import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { recordUsage } from "./conversation-usage.js";
 import {
@@ -164,7 +155,6 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import {
   type OverflowReduceArgs,
   runOverflowReductionLoop,
@@ -174,7 +164,6 @@ import {
   persistUnsendableImageDowngrades,
   UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
-import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
@@ -195,10 +184,6 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   app_refresh: "Refresh App",
   skill_load: "Load Skill",
   skill_execute: "Run Skill Tool",
-};
-
-type GitServiceInitializer = {
-  ensureInitialized(): Promise<void>;
 };
 
 function formatDiskPressureBlockedMessage(): string {
@@ -249,7 +234,7 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  *   optional field on `TurnContext`.
  */
 function buildPluginTurnContext(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
   requestId: string,
 ): PluginTurnContext {
   const trust =
@@ -267,22 +252,20 @@ function buildPluginTurnContext(
 /**
  * Trust class of the actor whose turn is in progress, for the compactor's
  * image manifest filter. Prefers the turn-start snapshot
- * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * ({@link Conversation.currentTurnTrustContext}) over the live
  * trust context so compaction running in a later tool iteration can't pick up
  * a concurrent request's actor.
  */
 function resolveTurnActorTrustClass(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
 ): TrustContext["trustClass"] | undefined {
   return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
 }
 
-// ── Context Interface ────────────────────────────────────────────────
-
 /**
  * Per-surface entry tracked on the current turn. Inline shape kept stable so
  * routes and persistence helpers can consume it via a named import instead of
- * `infer`-extracting from {@link AgentLoopConversationContext}.
+ * `infer`-extracting from {@link Conversation}.
  */
 export interface AssistantSurface {
   surfaceId: string;
@@ -301,175 +284,10 @@ export interface AssistantSurface {
   toolCallId?: string;
 }
 
-export interface AgentLoopConversationContext {
-  readonly conversationId: string;
-  messages: Message[];
-  isProcessing(): boolean;
-  setProcessing(value: boolean): void;
-  abortController: AbortController | null;
-  currentRequestId?: string;
-  /**
-   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
-   * `options?.callSite ?? "mainAgent"`. Read by {@link buildPluginTurnContext}
-   * so pipeline/injector plugins can tell the main reply apart from
-   * background agent-loop work (compaction, subagents, …) on this same
-   * conversation. Per-turn mutable, mirroring {@link currentRequestId}.
-   */
-  currentCallSite?: LLMCallSite;
-
-  readonly agentLoop: AgentLoop;
-  readonly provider: Provider;
-  readonly systemPrompt: string;
-
-  readonly contextWindowManager: ContextWindowManager;
-  contextCompactedMessageCount: number;
-  contextCompactedAt: number | null;
-  /**
-   * Set by `applyCompactionResult` when compaction strips runtime injections
-   * from the preserved tail. The next agent loop turn promotes this into a
-   * `compactedThisTurn` signal so NOW.md, PKB, and the v2 static block are
-   * re-injected on the first turn following `/compact` (which runs outside
-   * the agent loop and so has no other way to surface that compaction
-   * happened just before this turn).
-   */
-  pendingPostCompactReinject: boolean;
-
-  readonly graphMemory: ConversationGraphMemory;
-
-  currentActiveSurfaceId?: string;
-  currentPage?: string;
-  readonly surfaceState: Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-    }
-  >;
-  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
-  surfaceActionRequestIds: Set<string>;
-  approvedViaPromptThisTurn?: boolean;
-  currentTurnSurfaces: AssistantSurface[];
-
-  workingDir: string;
-  channelCapabilities?: ChannelCapabilities;
-  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
-  currentTurnTrustContext?: TrustContext;
-  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
-  currentTurnChannelCapabilities?: ChannelCapabilities;
-  /**
-   * Current inference-profile override for this turn. Read by
-   * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
-   * profile the agent loop is sending to the provider. Refreshed between
-   * model calls so an explicitly confirmed profile session opened mid-turn
-   * is inherited by later tool executions and nested subagents.
-   */
-  currentTurnOverrideProfile?: string;
-  /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
-   */
-  toolRoutedProfile?: string;
-  commandIntent?: { type: string; payload?: string; languageCode?: string };
-  trustContext?: TrustContext;
-  /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
-  taskRunId?: string;
-  assistantId?: string;
-  clientTimezone?: string;
-
-  readonly coreToolNames: Set<string>;
-  allowedToolNames?: Set<string>;
-  diskPressureCleanupModeActive?: boolean;
-  toolsDisabledDepth: number;
-  preactivatedSkillIds?: string[];
-  readonly skillProjectionState: Map<string, string>;
-  readonly skillProjectionCache: SkillProjectionCache;
-
-  readonly traceEmitter: TraceEmitter;
-  readonly profiler: ToolProfiler;
-  usageStats: UsageStats;
-  turnCount: number;
-
-  lastAssistantAttachments: AssistantAttachmentDraft[];
-  lastAttachmentWarnings: string[];
-
-  hasNoClient: boolean;
-  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
-  isSubagent?: boolean;
-  headlessLock?: boolean;
-  readonly streamThinking: boolean;
-  readonly prompter: PermissionPrompter;
-  readonly queue: MessageQueue;
-
-  emitActivityState(
-    phase:
-      | "idle"
-      | "thinking"
-      | "streaming"
-      | "tool_running"
-      | "awaiting_confirmation",
-    reason:
-      | "message_dequeued"
-      | "thinking_delta"
-      | "first_text_delta"
-      | "tool_use_start"
-      | "preview_start"
-      | "tool_result_received"
-      | "confirmation_requested"
-      | "confirmation_resolved"
-      | "context_compacting"
-      | "message_complete"
-      | "generation_cancelled"
-      | "error_terminal",
-    options?: {
-      anchor?: "assistant_turn" | "user_turn" | "global";
-      requestId?: string;
-      statusText?: string;
-    },
-  ): void;
-  emitConfirmationStateChanged(
-    params: ConfirmationStateChanged extends {
-      type: infer _;
-    }
-      ? Omit<ConfirmationStateChanged, "type">
-      : never,
-  ): void;
-
-  /**
-   * Optional callback invoked by the Conversation when a confirmation state changes.
-   * The agent loop registers this to track requestId → toolUseId mappings
-   * and record confirmation outcomes for persistence.
-   */
-  onConfirmationOutcome?: (
-    requestId: string,
-    state: string,
-    toolUseId?: string,
-  ) => void;
-
-  getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
-  commitTurnChanges?: typeof commitTurnChanges;
-
-  markWorkspaceTopLevelDirty(): void;
-  getQueueDepth(): number;
-  hasQueuedMessages(): boolean;
-  canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): Promise<void>;
-  getTurnChannelContext(): TurnChannelContext | null;
-  getTurnInterfaceContext(): TurnInterfaceContext | null;
-}
-
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
@@ -2666,10 +2484,7 @@ export async function runAgentLoopImpl(
 // ── Helper ───────────────────────────────────────────────────────────
 
 function emitUsage(
-  ctx: Pick<
-    AgentLoopConversationContext,
-    "conversationId" | "provider" | "usageStats"
-  >,
+  ctx: Pick<Conversation, "conversationId" | "provider" | "usageStats">,
   inputTokens: number,
   outputTokens: number,
   model: string,
@@ -2709,10 +2524,10 @@ function emitUsage(
 }
 
 /**
- * Minimal context shape consumed by `applyCompactionResult`. Both
- * `AgentLoopConversationContext` and `Conversation` satisfy this via structural
- * typing, so the helper can back both the 5 agent-loop auto-compaction sites
- * and the single `forceCompact` user-initiated site.
+ * Minimal context shape consumed by `applyCompactionResult`, satisfied by
+ * `Conversation` via structural typing, so the helper can back both the 5
+ * agent-loop auto-compaction sites and the single `forceCompact`
+ * user-initiated site.
  */
 export interface CompactionApplyContext {
   readonly conversationId: string;

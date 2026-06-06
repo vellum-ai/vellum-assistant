@@ -34,9 +34,7 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("host-proxy-preactivation");
 
 /**
- * Subset of Conversation/ProcessConversationContext that
- * `preactivateHostProxySkills` needs. Both `Conversation` and
- * `ProcessConversationContext` satisfy this structurally.
+ * Subset of `Conversation` that `preactivateHostProxySkills` needs.
  */
 export interface HostProxyPreactivationTarget {
   readonly conversationId: string;
