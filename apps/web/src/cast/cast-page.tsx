@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
@@ -27,17 +27,6 @@ import "@/cast/cast.css";
 
 type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done";
 
-export type CastTheme = "light" | "dark" | "velvet";
-const CAST_THEMES: CastTheme[] = ["light", "dark", "velvet"];
-
-/** Seed Cast's theme from whatever the app currently has on <html>, so Cast
- * opens looking like the rest of the app. */
-function initialCastTheme(): CastTheme {
-  if (typeof document === "undefined") return "dark";
-  const t = document.documentElement.getAttribute("data-theme");
-  return t === "light" || t === "velvet" ? t : "dark";
-}
-
 /** The crowd floor spans wider than the viewport so characters bleed off both
  * edges ("already outside the window"). The cell is a FIXED pixel size, so
  * resizing only adds/removes whole columns of same-size characters — the dudes
@@ -52,10 +41,19 @@ function rowsFor(height: number): number {
   return Math.max(10, Math.min(30, Math.ceil(height / 70) + 1));
 }
 
-/** Beat 2 hero box: centered, large. */
-function focusBoxFor(w: number, h: number): Rect {
-  const size = Math.max(220, Math.min(360, Math.min(w, h) * 0.34));
-  return { left: w / 2 - size / 2, top: h * 0.26, size };
+/** Where a picked dude is raised to: anchored at its own tile, lifted up and
+ * scaled up modestly so it pops out of the crowd in place — not a jump to a
+ * centered "new page". Clamped to stay fully on-screen with room above for the
+ * name. */
+function raiseBoxFor(tile: Rect, panelW: number, panelH: number): Rect {
+  const size = Math.max(150, Math.min(248, tile.size * 1.9));
+  const cx = tile.left + tile.size / 2;
+  const cy = tile.top + tile.size / 2;
+  const left = Math.max(12, Math.min(panelW - size - 12, cx - size / 2));
+  // lift up ~0.7×size from where it stood; keep the head (and name above it)
+  // clear of the top and don't sink past mid-screen
+  const top = Math.max(86, Math.min(panelH * 0.46, cy - size * 0.7));
+  return { left, top, size };
 }
 /** Beats 3/4 hero box: smaller, near the top. */
 function topBoxFor(w: number, h: number): Rect {
@@ -77,11 +75,14 @@ export function CastPage() {
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [flyFrom, setFlyFrom] = useState<Rect | null>(null);
+  // Where the picked dude is raised TO — computed from its tile so it lifts in
+  // place (a bit up + bigger) rather than flying to a centered "new page".
+  const [raiseBox, setRaiseBox] = useState<Rect | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
 
   const [boxes, setBoxes] = useState(() => {
     const { w, h } = win();
-    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h) };
+    return { top: topBoxFor(w, h) };
   });
   const [grid, setGrid] = useState(() => {
     const { w, h } = win();
@@ -109,7 +110,7 @@ export function CastPage() {
     const onResize = () => {
       const { w, h } = win();
       setGrid({ cols: colsFor(w), rows: rowsFor(h) });
-      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h) });
+      setBoxes({ top: topBoxFor(w, h) });
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -118,18 +119,51 @@ export function CastPage() {
     };
   }, []);
 
-  // Theme is scoped to the Cast stage (non-destructive — doesn't touch the
-  // app-wide preference). Defaults to the app's current theme so Cast matches
-  // the rest of the app on load, and is switchable in-surface.
-  const [theme, setTheme] = useState<CastTheme>(() => initialCastTheme());
-
   const { cols, rows } = grid;
   const visible = CAST.slice(0, Math.min(cols * rows, 600));
   const inGrid = phase === "grid";
+  // The crowd stays as a dimmed backdrop while a pick is elevated on its podium
+  // (Beat 2), then fully clears for the deeper beats so they read as their own
+  // steps.
+  const floorOpacity = inGrid ? 1 : phase === "flying" || phase === "focus" ? 0.4 : 0;
   const name = selected ? (names[selected.id] ?? selected.name) : "";
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+
+  // "Pick me" — while the grid is idle, a random dude jumps every ~5s to grab
+  // attention (paused while hovering or once a pick is made).
+  const [jumpingId, setJumpingId] = useState<string | null>(null);
+  const hoveringRef = useRef(false);
+  const lastJumpRef = useRef<string | null>(null);
+  const visibleRef = useRef(visible);
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
+  useEffect(() => {
+    if (!inGrid) return;
+    const tick = window.setInterval(() => {
+      if (hoveringRef.current || document.visibilityState !== "visible") return;
+      const pool = visibleRef.current.filter((c) => c.id !== lastJumpRef.current);
+      const choice = pool[Math.floor(Math.random() * pool.length)];
+      if (!choice) return;
+      lastJumpRef.current = choice.id;
+      setJumpingId(choice.id);
+      window.setTimeout(() => setJumpingId((id) => (id === choice.id ? null : id)), 700);
+    }, 5000);
+    return () => window.clearInterval(tick);
+  }, [inGrid]);
+
+  // Esc returns from the elevated (pedestal) view back to the grid.
+  useEffect(() => {
+    if (phase !== "focus") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") backToGrid();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   function moveSpotlight(e: React.PointerEvent) {
     const panel = panelRef.current;
@@ -145,27 +179,39 @@ export function CastPage() {
     });
   }
 
-  function pick(char: CastCharacter, el: HTMLElement) {
+  const pick = useCallback((char: CastCharacter, el: HTMLElement) => {
     const panel = panelRef.current;
     if (!panel) return;
     const p = panel.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     const size = Math.min(r.width, r.height);
-    setFlyFrom({
+    const from: Rect = {
       left: r.left - p.left + (r.width - size) / 2,
       top: r.top - p.top + (r.height - size) / 2,
       size,
-    });
+    };
+    const to = raiseBoxFor(from, p.width, p.height);
+    setFlyFrom(from);
+    setRaiseBox(to);
+    // Tighten + glide the spotlight onto the raised dude (in place, not center).
+    const spot = spotlightRef.current;
+    if (spot) {
+      spot.classList.add("is-settling");
+      spot.style.setProperty("--mx", `${to.left + to.size / 2}px`);
+      spot.style.setProperty("--my", `${to.top + to.size / 2}px`);
+    }
     setSelected(char);
     setPhase("flying");
-  }
+  }, []);
 
   function backToGrid() {
     clearBeatTimers();
     cardScheduled.current = false;
+    spotlightRef.current?.classList.remove("is-settling");
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
+    setRaiseBox(null);
     setJobs([]);
     setJobEdges({});
     setRathers([]);
@@ -242,11 +288,10 @@ export function CastPage() {
   }
 
   return (
-    // Cast follows its own (switchable) theme — semantic tokens resolve within
-    // this subtree, so the chrome matches the app in light/dark/velvet.
-    <div className="cast-stage" data-theme={theme}>
+    // Cast is dark-only — semantic tokens resolve to their dark values within
+    // this subtree, giving the "cave" palette regardless of the app theme.
+    <div className="cast-stage" data-theme="dark">
       <div className="cast-panel" ref={panelRef}>
-        <CastThemeSwitcher theme={theme} onChange={setTheme} />
         {inGrid && (
           <header className="cast-panel__header">
             <h1 className="cast-panel__title">Meet the Cast</h1>
@@ -259,6 +304,8 @@ export function CastPage() {
           className="cast-stage3d"
           style={{ pointerEvents: inGrid ? "auto" : "none" }}
           onPointerMove={inGrid ? moveSpotlight : undefined}
+          onPointerEnter={() => (hoveringRef.current = true)}
+          onPointerLeave={() => (hoveringRef.current = false)}
         >
           <motion.div
             className="cast-floor"
@@ -269,14 +316,15 @@ export function CastPage() {
               gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
               columnGap: `${GAP}px`,
             }}
-            animate={{ opacity: inGrid ? 1 : 0 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
+            animate={{ opacity: floorOpacity }}
+            transition={{ duration: 0.45, ease: "easeOut" }}
           >
             {visible.map((c) => (
               <Billboard
                 key={c.id}
                 character={c}
                 dimmed={!inGrid && selected?.id === c.id}
+                jumping={jumpingId === c.id}
                 onPick={pick}
               />
             ))}
@@ -285,13 +333,13 @@ export function CastPage() {
           <div className="cast-spotlight" ref={spotlightRef} />
         </div>
 
-        {/* Flying clone — screen-space FLIP from tapped tile to center */}
+        {/* Flying clone — short in-place rise from the tile to the raise box */}
         <AnimatePresence>
-          {phase === "flying" && flyFrom && selected && (
+          {phase === "flying" && flyFrom && raiseBox && selected && (
             <motion.div
               className="cast-fly"
               initial={{ left: flyFrom.left, top: flyFrom.top, width: flyFrom.size, height: flyFrom.size }}
-              animate={{ left: boxes.focus.left, top: boxes.focus.top, width: boxes.focus.size, height: boxes.focus.size }}
+              animate={{ left: raiseBox.left, top: raiseBox.top, width: raiseBox.size, height: raiseBox.size }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               onAnimationComplete={() => setPhase("focus")}
             >
@@ -300,12 +348,12 @@ export function CastPage() {
           )}
         </AnimatePresence>
 
-        {/* Beat 2 — named */}
-        {phase === "focus" && selected && (
+        {/* Beat 2 — named (raised in place) */}
+        {phase === "focus" && selected && raiseBox && (
           <CastFocus
             character={selected}
             name={name}
-            box={boxes.focus}
+            box={raiseBox}
             onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
             onContinue={() => setPhase("job")}
             onBack={backToGrid}
@@ -399,13 +447,15 @@ export function CastPage() {
 
 /* ---------------- Beat 1: a standing billboard on the floor ---------------- */
 
-function Billboard({
+const Billboard = memo(function Billboard({
   character,
   dimmed,
+  jumping,
   onPick,
 }: {
   character: CastCharacter;
   dimmed: boolean;
+  jumping: boolean;
   onPick: (c: CastCharacter, el: HTMLElement) => void;
 }) {
   if (dimmed) {
@@ -414,12 +464,13 @@ function Billboard({
   return (
     <button
       type="button"
-      className="cast-cell"
+      className={`cast-cell${jumping ? " is-jumping" : ""}`}
       aria-label={`Choose ${character.name}`}
       onClick={(e) => onPick(character, e.currentTarget)}
     >
       <span className="cast-cell__stand">
         <span className="cast-idle">
+          {/* `is-jumping` swaps in the bigger attention jump over the idle bob */}
           <span className="cast-hover" data-anim={character.hover}>
             <CastAvatar character={character} />
           </span>
@@ -427,7 +478,7 @@ function Billboard({
       </span>
     </button>
   );
-}
+});
 
 /* ---------------- Beat 2: focus / named ---------------- */
 
@@ -448,20 +499,54 @@ function CastFocus({
 }) {
   const [editing, setEditing] = useState(false);
 
+  // A modest riser under the dude + the name above its head — both anchored to
+  // the dude's own column so the raise reads as "in place".
+  const dudeCx = box.left + box.size / 2;
+  const podW = box.size * 1.32;
+  const podH = box.size * 0.42;
+  const podTop = box.top + box.size * 0.82;
+  const podLeft = dudeCx - podW / 2;
+  const nameTop = Math.max(10, box.top - 50);
+
   return (
     <motion.div className="cast-focus">
+      {/* click-away on the dim crowd lowers the pick back into the grid */}
+      <button
+        className="cast-focus__scrim"
+        aria-label="Back to grid"
+        onClick={onBack}
+      />
+
       <button className="cast-back" onClick={onBack} aria-label="Back to grid">
         ‹
       </button>
 
+      {/* podium the pick is elevated onto — rises in under the landing dude */}
+      <motion.div
+        className="cast-podium"
+        style={{ left: podLeft, top: podTop, width: podW, height: podH }}
+        initial={{ opacity: 0, y: 26, scaleX: 0.7 }}
+        animate={{ opacity: 1, y: 0, scaleX: 1 }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <div className="cast-podium__glow" />
+        <svg className="cast-podium__art" viewBox="0 0 220 130" preserveAspectRatio="xMidYMin meet">
+          <ellipse cx="110" cy="100" rx="80" ry="16" fill="rgba(0,0,0,0.45)" />
+          <path d="M22 30 H198 V86 A88 26 0 0 1 22 86 Z" fill="var(--surface-lift)" />
+          <ellipse cx="110" cy="30" rx="88" ry="26" fill="var(--surface-active)" />
+          <ellipse cx="110" cy="27" rx="68" ry="17" fill="rgba(255,255,255,0.05)" />
+        </svg>
+      </motion.div>
+
       <HeroCharacter character={character} box={box} interactive autoReact />
 
+      {/* name above the dude's head, anchored over its column */}
       <motion.div
-        className="cast-name"
-        style={{ top: box.top + box.size + 28 }}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.4, ease: "easeOut" }}
+        className="cast-name cast-name--above"
+        style={{ left: dudeCx, top: nameTop }}
+        initial={{ opacity: 0, y: 10, x: "-50%" }}
+        animate={{ opacity: 1, y: 0, x: "-50%" }}
+        transition={{ delay: 0.32, duration: 0.4, ease: "easeOut" }}
       >
         {editing ? (
           <input
@@ -499,34 +584,6 @@ function CastFocus({
         Continue
       </button>
     </motion.div>
-  );
-}
-
-/* ---------------- Theme switcher ---------------- */
-
-const THEME_LABEL: Record<CastTheme, string> = { light: "Light", dark: "Dark", velvet: "Velvet" };
-
-function CastThemeSwitcher({
-  theme,
-  onChange,
-}: {
-  theme: CastTheme;
-  onChange: (t: CastTheme) => void;
-}) {
-  return (
-    <div className="cast-theme-switch" role="group" aria-label="Theme">
-      {CAST_THEMES.map((t) => (
-        <button
-          key={t}
-          type="button"
-          className={`cast-theme-switch__btn${t === theme ? " is-active" : ""}`}
-          aria-pressed={t === theme}
-          onClick={() => onChange(t)}
-        >
-          {THEME_LABEL[t]}
-        </button>
-      ))}
-    </div>
   );
 }
 

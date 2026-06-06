@@ -26,13 +26,6 @@
   user-select: none;
   -webkit-user-select: none;
 }
-.cast-stage[data-theme="light"] {
-  --cast-dim: 22%; /* light theme dims gently rather than to a black cave */
-}
-.cast-stage[data-theme="velvet"] {
-  --cast-dim: 56%;
-}
-
 /* Full-window stage. */
 .cast-panel {
   position: relative;
@@ -97,23 +90,32 @@
   transform-style: preserve-3d;
 }
 
+/* Registered so the spotlight can smoothly glide + tighten when a pick is made
+   (plain custom props animate instantly otherwise). */
+@property --mx { syntax: "<length-percentage>"; inherits: false; initial-value: 50%; }
+@property --my { syntax: "<length-percentage>"; inherits: false; initial-value: 58%; }
+@property --spot-core { syntax: "<length>"; inherits: false; initial-value: 220px; }
+@property --spot-edge { syntax: "<length>"; inherits: false; initial-value: 320px; }
+
 /* Spotlight — a lit pool that tracks the cursor (--mx/--my); the rest of the
    crowd sits in shadow. Bespoke art effect, intentionally not tokenized. */
 .cast-spotlight {
   --mx: 50%;
   --my: 58%;
+  --spot-core: 220px;
+  --spot-edge: 320px;
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 4;
   background:
     radial-gradient(
-      circle 220px at var(--mx) var(--my),
+      circle var(--spot-core) at var(--mx) var(--my),
       rgba(255, 240, 214, 0.14) 0%,
       rgba(255, 240, 214, 0) 65%
     ),
     radial-gradient(
-      circle 320px at var(--mx) var(--my),
+      circle var(--spot-edge) at var(--mx) var(--my),
       transparent 0%,
       transparent 30%,
       color-mix(in srgb, var(--cast-shroud) 55%, transparent) 64%,
@@ -125,6 +127,13 @@
       color-mix(in srgb, var(--cast-shroud) 55%, transparent) 84%,
       color-mix(in srgb, var(--cast-shroud) 94%, transparent) 100%
     );
+}
+/* On selection: glide to the podium and tighten the pool around the pick. */
+.cast-spotlight.is-settling {
+  --spot-core: 170px;
+  --spot-edge: 250px;
+  transition: --mx 0.55s ease, --my 0.55s ease, --spot-core 0.55s ease,
+    --spot-edge 0.55s ease;
 }
 
 .cast-cell {
@@ -272,6 +281,13 @@
   left: 0;
   right: 0;
   text-align: center;
+}
+/* anchored over the raised dude's column (left set inline; x:-50% via framer) */
+.cast-name--above {
+  right: auto;
+  width: max-content;
+  max-width: 90vw;
+  z-index: 3;
 }
 
 .cast-name__edit {
@@ -917,39 +933,59 @@
   100% { transform: translateY(-130px) scale(1); opacity: 0; }
 }
 
-/* ---- theme switcher ---- */
+/* ---- Beat 1 → 2: pedestal raise + pick-me jump ---- */
 
-.cast-theme-switch {
+/* click-away layer over the dimmed crowd */
+.cast-focus__scrim {
   position: absolute;
-  top: var(--app-spacing-md);
-  right: var(--app-spacing-md);
-  z-index: 6;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--surface-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  backdrop-filter: blur(8px);
-}
-.cast-theme-switch__btn {
+  inset: 0;
+  z-index: 0;
   appearance: none;
   border: none;
   background: none;
-  color: var(--content-secondary);
-  font-size: 11px;
-  font-weight: 560;
-  padding: 5px 11px;
-  border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
 }
-.cast-theme-switch__btn:hover:not(.is-active) {
-  color: var(--content-default);
+
+/* the pedestal the pick is elevated onto (rises in beneath the dude) */
+.cast-podium {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
 }
-.cast-theme-switch__btn.is-active {
-  background: var(--surface-active);
-  color: var(--content-default);
+.cast-podium__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.55));
+}
+/* warm pool of light where the dude stands on the pedestal */
+.cast-podium__glow {
+  position: absolute;
+  left: 50%;
+  top: -14%;
+  width: 64%;
+  height: 56%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 240, 214, 0.18) 0%, transparent 70%);
+  filter: blur(5px);
+}
+
+/* pick-me: a random idle dude jumps to grab attention. Transform-only on the
+   inner element so nothing else in the grid shifts or repaints. */
+.cast-cell.is-jumping .cast-hover {
+  animation: cast-pickme 0.65s cubic-bezier(0.3, 0.9, 0.4, 1);
+}
+
+@keyframes cast-pickme {
+  0% { transform: translateY(0) scale(1, 1); }
+  18% { transform: translateY(0) scale(1.12, 0.86); }
+  50% { transform: translateY(-46px) scale(0.92, 1.1); }
+  78% { transform: translateY(0) scale(1.08, 0.92); }
+  100% { transform: translateY(0) scale(1, 1); }
 }
 
 /* ---- bottom controls ---- */
