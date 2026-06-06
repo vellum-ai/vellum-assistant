@@ -107,12 +107,28 @@ export class InvalidSearchPatternError extends Error {
 }
 
 /**
- * List directories under `experimental/plugins/` at {@link opts.ref} and
- * filter by {@link opts.query}.
- *
- * Only `type === "dir"` entries are returned — `experimental/plugins/`
- * follows a convention where each plugin lives in its own directory, so
- * loose files at the prefix are not plugins.
+ * The catalog source (GitHub) was reachable but refused or could not serve
+ * the request right now — rate limiting (HTTP 403 with the rate-limit budget
+ * exhausted, or 429) or an upstream 5xx. Distinct from a hard 404 on the
+ * plugins prefix (a real "source gone" misconfiguration): a transient
+ * upstream failure should surface as a retryable "temporarily unavailable"
+ * rather than a generic internal error, and is a candidate for serving a
+ * stale cached catalog.
+ */
+export class PluginCatalogUnavailableError extends Error {
+  /** Upstream HTTP status that triggered the failure. */
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PluginCatalogUnavailableError";
+    this.status = status;
+  }
+}
+
+/**
+ * Build the catalog at {@link opts.ref} and return the entries whose name
+ * matches {@link opts.query} (case-insensitive ECMAScript regex; an empty
+ * query matches everything).
  */
 export async function searchPlugins(
   opts: SearchPluginsOptions,
@@ -124,6 +140,59 @@ export async function searchPlugins(
   // the network — keeps "user typo" cheap to recover from.
   const matcher = buildMatcher(opts.query);
 
+  const { matches: catalog } = await loadPluginCatalog({ ref }, deps);
+  const matches = catalog.filter((m) => matcher(m.name));
+
+  return { query: opts.query, ref, matches };
+}
+
+/**
+ * Validate that {@link query} compiles as a case-insensitive ECMAScript regex,
+ * throwing {@link InvalidSearchPatternError} if not. Lets a caching caller
+ * (the daemon) reject a malformed query before loading the catalog, so a typo
+ * is a cheap deterministic 400 rather than a wasted GitHub request.
+ */
+export function assertValidSearchPattern(query: string): void {
+  buildMatcher(query);
+}
+
+/**
+ * Filter a pre-loaded {@link PluginCatalog} by {@link query}, compiling it as
+ * a case-insensitive ECMAScript regex (an empty query matches everything).
+ * Lets a caching caller (the daemon) reuse one catalog load across many
+ * searches. Throws {@link InvalidSearchPatternError} on a malformed pattern.
+ */
+export function filterPluginCatalog(
+  catalog: PluginCatalog,
+  query: string,
+): PluginSearchMatch[] {
+  const matcher = buildMatcher(query);
+  return catalog.matches.filter((m) => matcher(m.name));
+}
+
+/** The full, unfiltered catalog at a given ref. */
+export interface PluginCatalog {
+  readonly ref: string;
+  /** Every catalog entry, deduped and sorted alphabetically by name. */
+  readonly matches: readonly PluginSearchMatch[];
+}
+
+/**
+ * Build the full catalog at {@link opts.ref}: every first-party plugin
+ * directory under `experimental/plugins/` merged with every whitelisted
+ * external entry in the marketplace manifest.
+ *
+ * The result is **query-independent** — `searchPlugins` applies the regex
+ * filter in memory afterwards. That separation is what lets a long-lived
+ * caller (the daemon) cache one catalog load and serve any number of
+ * searches from it without re-hitting GitHub (see {@link ./plugin-catalog-cache}).
+ */
+export async function loadPluginCatalog(
+  opts: { readonly ref?: string },
+  deps: SearchPluginsDeps,
+): Promise<PluginCatalog> {
+  const ref = opts.ref ?? DEFAULT_PLUGIN_REF;
+
   const [entries, marketplace] = await Promise.all([
     listDir(PLUGIN_SOURCE_PATH_PREFIX, ref, deps.fetch),
     fetchMarketplaceSafe(deps.fetch, ref),
@@ -133,7 +202,6 @@ export async function searchPlugins(
   const seen = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== "dir") continue;
-    if (!matcher(entry.name)) continue;
     matches.push({
       name: entry.name,
       path: entry.path,
@@ -146,14 +214,13 @@ export async function searchPlugins(
     // First-party plugins win a name collision — the curated manifest is
     // additive, never an override of what ships in-repo.
     if (seen.has(entry.name)) continue;
-    if (!matcher(entry.name)) continue;
     matches.push(marketplaceMatch(entry));
     seen.add(entry.name);
   }
 
   matches.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { query: opts.query, ref, matches };
+  return { ref, matches };
 }
 
 /**
@@ -210,13 +277,17 @@ async function listDir(
 
   const res = await githubFetch(url, fetchFn);
   if (!res.ok) {
-    // Unlike `installPlugin`, where 404 on a specific plugin name is a
-    // legitimate "not found" outcome, 404 on the plugins prefix itself
-    // means the canonical source path is gone — surface it as an error
-    // rather than silently returning empty results.
-    throw new Error(
-      `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`,
-    );
+    const detail = `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`;
+    // Rate limiting (403 with the budget exhausted, or 429) and upstream
+    // 5xx are transient — surface them as a retryable "temporarily
+    // unavailable" so the caller can serve a stale cache and the route can
+    // map to 503 instead of a misleading 500. A 404 on the plugins prefix
+    // itself means the canonical source path is gone (a real
+    // misconfiguration), so it stays a hard error.
+    if (isTransientUpstreamStatus(res)) {
+      throw new PluginCatalogUnavailableError(detail, res.status);
+    }
+    throw new Error(detail);
   }
 
   const body = (await res.json()) as unknown;
@@ -233,6 +304,21 @@ async function listDir(
  * request. Unauthenticated — the canonical source is a public repo, mirroring
  * `installPlugin` which uses the same envelope.
  */
+/**
+ * Whether a non-OK GitHub response should be treated as a transient
+ * "temporarily unavailable" failure rather than a hard error. Covers
+ * rate limiting (429, or 403 once the rate-limit budget is exhausted) and
+ * upstream server errors (5xx). A bare 403 without the rate-limit signal
+ * (e.g. a genuine permissions problem) is not treated as transient.
+ */
+function isTransientUpstreamStatus(res: Response): boolean {
+  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 403) {
+    return res.headers.get("x-ratelimit-remaining") === "0";
+  }
+  return false;
+}
+
 async function githubFetch(url: string, fetchFn: FetchLike): Promise<Response> {
   return fetchFn(url, {
     headers: {
