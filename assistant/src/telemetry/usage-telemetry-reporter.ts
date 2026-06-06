@@ -28,6 +28,10 @@ import { VellumPlatformClient } from "../platform/client.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
+import {
+  type ActivationStepName,
+  buildActivationDaemonEventId,
+} from "./activation-funnel.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 
 const log = getLogger("usage-telemetry");
@@ -337,7 +341,17 @@ export class UsageTelemetryReporter {
         ...onboardingEvents.map(
           (e): TelemetryEvent => ({
             type: "onboarding",
-            daemon_event_id: e.id,
+            // Wire-only override for activation rows: a deterministic id keyed
+            // on funnel_version/session/step lets dbt collapse a moment that
+            // fires more than once. The SQLite watermark cursor still uses
+            // `e.id`/`e.createdAt`, so this override is checkpoint-safe.
+            daemon_event_id:
+              e.sessionId && e.stepName && e.funnelVersion
+                ? buildActivationDaemonEventId(
+                    e.sessionId,
+                    e.stepName as ActivationStepName,
+                  )
+                : e.id,
             recorded_at: e.createdAt,
             screen: e.screen,
             ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
@@ -350,6 +364,12 @@ export class UsageTelemetryReporter {
               ? { google_scopes: JSON.parse(e.googleScopesJson) }
               : {}),
             ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
+            // Activation funnel fields — only present on activation rows.
+            ...(e.sessionId ? { session_id: e.sessionId } : {}),
+            ...(e.stepName ? { step_name: e.stepName } : {}),
+            ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
+            ...(e.completedAt ? { completed_at: e.completedAt } : {}),
+            ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
             // Onboarding events fall back to the envelope `assistant_version`
             // — same upload-time attribution risk as before this PR. Adding
             // the record-time column to `onboarding_events` (#30733) is a

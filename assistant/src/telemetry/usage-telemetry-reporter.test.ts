@@ -131,6 +131,11 @@ const mockQueryUnreportedOnboardingEvents = mock(
       googleScopesJson: string | null;
       priorAssistantsJson: string | null;
       abVariant: string | null;
+      sessionId: string | null;
+      stepName: string | null;
+      stepIndex: number | null;
+      completedAt: string | null;
+      funnelVersion: string | null;
     }[],
 );
 
@@ -152,6 +157,10 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { authFallbackEvents } from "../memory/schema.js";
 import type { UsageEvent } from "../usage/types.js";
+import {
+  ACTIVATION_FUNNEL_VERSION,
+  buildActivationDaemonEventId,
+} from "./activation-funnel.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
 initializeDb();
@@ -197,6 +206,34 @@ function makeUsageEvent(
     assistantVersion: "test-app-version",
     conversationType: "standard",
     turnIndex: 1,
+    ...overrides,
+  };
+}
+
+type OnboardingEventFixture = ReturnType<
+  typeof mockQueryUnreportedOnboardingEvents
+>[number];
+
+function makeOnboardingEvent(
+  overrides: Partial<OnboardingEventFixture> = {},
+): OnboardingEventFixture {
+  eventIdCounter += 1;
+  return {
+    id: `onb-${eventIdCounter}`,
+    createdAt: 1700000000000 + eventIdCounter * 1000,
+    screen: "tools",
+    toolsJson: null,
+    tasksJson: null,
+    tone: null,
+    googleConnected: null,
+    googleScopesJson: null,
+    priorAssistantsJson: null,
+    abVariant: null,
+    sessionId: null,
+    stepName: null,
+    stepIndex: null,
+    completedAt: null,
+    funnelVersion: null,
     ...overrides,
   };
 }
@@ -1183,5 +1220,79 @@ describe("UsageTelemetryReporter", () => {
     );
     expect(idCalls.length).toBeGreaterThanOrEqual(1);
     expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // Onboarding / activation funnel events
+  // -------------------------------------------------------------------------
+
+  test("activation onboarding row serializes funnel fields + deterministic daemon_event_id", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const sessionId = "sess-activation-1";
+    const stepName = "activation_moment_1_complete";
+    mockQueryUnreportedOnboardingEvents.mockReturnValue([
+      makeOnboardingEvent({
+        id: "onb-activation-1",
+        screen: stepName,
+        abVariant: "variant-a",
+        sessionId,
+        stepName,
+        stepIndex: 1,
+        completedAt: "2026-06-06T00:00:00.000Z",
+        funnelVersion: ACTIVATION_FUNNEL_VERSION,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "onboarding",
+      session_id: sessionId,
+      step_name: stepName,
+      step_index: 1,
+      completed_at: "2026-06-06T00:00:00.000Z",
+      funnel_version: "activation_v1_2026_06",
+      daemon_event_id: buildActivationDaemonEventId(sessionId, stepName),
+    });
+  });
+
+  test("legacy onboarding row keeps daemon_event_id: e.id and omits funnel fields", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedOnboardingEvents.mockReturnValue([
+      makeOnboardingEvent({
+        id: "onb-legacy-1",
+        screen: "tools",
+        toolsJson: JSON.stringify(["calendar"]),
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    const e = body.events[0];
+    expect(e.type).toBe("onboarding");
+    expect(e.daemon_event_id).toBe("onb-legacy-1");
+    expect(e.session_id).toBeUndefined();
+    expect(e.step_name).toBeUndefined();
+    expect(e.step_index).toBeUndefined();
+    expect(e.completed_at).toBeUndefined();
+    expect(e.funnel_version).toBeUndefined();
   });
 });
