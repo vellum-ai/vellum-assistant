@@ -1,5 +1,5 @@
 import { Cloud, Laptop } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
@@ -39,8 +39,8 @@ export function SelectAssistantScreen() {
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [autoSkipping, setAutoSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoSkipAttempted = useRef(false);
 
   // Default selection to first accessible assistant
   useEffect(() => {
@@ -74,10 +74,9 @@ export function SelectAssistantScreen() {
 
   // Auto-skip when exactly one accessible assistant
   useEffect(() => {
-    if (autoSkipAttempted.current || assistants.length === 0) return;
-    autoSkipAttempted.current = true;
-
+    if (assistants.length === 0) return;
     if (accessibleAssistants.length === 1) {
+      setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,7 +92,7 @@ export function SelectAssistantScreen() {
   };
 
   // Loading state during auto-skip
-  if (connecting && autoSkipAttempted.current && accessibleAssistants.length <= 1) {
+  if (autoSkipping && !error) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
