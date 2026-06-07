@@ -12,7 +12,6 @@
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ContextWindowManager } from "../context/window-manager.js";
 import type {
   ChannelCapabilities,
   InboundActorContext,
@@ -130,19 +129,6 @@ export interface TurnContext {
   turnIndex: number;
   /** Trust classification and channel identity for the inbound actor. */
   trust: TrustContext;
-  /**
-   * Optional handle to the conversation's {@link ContextWindowManager}.
-   *
-   * Attached by the orchestrator so the default compaction implementation can
-   * defer to the real compaction machinery via `context.manager`. Call sites
-   * that never touch compaction may omit it.
-   *
-   * Declared as an optional typed field so plugin code can read it without a
-   * lenient cast. The optional shape is load-bearing: synthesized handler
-   * contexts and other non-compaction call sites still construct valid
-   * `TurnContext` literals without attaching a manager.
-   */
-  contextWindowManager?: ContextWindowManager;
   /**
    * Controls which runtime injections are applied. `"full"` (default) runs
    * every gating branch; `"minimal"` skips high-token optional blocks

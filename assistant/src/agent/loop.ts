@@ -10,7 +10,10 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import type {
+  ContextWindowManager,
+  ContextWindowResult,
+} from "../context/window-manager.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -408,7 +411,7 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
  * tests that construct `AgentLoop` directly without an orchestrator.
  *
  * When the orchestrator-supplied context is present it is used directly so the
- * pipeline sees the real `conversationId`, trust, and `contextWindowManager`.
+ * pipeline sees the real `conversationId` and trust class.
  * In the fallback path the returned context is still useful for pipeline
  * logging: `requestId` surfaces in every structured record, and `turnIndex`
  * reflects the current tool-use iteration.
@@ -484,11 +487,19 @@ export interface AgentLoopRunOptions {
    * Per-turn context supplied by the orchestrator. Every pipeline
    * invocation inside the loop clones from this value (overwriting only
    * `turnIndex`/`requestId`) so middleware sees the real conversation
-   * identity, trust class, and `contextWindowManager` rather than the
-   * `"agent-loop"` sentinel used when the loop is instantiated standalone
-   * in unit tests.
+   * identity and trust class rather than the `"agent-loop"` sentinel used
+   * when the loop is instantiated standalone in unit tests.
    */
   turnContext?: TurnContext;
+  /**
+   * The conversation's {@link ContextWindowManager}, supplied by the
+   * orchestrator so mid-loop in-place compaction can run against the real
+   * per-conversation manager. Absent for callers without a compaction path
+   * (agent wakes, standalone unit tests); the loop only reads it when the
+   * mid-loop budget gate trips with {@link AgentLoopRunOptions.compactInPlace}
+   * enabled.
+   */
+  contextWindowManager?: ContextWindowManager;
   /**
    * Ad-hoc inference-profile override applied to every LLM call the loop
    * issues. When set, each `SendMessageOptions.config` carries
@@ -718,6 +729,7 @@ export class AgentLoop {
   private async compact(
     history: Message[],
     turnContext: TurnContext,
+    manager: ContextWindowManager | undefined,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
@@ -732,10 +744,9 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
-    const manager = turnContext.contextWindowManager;
     if (manager == null) {
       throw new PluginExecutionError(
-        "default-compaction: turnContext.contextWindowManager is missing — orchestrator must attach it before invoking compaction",
+        "default-compaction: contextWindowManager run option is missing — orchestrator must supply it before invoking compaction",
         DEFAULT_COMPACTION_PLUGIN_NAME,
       );
     }
@@ -806,6 +817,7 @@ export class AgentLoop {
       resolveOverrideProfile,
       resolveContextWindow,
       compactInPlace = false,
+      contextWindowManager,
       isNonInteractive = false,
       modelProfile = null,
       actorContext = null,
@@ -1648,6 +1660,7 @@ export class AgentLoop {
               const compacted = await this.compact(
                 history,
                 turnCtx,
+                contextWindowManager,
                 signal,
                 onEvent,
                 resolveEffectiveOverrideProfile() ?? null,

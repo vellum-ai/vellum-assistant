@@ -216,9 +216,9 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  * loop. Every `runHook` invocation in `runAgentLoopImpl` (and in the
  * handlers that share its ambient state) must route through this helper
  * rather than constructing a `TurnContext` literal inline — this keeps
- * `turnIndex`, trust resolution, and the `contextWindowManager` attachment
- * consistent across hooks, which in turn keeps structured logs
- * filtered by `conversationId`/`turnIndex` coherent across slots.
+ * `turnIndex` and trust resolution consistent across hooks, which in turn
+ * keeps structured logs filtered by `conversationId`/`turnIndex` coherent
+ * across slots.
  *
  * Behavior:
  * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
@@ -229,9 +229,6 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
  *   the one inside the orchestrator's inline injection assembly so
  *   middleware reads the same trust class the runtime sees.
- * - `contextWindowManager` is attached unconditionally. Hooks that
- *   don't need it can ignore it; it remains available via the typed
- *   optional field on `TurnContext`.
  */
 function buildPluginTurnContext(
   ctx: Conversation,
@@ -244,7 +241,6 @@ function buildPluginTurnContext(
     conversationId: ctx.conversationId,
     turnIndex: ctx.turnCount,
     trust,
-    contextWindowManager: ctx.contextWindowManager,
     callSite: ctx.currentCallSite,
   };
 }
@@ -1329,6 +1325,7 @@ export async function runAgentLoopImpl(
           onCheckpoint,
           callSite: turnCallSite,
           turnContext: loopTurnCtx,
+          contextWindowManager: ctx.contextWindowManager,
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
