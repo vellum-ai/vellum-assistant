@@ -21,7 +21,7 @@ import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
@@ -61,21 +61,19 @@ export function useAssistantLifecycle({
     (hasPlatformSession || !isLocalMode());
 
   // Which platform assistant the user has selected, gated by the
-  // multi-platform-assistant flag and to platform mode only. When the flag
-  // is off (or no selection / not platform mode) this stays null, so the
-  // resolution falls back to the default first-listed assistant — identical
-  // to the pre-multi-assistant behavior. A change here flows into the
-  // service via `setInputs` → `respondToInputs` → `checkAssistant`, which
-  // re-resolves and projects the newly selected assistant.
+  // multi-platform-assistant flag. When the flag is off (or no
+  // selection) this stays null, so the resolution falls back to the
+  // default first-listed assistant — identical to the
+  // pre-multi-assistant behavior.
   const multiAssistantEnabled =
     useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
-  const byOrg = useCurrentPlatformAssistantStore.use.byOrg();
+  const byOrg =
+    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
   const selectedPlatformAssistantId =
     multiAssistantEnabled &&
     !isGatewayAuthMode() &&
-    !isLocalMode() &&
     currentOrganizationId
       ? (byOrg[currentOrganizationId] ?? null)
       : null;

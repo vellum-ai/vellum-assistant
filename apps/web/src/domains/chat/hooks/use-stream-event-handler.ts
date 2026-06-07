@@ -7,7 +7,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { tailIsAssistant } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -224,7 +224,7 @@ export function useStreamEventHandler(
         router: { push },
         isNative,
         streamContext: streamState.streamContext,
-        assistantId: useAssistantSelectionStore.getState().activeAssistantId,
+        assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setMessages: store.setMessages,
         messages: store.messages,
         turnActions: useTurnStore.getState(),

@@ -1,5 +1,5 @@
 import { setActiveLockfileAssistant } from "@/lib/local-mode";
-import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 /**
@@ -10,19 +10,15 @@ import { useOrganizationStore } from "@/stores/organization-store";
  * mirrors it into the lockfile `activeAssistant` so the macOS tray, the CLI,
  * and the native client agree (a no-op in the browser, where there is no
  * lockfile host).
- *
- * The lifecycle reacts to the per-org store change (it subscribes to `byOrg`)
- * and re-resolves to the selected assistant, so callers don't need to drive
- * the switch imperatively — just record the selection here.
  */
 export async function selectPlatformAssistant(
   assistantId: string,
 ): Promise<void> {
   const orgId = useOrganizationStore.getState().currentOrganizationId;
   if (orgId) {
-    useCurrentPlatformAssistantStore
+    useResolvedAssistantsStore
       .getState()
-      .setAssistantId(orgId, assistantId);
+      .setSelectedPlatformAssistant(orgId, assistantId);
   }
   await setActiveLockfileAssistant(assistantId);
 }

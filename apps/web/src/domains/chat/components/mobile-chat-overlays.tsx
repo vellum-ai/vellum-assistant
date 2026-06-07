@@ -10,7 +10,7 @@ import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
@@ -28,7 +28,7 @@ export function MobileChatOverlays() {
   const overlayTarget = useMobileOverlayTarget();
   const navigate = useNavigate();
 
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
@@ -47,13 +47,13 @@ export function MobileChatOverlays() {
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
     if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
   }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
-    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
     if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
   }, []);
 
@@ -80,7 +80,7 @@ export function MobileChatOverlays() {
   );
 
   const handleRequestSubagentDetail = useCallback((subagentId: string) => {
-    const aid = useAssistantSelectionStore.getState().activeAssistantId;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
     if (!aid) return;
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, subagentId);
   }, []);

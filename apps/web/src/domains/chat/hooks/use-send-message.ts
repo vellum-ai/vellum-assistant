@@ -31,7 +31,7 @@ import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -221,7 +221,7 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+          currentAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
@@ -269,7 +269,7 @@ export function useSendMessage({
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+            activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
             activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
@@ -312,7 +312,7 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+          activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
@@ -354,7 +354,7 @@ export function useSendMessage({
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
-              activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+              activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
               activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;

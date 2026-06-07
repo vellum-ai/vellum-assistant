@@ -20,7 +20,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { publish } from "@/lib/event-bus";
 
 interface PatchArgs {
@@ -67,12 +67,12 @@ beforeEach(() => {
   browserTz = "America/New_York";
   patchMock.mockClear();
   patchMock.mockImplementation(async () => ({ data: {} }));
-  useAssistantSelectionStore.setState({ activeAssistantId: "asst-1" });
+  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
 
 afterEach(() => {
   cleanup();
-  useAssistantSelectionStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 function lastBody() {
@@ -123,7 +123,7 @@ describe("TimezoneSync", () => {
   });
 
   test("no PATCH when no assistant id is available", async () => {
-    useAssistantSelectionStore.setState({ activeAssistantId: null });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
     renderSync();
     await new Promise((r) => setTimeout(r, 10));
     expect(patchMock).not.toHaveBeenCalled();

@@ -20,7 +20,7 @@ import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -61,7 +61,7 @@ export function useConversationSecondaryActions({
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
-      const assistantId = useAssistantSelectionStore.getState().activeAssistantId;
+      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
       const activeConversationId = useConversationStore.getState().activeConversationId;
       if (!assistantId || !activeConversationId) {
         return;
@@ -94,7 +94,7 @@ export function useConversationSecondaryActions({
 
   const handleAnalyzeConversation = useCallback(
     async (conversation: Conversation) => {
-      const assistantId = useAssistantSelectionStore.getState().activeAssistantId;
+      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
       if (!assistantId) return;
       try {
         const { data } = await conversationsByIdAnalyzePost({

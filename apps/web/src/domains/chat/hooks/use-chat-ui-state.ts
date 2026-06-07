@@ -25,7 +25,7 @@ import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -63,7 +63,7 @@ export function useChatUIState(): ChatUIState {
   const activeToolCallCount = useTurnStore.use.activeToolCallCount();
   const statusText = useTurnStore.use.statusText();
 
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
 

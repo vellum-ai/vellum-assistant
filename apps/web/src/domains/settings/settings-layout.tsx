@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -24,7 +24,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );

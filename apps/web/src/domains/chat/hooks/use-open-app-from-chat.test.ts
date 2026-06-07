@@ -18,7 +18,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -37,7 +37,7 @@ import {
 let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
 let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
 let selectionSnapshot: ReturnType<
-  typeof useAssistantSelectionStore.getState
+  typeof useResolvedAssistantsStore.getState
 >;
 
 const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
@@ -49,7 +49,7 @@ const setEditingConversationIdMock = mock(
 beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();
   conversationSnapshot = useConversationStore.getState();
-  selectionSnapshot = useAssistantSelectionStore.getState();
+  selectionSnapshot = useResolvedAssistantsStore.getState();
 
   mobileRef.current = false;
   loadAppMock.mockReset();
@@ -81,19 +81,19 @@ beforeEach(() => {
     setEditingConversationId:
       setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
   });
-  useAssistantSelectionStore.setState({ activeAssistantId: "asst-1" });
+  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
 
 afterEach(() => {
   cleanup();
   useViewerStore.setState(viewerSnapshot, true);
   useConversationStore.setState(conversationSnapshot, true);
-  useAssistantSelectionStore.setState(selectionSnapshot, true);
+  useResolvedAssistantsStore.setState(selectionSnapshot, true);
 });
 
 describe("useOpenAppFromChat", () => {
   test("no-ops when there is no active assistant", async () => {
-    useAssistantSelectionStore.setState({ activeAssistantId: null });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
     const { result } = renderHook(() => useOpenAppFromChat());
 
     await result.current("app-42");

@@ -66,7 +66,7 @@ import {
 } from "@/stores/auth-store.js";
 import { hasLivePlatformSession } from "@/stores/session-status";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes.js";
 
 const IOS_TOTAL_STEPS = 3;
@@ -89,7 +89,7 @@ export function PreChatFlow() {
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
   const activeAssistantId =
-    useAssistantSelectionStore.use.activeAssistantId();
+    useResolvedAssistantsStore.use.activeAssistantId();
   const localMode = isLocalMode();
   const isIOSWeb = useIsIOSWeb();
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();

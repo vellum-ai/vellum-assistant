@@ -10,19 +10,19 @@
  *
  * Routes that intentionally render across pre-active states
  * (`ChatPage`, `DocumentViewerPage`) read the raw store via
- * `useAssistantSelectionStore.use.activeAssistantId()` and handle
+ * `useResolvedAssistantsStore.use.activeAssistantId()` and handle
  * the null case themselves.
  */
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export function useActiveAssistantId(): string {
-  const id = useAssistantSelectionStore.use.activeAssistantId();
+  const id = useResolvedAssistantsStore.use.activeAssistantId();
   if (!id) {
     throw new Error(
       "useActiveAssistantId() called outside ActiveAssistantGate — " +
         "either mount the route under <ActiveAssistantGate> or read the " +
-        "raw store via useAssistantSelectionStore.use.activeAssistantId().",
+        "raw store via useResolvedAssistantsStore.use.activeAssistantId().",
     );
   }
   return id;

@@ -28,7 +28,7 @@ import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
@@ -65,7 +65,7 @@ const KEYBOARD_OPEN_THRESHOLD_PX = 100;
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
  *    here as a side effect — the hook publishes `assistantState` and
  *    stable imperative callbacks into `useAssistantLifecycleStore`,
- *    and the active assistant id into `useAssistantSelectionStore`.
+ *    and the active assistant id into `useResolvedAssistantsStore`.
  *    Mounting once at the app root means every layout / route can
  *    read the current assistant via store selectors without each
  *    running a duplicate polling state machine.
@@ -100,7 +100,7 @@ export function RootLayout() {
     resolveOnboardingRedirect,
   });
 
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantStateKind = useAssistantLifecycleStore(

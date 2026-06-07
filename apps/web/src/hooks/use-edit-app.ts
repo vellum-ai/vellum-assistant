@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
@@ -28,7 +28,7 @@ import { routes } from "@/utils/routes";
  * Library app view (`LibraryDetailPage`).
  */
 export function useEditApp(): (app: OpenedAppState) => void {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { pathname } = useLocation();

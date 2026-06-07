@@ -23,7 +23,7 @@ import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
     applyThemePreference,
     readStoredThemePreference,
@@ -116,7 +116,7 @@ function ThemeCard() {
 }
 
 export function TimezoneCard() {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const [timezone, setTimezone] = useState<string>(() =>
     getDeviceSetting("timezone", ""),
   );

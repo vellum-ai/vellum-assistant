@@ -12,7 +12,7 @@
 
 import { create } from "zustand";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
@@ -614,7 +614,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   abortSubagent: async (subagentId) => {
-    const assistantId = useAssistantSelectionStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     const activeConversationId = useConversationStore.getState().activeConversationId;
     if (!assistantId || !activeConversationId) return;
     try {
