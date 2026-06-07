@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
-import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
+import type {
+  AgentEvent,
+  AgentLoopRunOptions,
+  AgentLoopRunResult,
+} from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -247,7 +251,14 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
+      options?: AgentLoopRunOptions,
     ): Promise<AgentLoopRunResult> {
+      // The loop runs the orchestrator's start-of-turn pipeline (proactive
+      // compaction, memory retrieval, injection) before the first provider
+      // call and adopts the returned history as its base.
+      if (options?.prepareFirstCall) {
+        messages = await options.prepareFirstCall();
+      }
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });

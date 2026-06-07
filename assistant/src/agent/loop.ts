@@ -558,6 +558,16 @@ export interface AgentLoopRunOptions {
    * Defaults to `null` when omitted.
    */
   actorContext?: InboundActorContext | null;
+  /**
+   * Prepares the working history for the turn's first provider call. The
+   * orchestrator supplies the start-of-turn pipeline — proactive compaction,
+   * memory retrieval, and runtime injection — and the loop invokes it once
+   * before issuing the first call, adopting the returned messages as the run's
+   * input base. Absent for callers that pass an already-prepared history
+   * (agent wakes, compaction-recovery reruns, standalone unit tests), where the
+   * loop uses `messages` directly.
+   */
+  prepareFirstCall?: () => Promise<Message[]>;
 }
 
 /**
@@ -821,6 +831,7 @@ export class AgentLoop {
       isNonInteractive = false,
       modelProfile = null,
       actorContext = null,
+      prepareFirstCall,
     } = options ?? {};
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -841,6 +852,17 @@ export class AgentLoop {
     // occasions as the prior post-call placement.
     let budgetGateArmed = false;
     const rlog = requestId ? log.child({ requestId }) : log;
+
+    // Prepare the working history for the first provider call. When supplied,
+    // the orchestrator runs the start-of-turn pipeline (proactive compaction,
+    // memory retrieval, runtime injection) here and the loop adopts the result
+    // as this run's input base. `budgetGateArmed` stays false so the loop does
+    // not re-evaluate compaction the orchestrator just performed; an aborted
+    // signal is caught by the first iteration's pre-call check below.
+    if (prepareFirstCall) {
+      history = await prepareFirstCall();
+      newMessagesStart = history.length;
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
