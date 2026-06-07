@@ -3,8 +3,6 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
 import {
-  assembleJobMessage,
-  assembleRatherMessage,
   EDGES,
   RATHERS,
   type Edge,
@@ -18,13 +16,10 @@ import {
   type StyleProfile,
 } from "@/cast/cast-hooks";
 import { CastChat } from "@/cast/cast-chat";
-import { CastConversationView, useCastConversation } from "@/cast/cast-conversation";
 import { CastJob } from "@/cast/cast-job";
 import { CastProof } from "@/cast/cast-proof-view";
 import { CastRather } from "@/cast/cast-rather";
 import { CastStyle } from "@/cast/cast-style";
-import { jobTurn, ratherTurn, styleTurn } from "@/cast/cast-templates";
-import { CastTwoPanel } from "@/cast/cast-two-panel";
 import type { CastCharacter } from "@/cast/cast-roster";
 import { CAST } from "@/cast/cast-roster";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
@@ -82,17 +77,19 @@ export function CastPage() {
     return { cols: colsFor(w), rows: rowsFor(h) };
   });
 
-  // Picks (persisted in component state for later beats). Both steps are
-  // multi-select.
-  const convo = useCastConversation();
-  const [jobs, setJobs] = useState<JobKey[]>([]);
+  // Treatment fork (demo): ?arm=b swaps Job+Rather for the This/That rounds.
+  const arm = useRef<"a" | "b">(
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("arm") === "b"
+      ? "b"
+      : "a",
+  ).current;
+
+  // Picks (persisted in component state for later beats).
+  const [jobs, setJobs] = useState<JobKey[]>([]); // multi-select
   const [jobEdges, setJobEdges] = useState<Record<string, Edge>>({});
-  const [rathers, setRathers] = useState<RatherKey[]>([]);
+  const [rathers, setRathers] = useState<RatherKey[]>([]); // single-select
   const [style, setStyle] = useState<StyleProfile>({});
   const [mime, setMime] = useState<MimeState | null>(null);
-  // Beat 4: flips true once a rather message is Sent, so the conversation-panel
-  // offer can appear after that turn finishes streaming.
-  const [ratherSent, setRatherSent] = useState(false);
   const tapRef = useRef(0);
   const mimeTimer = useRef<number | undefined>(undefined);
   const clearBeatTimers = () => {
@@ -116,8 +113,8 @@ export function CastPage() {
   const visible = CAST.slice(0, Math.min(cols * rows, 600));
   const inGrid = phase === "grid";
   const name = selected ? (names[selected.id] ?? selected.name) : "";
-  // Hero box centered in the LEFT half for the two-panel beats (3–6).
-  const leftPanelBox: Rect = { ...boxes.top, left: boxes.w / 4 - boxes.top.size / 2 };
+  // Single-surface: the hero is centered in the full width for every beat.
+  const heroBox: Rect = boxes.top;
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
@@ -153,24 +150,23 @@ export function CastPage() {
 
   function backToGrid() {
     clearBeatTimers();
-    convo.reset();
     setPhase("grid");
     setSelected(null);
     setFlyFrom(null);
     setJobs([]);
     setJobEdges({});
     setRathers([]);
+    setStyle({});
     setMime(null);
-    setRatherSent(false);
   }
 
-  function goToRather() {
-    setPhase("rather");
+  // Beat 2 → first composition beat (Job for Arm A, This/That for Arm B).
+  function startComposing() {
+    setPhase(arm === "b" ? "style" : "job");
   }
 
-  // Beat 3: toggle a job. Each newly-added job keeps a stable fly-in edge so its
-  // prop arcs in once and then stays clustered around the character. Taps no
-  // longer send — they assemble the locked-input draft; Send fires it.
+  // Job (multi-select): each newly-added job keeps a stable fly-in edge so its
+  // prop arcs in once and then stays clustered around the character.
   function toggleJob(key: JobKey) {
     const adding = !jobs.includes(key);
     const next = adding ? [...jobs, key] : jobs.filter((k) => k !== key);
@@ -179,24 +175,19 @@ export function CastPage() {
       prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
     );
     void kickoffJobContext(next);
-    convo.setDraft(assembleJobMessage(next));
   }
 
-  // Beat 3 Send: commit the assembled draft as the user message + stream a turn.
-  function sendJobs() {
-    if (jobs.length === 0) return;
-    convo.commit(jobTurn(jobs[0])); // first pick's script drives the demo response
-  }
-
-  // Beat 4: toggle a rather. Adding one plays its mime (transient) and assembles
-  // the locked-input draft. Send fires it.
-  function toggleRather(key: RatherKey) {
-    const has = rathers.includes(key);
-    const next = has ? rathers.filter((k) => k !== key) : [...rathers, key];
+  // Rather (single-select): tapping selects one (re-tapping clears it) and arcs
+  // its prop onto the character via the transient mime.
+  function selectRather(key: RatherKey) {
+    const isOn = rathers[0] === key;
+    const next: RatherKey[] = isOn ? [] : [key];
     setRathers(next);
     void kickoffRatherContext(next);
-    convo.setDraft(assembleRatherMessage(next));
-    if (has) return;
+    if (isOn) {
+      setMime(null);
+      return;
+    }
     const choice = RATHERS.find((r) => r.key === key)!;
     const nonce = (tapRef.current += 1);
     setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
@@ -204,23 +195,7 @@ export function CastPage() {
     mimeTimer.current = window.setTimeout(() => setMime(null), 1500);
   }
 
-  // Beat 4 Send: commit the draft + arm the post-stream "boring stuff" offer.
-  function sendRathers() {
-    if (rathers.length === 0) return;
-    const choice = RATHERS.find((r) => r.key === rathers[0])!;
-    convo.commit(ratherTurn(rathers[0], choice.label));
-    setRatherSent(true);
-  }
-
-  // Beat 4 offer "Let's go!" → advance to This/That.
-  function acceptOffer() {
-    clearBeatTimers();
-    setMime(null);
-    setPhase("style");
-  }
-
-  // Beat 5: persist each round's pick (kickoffStyleContext fires per-tap inside
-  // CastStyle); the final round transitions to the Proof beat.
+  // This/That (Arm B): persist each round's pick; the final round → Proof.
   function onStyleRound(next: StyleProfile) {
     setStyle(next);
   }
@@ -303,115 +278,79 @@ export function CastPage() {
             name={name}
             box={boxes.focus}
             onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
-            onContinue={() => {
-              convo.seedGreeting(name); // never enter Beat 3 with an empty panel
-              setPhase("job");
-            }}
+            onContinue={startComposing}
             onBack={backToGrid}
           />
         )}
 
-        {/* Beat 3 — what will I be doing for you? (multi-select, two-panel) */}
+        {/* Job — multi-select; props arc onto the character (Arm A) */}
         {phase === "job" && selected && (
-          <CastTwoPanel
-            left={
-              <CastJob
-                character={selected}
-                heroBox={leftPanelBox}
-                jobs={jobs}
-                jobEdges={jobEdges}
-                onToggle={toggleJob}
-                onContinue={goToRather}
-                onBack={() => setPhase("focus")}
-              />
-            }
-            right={
-              <CastConversationView
-                messages={convo.messages}
-                assistantName={name}
-                input={{ value: convo.draft, canSend: jobs.length > 0, onSend: sendJobs }}
-              />
-            }
+          <CastJob
+            character={selected}
+            heroBox={heroBox}
+            jobs={jobs}
+            jobEdges={jobEdges}
+            onToggle={toggleJob}
+            onContinue={() => setPhase("rather")}
+            onBack={() => setPhase("focus")}
           />
         )}
 
-        {/* Beat 4 — rather (multi-select, two-panel) */}
+        {/* Rather — single-select; prop arcs onto the character (Arm A) */}
         {phase === "rather" && selected && (
-          <CastTwoPanel
-            left={
-              <CastRather
-                character={selected}
-                heroBox={leftPanelBox}
-                jobs={jobs}
-                rathers={rathers}
-                mime={mime}
-                onToggle={toggleRather}
-                onBack={() => {
-                  clearBeatTimers();
-                  setMime(null);
-                  setPhase("job");
-                }}
-              />
-            }
-            right={
-              <CastConversationView
-                messages={convo.messages}
-                assistantName={name}
-                input={{ value: convo.draft, canSend: rathers.length > 0, onSend: sendRathers }}
-                offer={ratherSent && !convo.streaming ? { onAccept: acceptOffer } : undefined}
-              />
-            }
+          <CastRather
+            character={selected}
+            heroBox={heroBox}
+            jobs={jobs}
+            rathers={rathers}
+            mime={mime}
+            onToggle={selectRather}
+            onContinue={() => setPhase("done")}
+            onBack={() => {
+              clearBeatTimers();
+              setMime(null);
+              setPhase("job");
+            }}
           />
         )}
 
-        {/* Beat 5 — this or that (two-panel) */}
+        {/* This/That — three rounds replacing Job+Rather (Arm B) */}
         {phase === "style" && selected && (
-          <CastTwoPanel
-            left={
-              <CastStyle
-                character={selected}
-                name={name}
-                heroBox={leftPanelBox}
-                jobs={jobs}
-                ascended={rathers.length === RATHERS.length}
-                onChoose={(value) => convo.send(styleTurn(value))}
-                onRoundPicked={onStyleRound}
-                onDone={onStyleDone}
-                onBack={() => setPhase("rather")}
-              />
-            }
-            right={<CastConversationView messages={convo.messages} assistantName={name} />}
+          <CastStyle
+            character={selected}
+            name={name}
+            heroBox={heroBox}
+            jobs={jobs}
+            ascended={false}
+            onRoundPicked={onStyleRound}
+            onDone={onStyleDone}
+            onBack={() => setPhase("focus")}
           />
         )}
 
-        {/* Beat 6 — proof (two-panel). Hero sits a little lower so juggling props
-            have headroom above without clipping. */}
+        {/* Proof — artifact + endpoint CTAs (single surface, centered). Hero sits
+            a little lower so juggling props have headroom above without clipping. */}
         {phase === "done" && selected && (
-          <CastTwoPanel
-            left={
-              <CastProof
-                character={selected}
-                box={{ ...leftPanelBox, top: leftPanelBox.top + Math.round(leftPanelBox.size * 0.7) }}
-                jobs={jobs}
-                rathers={rathers}
-                style={style}
-                ascended={rathers.length === RATHERS.length}
-                assistantId={assistantId}
-                onAction={(which) => {
-                  console.log("[Cast] proof action", {
-                    which,
-                    character: selected.id,
-                    name,
-                    jobs,
-                    rathers,
-                    style,
-                  });
-                }}
-                onEndpoint={(which) => setPhase(which)}
-                onBack={() => setPhase("style")}
-              />
-            }
-            right={<CastConversationView messages={convo.messages} assistantName={name} />}
+          <CastProof
+            character={selected}
+            box={{ ...heroBox, top: heroBox.top + Math.round(heroBox.size * 0.7) }}
+            jobs={jobs}
+            rathers={rathers}
+            style={style}
+            ascended={false}
+            assistantId={assistantId}
+            onAction={(which) => {
+              console.log("[Cast] proof action", {
+                which,
+                character: selected.id,
+                name,
+                jobs,
+                rathers,
+                style,
+              });
+            }}
+            onEndpoint={(which) => setPhase(which)}
+            onBack={() => setPhase(arm === "b" ? "style" : "rather")}
           />
         )}
 
