@@ -123,6 +123,34 @@ export class PluginNotFoundError extends Error {
   }
 }
 
+/**
+ * The plugin source is temporarily unreachable — GitHub rate-limited us or
+ * returned a 5xx. Distinct from a hard failure (the plugin genuinely doesn't
+ * exist) so the caller can surface a retryable 503 instead of a 500.
+ */
+export class PluginSourceUnavailableError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PluginSourceUnavailableError";
+    this.status = status;
+  }
+}
+
+/**
+ * Classify an upstream GitHub status as transient (worth retrying) vs hard.
+ * A 429 or 5xx is always transient. A 403 is GitHub's unauthenticated
+ * rate-limit signal only when the remaining-quota header is exhausted —
+ * a 403 without it is a genuine authorization failure and stays hard.
+ */
+function isTransientUpstreamStatus(res: Response): boolean {
+  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 403) {
+    return res.headers.get("x-ratelimit-remaining") === "0";
+  }
+  return false;
+}
+
 /** Resolved GitHub coordinates a plugin name is fetched from. */
 interface PluginFetchSource {
   readonly owner: string;
@@ -298,14 +326,7 @@ export async function installPlugin(
 
   let fileCount: number;
   try {
-    fileCount = await copyDir(
-      source.owner,
-      source.repo,
-      source.rootPath,
-      ref,
-      stagingDir,
-      deps.fetch,
-    );
+    fileCount = await copyPluginTree(source, stagingDir, deps.fetch);
   } catch (err) {
     rmSync(stagingDir, { recursive: true, force: true });
     throw err;
@@ -327,36 +348,124 @@ export async function installPlugin(
   return { name, target, fileCount, ref };
 }
 
-async function copyDir(
-  owner: string,
-  repo: string,
-  apiPath: string,
-  ref: string,
+/** Entry shape returned by the GitHub Git Trees API. */
+interface GitHubTreeEntry {
+  readonly path: string;
+  readonly type: "blob" | "tree" | "commit";
+  /** Git file mode; `120000` is a symlink. */
+  readonly mode: string;
+}
+
+/**
+ * Materialize a plugin subtree, fetching the whole repo tree in one request.
+ *
+ * Walking the Contents API directory-by-directory costs one API request per
+ * directory, which exhausts GitHub's 60/hr unauthenticated rate limit on any
+ * non-trivial plugin (e.g. a repo with dozens of nested folders). Instead we
+ * enumerate the entire tree at the ref in a single `git/trees?recursive=1`
+ * request, then download each file from `raw.githubusercontent.com` — a
+ * separate host that does not draw from the API rate-limit budget. Net cost:
+ * one API request plus N un-throttled raw downloads.
+ *
+ * Returns the number of files written; zero means the source path held no
+ * files at this ref, which the caller maps to a not-found error.
+ */
+async function copyPluginTree(
+  source: PluginFetchSource,
   destDir: string,
   fetchFn: FetchLike,
 ): Promise<number> {
-  const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
-  if (entries === null) return 0;
+  const tree = await listPluginTree(source, fetchFn);
+  if (tree === null) return 0;
 
+  const prefix = source.rootPath ? `${source.rootPath}/` : "";
   let count = 0;
-  for (const entry of entries) {
-    assertSafeFilename("entry name", entry.name);
-    if (entry.type === "dir") {
-      const subDest = join(destDir, entry.name);
-      mkdirSync(subDest, { recursive: true });
-      count += await copyDir(owner, repo, entry.path, ref, subDest, fetchFn);
-      continue;
-    }
-    if (entry.type === "file") {
-      await copyFile(entry, destDir, fetchFn);
-      count++;
-      continue;
-    }
-    // Skip symlink + submodule deliberately. The daemon-side loader does not
-    // follow either, so reproducing them in the install target adds risk
-    // without value.
+  for (const entry of tree) {
+    // Only regular files. Directories are implied by file paths (created on
+    // write); symlinks (mode 120000) and submodules (type "commit") are
+    // skipped to match the daemon loader, which follows neither.
+    if (entry.type !== "blob" || entry.mode === "120000") continue;
+    if (prefix && !entry.path.startsWith(prefix)) continue;
+
+    const relPath = prefix ? entry.path.slice(prefix.length) : entry.path;
+    if (!relPath) continue;
+    const segments = relPath.split("/");
+    for (const segment of segments) assertSafeFilename("path segment", segment);
+
+    await downloadRawFile(source, entry.path, segments, destDir, fetchFn);
+    count++;
   }
   return count;
+}
+
+/**
+ * List the full recursive tree at the source's ref in a single request.
+ *
+ * Returns null when the repo/ref doesn't exist (404 → not-found downstream).
+ * Throws {@link PluginSourceUnavailableError} on a transient upstream failure
+ * (rate limit / 5xx) so the caller can surface a retryable 503, and a hard
+ * error otherwise. A truncated tree (a repo too large for GitHub to return in
+ * one response) is a hard error rather than a silent partial install.
+ */
+async function listPluginTree(
+  source: PluginFetchSource,
+  fetchFn: FetchLike,
+): Promise<readonly GitHubTreeEntry[] | null> {
+  const url =
+    `https://api.github.com/repos/${source.owner}/${source.repo}` +
+    `/git/trees/${encodeURIComponent(source.ref)}?recursive=1`;
+
+  const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const label = `tree listing for ${sourceLabel(source)} @ ${source.ref}: HTTP ${res.status}`;
+    if (isTransientUpstreamStatus(res)) {
+      throw new PluginSourceUnavailableError(`GitHub ${label}`, res.status);
+    }
+    throw new Error(`GitHub ${label}`);
+  }
+
+  const body = (await res.json()) as {
+    tree?: GitHubTreeEntry[];
+    truncated?: boolean;
+  };
+  if (body.truncated) {
+    throw new Error(
+      `GitHub tree for ${sourceLabel(source)} @ ${source.ref} is too large to install (response truncated).`,
+    );
+  }
+  return body.tree ?? [];
+}
+
+/**
+ * Download one file from `raw.githubusercontent.com` and write it under
+ * destDir at the given relative path segments. The raw host serves public
+ * repo content without consuming the API rate-limit budget.
+ */
+async function downloadRawFile(
+  source: PluginFetchSource,
+  repoPath: string,
+  relSegments: readonly string[],
+  destDir: string,
+  fetchFn: FetchLike,
+): Promise<void> {
+  const url =
+    `https://raw.githubusercontent.com/${source.owner}/${source.repo}/` +
+    `${encodeURIComponent(source.ref)}/` +
+    repoPath.split("/").map(encodeURIComponent).join("/");
+
+  const res = await githubFetch(url, "application/octet-stream", fetchFn);
+  if (!res.ok) {
+    const label = `Download failed for ${repoPath}: HTTP ${res.status}`;
+    if (isTransientUpstreamStatus(res)) {
+      throw new PluginSourceUnavailableError(label, res.status);
+    }
+    throw new Error(label);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  const dest = join(destDir, ...relSegments);
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, buf);
 }
 
 async function listDir(
@@ -386,31 +495,6 @@ async function listDir(
     return null;
   }
   return body as readonly GitHubContentEntry[];
-}
-
-async function copyFile(
-  entry: GitHubContentEntry,
-  destDir: string,
-  fetchFn: FetchLike,
-): Promise<void> {
-  if (!entry.download_url) {
-    throw new Error(`GitHub contents entry has no download_url: ${entry.path}`);
-  }
-  const res = await githubFetch(
-    entry.download_url,
-    "application/octet-stream",
-    fetchFn,
-  );
-  if (!res.ok) {
-    throw new Error(`Download failed for ${entry.path}: HTTP ${res.status}`);
-  }
-  const buf = Buffer.from(await res.arrayBuffer());
-  // entry.name was already validated by the caller; assert again as a
-  // belt-and-braces guard so copyFile is safe to call from future paths.
-  assertSafeFilename("file entry name", entry.name);
-  const dest = join(destDir, entry.name);
-  mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, buf);
 }
 
 /**

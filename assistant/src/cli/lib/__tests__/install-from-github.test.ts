@@ -25,81 +25,63 @@ import {
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
+  PluginSourceUnavailableError,
   sanitizePluginName,
 } from "../install-from-github.js";
 
 /**
- * Build a GitHub Contents API fixture from an in-memory file tree.
+ * Build a fixture for a first-party install from an in-memory file tree.
  *
- * `tree` maps a path under the canonical prefix (e.g. `simple-memory`,
- * `simple-memory/hooks/init.ts`) to either:
+ * `tree` maps a path under the canonical `experimental/plugins/` prefix (e.g.
+ * `simple-memory`, `simple-memory/hooks/init.ts`) to either:
  *   - a `Uint8Array`/`string` → a file with that content
  *   - `null` → a directory
  *
- * The fixture answers GET requests against
- *  - `https://api.github.com/repos/vellum-ai/vellum-assistant/contents/...`
- *  - any other URL we hand out as `download_url`
+ * Install fetches the whole repo tree in one `git/trees?recursive=1` request,
+ * then pulls each file from `raw.githubusercontent.com`. The fixture answers:
+ *  - the marketplace manifest lookup with a 404 (so resolution degrades to
+ *    the first-party source — these tests don't exercise the marketplace)
+ *  - `…/git/trees/<ref>?recursive=1` with the blob listing
+ *  - `raw.githubusercontent.com/vellum-ai/vellum-assistant/<ref>/…` with bytes
  */
 function fixtureFetch(
   tree: Record<string, Uint8Array | string | null>,
 ): FetchLike {
-  const PREFIX_API =
-    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/";
-  const PREFIX_RAW =
-    "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/experimental/plugins/";
+  const REPO = "vellum-ai/vellum-assistant";
+  const MANIFEST_URL = `https://api.github.com/repos/${REPO}/contents/experimental/plugins/marketplace.json`;
+  const TREE_API = `https://api.github.com/repos/${REPO}/git/trees/`;
+  const RAW = `https://raw.githubusercontent.com/${REPO}/`;
+  const full = (key: string) => `experimental/plugins/${key}`;
 
-  function listing(apiPath: string): unknown {
-    const rel = apiPath.startsWith("experimental/plugins/")
-      ? apiPath.slice("experimental/plugins/".length)
-      : apiPath;
-    const prefix = rel ? rel + "/" : "";
-    const direct = new Map<string, "file" | "dir">();
-    for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) continue;
-      const remainder = key.slice(prefix.length);
-      if (!remainder) continue;
-      const [head, ...rest] = remainder.split("/");
-      if (rest.length === 0) {
-        const isDir = tree[key] === null;
-        if (!direct.has(head!)) direct.set(head!, isDir ? "dir" : "file");
-      } else {
-        if (!direct.has(head!)) direct.set(head!, "dir");
-      }
-    }
-    if (direct.size === 0) return null;
-    return Array.from(direct.entries()).map(([name, type]) => ({
-      name,
-      // GitHub returns `path` rooted at the repo, not relative to the queried
-      // directory — mirror that so the recursive copy hits the same fixture
-      // handler on the way down.
-      path: `experimental/plugins/${prefix}${name}`,
-      type,
-      size: type === "file" ? (tree[`${prefix}${name}`] as string).length : 0,
-      download_url: type === "file" ? `${PREFIX_RAW}${prefix}${name}` : null,
-    }));
+  function treeBody(): unknown {
+    const blobs = Object.keys(tree)
+      .filter((key) => tree[key] !== null)
+      .map((key) => ({ path: full(key), type: "blob", mode: "100644" }));
+    return { tree: blobs, truncated: false };
   }
 
   return (async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
 
-    if (url.startsWith(PREFIX_API)) {
-      const after = url.slice(PREFIX_API.length).split("?")[0]!;
-      const apiPath = `experimental/plugins/${decodeURIComponent(after)}`;
-      const body = listing(apiPath);
-      if (body === null) {
-        return new Response("not found", { status: 404 });
-      }
-      return new Response(JSON.stringify(body), {
+    // No marketplace manifest in these fixtures: degrade to first-party.
+    if (url.startsWith(MANIFEST_URL)) {
+      return new Response("not found", { status: 404 });
+    }
+
+    if (url.startsWith(TREE_API)) {
+      return new Response(JSON.stringify(treeBody()), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }
 
-    if (url.startsWith(PREFIX_RAW)) {
-      const key =
-        "experimental/plugins/" +
-        decodeURIComponent(url.slice(PREFIX_RAW.length));
-      const rel = key.slice("experimental/plugins/".length);
+    if (url.startsWith(RAW)) {
+      // raw URL is `<RAW><ref>/experimental/plugins/<key>` — strip the ref.
+      const afterRef = decodeURIComponent(url.slice(RAW.length)).replace(
+        /^[^/]+\//,
+        "",
+      );
+      const rel = afterRef.replace(/^experimental\/plugins\//, "");
       const file = tree[rel];
       if (file === null || file === undefined) {
         return new Response("not found", { status: 404 });
@@ -258,66 +240,140 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
+  test("a rate-limited tree listing surfaces a retryable PluginSourceUnavailableError", async () => {
+    // GIVEN GitHub's unauthenticated rate limit is exhausted: the tree
+    // listing 403s with the remaining-quota header at zero
+    const rateLimited: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/git\/trees\//.test(url)) {
+        return new Response("rate limited", {
+          status: 403,
+          headers: { "x-ratelimit-remaining": "0" },
+        });
+      }
+      // Marketplace manifest lookup → 404 so resolution degrades to first-party.
+      return new Response("not found", { status: 404 });
+    }) as FetchLike;
+
+    // WHEN we install
+    // THEN the failure is classified as transient (retryable), not a hard
+    // error, so the route can surface a 503 instead of a 500
+    await expect(
+      installPlugin(
+        { name: "demo", force: false, ref: "main" },
+        { fetch: rateLimited, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
+
+    // AND no staging dir leaks behind on the transient failure.
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("a forbidden tree listing with quota remaining stays a hard error", async () => {
+    // GIVEN a 403 that is NOT a rate-limit (quota header present and nonzero):
+    // a genuine authorization failure, not a transient one
+    const forbidden: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/git\/trees\//.test(url)) {
+        return new Response("forbidden", {
+          status: 403,
+          headers: { "x-ratelimit-remaining": "57" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as FetchLike;
+
+    // WHEN we install
+    // THEN it surfaces as a hard error — NOT the retryable variant — so the
+    // route maps it to 500 rather than inviting an endless retry loop
+    await expect(
+      installPlugin(
+        { name: "demo", force: false, ref: "main" },
+        { fetch: forbidden, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.not.toBeInstanceOf(PluginSourceUnavailableError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
   test("respects ref by forwarding to GitHub", async () => {
-    let seenRef: string | undefined;
+    // The requested ref must reach both the tree listing (in the URL path)
+    // and the raw file download.
+    let treeRef: string | undefined;
+    let rawRef: string | undefined;
     await installPlugin(
       { name: "demo", force: false, ref: "feat-branch" },
       {
         fetch: (async (input: RequestInfo | URL) => {
           const url = typeof input === "string" ? input : input.toString();
-          if (url.includes("api.github.com")) {
-            const m = /[?&]ref=([^&]+)/.exec(url);
-            seenRef = m ? decodeURIComponent(m[1]!) : undefined;
+          const treeMatch = /\/git\/trees\/([^?]+)\?recursive=1/.exec(url);
+          if (treeMatch) {
+            treeRef = decodeURIComponent(treeMatch[1]!);
             return new Response(
-              JSON.stringify([
-                {
-                  name: "package.json",
-                  path: "experimental/plugins/demo/package.json",
-                  type: "file",
-                  size: 2,
-                  download_url:
-                    "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/feat-branch/experimental/plugins/demo/package.json",
-                },
-              ]),
+              JSON.stringify({
+                tree: [
+                  {
+                    path: "experimental/plugins/demo/package.json",
+                    type: "blob",
+                    mode: "100644",
+                  },
+                ],
+                truncated: false,
+              }),
               {
                 status: 200,
                 headers: { "content-type": "application/json" },
               },
             );
           }
-          return new Response("{}", { status: 200 });
+          const rawMatch =
+            /raw\.githubusercontent\.com\/vellum-ai\/vellum-assistant\/([^/]+)\//.exec(
+              url,
+            );
+          if (rawMatch && url.endsWith("/package.json")) {
+            rawRef = decodeURIComponent(rawMatch[1]!);
+            return new Response("{}", { status: 200 });
+          }
+          // Marketplace manifest lookup → 404 so resolution degrades to
+          // the first-party source.
+          return new Response("not found", { status: 404 });
         }) as FetchLike,
         workspacePluginsDir: pluginsDir,
       },
     );
 
-    expect(seenRef).toBe("feat-branch");
+    expect(treeRef).toBe("feat-branch");
+    expect(rawRef).toBe("feat-branch");
     expect(existsSync(join(pluginsDir, "demo", "package.json"))).toBe(true);
   });
 
-  test("rejects untrusted entry names from the GitHub response", async () => {
-    // Devin P2 from PR-5 review: even though GitHub returns trustworthy data,
-    // defense-in-depth requires us to validate `entry.name` before any
-    // filesystem write. A malicious or buggy upstream that hands us
-    // `../escape` must not be able to write outside the target.
+  test("rejects untrusted entry paths from the GitHub response", async () => {
+    // Even though GitHub returns trustworthy data, defense-in-depth requires
+    // us to validate every path segment before any filesystem write. A
+    // malicious or buggy upstream that hands us `../escape` must not be able
+    // to write outside the target.
     const badFetch: FetchLike = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("api.github.com")) {
+      if (/\/git\/trees\//.test(url)) {
         return new Response(
-          JSON.stringify([
-            {
-              name: "../escape",
-              path: "experimental/plugins/demo/../escape",
-              type: "file",
-              size: 1,
-              download_url:
-                "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/experimental/plugins/demo/escape",
-            },
-          ]),
+          JSON.stringify({
+            tree: [
+              {
+                path: "experimental/plugins/demo/../escape",
+                type: "blob",
+                mode: "100644",
+              },
+            ],
+            truncated: false,
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
-      return new Response("x", { status: 200 });
+      if (url.includes("raw.githubusercontent.com")) {
+        return new Response("x", { status: 200 });
+      }
+      // Marketplace manifest lookup → 404 so resolution degrades to
+      // the first-party source.
+      return new Response("not found", { status: 404 });
     }) as FetchLike;
 
     await expect(
@@ -325,7 +381,7 @@ describe("installPlugin", () => {
         { name: "demo", force: false, ref: "main" },
         { fetch: badFetch, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toThrow(/Unsafe entry name/);
+    ).rejects.toThrow(/Unsafe path segment/);
 
     // Nothing was written outside the target — in fact, the target itself
     // is gone because the failed install rolled back the staging dir.
@@ -336,58 +392,38 @@ describe("installPlugin", () => {
 
 /**
  * Build a fixture that serves a marketplace manifest from the canonical repo
- * plus an external plugin repo's contents.
+ * plus an external plugin repo's tree.
  *
- * `manifest` is served raw at the canonical marketplace URL. `externalTree`
- * maps repo-relative paths within `externalRepo` (e.g. `package.json`,
- * `hooks/init.ts`) to file contents or `null` for directories.
+ * `manifest` is served at the canonical marketplace contents URL.
+ * `externalTree` maps repo-relative paths within `externalRepo` (e.g.
+ * `package.json`, `.claude-plugin/plugin.json`) to file contents or `null`
+ * for directories. `firstPartyTree` maps full canonical-repo paths (e.g.
+ * `experimental/plugins/caveman/package.json`) for the first-party fallback
+ * and collision cases.
+ *
+ * Install enumerates a repo's tree in one `git/trees?recursive=1` request
+ * and downloads each file from `raw.githubusercontent.com`. The first-party
+ * existence probe still uses the Contents API, so that surface is served too.
  */
 function marketplaceFixtureFetch(
   manifest: unknown,
   externalRepo: string,
   externalTree: Record<string, string | null>,
-  // First-party plugin trees keyed by their full repo path (e.g.
-  // `experimental/plugins/caveman/package.json`). Anything not defined here
-  // resolves to a 404 so the fallback path surfaces a clean not-found.
   firstPartyTree: Record<string, string | null> = {},
 ): FetchLike {
-  const MANIFEST_URL =
-    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
-  const EXTERNAL_API = `https://api.github.com/repos/${externalRepo}/contents/`;
+  const CANON = "vellum-ai/vellum-assistant";
+  const MANIFEST_URL = `https://api.github.com/repos/${CANON}/contents/experimental/plugins/marketplace.json`;
+  const EXTERNAL_TREE = `https://api.github.com/repos/${externalRepo}/git/trees/`;
   const EXTERNAL_RAW = `https://raw.githubusercontent.com/${externalRepo}/`;
-  const FIRST_PARTY_API =
-    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/";
-  const FIRST_PARTY_RAW =
-    "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/";
+  const CANON_TREE = `https://api.github.com/repos/${CANON}/git/trees/`;
+  const CANON_CONTENTS = `https://api.github.com/repos/${CANON}/contents/`;
+  const CANON_RAW = `https://raw.githubusercontent.com/${CANON}/`;
 
-  function listing(
-    rel: string,
-    tree: Record<string, string | null>,
-    rawPrefix: string,
-  ): unknown {
-    const prefix = rel ? rel + "/" : "";
-    const direct = new Map<string, "file" | "dir">();
-    for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) continue;
-      const remainder = key.slice(prefix.length);
-      if (!remainder) continue;
-      const [head, ...rest] = remainder.split("/");
-      if (!direct.has(head!)) {
-        direct.set(
-          head!,
-          rest.length === 0 && tree[key] !== null ? "file" : "dir",
-        );
-      }
-    }
-    if (direct.size === 0) return null;
-    return Array.from(direct.entries()).map(([name, type]) => ({
-      name,
-      path: `${prefix}${name}`,
-      type,
-      size: type === "file" ? (tree[`${prefix}${name}`] as string).length : 0,
-      download_url:
-        type === "file" ? `${rawPrefix}<ref>/${prefix}${name}` : null,
-    }));
+  function treeBody(tree: Record<string, string | null>): unknown {
+    const blobs = Object.keys(tree)
+      .filter((key) => tree[key] !== null)
+      .map((key) => ({ path: key, type: "blob", mode: "100644" }));
+    return { tree: blobs, truncated: false };
   }
 
   function rawFile(
@@ -395,18 +431,39 @@ function marketplaceFixtureFetch(
     rawPrefix: string,
     tree: Record<string, string | null>,
   ): Response {
-    // Strip the `<ref>/` segment we baked into download_url.
-    const rel = decodeURIComponent(url.slice(rawPrefix.length)).replace(
+    // raw URL is `<rawPrefix><ref>/<repoPath>` — strip the ref.
+    const repoPath = decodeURIComponent(url.slice(rawPrefix.length)).replace(
       /^[^/]+\//,
       "",
     );
-    const file = tree[rel];
+    const file = tree[repoPath];
     if (file === null || file === undefined) {
       return new Response("not found", { status: 404 });
     }
     return new Response(Buffer.from(new TextEncoder().encode(file)), {
       status: 200,
     });
+  }
+
+  // Direct-children Contents listing, used only by the first-party probe.
+  function contentsListing(
+    apiPath: string,
+    tree: Record<string, string | null>,
+  ): unknown {
+    const prefix = apiPath ? apiPath + "/" : "";
+    const direct = new Set<string>();
+    for (const key of Object.keys(tree)) {
+      if (!key.startsWith(prefix)) continue;
+      const remainder = key.slice(prefix.length);
+      if (!remainder) continue;
+      direct.add(remainder.split("/")[0]!);
+    }
+    if (direct.size === 0) return null;
+    return Array.from(direct).map((name) => ({
+      name,
+      path: `${prefix}${name}`,
+      type: "dir",
+    }));
   }
 
   return (async (input: RequestInfo | URL) => {
@@ -416,39 +473,39 @@ function marketplaceFixtureFetch(
       return new Response(JSON.stringify(manifest), { status: 200 });
     }
 
-    if (url.startsWith(EXTERNAL_API)) {
-      const after = url.slice(EXTERNAL_API.length).split("?")[0]!;
-      const body = listing(
-        decodeURIComponent(after),
-        externalTree,
-        EXTERNAL_RAW,
-      );
-      if (body === null) {
-        return new Response("not found", { status: 404 });
-      }
-      return new Response(JSON.stringify(body), { status: 200 });
+    if (url.startsWith(EXTERNAL_TREE)) {
+      return new Response(JSON.stringify(treeBody(externalTree)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     }
 
     if (url.startsWith(EXTERNAL_RAW)) {
       return rawFile(url, EXTERNAL_RAW, externalTree);
     }
 
-    // First-party plugin directory listings, served from the canonical repo.
-    if (url.startsWith(FIRST_PARTY_API)) {
-      const after = url.slice(FIRST_PARTY_API.length).split("?")[0]!;
-      const body = listing(
-        decodeURIComponent(after),
-        firstPartyTree,
-        `${FIRST_PARTY_RAW}`,
+    if (url.startsWith(CANON_TREE)) {
+      return new Response(JSON.stringify(treeBody(firstPartyTree)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    // First-party existence probe (Contents API), served from the canonical
+    // repo. MANIFEST_URL is checked first above, so this only sees plugin dirs.
+    if (url.startsWith(CANON_CONTENTS)) {
+      const after = decodeURIComponent(
+        url.slice(CANON_CONTENTS.length).split("?")[0]!,
       );
+      const body = contentsListing(after, firstPartyTree);
       if (body === null) {
         return new Response("not found", { status: 404 });
       }
       return new Response(JSON.stringify(body), { status: 200 });
     }
 
-    if (url.startsWith(FIRST_PARTY_RAW)) {
-      return rawFile(url, FIRST_PARTY_RAW, firstPartyTree);
+    if (url.startsWith(CANON_RAW)) {
+      return rawFile(url, CANON_RAW, firstPartyTree);
     }
 
     return new Response("unexpected url: " + url, { status: 500 });
