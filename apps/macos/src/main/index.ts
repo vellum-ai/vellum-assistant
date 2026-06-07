@@ -1,6 +1,6 @@
 import "./env-seed";
 
-import { app, net, protocol, session, shell } from "electron";
+import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -46,6 +46,7 @@ import { installApplicationMenu } from "./menu";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
+import { installPermissionHandler } from "./permissions";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
@@ -283,18 +284,6 @@ const forwardPlatformRequest = async (
 
   captureCsrfToken(response);
   return response;
-};
-
-// Deny renderer permission requests by default. Specific permissions
-// (microphone for voice input, notifications, etc.) are allowlisted in the
-// follow-up tickets that wire each feature, so the bridge surface stays
-// honest about what the app can actually do at any given commit.
-const installPermissionHandler = (): void => {
-  session.defaultSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
-      callback(false);
-    },
-  );
 };
 
 // ---------------------------------------------------------------------------
