@@ -105,13 +105,17 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
       },
     ];
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: { maxTokens: 1024 },
       tools: dummyTools,
       toolExecutor: async () => ({ content: "ok", isError: false }),
     });
 
     // WHEN the loop runs
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // THEN every send (initial + tool round-trip) carries the cache-anchor signal
     expect(configs()).toHaveLength(2);
@@ -127,11 +131,15 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
     // AND a provider that records the config of each LLM call
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
     // WHEN the loop runs
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // THEN the field is omitted entirely, not carried as false/undefined
     expect(configs()).toHaveLength(1);

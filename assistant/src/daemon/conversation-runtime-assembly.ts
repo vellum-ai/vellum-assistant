@@ -1675,10 +1675,10 @@ export interface RuntimeInjectionOptions {
   /**
    * Conversation the turn is scoped to. Drives the live-conversation lookup
    * that sources every self-resolved per-turn field, and is forwarded onto
-   * the injector {@link TurnContext}. Defaults to the runtime-assembly
-   * fallback id when omitted (test call sites).
+   * the injector {@link TurnContext}. Required: it is the key every per-turn
+   * field resolves through, so callers must name the conversation explicitly.
    */
-  conversationId?: string;
+  conversationId: string;
   /**
    * 0-based turn index forwarded onto the injector {@link TurnContext}.
    * Defaults to the live conversation's `turnCount` when omitted.
@@ -1697,12 +1697,6 @@ export interface RuntimeInjectionOptions {
    */
   callSite?: LLMCallSite;
 }
-
-/**
- * Conversation id used for the synthetic fallback {@link TurnContext} and the
- * live-conversation lookup when the caller omits one (test call sites).
- */
-const RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
 /**
  * Last-resort `trust` for the injector {@link TurnContext} when neither the
@@ -1729,9 +1723,10 @@ function fallbackTurnTrust(
  *  1. Resolve the per-turn injection inputs from `options` and the live
  *     conversation, and layer them onto a {@link TurnContext}. The turn
  *     identity (`requestId`, `conversationId`, `turnIndex`, `trust`,
- *     `callSite`) comes from `options` when supplied, falling back to the
- *     live conversation's values (and an ephemeral fallback when neither is
- *     present) so the chain still runs for test call sites.
+ *     `callSite`) comes from `options` when supplied; `conversationId` is
+ *     required, and the rest fall back to the live conversation's values
+ *     (with `requestId` defaulting to `conversationId`) so the chain still
+ *     runs for test call sites.
  *  2. Drive the default + third-party {@link Injector} chain via
  *     {@link collectInjectorBlocks}.
  *  3. Apply the chain's `"replace-run-messages"` block (Slack chronological
@@ -1770,8 +1765,7 @@ export async function applyRuntimeInjections(
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
 
-  const conversationId =
-    options.conversationId ?? RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID;
+  const conversationId = options.conversationId;
 
   // Resolve the live conversation (or subagent) once and source every per-turn
   // field below from it rather than from orchestrator-computed options.
@@ -1908,7 +1902,7 @@ export async function applyRuntimeInjections(
     modelProfile: options.modelProfile,
   };
   const turnCtx: TurnContext = {
-    requestId: options.requestId ?? RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
+    requestId: options.requestId ?? conversationId,
     conversationId,
     turnIndex: options.turnIndex ?? liveConversation?.turnCount ?? 0,
     trust:

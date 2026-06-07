@@ -38,6 +38,7 @@ describe("AgentLoop thinking and effort", () => {
   test("sends adaptive thinking when thinking is enabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         thinking: { enabled: true },
@@ -47,6 +48,7 @@ describe("AgentLoop thinking and effort", () => {
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       () => {},
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const config = lastConfig()!;
@@ -57,6 +59,7 @@ describe("AgentLoop thinking and effort", () => {
   test("sends disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         thinking: { enabled: false },
@@ -66,6 +69,7 @@ describe("AgentLoop thinking and effort", () => {
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       () => {},
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const config = lastConfig()!;
@@ -75,6 +79,7 @@ describe("AgentLoop thinking and effort", () => {
   test("sends effort in provider config", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "high",
@@ -84,6 +89,7 @@ describe("AgentLoop thinking and effort", () => {
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       () => {},
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const config = lastConfig()!;
@@ -93,6 +99,7 @@ describe("AgentLoop thinking and effort", () => {
   test("sends effort with disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "medium",
@@ -103,6 +110,7 @@ describe("AgentLoop thinking and effort", () => {
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       () => {},
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const config = lastConfig()!;
