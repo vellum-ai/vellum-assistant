@@ -675,7 +675,6 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
-    let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
@@ -782,9 +781,6 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
-      if (isSlackConversation) {
-        slackCompactedThisTurn = true;
-      }
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
         compactedBasis,
@@ -1006,25 +1002,6 @@ export async function runAgentLoopImpl(
     };
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    // For any Slack conversation (channels and DMs alike), build a
-    // chronological transcript from the persisted message rows so the
-    // model sees one channel-wide view instead of the gateway's per-turn
-    // hints. DMs render as a flat sequence (no thread tags), channels
-    // include sibling threads.
-    if (isSlackConversation && !slackCompactedThisTurn) {
-      slackChronologicalContext ??= loadSlackChronologicalContext(
-        ctx.conversationId,
-        ctx.channelCapabilities!,
-        {
-          trustClass: ctx.trustContext?.trustClass,
-          contextSummary: ctx.contextSummary,
-          contextCompactedMessageCount: ctx.contextCompactedMessageCount,
-          slackContextCompactionWatermarkTs:
-            ctx.slackContextCompactionWatermarkTs,
-        },
-      );
-    }
 
     let currentInjectionMode: InjectionMode = "full";
 
