@@ -2,50 +2,163 @@
  * Tests for `wakeAgentForOpportunity()` — the generic internal agent-wake
  * mechanism.
  *
- * Exercise strategy: the wake helper takes a `resolveTarget` dependency so
- * these tests stub out the heavyweight `Conversation` class with a minimal
- * `WakeTarget` that just tracks agent-event forwards, buffered messages,
- * persisted tail messages, drain invocations, and a scripted
- * `agentLoop.run()` response.
+ * Exercise strategy: the wake helper takes a `resolveTarget` dependency that
+ * yields a live `Conversation`. These tests build a lightweight structural
+ * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
+ * handful of members the wake touches — `getMessages`, `messages.push`,
+ * `isProcessing`/`setProcessing`, `setTrustContext`, `setSubagentAllowedTools`,
+ * `drainQueue`, and a scripted `agentLoop.run()`.
  *
- * Persistence is now delegated to `WakeTarget.persistTailMessage` (the
- * daemon adapter is responsible for building channel/interface metadata
- * and disk-view sync — out of scope for runtime tests), so we assert on
- * the calls received by the mock instead of stubbing
- * `memory/conversation-crud.js`.
+ * The wake's side effects flow through the daemon boundary, so the
+ * instrumentation is captured at that boundary: event emission and the
+ * ui_surface card via the `broadcastMessage` module mock, and tail
+ * persistence via the `addMessage` module mock. Each double registers itself
+ * in `wakeConvRegistry` keyed by `conversationId` so those module mocks can
+ * route captured calls back to the originating conversation's probe arrays.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 
+// ── Per-conversation capture registry ────────────────────────────────
+//
+// Module mocks for the daemon boundary (`broadcastMessage`, `addMessage`)
+// are process-global, so each test double registers itself here keyed by
+// `conversationId`. The mocks look up the originating conversation's probe
+// and record the captured frame / persisted message.
+
+/** Captured client wire frame (output of the event→wire translator). */
+interface CapturedFrame {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+/** Instrumentation attached to a `makeWakeConversation` double. */
+interface WakeConversationProbe {
+  /** Wire frames emitted to clients (excludes the ui_surface card). */
+  emittedEvents: CapturedFrame[];
+  /** ui_surface cards broadcast when a wake produces output. */
+  surfaceBroadcasts: Array<{ surfaceId?: string; source?: string }>;
+  /** Messages appended to live history via `conversation.messages.push`. */
+  pushedMessages: Message[];
+  /** Recorded `agentLoop.run` invocations, in call order. */
+  runCalls: Array<{
+    input: Message[];
+    requestId?: string;
+    turnContext?: unknown;
+    allowedTools?: string[];
+    order: number;
+  }>;
+  /** Every `setProcessing` value, in call order. */
+  processingToggles: boolean[];
+  /** Tail messages persisted via `addMessage`, in call order. */
+  persistedTailCalls: Message[];
+  /** Number of times `drainQueue` was invoked. */
+  drainQueueCalls: number;
+  /**
+   * Cross-hook call sequence tag. Each push/persist/drain (and the
+   * processing toggles that bracket them) appends an entry so tests can
+   * assert end-to-end ordering, not just per-hook counts.
+   */
+  callSequence: string[];
+  /**
+   * Snapshot of the processing flag at the moment `drainQueue` was
+   * invoked. Lets tests prove drain ran AFTER setProcessing(false),
+   * rather than just inferring it from the order of recorded toggles.
+   */
+  processingDuringDrain: boolean[];
+  /**
+   * Tool allowlist snapshots captured whenever the wake applies/restores a
+   * scope. `undefined` means unrestricted.
+   */
+  allowedToolSnapshots: Array<string[] | undefined>;
+  /** `setTrustContext` calls, with the value and a monotonic order tag. */
+  setTrustContextCalls: Array<{ ctx: unknown; order: number }>;
+  /** Number of persisted tail messages at the moment each frame emitted. */
+  persistedAtEachEmit: number[];
+}
+
+const wakeConvRegistry = new Map<string, WakeConversationProbe>();
+
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
-// to honor the conversation's pinned inference profile.
-// `getConversation` is consumed by `defaultResolveTarget` — most tests
-// pass explicit `deps.resolveTarget` and bypass it, but the
-// trust-context threading test below drives the default resolver and
-// needs the existence/archived check to pass.
+// to honor the conversation's pinned inference profile. `getConversation`
+// is consumed by `defaultResolveTarget` (existence/archived check) and by
+// `persistWakeTailMessage` (createdAt for the disk-view sync). `addMessage`
+// is the persistence boundary the wake's tail persistence flows through —
+// it records into the originating conversation's probe.
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
-  getConversation: () => ({ archivedAt: null }),
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  getConversation: () => ({
+    archivedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }),
+  provenanceFromTrustContext: () => ({}),
+  addMessage: async (
+    conversationId: string,
+    role: string,
+    contentJson: string,
+  ) => {
+    const probe = wakeConvRegistry.get(conversationId);
+    if (probe) {
+      let content: unknown = contentJson;
+      try {
+        content = JSON.parse(contentJson);
+      } catch {
+        // Leave the raw string if it is not valid JSON.
+      }
+      probe.persistedTailCalls.push({ role, content } as Message);
+      probe.callSequence.push("persist");
+    }
+    return { id: `msg-${probe ? probe.persistedTailCalls.length : 0}` };
+  },
+}));
+
+// The wake's tail persistence syncs each row to the disk view. Stub it so
+// unit tests don't touch the filesystem.
+mock.module("../../memory/conversation-disk-view.js", () => ({
+  syncMessageToDisk: () => {},
+}));
+
+// The daemon event boundary. `emitWakeAgentEvent` translates each agent
+// event to a wire frame and broadcasts it; `broadcastWakeSurface` broadcasts
+// the ui_surface card. Route both back to the originating conversation's
+// probe by the `conversationId` stamped on the frame.
+mock.module("../../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (frame: CapturedFrame & { conversationId?: string }) => {
+    const probe = frame.conversationId
+      ? wakeConvRegistry.get(frame.conversationId)
+      : undefined;
+    if (!probe) return;
+    if (frame.type === "ui_surface_show") {
+      const source = (
+        frame.data as
+          | { metadata?: Array<{ label?: string; value?: string }> }
+          | undefined
+      )?.metadata?.find((m) => m.label === "Source")?.value;
+      probe.surfaceBroadcasts.push({
+        surfaceId: frame.surfaceId as string | undefined,
+        source,
+      });
+      return;
+    }
+    probe.emittedEvents.push(frame);
+    probe.persistedAtEachEmit.push(probe.persistedTailCalls.length);
+  },
 }));
 
 const mockGetOrCreateConversationCalls: Array<{
   conversationId: string;
   options: unknown;
 }> = [];
+let mockResolverTarget: unknown = null;
 mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: (conversationId: string, options?: unknown) => {
     mockGetOrCreateConversationCalls.push({ conversationId, options });
-    return Promise.resolve({ __mockConversation: true });
+    return Promise.resolve(mockResolverTarget);
   },
-}));
-
-let mockResolverTarget: unknown = null;
-mock.module("../../daemon/wake-target-adapter.js", () => ({
-  conversationToWakeTarget: () => mockResolverTarget,
 }));
 
 mock.module("../../config/loader.js", () => ({
@@ -122,11 +235,11 @@ import type {
   AgentLoopRunOptions,
   AgentLoopRunResult,
 } from "../../agent/loop.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import type { Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
-  type WakeTarget,
 } from "../agent-wake.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
@@ -142,40 +255,16 @@ const runResult = (history: Message[]): AgentLoopRunResult => ({
   newMessages: [],
 });
 
-interface MockTarget extends WakeTarget {
-  emittedEvents: AgentEvent[];
-  pushedMessages: Message[];
-  runCalls: Array<{
-    input: Message[];
-    requestId?: string;
-    turnContext?: unknown;
-    allowedTools?: string[];
-  }>;
-  processingToggles: boolean[];
-  /** Tail messages handed to `persistTailMessage`, in call order. */
-  persistedTailCalls: Message[];
-  /** Number of times `drainQueue` was invoked. */
-  drainQueueCalls: number;
-  /**
-   * Cross-hook call sequence tag. Each push/persist/drain (and the
-   * processing toggles that bracket them) appends an entry so tests can
-   * assert end-to-end ordering, not just per-hook counts.
-   */
-  callSequence: string[];
-  /**
-   * Snapshot of `processing` at the moment `drainQueue` was invoked.
-   * Lets tests prove drain ran AFTER markProcessing(false), rather than
-   * just inferring it from the order of recorded toggles.
-   */
-  processingDuringDrain: boolean[];
-  /**
-   * Tool allowlist snapshots captured whenever the wake applies/restores a
-   * scope. `undefined` means unrestricted.
-   */
-  allowedToolSnapshots: Array<string[] | undefined>;
-}
+/** A structural `Conversation` double plus its captured instrumentation. */
+type WakeConversation = Conversation & WakeConversationProbe;
 
-function makeTarget(options: {
+type ScriptedRun = (
+  input: Message[],
+  onEvent: (event: AgentEvent) => void | Promise<void>,
+  runOptions?: AgentLoopRunOptions,
+) => Promise<AgentLoopRunResult>;
+
+function makeWakeConversation(options: {
   conversationId?: string;
   baseline?: Message[];
   scriptedAssistant?: Message | null;
@@ -186,39 +275,90 @@ function makeTarget(options: {
   /** When true, omit `drainQueue` so we can verify the wake handles its absence. */
   omitDrainQueue?: boolean;
   initialAllowedTools?: Set<string>;
-}): MockTarget {
-  const emittedEvents: AgentEvent[] = [];
-  const pushedMessages: Message[] = [];
-  const runCalls: Array<{
-    input: Message[];
-    requestId?: string;
-    turnContext?: unknown;
-    allowedTools?: string[];
-  }> = [];
-  const processingToggles: boolean[] = [];
-  const persistedTailCalls: Message[] = [];
-  const callSequence: string[] = [];
-  const processingDuringDrain: boolean[] = [];
-  const allowedToolSnapshots: Array<string[] | undefined> = [];
-  const history: Message[] = [...(options.baseline ?? [])];
+  /** Replaces the default scripted `agentLoop.run` body entirely. */
+  runImpl?: ScriptedRun;
+}): WakeConversation {
+  const conversationId = options.conversationId ?? "conv-test";
+  const probe: WakeConversationProbe = {
+    emittedEvents: [],
+    surfaceBroadcasts: [],
+    pushedMessages: [],
+    runCalls: [],
+    processingToggles: [],
+    persistedTailCalls: [],
+    drainQueueCalls: 0,
+    callSequence: [],
+    processingDuringDrain: [],
+    allowedToolSnapshots: [],
+    setTrustContextCalls: [],
+    persistedAtEachEmit: [],
+  };
+  wakeConvRegistry.set(conversationId, probe);
+
   let processing = options.isProcessing ?? false;
-  let drainQueueCalls = 0;
+  let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
   const snapshotAllowedTools = (): string[] | undefined =>
     activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
-  const target: MockTarget = {
-    conversationId: options.conversationId ?? "conv-test",
-    emittedEvents,
-    pushedMessages,
-    runCalls,
-    processingToggles,
-    persistedTailCalls,
-    callSequence,
-    processingDuringDrain,
-    allowedToolSnapshots,
+  const messages: Message[] = [...(options.baseline ?? [])];
+  const nativePush = messages.push.bind(messages);
+  messages.push = (...items: Message[]): number => {
+    for (const item of items) {
+      probe.pushedMessages.push(item);
+      probe.callSequence.push("push");
+    }
+    return nativePush(...items);
+  };
+
+  const defaultRun: ScriptedRun = async (input, onEvent) => {
+    for (const ev of options.scriptedEvents ?? []) {
+      await onEvent(ev);
+    }
+    const next = [...input];
+    if (options.scriptedAssistant) {
+      next.push(options.scriptedAssistant);
+      await onEvent({
+        type: "message_complete",
+        message: options.scriptedAssistant,
+      });
+    }
+    if (options.scriptedTail) {
+      for (const tailMsg of options.scriptedTail) {
+        next.push(tailMsg);
+      }
+    }
+    return runResult(next);
+  };
+
+  const runBody = options.runImpl ?? defaultRun;
+
+  const drainQueue = options.omitDrainQueue
+    ? undefined
+    : async () => {
+        probe.drainQueueCalls += 1;
+        // Snapshot the live processing flag *inside* drain, not via the
+        // toggle log, so we directly observe the state visible to the
+        // dequeued message's enqueueMessage() gate.
+        probe.processingDuringDrain.push(processing);
+        probe.callSequence.push("drain");
+      };
+
+  const conversation = {
+    conversationId,
+    ...probe,
     get drainQueueCalls() {
-      return drainQueueCalls;
+      return probe.drainQueueCalls;
+    },
+    get subagentAllowedTools() {
+      return activeAllowedTools;
+    },
+    setSubagentAllowedTools: (tools: Set<string> | undefined) => {
+      activeAllowedTools = tools;
+      probe.allowedToolSnapshots.push(snapshotAllowedTools());
+      probe.callSequence.push(
+        `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
+      );
     },
     agentLoop: {
       run: async (
@@ -226,91 +366,39 @@ function makeTarget(options: {
         onEvent: (event: AgentEvent) => void | Promise<void>,
         runOptions?: AgentLoopRunOptions,
       ) => {
-        runCalls.push({
+        probe.runCalls.push({
           input: [...input],
           requestId: runOptions?.requestId,
           turnContext: runOptions?.turnContext,
           allowedTools: snapshotAllowedTools(),
+          order: order++,
         });
-        // Emit any scripted events the test wanted us to produce.
-        for (const ev of options.scriptedEvents ?? []) {
-          await onEvent(ev);
-        }
-        // Final history = input + optional assistant message + optional tail.
-        const next = [...input];
-        if (options.scriptedAssistant) {
-          next.push(options.scriptedAssistant);
-          await onEvent({
-            type: "message_complete",
-            message: options.scriptedAssistant,
-          });
-        }
-        if (options.scriptedTail) {
-          for (const tailMsg of options.scriptedTail) {
-            next.push(tailMsg);
-          }
-        }
-        return runResult(next);
+        return runBody(input, onEvent, runOptions);
       },
     },
-    getMessages: () => history,
-    pushMessage: (msg: Message) => {
-      pushedMessages.push(msg);
-      history.push(msg);
-      callSequence.push("push");
-    },
-    emitAgentEvent: (event) => {
-      emittedEvents.push(event);
-    },
+    messages,
+    getMessages: () => messages,
     isProcessing: () => processing,
-    markProcessing: (on: boolean) => {
+    setProcessing: (on: boolean) => {
       processing = on;
-      processingToggles.push(on);
-      callSequence.push(on ? "processing:true" : "processing:false");
+      probe.processingToggles.push(on);
+      probe.callSequence.push(on ? "processing:true" : "processing:false");
     },
-    persistTailMessage: async (msg: Message) => {
-      persistedTailCalls.push(msg);
-      callSequence.push("persist");
+    setTrustContext: (ctx: unknown) => {
+      probe.setTrustContextCalls.push({ ctx, order: order++ });
     },
-    setWakeAllowedTools: (tools: ReadonlySet<string>) => {
-      const previous = activeAllowedTools;
-      activeAllowedTools = new Set(tools);
-      allowedToolSnapshots.push(snapshotAllowedTools());
-      callSequence.push(`tools:${snapshotAllowedTools()?.join(",") ?? "all"}`);
-      return () => {
-        activeAllowedTools = previous;
-        allowedToolSnapshots.push(snapshotAllowedTools());
-        callSequence.push(
-          `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
-        );
-      };
-    },
-    ...(options.omitDrainQueue
-      ? {}
-      : {
-          drainQueue: async () => {
-            drainQueueCalls++;
-            // Snapshot the live processing flag *inside* drain, not via
-            // the toggle log, so we directly observe the state visible
-            // to the dequeued message's enqueueMessage() gate.
-            processingDuringDrain.push(processing);
-            callSequence.push("drain");
-          },
-        }),
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
+    trustContext: undefined,
+    ...(drainQueue ? { drainQueue } : {}),
   };
 
-  // Expose processing setter via test-only side-channel for tests that
-  // simulate an external (non-wake) processing state.
-  (target as unknown as { setProcessing: (v: boolean) => void }).setProcessing =
-    (v: boolean) => {
-      processing = v;
-    };
-
-  return target;
+  return conversation as unknown as WakeConversation;
 }
 
 beforeEach(() => {
   __resetWakeChainForTests();
+  wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
@@ -335,21 +423,21 @@ beforeEach(() => {
 
 describe("wakeAgentForOpportunity", () => {
   test("disabled disk pressure flag allows background wakes to pass through", async () => {
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       scriptedAssistant: null,
     });
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "background completion",
         source: "background-tool",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(target.runCalls).toHaveLength(1);
+    expect(conversation.runCalls).toHaveLength(1);
   });
 
   test("blocks background wakes during disk pressure before marking processing", async () => {
@@ -368,7 +456,7 @@ describe("wakeAgentForOpportunity", () => {
       blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
       error: null,
     };
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       isProcessing: true,
       scriptedAssistant: {
         role: "assistant",
@@ -378,12 +466,12 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "background shell completed",
         source: "background-tool",
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({
@@ -391,10 +479,10 @@ describe("wakeAgentForOpportunity", () => {
       producedToolCalls: false,
       reason: "disk_pressure",
     });
-    expect(target.runCalls).toHaveLength(0);
-    expect(target.processingToggles).toEqual([]);
-    expect(target.drainQueueCalls).toBe(0);
-    expect(target.isProcessing()).toBe(true);
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.processingToggles).toEqual([]);
+    expect(conversation.drainQueueCalls).toBe(0);
+    expect(conversation.isProcessing()).toBe(true);
   });
 
   test("blocks trusted-contact direct wakes during disk pressure", async () => {
@@ -413,11 +501,11 @@ describe("wakeAgentForOpportunity", () => {
       blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
       error: null,
     };
-    const target = makeTarget({ scriptedAssistant: null });
+    const conversation = makeWakeConversation({ scriptedAssistant: null });
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "notify the guardian",
         source: "notification",
         trustContext: {
@@ -425,11 +513,11 @@ describe("wakeAgentForOpportunity", () => {
           trustClass: "trusted_contact",
         },
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result.reason).toBe("disk_pressure");
-    expect(target.runCalls).toHaveLength(0);
+    expect(conversation.runCalls).toHaveLength(0);
   });
 
   test("builds a guardian turn context for explicit local-owner cleanup-mode wakes", async () => {
@@ -448,31 +536,31 @@ describe("wakeAgentForOpportunity", () => {
       blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
       error: null,
     };
-    const target = makeTarget({ scriptedAssistant: null });
+    const conversation = makeWakeConversation({ scriptedAssistant: null });
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "clean storage",
         source: "local-cleanup",
         sourceChannel: "vellum",
         sourceInterface: "macos",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(target.runCalls).toHaveLength(1);
-    expect(target.runCalls[0]!.turnContext).toEqual({
+    expect(conversation.runCalls).toHaveLength(1);
+    expect(conversation.runCalls[0]!.turnContext).toEqual({
       requestId: "wake:local-cleanup",
-      conversationId: target.conversationId,
+      conversationId: conversation.conversationId,
       turnIndex: 0,
       trust: { sourceChannel: "vellum", trustClass: "guardian" },
     });
   });
 
   test("silent no-op when agent produces no tool calls and no text", async () => {
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [
         { role: "user", content: [{ type: "text", text: "hi" }] },
         { role: "assistant", content: [{ type: "text", text: "hello" }] },
@@ -486,23 +574,23 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "someone asked a question",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     // Nothing emitted to client.
-    expect(target.emittedEvents).toHaveLength(0);
+    expect(conversation.emittedEvents).toHaveLength(0);
     // Nothing persisted.
-    expect(target.persistedTailCalls).toHaveLength(0);
+    expect(conversation.persistedTailCalls).toHaveLength(0);
     // Nothing pushed into live history.
-    expect(target.pushedMessages).toHaveLength(0);
+    expect(conversation.pushedMessages).toHaveLength(0);
     // Hint was included in the run input, but baseline is unchanged.
-    expect(target.runCalls).toHaveLength(1);
-    const input = target.runCalls[0]!.input;
+    expect(conversation.runCalls).toHaveLength(1);
+    const input = conversation.runCalls[0]!.input;
     expect(input).toHaveLength(5); // 2 baseline + 3 hint (user + assistant + user)
     expect(input[2]).toEqual({
       role: "user",
@@ -534,7 +622,7 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("scopes allowed tools during the wake and restores before queued messages drain", async () => {
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       initialAllowedTools: new Set(["bash"]),
       scriptedAssistant: {
         role: "assistant",
@@ -544,29 +632,29 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "review for memories",
         source: "memory-retrospective",
         allowedTools: ["remember"],
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(target.runCalls[0]!.allowedTools).toEqual(["remember"]);
-    expect(target.allowedToolSnapshots).toEqual([["remember"], ["bash"]]);
+    expect(conversation.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    expect(conversation.allowedToolSnapshots).toEqual([["remember"], ["bash"]]);
 
-    const restoreIndex = target.callSequence.indexOf("tools:bash");
+    const restoreIndex = conversation.callSequence.indexOf("tools:bash");
     const processingFalseIndex =
-      target.callSequence.indexOf("processing:false");
-    const drainIndex = target.callSequence.indexOf("drain");
+      conversation.callSequence.indexOf("processing:false");
+    const drainIndex = conversation.callSequence.indexOf("drain");
     expect(restoreIndex).toBeGreaterThan(-1);
     expect(restoreIndex).toBeLessThan(processingFalseIndex);
     expect(processingFalseIndex).toBeLessThan(drainIndex);
   });
 
   test("restores allowed tools before drain when the wake is a silent no-op", async () => {
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       scriptedAssistant: {
         role: "assistant",
         content: [{ type: "text", text: "" }],
@@ -575,22 +663,25 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "review for memories",
         source: "memory-retrospective",
         allowedTools: ["remember"],
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(target.runCalls[0]!.allowedTools).toEqual(["remember"]);
-    expect(target.allowedToolSnapshots).toEqual([["remember"], undefined]);
+    expect(conversation.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    expect(conversation.allowedToolSnapshots).toEqual([
+      ["remember"],
+      undefined,
+    ]);
 
-    const restoreIndex = target.callSequence.indexOf("tools:all");
+    const restoreIndex = conversation.callSequence.indexOf("tools:all");
     const processingFalseIndex =
-      target.callSequence.indexOf("processing:false");
-    const drainIndex = target.callSequence.indexOf("drain");
+      conversation.callSequence.indexOf("processing:false");
+    const drainIndex = conversation.callSequence.indexOf("drain");
     expect(restoreIndex).toBeGreaterThan(-1);
     expect(restoreIndex).toBeLessThan(processingFalseIndex);
     expect(processingFalseIndex).toBeLessThan(drainIndex);
@@ -608,29 +699,28 @@ describe("wakeAgentForOpportunity", () => {
         },
       ],
     };
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: assistantMessage,
     });
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "question directed at assistant",
         source: "meet-chat-opportunity",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: true });
-    // Assistant message persisted via the target hook.
-    expect(target.persistedTailCalls).toHaveLength(1);
-    expect(target.persistedTailCalls[0]).toEqual(assistantMessage);
+    // Assistant message persisted via the daemon boundary (addMessage).
+    expect(conversation.persistedTailCalls).toHaveLength(1);
+    expect(conversation.persistedTailCalls[0]).toEqual(assistantMessage);
     // Assistant message pushed into live history.
-    expect(target.pushedMessages).toContainEqual(assistantMessage);
-    // message_complete event flushed to the client via the translator
-    // surface (raw AgentEvent — adapter is responsible for wire shape).
-    const flushed = target.emittedEvents.find(
+    expect(conversation.pushedMessages).toContainEqual(assistantMessage);
+    // message_complete frame flushed to the client via the translator.
+    const flushed = conversation.emittedEvents.find(
       (e) => e.type === "message_complete",
     );
     expect(flushed).toBeDefined();
@@ -667,7 +757,7 @@ describe("wakeAgentForOpportunity", () => {
       content: [{ type: "text", text: "Done." }],
     };
 
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: firstAssistant,
       scriptedTail: [toolResultUserMsg, followupAssistant],
@@ -675,30 +765,30 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "question directed at assistant",
         source: "meet-chat-opportunity",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: true });
 
-    // All three tail messages persisted in order via the target hook.
-    expect(target.persistedTailCalls).toHaveLength(3);
-    expect(target.persistedTailCalls[0]).toEqual(firstAssistant);
-    expect(target.persistedTailCalls[1]).toEqual(toolResultUserMsg);
-    expect(target.persistedTailCalls[2]).toEqual(followupAssistant);
+    // All three tail messages persisted in order via the daemon boundary.
+    expect(conversation.persistedTailCalls).toHaveLength(3);
+    expect(conversation.persistedTailCalls[0]).toEqual(firstAssistant);
+    expect(conversation.persistedTailCalls[1]).toEqual(toolResultUserMsg);
+    expect(conversation.persistedTailCalls[2]).toEqual(followupAssistant);
 
     // All three also pushed into live history so next turn sees them.
-    expect(target.pushedMessages).toHaveLength(3);
-    expect(target.pushedMessages[0]).toEqual(firstAssistant);
-    expect(target.pushedMessages[1]).toEqual(toolResultUserMsg);
-    expect(target.pushedMessages[2]).toEqual(followupAssistant);
+    expect(conversation.pushedMessages).toHaveLength(3);
+    expect(conversation.pushedMessages[0]).toEqual(firstAssistant);
+    expect(conversation.pushedMessages[1]).toEqual(toolResultUserMsg);
+    expect(conversation.pushedMessages[2]).toEqual(followupAssistant);
   });
 
   test("marks processing true during the run and false afterwards", async () => {
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: {
         role: "assistant",
@@ -709,65 +799,51 @@ describe("wakeAgentForOpportunity", () => {
     // Snapshot isProcessing() inside the run to prove we actually
     // hold the processing flag while agentLoop.run executes.
     const observedDuringRun: boolean[] = [];
-    const originalRun = target.agentLoop.run;
-    target.agentLoop.run = async (
+    const originalRun = conversation.agentLoop.run;
+    conversation.agentLoop.run = async (
       input: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
       runOptions?: AgentLoopRunOptions,
     ) => {
-      observedDuringRun.push(target.isProcessing());
+      observedDuringRun.push(conversation.isProcessing());
       return originalRun(input, onEvent, runOptions);
     };
 
     await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "x",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
-    // markProcessing toggled on then off exactly once.
-    expect(target.processingToggles).toEqual([true, false]);
+    // setProcessing toggled on then off exactly once.
+    expect(conversation.processingToggles).toEqual([true, false]);
     // And the flag was observed as true inside the run body.
     expect(observedDuringRun).toEqual([true]);
     // Back to idle by the time the wake returns.
-    expect(target.isProcessing()).toBe(false);
+    expect(conversation.isProcessing()).toBe(false);
   });
 
   test("marks processing false even when the agent loop throws", async () => {
-    const history: Message[] = [];
-    const toggles: boolean[] = [];
-    let processing = false;
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-err-guard",
-      agentLoop: {
-        run: async () => {
-          throw new Error("LLM exploded");
-        },
+      runImpl: async () => {
+        throw new Error("LLM exploded");
       },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-        toggles.push(on);
-      },
-      persistTailMessage: async () => {},
-    };
+    });
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-err-guard", hint: "boom", source: "t" },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     // Critical: the finally block must have released the flag despite
     // the thrown error, otherwise the next user turn would hang.
-    expect(toggles).toEqual([true, false]);
-    expect(processing).toBe(false);
+    expect(conversation.processingToggles).toEqual([true, false]);
+    expect(conversation.isProcessing()).toBe(false);
   });
 
   test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
@@ -775,32 +851,9 @@ describe("wakeAgentForOpportunity", () => {
     // guardian trust to clear the side-effect approval gate. The wake must
     // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
     // captures the elevated trust.
-    const trustCalls: Array<{ ctx: unknown; before: number }> = [];
-    const runCalls: number[] = [];
-    let callOrder = 0;
-
-    const history: Message[] = [];
-    let processing = false;
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-trust",
-      agentLoop: {
-        run: async (input) => {
-          runCalls.push(callOrder++);
-          return runResult([...input]);
-        },
-      },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async () => {},
-      setTrustContext: (ctx) => {
-        trustCalls.push({ ctx, before: callOrder++ });
-      },
-    };
+    });
 
     await wakeAgentForOpportunity(
       {
@@ -809,40 +862,25 @@ describe("wakeAgentForOpportunity", () => {
         source: "memory_v2_consolidation",
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
-    expect(trustCalls).toHaveLength(1);
-    expect(trustCalls[0]!.ctx).toEqual({
+    expect(conversation.setTrustContextCalls).toHaveLength(1);
+    expect(conversation.setTrustContextCalls[0]!.ctx).toEqual({
       sourceChannel: "vellum",
       trustClass: "guardian",
     });
     // setTrustContext fired strictly before agentLoop.run.
-    expect(runCalls).toHaveLength(1);
-    expect(trustCalls[0]!.before).toBeLessThan(runCalls[0]!);
+    expect(conversation.runCalls).toHaveLength(1);
+    expect(conversation.setTrustContextCalls[0]!.order).toBeLessThan(
+      conversation.runCalls[0]!.order,
+    );
   });
 
   test("does not call setTrustContext when no trustContext is supplied", async () => {
-    const trustCalls: unknown[] = [];
-    const history: Message[] = [];
-    let processing = false;
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-no-trust",
-      agentLoop: {
-        run: async (input) => runResult([...input]),
-      },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async () => {},
-      setTrustContext: (ctx) => {
-        trustCalls.push(ctx);
-      },
-    };
+    });
 
     await wakeAgentForOpportunity(
       {
@@ -850,13 +888,13 @@ describe("wakeAgentForOpportunity", () => {
         hint: "x",
         source: "t",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     // Inbound-message conversations populate trust via processMessage().
     // Without an explicit opt-in from the caller, the wake must not
     // overwrite whatever the conversation already holds.
-    expect(trustCalls).toHaveLength(0);
+    expect(conversation.setTrustContextCalls).toHaveLength(0);
   });
 
   test("two concurrent wakes on the same conversation are serialized", async () => {
@@ -867,36 +905,22 @@ describe("wakeAgentForOpportunity", () => {
     const runCompleteOrder: number[] = [];
 
     let callIndex = 0;
-    const history: Message[] = [];
-    let processing = false;
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-serialize",
-      agentLoop: {
-        run: async (input) => {
-          const myIndex = ++callIndex;
-          runStartOrder.push(myIndex);
-          if (myIndex === 1) {
-            await gate1.promise;
-          } else {
-            await gate2.promise;
-          }
-          runCompleteOrder.push(myIndex);
-          return runResult(input); // no assistant message → silent no-op
-        },
+      runImpl: async (input) => {
+        const myIndex = ++callIndex;
+        runStartOrder.push(myIndex);
+        if (myIndex === 1) {
+          await gate1.promise;
+        } else {
+          await gate2.promise;
+        }
+        runCompleteOrder.push(myIndex);
+        return runResult(input); // no assistant message → silent no-op
       },
-      getMessages: () => history,
-      pushMessage: (msg) => {
-        history.push(msg);
-      },
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async () => {},
-    };
+    });
 
-    const deps = { resolveTarget: async () => target };
+    const deps = { resolveTarget: async () => conversation };
 
     const p1 = wakeAgentForOpportunity(
       { conversationId: "conv-serialize", hint: "first", source: "t1" },
@@ -924,30 +948,11 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("waits while a concurrent user turn is in flight", async () => {
-    const history: Message[] = [];
-    let processing = true;
-    const target: WakeTarget & { setProcessing: (v: boolean) => void } = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-user-turn",
-      agentLoop: {
-        run: async (input) => runResult(input),
-      },
-      getMessages: () => history,
-      pushMessage: (msg) => {
-        history.push(msg);
-      },
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      // The wake's own markProcessing updates track the flag too — the
-      // outer "user turn" holds it at true until setProcessing(false)
-      // is called below.
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async () => {},
-      setProcessing: (v) => {
-        processing = v;
-      },
-    };
+      isProcessing: true,
+      runImpl: async (input) => runResult(input),
+    });
 
     const wakePromise = wakeAgentForOpportunity(
       {
@@ -955,7 +960,7 @@ describe("wakeAgentForOpportunity", () => {
         hint: "opportunity while user typing",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     // Wake should be waiting (isProcessing returns true).
@@ -969,7 +974,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(settled).toBe(false);
 
     // "User turn" completes — wake now proceeds.
-    target.setProcessing(false);
+    conversation.setProcessing(false);
     const result = await wakePromise;
     expect(result.invoked).toBe(true);
     expect(result.producedToolCalls).toBe(false);
@@ -992,17 +997,11 @@ describe("wakeAgentForOpportunity", () => {
     // forward the injected `now` past the 30s deadline so waitUntilIdle
     // returns false. Without the distinct `timeout` reason, callers
     // cannot tell this case apart from "not_found".
-    const history: Message[] = [];
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-busy",
-      agentLoop: { run: async () => runResult(history) },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => true,
-      markProcessing: () => {},
-      persistTailMessage: async () => {},
-    };
+      isProcessing: true,
+      runImpl: async (input) => runResult(input),
+    });
     let t = 0;
     const now = () => {
       // First call establishes the deadline at +30_000. Every subsequent
@@ -1015,7 +1014,7 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-busy", hint: "x", source: "y" },
-      { resolveTarget: async () => target, now },
+      { resolveTarget: async () => conversation, now },
     );
     expect(result).toEqual({
       invoked: false,
@@ -1025,35 +1024,20 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("agent loop error is treated as a no-op", async () => {
-    const history: Message[] = [];
-    let processing = false;
-    const persisted: Message[] = [];
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-err",
-      agentLoop: {
-        run: async () => {
-          throw new Error("LLM exploded");
-        },
+      runImpl: async () => {
+        throw new Error("LLM exploded");
       },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async (m) => {
-        persisted.push(m);
-      },
-    };
+    });
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-err", hint: "boom", source: "t" },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(persisted).toHaveLength(0);
+    expect(conversation.persistedTailCalls).toHaveLength(0);
   });
 
   test("drainQueue is called in finally after a successful run", async () => {
@@ -1061,7 +1045,7 @@ describe("wakeAgentForOpportunity", () => {
     // wake set `processing = true`) must be picked up after the wake
     // completes. Mirrors the canonical user-turn `finally` path which
     // sets `processing = false` then calls `drainQueue`.
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: {
         role: "assistant",
@@ -1071,76 +1055,55 @@ describe("wakeAgentForOpportunity", () => {
 
     await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "x",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
-    expect(target.drainQueueCalls).toBe(1);
+    expect(conversation.drainQueueCalls).toBe(1);
     // Critical ordering invariant: drain runs after processing=false.
     // If drain ran while processing was still true,
     // `enqueueMessage`'s `if (!ctx.isProcessing()) return ...` gate would
     // see processing=true and the drained item would itself just
     // re-enqueue — no progress. Snapshot the live flag *inside* drain
     // (rather than inferring from toggle order) so a future regression
-    // that called drain before markProcessing(false) would fail this
+    // that called drain before setProcessing(false) would fail this
     // assertion directly.
-    expect(target.processingDuringDrain).toEqual([false]);
-    expect(target.processingToggles).toEqual([true, false]);
-    expect(target.isProcessing()).toBe(false);
+    expect(conversation.processingDuringDrain).toEqual([false]);
+    expect(conversation.processingToggles).toEqual([true, false]);
+    expect(conversation.isProcessing()).toBe(false);
   });
 
   test("drainQueue is called in finally even when the agent loop throws", async () => {
     // Verifies the drain is in the finally block, not just on success.
     // A wake that crashes mid-run must still flush queued messages —
     // otherwise a transient LLM error strands every concurrent send.
-    const drainProcessingSnapshots: boolean[] = [];
-    const toggles: boolean[] = [];
-    let processing = false;
-    const target: WakeTarget = {
+    const conversation = makeWakeConversation({
       conversationId: "conv-drain-on-throw",
-      agentLoop: {
-        run: async () => {
-          throw new Error("LLM exploded mid-wake");
-        },
+      runImpl: async () => {
+        throw new Error("LLM exploded mid-wake");
       },
-      getMessages: () => [],
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-        toggles.push(on);
-      },
-      persistTailMessage: async () => {},
-      drainQueue: async () => {
-        // Snapshot the live `processing` flag *inside* drain rather
-        // than inferring from toggle order. This directly observes the
-        // state visible to enqueueMessage's gate when a queued message
-        // is dequeued.
-        drainProcessingSnapshots.push(processing);
-      },
-    };
+    });
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-drain-on-throw", hint: "boom", source: "t" },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    // Drain ran AFTER markProcessing(false), satisfying the
+    // Drain ran AFTER setProcessing(false), satisfying the
     // enqueueMessage gate invariant. Snapshot proves the flag was
     // false at the moment drain ran.
-    expect(drainProcessingSnapshots).toEqual([false]);
-    expect(toggles).toEqual([true, false]);
+    expect(conversation.processingDuringDrain).toEqual([false]);
+    expect(conversation.processingToggles).toEqual([true, false]);
   });
 
   test("missing drainQueue hook is tolerated (no-op fallback)", async () => {
     // The hook is intentionally optional so test stubs without a queue
-    // can omit it. Production daemon adapter always wires it.
-    const target = makeTarget({
+    // can omit it. Production daemon always wires it.
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: {
         role: "assistant",
@@ -1151,50 +1114,50 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "x",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result.invoked).toBe(true);
     // No throw, no drain attempt recorded.
-    expect(target.drainQueueCalls).toBe(0);
+    expect(conversation.drainQueueCalls).toBe(0);
   });
 
   test("drainQueue rejection does not propagate from the wake", async () => {
     // Defense in depth: if the queue drain throws (e.g. a poisoned
     // message), the wake itself must still resolve normally — the
     // drain failure is logged but never surfaced.
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: {
         role: "assistant",
         content: [{ type: "text", text: "reply" }],
       },
     });
-    target.drainQueue = async () => {
+    conversation.drainQueue = async () => {
       throw new Error("drain blew up");
     };
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "x",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result.invoked).toBe(true);
   });
 
   test("persistTailMessage called for each tail message in order", async () => {
-    // Verifies Gap 2 fix: the wake delegates persistence to the target
-    // so the daemon adapter can build channel/interface metadata. We
-    // only check the call ordering / arguments here — the daemon
-    // adapter's metadata composition is exercised separately.
+    // Verifies Gap 2 fix: the wake delegates persistence to the daemon
+    // boundary (addMessage) so the channel/interface metadata is built
+    // there. We only check the call ordering / arguments here — the
+    // metadata composition is exercised separately.
     const firstAssistant: Message = {
       role: "assistant",
       content: [
@@ -1214,7 +1177,7 @@ describe("wakeAgentForOpportunity", () => {
       role: "assistant",
       content: [{ type: "text", text: "All set." }],
     };
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: firstAssistant,
       scriptedTail: [toolResultUserMsg, followup],
@@ -1222,14 +1185,14 @@ describe("wakeAgentForOpportunity", () => {
 
     await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "x",
         source: "meet-chat-opportunity",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
-    expect(target.persistedTailCalls).toEqual([
+    expect(conversation.persistedTailCalls).toEqual([
       firstAssistant,
       toolResultUserMsg,
       followup,
@@ -1249,7 +1212,7 @@ describe("wakeAgentForOpportunity", () => {
       // assistant outputs).
       //
       // Mirrors the canonical user-turn pattern in
-      // conversation-agent-loop.ts:1860,2106-2126: messages updated →
+      // conversation-agent-loop.ts: messages updated →
       // processing=false → drainQueue.
       const firstAssistant: Message = {
         role: "assistant",
@@ -1265,7 +1228,7 @@ describe("wakeAgentForOpportunity", () => {
         role: "assistant",
         content: [{ type: "text", text: "All done." }],
       };
-      const target = makeTarget({
+      const conversation = makeWakeConversation({
         baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
         scriptedAssistant: firstAssistant,
         scriptedTail: [toolResultUserMsg, followup],
@@ -1273,17 +1236,17 @@ describe("wakeAgentForOpportunity", () => {
 
       await wakeAgentForOpportunity(
         {
-          conversationId: target.conversationId,
+          conversationId: conversation.conversationId,
           hint: "x",
           source: "meet-chat-opportunity",
         },
-        { resolveTarget: async () => target },
+        { resolveTarget: async () => conversation },
       );
 
       // Full call sequence: processing toggled true → 3 pushes →
       // 3 persists → processing toggled false → drain. Specifically,
       // every push and every persist must precede the single drain.
-      expect(target.callSequence).toEqual([
+      expect(conversation.callSequence).toEqual([
         "processing:true",
         "push",
         "push",
@@ -1298,14 +1261,14 @@ describe("wakeAgentForOpportunity", () => {
       // Belt-and-braces: cross-check via index lookups so the failure
       // mode (drain before push/persist) shows up clearly even if the
       // exact sequence ever picks up additional entries.
-      const drainIdx = target.callSequence.indexOf("drain");
-      const lastPushIdx = target.callSequence.lastIndexOf("push");
-      const lastPersistIdx = target.callSequence.lastIndexOf("persist");
+      const drainIdx = conversation.callSequence.indexOf("drain");
+      const lastPushIdx = conversation.callSequence.lastIndexOf("push");
+      const lastPersistIdx = conversation.callSequence.lastIndexOf("persist");
       expect(drainIdx).toBeGreaterThan(lastPushIdx);
       expect(drainIdx).toBeGreaterThan(lastPersistIdx);
 
       // And processing was false when drain ran.
-      expect(target.processingDuringDrain).toEqual([false]);
+      expect(conversation.processingDuringDrain).toEqual([false]);
     },
   );
 
@@ -1318,7 +1281,7 @@ describe("wakeAgentForOpportunity", () => {
       // visible text and no tool calls, so no push/persist/emit should
       // happen. drainQueue must still run in the finally block so a
       // racy queued message is not stranded.
-      const target = makeTarget({
+      const conversation = makeWakeConversation({
         baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
         scriptedAssistant: {
           role: "assistant",
@@ -1328,26 +1291,26 @@ describe("wakeAgentForOpportunity", () => {
 
       await wakeAgentForOpportunity(
         {
-          conversationId: target.conversationId,
+          conversationId: conversation.conversationId,
           hint: "x",
           source: "unit-test",
         },
-        { resolveTarget: async () => target },
+        { resolveTarget: async () => conversation },
       );
 
       // No push, no persist, no emit.
-      expect(target.pushedMessages).toHaveLength(0);
-      expect(target.persistedTailCalls).toHaveLength(0);
-      expect(target.emittedEvents).toHaveLength(0);
+      expect(conversation.pushedMessages).toHaveLength(0);
+      expect(conversation.persistedTailCalls).toHaveLength(0);
+      expect(conversation.emittedEvents).toHaveLength(0);
 
       // But drain still ran exactly once, after processing flipped to
       // false. Sequence: toggle true → toggle false → drain.
-      expect(target.callSequence).toEqual([
+      expect(conversation.callSequence).toEqual([
         "processing:true",
         "processing:false",
         "drain",
       ]);
-      expect(target.processingDuringDrain).toEqual([false]);
+      expect(conversation.processingDuringDrain).toEqual([false]);
     },
   );
 
@@ -1386,94 +1349,61 @@ describe("wakeAgentForOpportunity", () => {
         content: [{ type: "text", text: "All done." }],
       };
 
-      const emittedEvents: AgentEvent[] = [];
-      const pushedMessages: Message[] = [];
-      const persistedTailCalls: Message[] = [];
-      // Snapshot of how many tail messages had been persisted at each
-      // point a streaming event reached the target. This is the actual
-      // observability invariant: when a turn-2 streaming event arrives,
-      // turn-1's messages must already be persisted so a fetchHistory
-      // call from a client opening the conversation mid-stream returns
-      // turn-1's content.
-      const persistedAtEachEmit: number[] = [];
-      const baseline: Message[] = [
-        { role: "user", content: [{ type: "text", text: "hi" }] },
-      ];
-      const history: Message[] = [...baseline];
-      let processing = false;
-
-      const target: WakeTarget = {
+      const conversation = makeWakeConversation({
         conversationId: "conv-stream",
-        agentLoop: {
-          run: async (_input, onEvent, runOptions) => {
-            // Preamble + assistant hint + postamble (mirrors what the
-            // wake injects). The agent-wake helper expects these three
-            // hint messages in the input it hands to run().
-            const runHistory: Message[] = [..._input];
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        runImpl: async (_input, onEvent, runOptions) => {
+          // Preamble + assistant hint + postamble (mirrors what the
+          // wake injects). The agent-wake helper expects these three
+          // hint messages in the input it hands to run().
+          const runHistory: Message[] = [..._input];
 
-            // Turn 1: stream a text_delta + message_complete, then
-            // fire the checkpoint after the tool_result lands.
-            await onEvent({ type: "text_delta", text: "Working" });
-            runHistory.push(turn1Assistant);
-            await onEvent({
-              type: "message_complete",
-              message: turn1Assistant,
-            });
-            runHistory.push(turn1ToolResult);
-            const dec1 = await runOptions!.onCheckpoint!({
-              turnIndex: 0,
-              toolCount: 1,
-              hasToolUse: true,
-              history: runHistory,
-            });
-            expect(dec1).toBe("continue");
+          // Turn 1: stream a text_delta + message_complete, then
+          // fire the checkpoint after the tool_result lands.
+          await onEvent({ type: "text_delta", text: "Working" });
+          runHistory.push(turn1Assistant);
+          await onEvent({
+            type: "message_complete",
+            message: turn1Assistant,
+          });
+          runHistory.push(turn1ToolResult);
+          const dec1 = await runOptions!.onCheckpoint!({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: runHistory,
+          });
+          expect(dec1).toBe("continue");
 
-            // Turn 2: another tool turn — must already see the live
-            // streaming because mode flipped after turn 1.
-            await onEvent({ type: "text_delta", text: "Still going" });
-            runHistory.push(turn2Assistant);
-            await onEvent({
-              type: "message_complete",
-              message: turn2Assistant,
-            });
-            runHistory.push(turn2ToolResult);
-            const dec2 = await runOptions!.onCheckpoint!({
-              turnIndex: 1,
-              toolCount: 1,
-              hasToolUse: true,
-              history: runHistory,
-            });
-            expect(dec2).toBe("continue");
+          // Turn 2: another tool turn — must already see the live
+          // streaming because mode flipped after turn 1.
+          await onEvent({ type: "text_delta", text: "Still going" });
+          runHistory.push(turn2Assistant);
+          await onEvent({
+            type: "message_complete",
+            message: turn2Assistant,
+          });
+          runHistory.push(turn2ToolResult);
+          const dec2 = await runOptions!.onCheckpoint!({
+            turnIndex: 1,
+            toolCount: 1,
+            hasToolUse: true,
+            history: runHistory,
+          });
+          expect(dec2).toBe("continue");
 
-            // Final assistant message with no tool calls — loop would
-            // exit. onCheckpoint does NOT fire for the terminal turn,
-            // so the post-run flushPendingTail must catch this one.
-            await onEvent({ type: "text_delta", text: "All done." });
-            runHistory.push(finalAssistant);
-            await onEvent({
-              type: "message_complete",
-              message: finalAssistant,
-            });
-            return runResult(runHistory);
-          },
+          // Final assistant message with no tool calls — loop would
+          // exit. onCheckpoint does NOT fire for the terminal turn,
+          // so the post-run flushPendingTail must catch this one.
+          await onEvent({ type: "text_delta", text: "All done." });
+          runHistory.push(finalAssistant);
+          await onEvent({
+            type: "message_complete",
+            message: finalAssistant,
+          });
+          return runResult(runHistory);
         },
-        getMessages: () => history,
-        pushMessage: (msg) => {
-          pushedMessages.push(msg);
-          history.push(msg);
-        },
-        emitAgentEvent: (event) => {
-          emittedEvents.push(event);
-          persistedAtEachEmit.push(persistedTailCalls.length);
-        },
-        isProcessing: () => processing,
-        markProcessing: (on) => {
-          processing = on;
-        },
-        persistTailMessage: async (msg) => {
-          persistedTailCalls.push(msg);
-        },
-      };
+      });
 
       const result = await wakeAgentForOpportunity(
         {
@@ -1481,31 +1411,35 @@ describe("wakeAgentForOpportunity", () => {
           hint: "consolidate",
           source: "memory_v2_consolidation",
         },
-        { resolveTarget: async () => target },
+        { resolveTarget: async () => conversation },
       );
 
       expect(result).toEqual({ invoked: true, producedToolCalls: true });
 
       // All 5 tail messages persisted in order. The first two via
       // turn-1 checkpoint, the next two via turn-2 checkpoint, and
-      // `finalAssistant` via the post-run flush.
-      expect(persistedTailCalls).toHaveLength(5);
-      expect(persistedTailCalls[0]).toBe(turn1Assistant);
-      expect(persistedTailCalls[1]).toBe(turn1ToolResult);
-      expect(persistedTailCalls[2]).toBe(turn2Assistant);
-      expect(persistedTailCalls[3]).toBe(turn2ToolResult);
-      expect(persistedTailCalls[4]).toBe(finalAssistant);
+      // `finalAssistant` via the post-run flush. Persistence flows
+      // through addMessage (serialize → store), so identity is not
+      // preserved — assert structural equality.
+      expect(conversation.persistedTailCalls).toHaveLength(5);
+      expect(conversation.persistedTailCalls[0]).toEqual(turn1Assistant);
+      expect(conversation.persistedTailCalls[1]).toEqual(turn1ToolResult);
+      expect(conversation.persistedTailCalls[2]).toEqual(turn2Assistant);
+      expect(conversation.persistedTailCalls[3]).toEqual(turn2ToolResult);
+      expect(conversation.persistedTailCalls[4]).toEqual(finalAssistant);
 
       // Critical observability invariant: by the time turn-2's
       // streaming text_delta reached the client, turn-1's messages
       // were already persisted. A client opening the conversation at
       // that moment would fetchHistory and see turn-1, plus stream
       // turn-2 live — instead of seeing an empty welcome view.
-      const turn2DeltaIdx = emittedEvents.findIndex(
-        (e) => e.type === "text_delta" && e.text === "Still going",
+      const turn2DeltaIdx = conversation.emittedEvents.findIndex(
+        (e) => e.type === "assistant_text_delta" && e.text === "Still going",
       );
       expect(turn2DeltaIdx).toBeGreaterThan(-1);
-      expect(persistedAtEachEmit[turn2DeltaIdx]).toBeGreaterThanOrEqual(2);
+      expect(
+        conversation.persistedAtEachEmit[turn2DeltaIdx],
+      ).toBeGreaterThanOrEqual(2);
     },
   );
 
@@ -1530,46 +1464,22 @@ describe("wakeAgentForOpportunity", () => {
         content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
       };
 
-      const persistedTailCalls: Message[] = [];
-      const baseline: Message[] = [
-        { role: "user", content: [{ type: "text", text: "hi" }] },
-      ];
-      const history: Message[] = [...baseline];
-      let processing = false;
-      const wakeProducedOutputCalls: string[] = [];
-
-      const target: WakeTarget = {
+      const conversation = makeWakeConversation({
         conversationId: "conv-card",
-        agentLoop: {
-          run: async (_input, _onEvent, runOptions) => {
-            const runHistory: Message[] = [..._input];
-            runHistory.push(firstAssistant);
-            runHistory.push(toolResult);
-            await runOptions!.onCheckpoint!({
-              turnIndex: 0,
-              toolCount: 1,
-              hasToolUse: true,
-              history: runHistory,
-            });
-            return runResult(runHistory);
-          },
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        runImpl: async (_input, _onEvent, runOptions) => {
+          const runHistory: Message[] = [..._input];
+          runHistory.push(firstAssistant);
+          runHistory.push(toolResult);
+          await runOptions!.onCheckpoint!({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: runHistory,
+          });
+          return runResult(runHistory);
         },
-        getMessages: () => history,
-        pushMessage: (msg) => {
-          history.push(msg);
-        },
-        emitAgentEvent: () => {},
-        isProcessing: () => processing,
-        markProcessing: (on) => {
-          processing = on;
-        },
-        persistTailMessage: async (msg) => {
-          persistedTailCalls.push(msg);
-        },
-        onWakeProducedOutput: (_source, _hint, surfaceId) => {
-          wakeProducedOutputCalls.push(surfaceId);
-        },
-      };
+      });
 
       await wakeAgentForOpportunity(
         {
@@ -1577,14 +1487,14 @@ describe("wakeAgentForOpportunity", () => {
           hint: "do the thing",
           source: "memory_v2_consolidation",
         },
-        { resolveTarget: async () => target },
+        { resolveTarget: async () => conversation },
       );
 
       // ui_surface fired exactly once (idempotent goLive), and the
       // surfaceId matches the block prepended into the first
       // assistant message.
-      expect(wakeProducedOutputCalls).toHaveLength(1);
-      const persistedFirst = persistedTailCalls[0];
+      expect(conversation.surfaceBroadcasts).toHaveLength(1);
+      const persistedFirst = conversation.persistedTailCalls[0];
       expect(persistedFirst).toBeDefined();
       const blocks = Array.isArray(persistedFirst!.content)
         ? persistedFirst!.content
@@ -1593,7 +1503,9 @@ describe("wakeAgentForOpportunity", () => {
         (b: { type?: string }) => b.type === "ui_surface",
       ) as { surfaceId?: string } | undefined;
       expect(uiBlock).toBeDefined();
-      expect(uiBlock!.surfaceId).toBe(wakeProducedOutputCalls[0]);
+      expect(uiBlock!.surfaceId).toBe(
+        conversation.surfaceBroadcasts[0]!.surfaceId,
+      );
     },
   );
 
@@ -1611,7 +1523,7 @@ describe("wakeAgentForOpportunity", () => {
         rawRequest: { request: "no-op wake" },
         rawResponse: { response: "no output" },
       };
-      const target = makeTarget({
+      const conversation = makeWakeConversation({
         baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
         scriptedEvents: [usageEvent],
         // Empty assistant text → silent no-op.
@@ -1623,17 +1535,17 @@ describe("wakeAgentForOpportunity", () => {
 
       const result = await wakeAgentForOpportunity(
         {
-          conversationId: target.conversationId,
+          conversationId: conversation.conversationId,
           hint: "consider doing nothing",
           source: "unit-test",
         },
-        { resolveTarget: async () => target },
+        { resolveTarget: async () => conversation },
       );
 
       expect(result).toEqual({ invoked: true, producedToolCalls: false });
       // Nothing emitted, nothing persisted to the conversation.
-      expect(target.emittedEvents).toHaveLength(0);
-      expect(target.persistedTailCalls).toHaveLength(0);
+      expect(conversation.emittedEvents).toHaveLength(0);
+      expect(conversation.persistedTailCalls).toHaveLength(0);
       // Critical: the LLM request log must NOT be inserted with messageId=NULL,
       // otherwise the next user turn's backfillMessageIdOnLogs sweep would
       // misattach this row to an unrelated future assistant reply.
@@ -1652,7 +1564,7 @@ describe("wakeAgentForOpportunity", () => {
       rawRequest: { request: "produced wake" },
       rawResponse: { response: "real reply" },
     };
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedEvents: [usageEvent],
       scriptedAssistant: {
@@ -1663,17 +1575,17 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "do reply",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     expect(recordRequestLogCalls).toHaveLength(1);
     expect(recordRequestLogCalls[0]).toMatchObject({
-      conversationId: target.conversationId,
+      conversationId: conversation.conversationId,
       provider: "test-provider",
       messageId: undefined,
     });
@@ -1696,7 +1608,7 @@ describe("wakeAgentForOpportunity", () => {
       rawRequest: circular,
       rawResponse: { response: "real reply" },
     };
-    const target = makeTarget({
+    const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedEvents: [usageEvent],
       scriptedAssistant: {
@@ -1707,16 +1619,16 @@ describe("wakeAgentForOpportunity", () => {
 
     const result = await wakeAgentForOpportunity(
       {
-        conversationId: target.conversationId,
+        conversationId: conversation.conversationId,
         hint: "do reply",
         source: "unit-test",
       },
-      { resolveTarget: async () => target },
+      { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     // Wake still produced output even though logging failed.
-    expect(target.persistedTailCalls).toHaveLength(1);
+    expect(conversation.persistedTailCalls).toHaveLength(1);
     // No log row was inserted because JSON.stringify threw.
     expect(recordRequestLogCalls).toHaveLength(0);
   });
@@ -1731,22 +1643,13 @@ describe("wakeAgentForOpportunity", () => {
   // every fork sent `messages: []`. Threading trustContext through
   // ensures `setTrustContext` + `ensureActorScopedHistory` run during
   // hydration.
-  const makeDefaultResolverTarget = (conversationId: string): WakeTarget => {
-    const history: Message[] = [];
-    let processing = false;
-    return {
+  const makeDefaultResolverTarget = (
+    conversationId: string,
+  ): WakeConversation =>
+    makeWakeConversation({
       conversationId,
-      agentLoop: { run: async (input) => runResult(input) },
-      getMessages: () => history,
-      pushMessage: () => {},
-      emitAgentEvent: () => {},
-      isProcessing: () => processing,
-      markProcessing: (on) => {
-        processing = on;
-      },
-      persistTailMessage: async () => {},
-    };
-  };
+      runImpl: async (input) => runResult(input),
+    });
 
   test("default resolver threads WakeOptions.trustContext into getOrCreateConversation", async () => {
     mockResolverTarget = makeDefaultResolverTarget("conv-thread-trust");
@@ -1787,11 +1690,7 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   describe("suppressWakeSurface option", () => {
-    function makeCheckpointTarget(): {
-      target: WakeTarget;
-      persistedTailCalls: Message[];
-      wakeProducedOutputCalls: string[];
-    } {
+    function makeCheckpointConversation(): WakeConversation {
       const firstAssistant: Message = {
         role: "assistant",
         content: [
@@ -1802,55 +1701,30 @@ describe("wakeAgentForOpportunity", () => {
         role: "user",
         content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
       };
-      const persistedTailCalls: Message[] = [];
-      const baseline: Message[] = [
-        { role: "user", content: [{ type: "text", text: "hi" }] },
-      ];
-      const history: Message[] = [...baseline];
-      let processing = false;
-      const wakeProducedOutputCalls: string[] = [];
 
-      const target: WakeTarget = {
+      return makeWakeConversation({
         conversationId: "conv-suppress-surface",
-        agentLoop: {
-          run: async (_input, _onEvent, runOptions) => {
-            const runHistory: Message[] = [..._input];
-            runHistory.push(firstAssistant);
-            runHistory.push(toolResult);
-            await runOptions!.onCheckpoint!({
-              turnIndex: 0,
-              toolCount: 1,
-              hasToolUse: true,
-              history: runHistory,
-            });
-            return runResult(runHistory);
-          },
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        runImpl: async (_input, _onEvent, runOptions) => {
+          const runHistory: Message[] = [..._input];
+          runHistory.push(firstAssistant);
+          runHistory.push(toolResult);
+          await runOptions!.onCheckpoint!({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: runHistory,
+          });
+          return runResult(runHistory);
         },
-        getMessages: () => history,
-        pushMessage: (msg) => {
-          history.push(msg);
-        },
-        emitAgentEvent: () => {},
-        isProcessing: () => processing,
-        markProcessing: (on) => {
-          processing = on;
-        },
-        persistTailMessage: async (msg) => {
-          persistedTailCalls.push(msg);
-        },
-        onWakeProducedOutput: (_source, _hint, surfaceId) => {
-          wakeProducedOutputCalls.push(surfaceId);
-        },
-      };
-      return { target, persistedTailCalls, wakeProducedOutputCalls };
+      });
     }
 
     test(
       "default (suppressWakeSurface omitted) still injects the ui_surface " +
         "card and calls onWakeProducedOutput",
       async () => {
-        const { target, persistedTailCalls, wakeProducedOutputCalls } =
-          makeCheckpointTarget();
+        const conversation = makeCheckpointConversation();
 
         await wakeAgentForOpportunity(
           {
@@ -1858,12 +1732,12 @@ describe("wakeAgentForOpportunity", () => {
             hint: "do the thing",
             source: "memory_v2_consolidation",
           },
-          { resolveTarget: async () => target },
+          { resolveTarget: async () => conversation },
         );
 
         // Existing behavior: card injected, broadcast fired exactly once.
-        expect(wakeProducedOutputCalls).toHaveLength(1);
-        const persistedFirst = persistedTailCalls[0];
+        expect(conversation.surfaceBroadcasts).toHaveLength(1);
+        const persistedFirst = conversation.persistedTailCalls[0];
         expect(persistedFirst).toBeDefined();
         const blocks = Array.isArray(persistedFirst!.content)
           ? persistedFirst!.content
@@ -1879,8 +1753,7 @@ describe("wakeAgentForOpportunity", () => {
       "suppressWakeSurface: true produces output but skips the ui_surface " +
         "card injection and the onWakeProducedOutput broadcast",
       async () => {
-        const { target, persistedTailCalls, wakeProducedOutputCalls } =
-          makeCheckpointTarget();
+        const conversation = makeCheckpointConversation();
 
         await wakeAgentForOpportunity(
           {
@@ -1889,11 +1762,11 @@ describe("wakeAgentForOpportunity", () => {
             source: "memory_v2_consolidation",
             suppressWakeSurface: true,
           },
-          { resolveTarget: async () => target },
+          { resolveTarget: async () => conversation },
         );
 
         // Tail still persisted (wake produced real output).
-        const persistedFirst = persistedTailCalls[0];
+        const persistedFirst = conversation.persistedTailCalls[0];
         expect(persistedFirst).toBeDefined();
         // First assistant tail message should NOT have a ui_surface block
         // prepended at the front.
@@ -1907,7 +1780,7 @@ describe("wakeAgentForOpportunity", () => {
         );
         expect(uiBlock).toBeUndefined();
         // Live broadcast was suppressed.
-        expect(wakeProducedOutputCalls).toHaveLength(0);
+        expect(conversation.surfaceBroadcasts).toHaveLength(0);
       },
     );
   });

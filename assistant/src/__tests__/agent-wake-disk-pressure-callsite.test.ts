@@ -22,7 +22,6 @@ import type { Message } from "../providers/types.js";
 
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -62,36 +61,37 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   }),
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
-  type WakeTarget,
 } from "../runtime/agent-wake.js";
 
-function makeTarget(): WakeTarget {
-  const history: Message[] = [];
+function makeTarget(): Conversation {
+  const messages: Message[] = [];
   let processing = false;
-  return {
+  const target = {
     conversationId: "conv-wake-callsite",
     agentLoop: {
-      run: (async (messages: Message[]) => ({
-        history: messages,
+      run: async (input: Message[]) => ({
+        history: input,
         exitReason: null,
         appendedNewMessages: false,
         newMessages: [],
-      })) as WakeTarget["agentLoop"]["run"],
+      }),
     },
-    getMessages: () => history,
-    pushMessage: (msg) => {
-      history.push(msg);
-    },
-    emitAgentEvent: () => {},
+    messages,
+    getMessages: () => messages,
     isProcessing: () => processing,
-    markProcessing: (on) => {
+    setProcessing: (on: boolean) => {
       processing = on;
     },
-    persistTailMessage: async () => {},
+    setTrustContext: () => {},
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
+    drainQueue: async () => {},
   };
+  return target as unknown as Conversation;
 }
 
 beforeEach(() => {
