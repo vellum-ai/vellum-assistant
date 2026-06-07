@@ -148,7 +148,6 @@ function seedActiveSurfaceConversation(
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
   currentTurnTemporalSnapshot?: {
-    timestamp: string;
     clientTimezone: string | null;
   },
 ): void {
@@ -886,7 +885,6 @@ describe("applyRuntimeInjections — injection mode", () => {
       channelCapabilities,
       { type: "start" },
       {
-        timestamp: "2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)",
         clientTimezone: null,
       },
     );

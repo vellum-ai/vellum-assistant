@@ -38,6 +38,17 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
+// `applyRuntimeInjections` computes the `<turn_context>` `current_time` live
+// via `formatTurnTimestamp`; pin it so the rendered block matches the
+// deterministic `buildUnifiedTurnContextBlock` expectations below. The rest of
+// the module (timezone canonicalization/resolution) keeps its real behavior.
+const FIXED_TURN_TIMESTAMP = "2026-04-22";
+const realDateContext = await import("../daemon/date-context.js");
+mock.module("../daemon/date-context.js", () => ({
+  ...realDateContext,
+  formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
+}));
+
 const {
   applyRuntimeInjections,
   buildSubagentStatusBlock,
@@ -130,7 +141,6 @@ function clearNowScratchpad(): void {
 function seedWorkspaceContext(
   text: string,
   currentTurnTemporalSnapshot?: {
-    timestamp: string;
     clientTimezone: string | null;
   },
   interfaceName?: string,
@@ -150,17 +160,18 @@ function seedWorkspaceContext(
   } as never);
 }
 
-// `applyRuntimeInjections` sources the `<turn_context>` timestamp from the live
-// conversation's frozen `currentTurnTemporalSnapshot`. Tests that drive the
-// chain without a caller-supplied `turnContext` fall back to the
-// runtime-assembly fallback conversation, so seed the snapshot there.
-function seedFallbackTemporalSnapshot(timestamp: string): void {
+// `applyRuntimeInjections` gates the `<turn_context>` block on the live
+// conversation's frozen `currentTurnTemporalSnapshot` (computing `current_time`
+// live). Tests that drive the chain without a caller-supplied `turnContext`
+// fall back to the runtime-assembly fallback conversation, so seed the snapshot
+// there.
+function seedFallbackTemporalSnapshot(): void {
   setConversation("runtime-assembly-fallback", {
     conversationId: "runtime-assembly-fallback",
     workingDir: "/sandbox",
     workspaceTopLevelContext: "",
     workspaceTopLevelDirty: false,
-    currentTurnTemporalSnapshot: { timestamp, clientTimezone: null },
+    currentTurnTemporalSnapshot: { clientTimezone: null },
   } as never);
 }
 
@@ -387,10 +398,10 @@ describe("injector chain", () => {
     // unified-turn-context injector resolves the interface label to the `web`
     // default.
     const synthesizedBlock = buildUnifiedTurnContextBlock({
-      timestamp: "synthesized",
+      timestamp: FIXED_TURN_TIMESTAMP,
       interfaceName: "web",
     });
-    seedFallbackTemporalSnapshot("synthesized");
+    seedFallbackTemporalSnapshot();
     const result = await applyRuntimeInjections(runMessages, {});
 
     // The unified-turn-context injector fires even without a caller-supplied
@@ -429,9 +440,9 @@ describe("injector chain", () => {
     const workspaceText =
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
     // The interface label flows through the options bag; the timestamp is
-    // frozen on the conversation's temporal snapshot.
+    // computed live at injection time.
     const unifiedTurn = buildUnifiedTurnContextBlock({
-      timestamp: "2026-04-22",
+      timestamp: FIXED_TURN_TIMESTAMP,
       interfaceName: "macos",
     });
     // A completed child renders deterministically (no elapsed clock), so the
@@ -440,11 +451,7 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(
-      workspaceText,
-      { timestamp: "2026-04-22", clientTimezone: null },
-      "macos",
-    );
+    seedWorkspaceContext(workspaceText, { clientTimezone: null }, "macos");
     const result = await applyRuntimeInjections(runMessages, {
       turnContext: makeTurnContext(),
     });
@@ -571,10 +578,10 @@ describe("injector chain", () => {
     // `web` default. A live child subagent is seeded so the subagent-status
     // injector has a block to skip.
     const minimalTurnBlock = buildUnifiedTurnContextBlock({
-      timestamp: "2026-04-22",
+      timestamp: FIXED_TURN_TIMESTAMP,
       interfaceName: "web",
     });
-    seedWorkspaceContext("", { timestamp: "2026-04-22", clientTimezone: null });
+    seedWorkspaceContext("", { clientTimezone: null });
     seedSubagentChild(
       TEST_CONVERSATION_ID,
       makeSubagentState("sub-1", "worker", "running"),
