@@ -1669,8 +1669,22 @@ export interface RuntimeInjectionOptions {
    * underlying `assembleSlackChronologicalMessages`) before invoking
    * this function so the assembly path stays free of direct DB calls
    * and remains easy to test.
+   *
+   * When {@link slackChronologicalCompacted} is set, this snapshot is
+   * suppressed (treated as `null`) — see that field for why.
    */
   slackChronologicalMessages?: Message[] | null;
+  /**
+   * Whether compaction has collapsed `ctx.messages` during the in-flight
+   * turn up to this injection point. {@link slackChronologicalMessages} is
+   * a snapshot of the full persisted transcript captured at turn start; once
+   * compaction folds earlier messages into a summary, replaying that snapshot
+   * would overwrite the compacted history and undo compaction. So when this is
+   * `true`, the `slack-messages` injector is given no transcript to splice in.
+   * The flag is sticky within a turn (set on the first compacting step and
+   * carried through subsequent non-compacting re-injections).
+   */
+  slackChronologicalCompacted?: boolean;
   mode?: InjectionMode;
   /**
    * Inbound actor identity and trust fields. Populated only on non-guardian
@@ -1858,7 +1872,9 @@ export async function applyRuntimeInjections(
     mode: options.mode,
     subagentStatusBlock,
     channelCapabilities,
-    slackChronologicalMessages: options.slackChronologicalMessages,
+    slackChronologicalMessages: options.slackChronologicalCompacted
+      ? null
+      : options.slackChronologicalMessages,
     slackActiveThreadFocusBlock,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation,

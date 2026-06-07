@@ -3207,6 +3207,46 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("DM question");
   });
 
+  // ── Compaction suppresses the chronological transcript ───────────────
+  // The transcript snapshot reflects the full persisted history; once
+  // compaction has collapsed `ctx.messages` this turn, replaying it would
+  // overwrite the compacted history and undo compaction. `slackChronological-
+  // Compacted` suppresses the splice so the compacted tail is preserved.
+  test("slackChronologicalCompacted suppresses the transcript replacement", async () => {
+    const lastUserMessage: Message = {
+      role: "user",
+      content: [{ type: "text", text: "post-compaction question" }],
+    };
+    seedChannelCapabilitiesConversation({
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    });
+    const { messages: result } = await applyRuntimeInjections(
+      [lastUserMessage],
+      {
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "full-transcript row" }],
+          },
+        ],
+        slackChronologicalCompacted: true,
+      },
+    );
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    // The compacted tail survives and the full-transcript snapshot is not
+    // spliced back in.
+    expect(allText).toContain("post-compaction question");
+    expect(allText).not.toContain("full-transcript row");
+  });
+
   // ── Memory-injection carry-through on slack replacement ──────────────
   // `graphMemory.prepareMemory` prepends `<memory __injected>` (and
   // optional memory-image groups) to the last user message BEFORE the

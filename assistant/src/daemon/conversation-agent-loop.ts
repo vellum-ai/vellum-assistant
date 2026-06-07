@@ -1076,9 +1076,7 @@ export async function runAgentLoopImpl(
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
-      slackChronologicalMessages: state.reducerCompacted
-        ? null
-        : injectionOpts.slackChronologicalMessages,
+      slackChronologicalCompacted: state.reducerCompacted,
       mode: currentInjectionMode,
       turnContext: injectionTurnCtx,
     });
@@ -1248,14 +1246,7 @@ export async function runAgentLoopImpl(
             isNonInteractive,
             modelProfile: modelProfileStr,
             actorContext,
-            // Once ANY iteration has compacted `ctx.messages`, the captured
-            // `slackChronologicalMessages` snapshot (built from the full
-            // persisted transcript) would overwrite the compacted history
-            // and undo compaction. Suppress the override from here on —
-            // sticky across subsequent non-compacting iterations.
-            slackChronologicalMessages: accumulatedCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            slackChronologicalCompacted: accumulatedCompacted,
             mode,
             turnContext: buildPluginTurnContext(ctx, reqId),
           });
@@ -1386,12 +1377,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfile,
           actorContext,
-          // Suppress the chronological-transcript snapshot once the reducer
-          // has collapsed `ctx.messages`; the captured snapshot reflects the
-          // full persisted transcript and would overwrite compaction.
-          slackChronologicalMessages: state.reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
+          slackChronologicalCompacted: state.reducerCompacted,
           mode,
           turnContext,
           history,
@@ -1768,9 +1754,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,
-          slackChronologicalMessages: state.reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
+          slackChronologicalCompacted: state.reducerCompacted,
           mode: currentInjectionMode,
           turnContext: buildPluginTurnContext(ctx, reqId),
         });
@@ -1861,9 +1845,7 @@ export async function runAgentLoopImpl(
             isNonInteractive,
             modelProfile: modelProfileStr,
             actorContext,
-            slackChronologicalMessages: state.reducerCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            slackChronologicalCompacted: state.reducerCompacted,
             mode: currentInjectionMode,
             turnContext: buildPluginTurnContext(ctx, reqId),
           });

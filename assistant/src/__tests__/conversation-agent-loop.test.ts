@@ -3247,9 +3247,9 @@ describe("session-agent-loop", () => {
       );
       const firstInjectionOptions = applyRuntimeInjectionsMock.mock
         .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
+        slackChronologicalCompacted?: boolean;
       };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
+      expect(firstInjectionOptions.slackChronologicalCompacted).toBe(true);
     });
 
     test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
@@ -3356,12 +3356,12 @@ describe("session-agent-loop", () => {
       const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
         (call) => {
           const options = call[1] as {
-            slackChronologicalMessages?: Message[] | null;
+            slackChronologicalCompacted?: boolean;
           };
-          return options.slackChronologicalMessages === null;
+          return options.slackChronologicalCompacted === true;
         },
-      )?.[1] as { slackChronologicalMessages?: Message[] | null } | undefined;
-      expect(reinjectionOptions?.slackChronologicalMessages).toBeNull();
+      )?.[1] as { slackChronologicalCompacted?: boolean } | undefined;
+      expect(reinjectionOptions?.slackChronologicalCompacted).toBe(true);
     });
 
     test("same-turn Slack compaction updates watermark from projected provenance", async () => {
