@@ -617,6 +617,7 @@ function makeCtx(
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as Conversation["contextWindowManager"],
@@ -1640,6 +1641,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1661,6 +1663,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
@@ -1720,6 +1723,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1769,6 +1773,7 @@ describe("session-agent-loop", () => {
         ],
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1869,6 +1874,7 @@ describe("session-agent-loop", () => {
         toolExecutor: async () => ({ content: "data", isError: false }),
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1954,6 +1960,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1992,6 +1999,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -2683,6 +2691,7 @@ describe("session-agent-loop", () => {
           textResponse("retry succeeded"),
         ],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3195,6 +3204,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: (messages: Message[]) => {
             shouldCompactInputs.push(messages);
             return { needed: true, estimatedTokens: 95_000 };
@@ -3327,6 +3337,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3446,6 +3457,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
           maybeCompact: async (messages: Message[]) => {
             expect(messages).toBe(renderedSlackMessages);
@@ -3569,6 +3581,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
@@ -3936,6 +3949,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3985,6 +3999,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],

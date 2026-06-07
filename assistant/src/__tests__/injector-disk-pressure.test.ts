@@ -252,7 +252,7 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     seedDiskPressure(true);
     seedTemporalSnapshot();
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
 
     expect(tailTexts(result.messages).slice(0, 4)).toEqual([
@@ -278,7 +278,7 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
-        turnContext: makeContext(),
+        ...makeContext(),
         mode: "minimal",
       },
     );
@@ -323,7 +323,7 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       chatType: "channel",
     });
     const result = await applyRuntimeInjections(originalRun, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
 
     expect(result.messages).toHaveLength(2);
@@ -342,13 +342,13 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
 
     seedDiskPressure(true);
     const first = await applyRuntimeInjections(runMessages, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
     const stripped = stripInjectionsForCompaction(first.messages);
     expect(tailTexts(stripped)).toEqual(["find large files"]);
 
     const second = await applyRuntimeInjections(stripped, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
     expect(
       tailTexts(second.messages).filter(

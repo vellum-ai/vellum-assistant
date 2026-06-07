@@ -124,8 +124,19 @@ export interface PostCompactContext
 export default async function postCompactReinject(
   ctx: PostCompactContext,
 ): Promise<RuntimeInjectionResult> {
-  const { history, ...options } = ctx;
-  const result = await applyRuntimeInjections(history, options);
+  const { history, turnContext, ...options } = ctx;
+  // The loop hands its canonical per-turn context as a single `turnContext`;
+  // unnest its turn-identity fields onto the flat injection options so the
+  // re-injection resolves the same live conversation (and its channel/trust/
+  // transcript state) as the turn's initial assembly.
+  const result = await applyRuntimeInjections(history, {
+    ...options,
+    requestId: turnContext?.requestId,
+    conversationId: turnContext?.conversationId,
+    turnIndex: turnContext?.turnIndex,
+    trust: turnContext?.trust,
+    callSite: turnContext?.callSite,
+  });
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
   // received a memory-graph injection, so there is nothing to re-track. The
@@ -134,19 +145,16 @@ export default async function postCompactReinject(
   // live graph handle is looked up from the plugin's own registry by the
   // turn's conversation id — the same instance the turn's retrieval mutated,
   // so re-tracking sees the real cached-node state.
-  const isTrustedActor =
-    resolveTrustClass(options.turnContext?.trust) === "guardian";
+  const isTrustedActor = resolveTrustClass(turnContext?.trust) === "guardian";
   if (isTrustedActor && options.mode !== "minimal") {
-    getLiveGraphMemory(
-      options.turnContext?.conversationId,
-    )?.retrackCachedNodes();
+    getLiveGraphMemory(turnContext?.conversationId)?.retrackCachedNodes();
   }
   const strip = stripHistoricalWebSearchResults(result.messages);
   if (strip.stats.blocksStripped > 0) {
     log.info(
       {
         phase: "mid-loop-compact",
-        conversationId: options.turnContext?.conversationId,
+        conversationId: turnContext?.conversationId,
         ...strip.stats,
       },
       "Converted historical web_search_tool_result blocks to text summaries",

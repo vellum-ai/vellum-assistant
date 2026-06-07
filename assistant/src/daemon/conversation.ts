@@ -33,7 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import type { ContextWindowConfig } from "../config/types.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -1394,11 +1393,7 @@ export class Conversation {
       callSite: "mainAgent",
       overrideProfile: overrideProfile ?? undefined,
     });
-    (
-      this.contextWindowManager as ContextWindowManager & {
-        updateConfig?: (config: ContextWindowConfig) => void;
-      }
-    ).updateConfig?.(
+    this.contextWindowManager.updateConfig(
       contextWindowConfigFromEffective(
         resolveCallSiteConfig("mainAgent", config.llm, {
           overrideProfile: overrideProfile ?? undefined,

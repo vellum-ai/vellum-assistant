@@ -375,7 +375,7 @@ describe("injector chain", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     expect(result.blocks.injectorChainBlock).toBeUndefined();
@@ -453,7 +453,7 @@ describe("injector chain", () => {
 
     seedWorkspaceContext(workspaceText, { clientTimezone: null }, "macos");
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     // Extract the tail user message content as a list of text strings.
@@ -544,7 +544,7 @@ describe("injector chain", () => {
       },
     } as never);
     const result = await applyRuntimeInjections(originalRun, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     // The swap replaced the run-messages wholesale but preserved the
@@ -594,7 +594,7 @@ describe("injector chain", () => {
         },
       ],
       {
-        turnContext: makeTurnContext(),
+        ...makeTurnContext(),
         mode: "minimal",
       },
     );

@@ -192,6 +192,7 @@ mock.module("../context/window-manager.js", () => ({
     nonPersistedPrefixCount = 0;
     summaryIsInjected = false;
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
