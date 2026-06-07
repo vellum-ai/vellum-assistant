@@ -215,16 +215,19 @@ const forwardGatewayRequest = async (
       return null;
     case "reject":
       return new Response(plan.message, { status: plan.status });
-    case "forward":
+    case "forward": {
+      const body = plan.hasBody ? await request.arrayBuffer() : undefined;
       return net.fetch(plan.url, {
         method: plan.method,
         headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        // Stream the request body instead of buffering it; required by the
-        // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(plan.hasBody ? { duplex: "half" } : {}),
+        body,
+        // Electron's protocol-handler Request body arrives as a stream.
+        // Forwarding that stream through net.fetch can trip Chromium's
+        // chunked upload path for JSON/audio uploads; a finite ArrayBuffer
+        // gives the loopback gateway a regular request body instead.
         redirect: "manual",
       });
+    }
   }
 };
 
