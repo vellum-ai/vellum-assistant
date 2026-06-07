@@ -4,28 +4,31 @@ import { useNavigate } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { useAssistants, type AssistantEntry } from "@/hooks/use-assistants";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import {
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
-function assistantLabel(a: AssistantEntry): string {
+function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) return a.name;
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: AssistantEntry): string {
+function assistantSubtitle(a: ResolvedAssistant): string {
   return a.isLocal ? "Running locally on this device" : "Hosted on Vellum Cloud";
 }
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const hasPlatformSession = useHasPlatformSession();
-  const { assistants, isLoading } = useAssistants();
+  const assistants = useResolvedAssistantsStore.use.assistants();
 
-  const isAccessible = (a: AssistantEntry): boolean =>
+  const isAccessible = (a: ResolvedAssistant): boolean =>
     a.isLocal || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
@@ -42,7 +45,7 @@ export function SelectAssistantScreen() {
     }
   }, [selected, accessibleAssistants]);
 
-  const handleConnect = async (assistant: AssistantEntry) => {
+  const handleConnect = async (assistant: ResolvedAssistant) => {
     setConnecting(true);
     setError(null);
     try {
@@ -60,13 +63,13 @@ export function SelectAssistantScreen() {
 
   // Auto-skip when exactly one accessible assistant
   useEffect(() => {
-    if (isLoading || assistants.length === 0) return;
+    if (assistants.length === 0) return;
     if (accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading]);
+  }, []);
 
   const onContinue = () => {
     const assistant = assistants.find((a) => a.id === selected);
@@ -77,8 +80,8 @@ export function SelectAssistantScreen() {
     void navigate(routes.onboarding.welcome);
   };
 
-  // Loading state during auto-skip or initial load
-  if (isLoading || (autoSkipping && !error)) {
+  // Loading state during auto-skip
+  if (autoSkipping && !error) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
@@ -172,7 +175,7 @@ function AssistantCard({
   badge,
   onSelect,
 }: {
-  assistant: AssistantEntry;
+  assistant: ResolvedAssistant;
   selected: boolean;
   disabled: boolean;
   badge?: string;

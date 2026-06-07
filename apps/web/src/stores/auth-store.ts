@@ -45,6 +45,7 @@ import {
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { listAssistants } from "@/assistant/api";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -373,6 +374,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
+        try {
+          const apiAssistants = await listAssistants();
+          if (apiAssistants.ok) {
+            useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
+          }
+        } catch { /* best effort */ }
         set(authenticatedPlatformUser(user));
         return;
       }
@@ -392,6 +399,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
+            try {
+              const apiAssistants = await listAssistants();
+              if (apiAssistants.ok) {
+                useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
+              }
+            } catch { /* best effort */ }
             set(authenticatedPlatformUser(user));
             return;
           }
