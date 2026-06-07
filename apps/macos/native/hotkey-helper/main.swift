@@ -1,51 +1,10 @@
-import Carbon
+import AppKit
+import ApplicationServices
 import Darwin
 import Foundation
 
-private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
-private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
-
-private func hotkeyEventHandler(
-    _ nextHandler: EventHandlerCallRef?,
-    _ event: EventRef?,
-    _ userData: UnsafeMutableRawPointer?
-) -> OSStatus {
-    guard let event, let userData else {
-        return OSStatus(eventNotHandledErr)
-    }
-
-    var hotkeyId = EventHotKeyID()
-    let status = GetEventParameter(
-        event,
-        EventParamName(kEventParamDirectObject),
-        EventParamType(typeEventHotKeyID),
-        nil,
-        MemoryLayout<EventHotKeyID>.size,
-        nil,
-        &hotkeyId
-    )
-    guard status == noErr,
-          hotkeyId.signature == hotkeySignature,
-          hotkeyId.id == fnHotkeyId.id else {
-        return OSStatus(eventNotHandledErr)
-    }
-
-    let helper = Unmanaged<HotkeyHelper>.fromOpaque(userData).takeUnretainedValue()
-    switch GetEventKind(event) {
-    case UInt32(kEventHotKeyPressed):
-        helper.emitHotkey(state: "down")
-    case UInt32(kEventHotKeyReleased):
-        helper.emitHotkey(state: "up")
-    default:
-        return CallNextEventHandler(nextHandler, event)
-    }
-
-    return noErr
-}
-
 final class HotkeyHelper {
-    private var hotkeyRef: EventHotKeyRef?
-    private var handlerRef: EventHandlerRef?
+    private var fnMonitor: Any?
     private var isFnDown = false
     private let outputLock = NSLock()
 
@@ -132,88 +91,66 @@ final class HotkeyHelper {
     private func setFnPushToTalk(enable: Bool, id: Int?) {
         if enable {
             do {
-                try registerFnHotkey()
+                try registerFnMonitor()
                 writeResult(id: id, result: ["enabled": true])
             } catch {
                 writeError(id: id, message: error.localizedDescription)
             }
         } else {
-            unregisterFnHotkey()
+            unregisterFnMonitor()
             writeResult(id: id, result: ["enabled": false])
         }
     }
 
-    private func registerFnHotkey() throws {
-        if hotkeyRef != nil {
+    private func registerFnMonitor() throws {
+        if fnMonitor != nil {
             return
         }
 
-        if handlerRef == nil {
-            let eventTypes = [
-                EventTypeSpec(
-                    eventClass: OSType(kEventClassKeyboard),
-                    eventKind: UInt32(kEventHotKeyPressed)
-                ),
-                EventTypeSpec(
-                    eventClass: OSType(kEventClassKeyboard),
-                    eventKind: UInt32(kEventHotKeyReleased)
-                ),
-            ]
-            var installedHandler: EventHandlerRef?
-            let userData = Unmanaged.passUnretained(self).toOpaque()
-            let status = eventTypes.withUnsafeBufferPointer { buffer in
-                InstallEventHandler(
-                    GetApplicationEventTarget(),
-                    hotkeyEventHandler,
-                    buffer.count,
-                    buffer.baseAddress,
-                    userData,
-                    &installedHandler
-                )
-            }
-            guard status == noErr else {
-                throw HelperError.carbon("InstallEventHandler", status)
-            }
-            handlerRef = installedHandler
+        guard accessibilityTrusted(prompt: true) else {
+            throw HelperError.accessibilityRequired
         }
 
-        var registeredHotkey: EventHotKeyRef?
-        let status = RegisterEventHotKey(
-            UInt32(kVK_Function),
-            0,
-            fnHotkeyId,
-            GetApplicationEventTarget(),
-            0,
-            &registeredHotkey
-        )
-        guard status == noErr else {
-            removeEventHandler()
-            throw HelperError.carbon("RegisterEventHotKey", status)
+        guard let monitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .flagsChanged,
+            handler: { [weak self] event in
+                DispatchQueue.main.async {
+                    self?.handleFlagsChanged(event)
+                }
+            }
+        ) else {
+            throw HelperError.monitor("NSEvent flagsChanged monitor could not be installed")
         }
 
-        hotkeyRef = registeredHotkey
+        fnMonitor = monitor
+        handleFnHeld(NSEvent.modifierFlags.contains(.function))
     }
 
-    private func unregisterFnHotkey() {
+    private func unregisterFnMonitor() {
         if isFnDown {
             emitHotkey(state: "up")
         }
-        if let ref = hotkeyRef {
-            UnregisterEventHotKey(ref)
-            hotkeyRef = nil
+        if let monitor = fnMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnMonitor = nil
         }
-        removeEventHandler()
     }
 
-    private func removeEventHandler() {
-        if let ref = handlerRef {
-            RemoveEventHandler(ref)
-            handlerRef = nil
-        }
+    private func handleFlagsChanged(_ event: NSEvent) {
+        handleFnHeld(event.modifierFlags.contains(.function))
+    }
+
+    private func handleFnHeld(_ isHeld: Bool) {
+        emitHotkey(state: isHeld ? "down" : "up")
+    }
+
+    private func accessibilityTrusted(prompt: Bool) -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     private func shutdown() {
-        unregisterFnHotkey()
+        unregisterFnMonitor()
     }
 
     private func writeResult(id: Int?, result: [String: Any]) {
@@ -249,12 +186,15 @@ final class HotkeyHelper {
 }
 
 private enum HelperError: LocalizedError {
-    case carbon(String, OSStatus)
+    case accessibilityRequired
+    case monitor(String)
 
     var errorDescription: String? {
         switch self {
-        case let .carbon(operation, status):
-            return "\(operation) failed with status \(status)"
+        case .accessibilityRequired:
+            return "Accessibility permission is required for Fn push-to-talk"
+        case let .monitor(message):
+            return message
         }
     }
 }

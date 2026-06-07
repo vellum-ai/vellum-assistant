@@ -363,6 +363,7 @@ const enableFnPushToTalkForOwner = async (
   if (result.ok) {
     helperRegistered = result.enabled;
   } else {
+    log.warn(`[hotkey-helper] failed to enable Fn push-to-talk: ${result.reason}`);
     removeHotkeyOwner(webContents.id);
   }
   return result;

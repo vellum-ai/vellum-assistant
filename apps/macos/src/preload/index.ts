@@ -145,7 +145,7 @@ export interface VellumBridge {
     ping(): Promise<"pong">;
     hotkey: {
       /**
-       * Enable or disable the native Carbon Fn-key push-to-talk registration.
+       * Enable or disable the native Fn-key push-to-talk registration.
        * The native helper emits `hotkey-event` notifications while enabled.
        */
       fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
