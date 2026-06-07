@@ -44,10 +44,7 @@ import {
   estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowManager,
-} from "../context/window-manager.js";
+import type { ContextWindowCompactOptions } from "../context/window-manager.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -80,7 +77,10 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  applyCompactionConfig,
+  defaultCompact,
+} from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -402,11 +402,7 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     currentEffectiveContextWindow,
   );
-  const contextWindowManager =
-    ctx.contextWindowManager as ContextWindowManager & {
-      updateConfig?: (config: ContextWindowConfig) => void;
-    };
-  contextWindowManager.updateConfig?.(currentContextWindowConfig);
+  applyCompactionConfig(ctx.contextWindowManager, currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
   let emittedToolRoutedProfile: string | undefined;
@@ -426,7 +422,10 @@ export async function runAgentLoopImpl(
         }).contextWindow,
         currentEffectiveContextWindow,
       );
-      contextWindowManager.updateConfig?.(currentContextWindowConfig);
+      applyCompactionConfig(
+        ctx.contextWindowManager,
+        currentContextWindowConfig,
+      );
       appliedOverrideProfile = currentOverrideProfile;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },

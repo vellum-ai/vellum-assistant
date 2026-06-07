@@ -497,6 +497,7 @@ function makeCtx(
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as Conversation["contextWindowManager"],
@@ -762,6 +763,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -836,6 +838,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     const ctx = makeCtx({
       loopProvider: provider,
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
@@ -912,6 +915,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -999,6 +1003,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         loopProvider: provider,
         messages: longHistory,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1081,6 +1086,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (
             _msgs: Message[],
@@ -1181,6 +1187,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1287,6 +1294,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1404,6 +1412,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
@@ -1512,6 +1521,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
@@ -1627,6 +1637,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
         // the retry budget lives inside `ContextWindowManager._maybeCompact`,
@@ -1772,6 +1783,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     const ctx = makeCtx({
       providerResponses: [textResponse("done")],
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
@@ -1875,6 +1887,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async (
           _msgs: Message[],

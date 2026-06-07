@@ -33,7 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import type { ContextWindowConfig } from "../config/types.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -64,7 +63,10 @@ import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
-import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  applyCompactionConfig,
+  defaultCompact,
+} from "../plugins/defaults/compaction/compact.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -1395,11 +1397,8 @@ export class Conversation {
       callSite: "mainAgent",
       overrideProfile: overrideProfile ?? undefined,
     });
-    (
-      this.contextWindowManager as ContextWindowManager & {
-        updateConfig?: (config: ContextWindowConfig) => void;
-      }
-    ).updateConfig?.(
+    applyCompactionConfig(
+      this.contextWindowManager,
       contextWindowConfigFromEffective(
         resolveCallSiteConfig("mainAgent", config.llm, {
           overrideProfile: overrideProfile ?? undefined,
