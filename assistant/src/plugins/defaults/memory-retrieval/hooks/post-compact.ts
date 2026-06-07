@@ -21,40 +21,62 @@
  * The memory graph handle is sourced internally from the plugin's own
  * conversation-keyed registry ({@link getLiveGraphMemory}) rather than being
  * threaded in by the loop — it is memory-retrieval-specific state, not
- * something the generic loop or the shared {@link TurnContext} should carry.
+ * something the generic loop should carry.
  */
 
 import {
   applyRuntimeInjections,
   type InboundActorContext,
   type InjectionMode,
-  type RuntimeInjectionOptions,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import { resolveTrustClass } from "../../../../daemon/trust-context.js";
+import {
+  resolveTrustClass,
+  type TrustContext,
+} from "../../../../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { Message } from "../../../../providers/types.js";
 import { getLogger } from "../../../../util/logger.js";
-import type { TurnContext } from "../../../types.js";
 
 const log = getLogger("post-compact-reinject");
 
 /**
- * The slice of the hook's context the agent loop supplies from its own working
- * state. Re-injection inputs migrate loop-ward by growing this type; the loop
- * hands the hook an object of this shape when it calls
+ * Everything the post-compaction hook needs, supplied by the agent loop from
+ * its own working state. Re-injection inputs migrate loop-ward by growing this
+ * type; the loop hands the hook an object of this shape when it calls
  * {@link postCompactReinject} directly.
+ *
+ * The turn-identity fields are flat here: `conversationId` is the key the
+ * re-injection resolves the live conversation through (and the only one that,
+ * together with `requestId` and `trust`, cannot be recovered from that live
+ * conversation), while `turnIndex` and `callSite` are intentionally omitted so
+ * {@link applyRuntimeInjections} self-resolves them from the live conversation.
+ * The memory graph handle is likewise sourced internally via
+ * {@link getLiveGraphMemory} rather than threaded in.
  */
 export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */
   history: Message[];
   /**
-   * Per-turn conversation context forwarded to the injector chain. Its
-   * `conversationId` is the key the re-injection resolves the live
-   * conversation through, so the loop always supplies it.
+   * Stable ID for the current request, forwarded onto the injector turn
+   * context. The one turn-identity field that cannot be recovered from the
+   * live conversation, so the loop supplies it.
    */
-  turnContext: TurnContext;
+  requestId: string | undefined;
+  /**
+   * Conversation the turn is scoped to. The key the re-injection resolves the
+   * live conversation (and its channel/trust/transcript state) through, so the
+   * loop always supplies it.
+   */
+  conversationId: string;
+  /**
+   * Trust classification and channel identity for the inbound actor, forwarded
+   * onto the injector turn context and used to gate the memory-graph re-track.
+   * Supplied by the loop as the turn-start snapshot rather than re-resolved
+   * mid-turn.
+   */
+  trust: TrustContext;
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once by the agent loop at turn start (from its
@@ -91,82 +113,40 @@ export interface PostCompactionHookInput {
   actorContext: InboundActorContext | null;
 }
 
-/**
- * Everything the hook needs in a single context: the loop-supplied
- * {@link PostCompactionHookInput} plus the non-identity
- * {@link RuntimeInjectionOptions} (spread top-level so each field stays
- * individually addressable). The turn-identity fields (`requestId`,
- * `conversationId`, `turnIndex`, `trust`, `callSite`) are omitted from the
- * inherited options because the hook sources them from
- * {@link PostCompactionHookInput.turnContext}; the memory graph handle is
- * likewise sourced internally via {@link getLiveGraphMemory} rather than
- * threaded in.
- */
-export interface PostCompactContext
-  extends
-    Omit<
-      RuntimeInjectionOptions,
-      "requestId" | "conversationId" | "turnIndex" | "trust" | "callSite"
-    >,
-    PostCompactionHookInput {
-  /**
-   * Re-declared to reconcile the optional {@link RuntimeInjectionOptions} field
-   * with the required {@link PostCompactionHookInput} one: the hook always
-   * receives this from the loop, and it flows into {@link applyRuntimeInjections}
-   * via the spread options.
-   */
-  isNonInteractive: boolean;
-  /**
-   * Re-declared for the same reason as {@link isNonInteractive}: required on
-   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
-   */
-  mode: InjectionMode;
-  /**
-   * Re-declared for the same reason as {@link isNonInteractive}: required on
-   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
-   */
-  modelProfile: string | null;
-  /**
-   * Re-declared for the same reason as {@link isNonInteractive}: required on
-   * {@link PostCompactionHookInput} but optional on {@link RuntimeInjectionOptions}.
-   */
-  actorContext: InboundActorContext | null;
-}
-
 export default async function postCompactReinject(
-  ctx: PostCompactContext,
+  ctx: PostCompactionHookInput,
 ): Promise<RuntimeInjectionResult> {
-  const { history, turnContext, ...options } = ctx;
-  // The loop hands its canonical per-turn context as a single `turnContext`;
-  // unnest its turn-identity fields onto the flat injection options so the
-  // re-injection resolves the same live conversation (and its channel/trust/
-  // transcript state) as the turn's initial assembly.
+  const { history, requestId, conversationId, trust, ...options } = ctx;
+  // The remaining `options` carry the non-identity injection inputs
+  // (`isNonInteractive`, `mode`, `modelProfile`, `actorContext`). Forward the
+  // turn-identity fields the live conversation can't supply (`requestId`,
+  // `conversationId`, `trust`); `turnIndex` and `callSite` self-resolve from
+  // the live conversation so the re-injection matches the turn's initial
+  // assembly.
   const result = await applyRuntimeInjections(history, {
     ...options,
-    requestId: turnContext.requestId,
-    conversationId: turnContext.conversationId,
-    turnIndex: turnContext.turnIndex,
-    trust: turnContext.trust,
-    callSite: turnContext.callSite,
+    requestId,
+    conversationId,
+    trust,
   });
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
   // received a memory-graph injection, so there is nothing to re-track. The
   // actor's trust class is derived from the turn's own trust context (the same
-  // value the injector chain resolves), not threaded in from the loop. The
-  // live graph handle is looked up from the plugin's own registry by the
-  // turn's conversation id — the same instance the turn's retrieval mutated,
-  // so re-tracking sees the real cached-node state.
-  const isTrustedActor = resolveTrustClass(turnContext.trust) === "guardian";
+  // value the injector chain resolves). The live graph handle is looked up
+  // from the plugin's own registry by the turn's conversation id — the same
+  // instance the turn's retrieval mutated, so re-tracking sees the real
+  // cached-node state.
+  const isTrustedActor = resolveTrustClass(trust) === "guardian";
   if (isTrustedActor && options.mode !== "minimal") {
-    getLiveGraphMemory(turnContext.conversationId)?.retrackCachedNodes();
+    getLiveGraphMemory(conversationId)?.retrackCachedNodes();
   }
   const strip = stripHistoricalWebSearchResults(result.messages);
   if (strip.stats.blocksStripped > 0) {
     log.info(
       {
         phase: "mid-loop-compact",
-        conversationId: turnContext.conversationId,
+        conversationId,
         ...strip.stats,
       },
       "Converted historical web_search_tool_result blocks to text summaries",

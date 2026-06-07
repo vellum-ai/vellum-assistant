@@ -69,7 +69,6 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
-import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -327,22 +326,24 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
   return { decision, status };
 }
 
-function buildWakeTurnContext(
+/**
+ * Trust snapshot the wake hands to the agent loop. Only needed on the
+ * disk-pressure cleanup-mode path, whose guardian fallback lets the cleanup
+ * turn clear the side-effect approval gate; other wakes leave it unset (the
+ * loop has no compaction path during a wake, so trust is otherwise unread).
+ */
+function buildWakeTrust(
   opts: WakeOptions,
   decision: DiskPressureTurnPolicyDecision,
-): TurnContext | undefined {
+): TrustContext | undefined {
   if (decision.action !== "allow-cleanup-mode") return undefined;
-  return {
-    requestId: `wake:${opts.source}`,
-    conversationId: opts.conversationId,
-    turnIndex: 0,
-    trust:
-      opts.trustContext ??
-      ({
-        sourceChannel: opts.sourceChannel ?? "vellum",
-        trustClass: "guardian",
-      } satisfies TrustContext),
-  };
+  return (
+    opts.trustContext ??
+    ({
+      sourceChannel: opts.sourceChannel ?? "vellum",
+      trustClass: "guardian",
+    } satisfies TrustContext)
+  );
 }
 
 /**
@@ -482,7 +483,7 @@ export async function wakeAgentForOpportunity(
     // post-run would therefore include the tail we just pushed and the
     // tail-slice math would skip every message.
     const baselineLength = baseline.length;
-    const wakeTurnContext = buildWakeTurnContext(opts, diskPressureDecision);
+    const wakeTrust = buildWakeTrust(opts, diskPressureDecision);
     // Build the hint injection. Three modes:
     //   - `skipHintInjection`: caller has already persisted an instruction
     //     message into the conversation history (typical for fork-based
@@ -838,7 +839,7 @@ export async function wakeAgentForOpportunity(
             // short-circuit and silently drop both per-callsite config and the
             // pinned `overrideProfile` below.
             callSite,
-            turnContext: wakeTurnContext,
+            trust: wakeTrust,
             overrideProfile,
             // Wake runs have no orchestrator-side mid-loop compaction path,
             // so the budget gate stays disabled (`overflowRecovery.enabled =

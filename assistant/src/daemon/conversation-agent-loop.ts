@@ -83,7 +83,6 @@ import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { runHook } from "../plugins/pipeline.js";
-import type { TurnContext as PluginTurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import {
@@ -185,11 +184,6 @@ function formatDiskPressureBlockedMessage(): string {
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
-//
-// Canonical {@link PluginTurnContext} builder threaded into every
-// `runHook` call inside `runAgentLoopImpl`. The orchestrator composes
-// the context on demand at each call site from ambient state rather than
-// carrying a persistent `TurnContext` instance across the turn.
 
 /**
  * Synthetic fallback trust context used when the orchestrator fires a hook
@@ -314,8 +308,8 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
-  // Expose the turn's call site to plugin pipeline/injector contexts (read by
-  // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
 
   // Optional per-turn inference-profile override. Plumbed through to every
@@ -1228,22 +1222,14 @@ export async function runAgentLoopImpl(
 
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
-    // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (e.g. compaction) see the
-    // real conversation identity / trust / contextWindowManager instead of
-    // the synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
-    // Trust prefers the per-turn snapshot, then the conversation-level
+    // Trust snapshot the loop forwards to its mid-loop in-place compaction
+    // (scoping the compactor's image manifest) and the post-compaction
+    // re-injection. Prefers the per-turn snapshot, then the conversation-level
     // context, then the fallback — matching the trust the runtime injection
-    // assembly resolves for the same turn.
-    const loopTurnCtx: PluginTurnContext = {
-      requestId: reqId,
-      conversationId: ctx.conversationId,
-      turnIndex: ctx.turnCount,
-      trust:
-        ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST,
-      callSite: ctx.currentCallSite,
-    };
+    // assembly resolves for the same turn. The loop's other turn-identity
+    // fields self-resolve from its own conversation id.
+    const loopTrust =
+      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
@@ -1263,7 +1249,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
-          turnContext: loopTurnCtx,
+          trust: loopTrust,
           contextWindowManager: ctx.contextWindowManager,
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
