@@ -1608,8 +1608,11 @@ export async function runAgentLoopImpl(
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
-              ...(opts ?? {}),
+            defaultCompact({
+              manager: ctx.contextWindowManager,
+              messages: msgs,
+              signal,
+              ...((opts ?? {}) as ContextWindowCompactOptions),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
               actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),

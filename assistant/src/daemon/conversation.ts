@@ -64,6 +64,7 @@ import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -1422,15 +1423,14 @@ export class Conversation {
         : null;
     const messagesToCompact =
       slackChronologicalContext?.messages ?? this.messages;
-    const result = await this.contextWindowManager.maybeCompact(
-      messagesToCompact,
-      this.abortController?.signal ?? undefined,
-      {
-        force: true,
-        overrideProfile,
-        actorTrustClass: this.trustContext?.trustClass,
-      },
-    );
+    const result = await defaultCompact({
+      manager: this.contextWindowManager,
+      messages: messagesToCompact,
+      signal: this.abortController?.signal ?? undefined,
+      force: true,
+      overrideProfile,
+      actorTrustClass: this.trustContext?.trustClass,
+    });
     // Track circuit-breaker state for user-initiated `/compact` and other
     // forced paths so a successful forced compaction clears a stuck counter
     // and a run of forced failures still trips the breaker. `summaryFailed`
