@@ -45,7 +45,7 @@ const log = getLogger("post-compact-reinject");
  * Everything the post-compaction hook needs, supplied by the agent loop from
  * its own working state. Re-injection inputs migrate loop-ward by growing this
  * type; the loop hands the hook an object of this shape when it calls
- * {@link postCompactReinject} directly.
+ * {@link postCompact} directly.
  *
  * The turn-identity fields are flat here: `conversationId` is the key the
  * re-injection resolves the live conversation through (and the only one that,
@@ -55,7 +55,7 @@ const log = getLogger("post-compact-reinject");
  * The memory graph handle is likewise sourced internally via
  * {@link getLiveGraphMemory} rather than threaded in.
  */
-export interface PostCompactionHookInput {
+export interface PostCompactContext {
   /** Compacted message history to re-inject onto. */
   history: Message[];
   /**
@@ -113,8 +113,8 @@ export interface PostCompactionHookInput {
   actorContext: InboundActorContext | null;
 }
 
-export default async function postCompactReinject(
-  ctx: PostCompactionHookInput,
+export default async function postCompact(
+  ctx: PostCompactContext,
 ): Promise<RuntimeInjectionResult> {
   const { history, requestId, conversationId, trust, ...options } = ctx;
   // The remaining `options` carry the non-identity injection inputs

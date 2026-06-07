@@ -801,7 +801,7 @@ describe("wakeAgentForOpportunity", () => {
     conversation.agentLoop.run = async (
       input: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      runOptions?: AgentLoopRunOptions,
+      runOptions: AgentLoopRunOptions,
     ) => {
       observedDuringRun.push(conversation.isProcessing());
       return originalRun(input, onEvent, runOptions);

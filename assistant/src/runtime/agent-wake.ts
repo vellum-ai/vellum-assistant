@@ -327,16 +327,22 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
 }
 
 /**
- * Trust snapshot the wake hands to the agent loop. Only needed on the
- * disk-pressure cleanup-mode path, whose guardian fallback lets the cleanup
- * turn clear the side-effect approval gate; other wakes leave it unset (the
- * loop has no compaction path during a wake, so trust is otherwise unread).
+ * Trust snapshot the wake hands to the agent loop. A wake has no compaction
+ * path (it runs with overflow recovery disabled), so this snapshot is unread
+ * except on the disk-pressure cleanup-mode path, whose guardian value scopes
+ * the compactor's image manifest if cleanup ever compacts. Other wakes pass an
+ * `unknown`-class snapshot so a missing actor cannot grant elevated trust.
  */
 function buildWakeTrust(
   opts: WakeOptions,
   decision: DiskPressureTurnPolicyDecision,
-): TrustContext | undefined {
-  if (decision.action !== "allow-cleanup-mode") return undefined;
+): TrustContext {
+  if (decision.action !== "allow-cleanup-mode") {
+    return {
+      sourceChannel: opts.sourceChannel ?? "vellum",
+      trustClass: "unknown",
+    };
+  }
   return (
     opts.trustContext ??
     ({

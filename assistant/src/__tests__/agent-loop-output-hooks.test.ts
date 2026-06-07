@@ -94,9 +94,13 @@ describe("agent loop output hooks", () => {
       },
     });
     const { provider } = createMockProvider([textResponse("my secret value")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collect(events));
+    const { history } = await loop.run([userMessage], collect(events), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     expect(textOf(lastAssistant(history).content)).toBe("my [redacted] value");
   });
 
@@ -110,9 +114,13 @@ describe("agent loop output hooks", () => {
       },
     });
     const { provider } = createMockProvider([textResponse("my secret value")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collect(events));
+    const { history } = await loop.run([userMessage], collect(events), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     // Her real words never streamed; only the transformed text did, once.
     expect(streamedText(events)).not.toContain("secret");
     expect(streamedText(events)).toBe("[filtered]");
@@ -126,9 +134,13 @@ describe("agent loop output hooks", () => {
       },
     });
     const { provider } = createMockProvider([textResponse("live text")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collect(events));
+    const { history } = await loop.run([userMessage], collect(events), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     expect(streamedText(events)).toBe("live text"); // streamed live, untransformed
     expect(textOf(lastAssistant(history).content)).toBe("[stored]"); // storage transformed
   });
@@ -155,6 +167,7 @@ describe("agent loop output hooks", () => {
       textResponse("done"),
     ]);
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: [
         {
           name: "noop",
@@ -164,7 +177,9 @@ describe("agent loop output hooks", () => {
       ],
       toolExecutor: async () => ({ content: "ok", isError: false }),
     });
-    const { history } = await loop.run([userMessage], collect([]));
+    const { history } = await loop.run([userMessage], collect([]), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     const toolTurn = history.find(
       (m) =>
         m.role === "assistant" && m.content.some((b) => b.type === "tool_use"),
@@ -187,8 +202,12 @@ describe("agent loop output hooks", () => {
       },
     });
     const { provider, calls } = createMockProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "base prompt");
-    await loop.run([userMessage], collect([]));
+    const loop = new AgentLoop(provider, "base prompt", {
+      conversationId: "test-conversation",
+    });
+    await loop.run([userMessage], collect([]), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     expect(calls[0].systemPrompt).toContain("[EDITED]");
   });
 
@@ -204,8 +223,12 @@ describe("agent loop output hooks", () => {
       },
     });
     const { provider } = createMockProvider([textResponse("untouched")]);
-    const loop = new AgentLoop(provider, "system");
-    const { history } = await loop.run([userMessage], collect([]));
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
+    const { history } = await loop.run([userMessage], collect([]), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     const finalContent = lastAssistant(history).content;
     expect(textOf(finalContent)).toBe("untouched");
     expect(
@@ -236,9 +259,13 @@ describe("agent loop output hooks", () => {
       stopReason: "max_tokens",
     };
     const { provider } = createMockProvider([truncated]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collect(events));
+    const { history } = await loop.run([userMessage], collect(events), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     expect(seen.calls).toBe(1);
     expect(textOf(lastAssistant(history).content)).toBe("PARTIAL ANSWER");
     // Real stream suppressed; transformed final text emitted once.
@@ -268,6 +295,7 @@ describe("agent loop output hooks", () => {
     ];
     const { provider } = createMockProvider(toolThenText);
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: [
         {
           name: "issue",
@@ -282,7 +310,9 @@ describe("agent loop output hooks", () => {
       }),
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collect(events));
+    const { history } = await loop.run([userMessage], collect(events), {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     // Persisted message keeps the placeholder — model must never see real
     // values on reload.
     expect(textOf(lastAssistant(history).content)).toContain(placeholder);

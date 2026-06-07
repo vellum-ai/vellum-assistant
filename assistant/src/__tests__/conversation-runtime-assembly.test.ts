@@ -103,7 +103,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -1025,7 +1025,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     // only resolve when `applyRuntimeInjections` finds it by conversation id
     // AND the agent loop hands the post-compaction hook the turn-identity fields
     // flat (`requestId`, `conversationId`, `trust`)
-    const { messages: result } = await postCompactReinject({
+    const { messages: result } = await postCompact({
       history: baseMessages,
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",

@@ -16,10 +16,7 @@ import type {
 } from "../context/window-manager.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import {
-  FALLBACK_TURN_TRUST,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   AssistantMessageContext,
@@ -31,7 +28,7 @@ import {
   DEFAULT_COMPACTION_PLUGIN_NAME,
   defaultCompact,
 } from "../plugins/defaults/compaction/compact.js";
-import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { PluginExecutionError } from "../plugins/types.js";
@@ -320,7 +317,7 @@ export type AgentEvent =
        * immediately before re-injection — whether or not the pipeline actually
        * compacted. The daemon's event dispatcher always commits `basis` (the
        * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection ({@link postCompactReinject}) re-applies
+       * state, so re-injection ({@link postCompact}) re-applies
        * injections onto the stripped base rather than stacking on top of the
        * still-injected messages. When `result.compacted` is set it
        * additionally commits the durable compaction result (DB-record fields,
@@ -458,14 +455,14 @@ export interface AgentLoopRunOptions {
   callSite?: LLMCallSite;
   /**
    * Trust classification and channel identity for the turn's inbound actor,
-   * supplied by the orchestrator as the turn-start snapshot. Read only on the
+   * supplied by the caller as the turn-start snapshot. Read only on the
    * mid-loop in-place compaction path — to scope the compactor's image
    * manifest (guardian-only attachments are excluded for untrusted actors) and
-   * forwarded to {@link postCompactReinject}. Absent for callers without a
-   * compaction path (agent wakes, standalone unit tests); the loop otherwise
-   * resolves its conversation identity from its own {@link conversationId}.
+   * forwarded to {@link postCompact}. Callers without a meaningful actor (agent
+   * wakes, standalone unit tests) pass an `unknown`-class snapshot so the
+   * compactor fail-closes to excluding guardian-only attachments.
    */
-  trust?: TrustContext;
+  trust: TrustContext;
   /**
    * The conversation's {@link ContextWindowManager}, supplied by the
    * orchestrator so mid-loop in-place compaction can run against the real
@@ -499,7 +496,7 @@ export interface AgentLoopRunOptions {
   /**
    * When `true` and the mid-loop budget gate trips, the loop compacts the
    * running history in place — re-applying runtime injections via the default
-   * post-compaction hook ({@link postCompactReinject}) — and continues instead
+   * post-compaction hook ({@link postCompact}) — and continues instead
    * of yielding `exitReason = "budget"`. Reruns without an inline compaction
    * path (agent wakes, convergence/auto-compress reruns) leave it `false` and
    * keep yielding for budget. Defaults to `false` when omitted.
@@ -508,7 +505,7 @@ export interface AgentLoopRunOptions {
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once by the orchestrator at turn start and forwarded to
-   * {@link postCompactReinject} so post-compaction
+   * {@link postCompact} so post-compaction
    * re-injection uses the turn-start snapshot rather than re-reading mutable
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
@@ -517,7 +514,7 @@ export interface AgentLoopRunOptions {
    * The `model_profile:` turn-context label resolved once by the orchestrator
    * at turn start, or `null` when the active inference profile is unchanged
    * since the last notified one. Forwarded to
-   * {@link postCompactReinject} so post-compaction re-injection
+   * {@link postCompact} so post-compaction re-injection
    * re-emits the turn-start value rather than re-deriving the change-detected
    * label (which flips once the notification is persisted mid-turn). Defaults to
    * `null` when omitted.
@@ -528,7 +525,7 @@ export interface AgentLoopRunOptions {
    * block, or `null` on guardian turns. Resolved once by the orchestrator at
    * turn start via the actor-trust resolver, whose contact/member registry
    * inputs can be mutated mid-turn by contact tools, and forwarded to
-   * {@link postCompactReinject} so post-compaction
+   * {@link postCompact} so post-compaction
    * re-injection re-emits the turn-start value rather than re-resolving it.
    * Defaults to `null` when omitted.
    */
@@ -580,11 +577,11 @@ export interface AgentLoopConstructorOptions {
   resolveTools?: (history: Message[]) => ToolDefinition[];
   resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
-   * Conversation this loop drives. Used to scope the loop-held compaction
-   * circuit breaker; defaults to an empty key for test loops that never
-   * exercise compaction.
+   * Conversation this loop drives. Scopes the loop-held compaction circuit
+   * breaker and is the source of truth the loop's pipeline contexts and
+   * post-compaction re-injection resolve the live conversation through.
    */
-  conversationId?: string;
+  conversationId: string;
 }
 
 export class AgentLoop {
@@ -599,11 +596,10 @@ export class AgentLoop {
   private toolExecutor: LoopToolExecutor | null;
 
   /**
-   * Conversation this loop drives, or an empty string for standalone test
-   * loops constructed without one. Source of truth for the `conversationId`
+   * Conversation this loop drives. Source of truth for the `conversationId`
    * the loop's pipeline contexts and post-compaction re-injection resolve the
-   * live conversation through, so the loop no longer needs a turn context
-   * threaded in to know its own identity.
+   * live conversation through, so the loop knows its own identity without a
+   * threaded-in turn context.
    */
   private readonly conversationId: string;
 
@@ -619,7 +615,7 @@ export class AgentLoop {
   constructor(
     provider: Provider,
     systemPrompt: string,
-    options?: AgentLoopConstructorOptions,
+    options: AgentLoopConstructorOptions,
   ) {
     const {
       config,
@@ -628,7 +624,7 @@ export class AgentLoop {
       resolveTools,
       resolveSystemPrompt,
       conversationId,
-    } = options ?? {};
+    } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -636,7 +632,7 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
-    this.conversationId = conversationId ?? "";
+    this.conversationId = conversationId;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -776,7 +772,7 @@ export class AgentLoop {
     // Re-inject onto the same base the `compaction_completed` dispatch commits:
     // the compacted messages when the pipeline compacted, the stripped
     // pre-compaction history otherwise.
-    const injection = await postCompactReinject({
+    const injection = await postCompact({
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       requestId,
       conversationId: this.conversationId,
@@ -793,7 +789,7 @@ export class AgentLoop {
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
-    options?: AgentLoopRunOptions,
+    options: AgentLoopRunOptions,
   ): Promise<AgentLoopRunResult> {
     const {
       signal,
@@ -809,7 +805,7 @@ export class AgentLoop {
       isNonInteractive = false,
       modelProfile = null,
       actorContext = null,
-    } = options ?? {};
+    } = options;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the compacted base whenever the loop
@@ -911,7 +907,7 @@ export class AgentLoop {
                 const compacted = await this.compact(
                   history,
                   requestId,
-                  trust ?? FALLBACK_TURN_TRUST,
+                  trust,
                   contextWindowManager,
                   signal,
                   onEvent,
