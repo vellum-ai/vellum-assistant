@@ -793,6 +793,7 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       slackMessage,
+      clientMessageId: msg.clientMessageId ?? undefined,
     };
   });
 
@@ -929,6 +930,7 @@ export function handleListMessages({
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
+      ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
       role: m.role,
       // Flat plain-text body the legacy Swift client reads directly; see the
       // `content` field on ConversationMessageSchema for why this must stay.
@@ -2675,6 +2677,12 @@ export const ROUTES: RouteDefinition[] = [
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      clientMessageId: z
+        .string()
+        .describe(
+          "Client-generated idempotency nonce. Persisted on the row and echoed back on the message_echo event and the messages snapshot so the client can correlate its optimistic row by identity. Duplicate sends for the same (conversation, clientMessageId) are deduplicated server-side.",
+        )
+        .optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       onboarding: z
