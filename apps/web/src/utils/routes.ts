@@ -77,6 +77,7 @@ export const routes = {
 
   onboarding: {
     welcome: r("/assistant/onboarding/welcome"),
+    selectAssistant: r("/assistant/onboarding/select-assistant"),
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),

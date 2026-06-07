@@ -49,6 +49,7 @@ const ONBOARDING_PREFIX = `${routes.assistant}/onboarding`;
 
 const LOCAL_ONLY_ONBOARDING_PATHS: Set<string> = new Set([
   routes.onboarding.welcome,
+  routes.onboarding.selectAssistant,
   routes.onboarding.hosting,
   routes.onboarding.apiKey,
 ]);

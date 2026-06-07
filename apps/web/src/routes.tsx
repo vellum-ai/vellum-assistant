@@ -154,6 +154,10 @@ export const routeTree = [
                   lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
                 },
                 {
+                  path: "onboarding/select-assistant",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
+                },
+                {
                   path: "onboarding/hosting",
                   lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
                 },
