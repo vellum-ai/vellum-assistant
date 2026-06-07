@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { isPlatformLocal } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -38,6 +39,9 @@ export function WelcomeScreen() {
     flowIdRef.current++;
     setLoading(false);
     setError(null);
+    if (isElectron()) {
+      void window.vellum?.auth?.cancelOAuth();
+    }
   };
 
   const handleContinueWithoutAccount = () => {

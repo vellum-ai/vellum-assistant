@@ -510,6 +510,8 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:auth:startOAuth", options) as Promise<{
         sessionToken: string;
       }>,
+    cancelOAuth: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:auth:cancelOAuth") as Promise<void>,
   },
   hotkeys: {
     get: (): Promise<ResolvedHotkey[]> =>
