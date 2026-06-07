@@ -63,10 +63,7 @@ import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
-import {
-  applyCompactionConfig,
-  defaultCompact,
-} from "../plugins/defaults/compaction/compact.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -1397,8 +1394,7 @@ export class Conversation {
       callSite: "mainAgent",
       overrideProfile: overrideProfile ?? undefined,
     });
-    applyCompactionConfig(
-      this.contextWindowManager,
+    this.contextWindowManager.updateConfig(
       contextWindowConfigFromEffective(
         resolveCallSiteConfig("mainAgent", config.llm, {
           overrideProfile: overrideProfile ?? undefined,

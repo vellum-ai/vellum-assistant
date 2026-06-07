@@ -77,10 +77,7 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import {
-  applyCompactionConfig,
-  defaultCompact,
-} from "../plugins/defaults/compaction/compact.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -402,7 +399,7 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     currentEffectiveContextWindow,
   );
-  applyCompactionConfig(ctx.contextWindowManager, currentContextWindowConfig);
+  ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
   let emittedToolRoutedProfile: string | undefined;
@@ -422,10 +419,7 @@ export async function runAgentLoopImpl(
         }).contextWindow,
         currentEffectiveContextWindow,
       );
-      applyCompactionConfig(
-        ctx.contextWindowManager,
-        currentContextWindowConfig,
-      );
+      ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },

@@ -9,7 +9,6 @@
  * This module is side-effect free: importing it does not register any plugin.
  */
 
-import type { ContextWindowConfig } from "../../../config/types.js";
 import type {
   ContextWindowManager,
   ContextWindowResult,
@@ -57,17 +56,4 @@ export async function defaultCompact(
 ): Promise<ContextWindowResult> {
   const { manager, messages, signal, ...options } = context;
   return manager.maybeCompact(messages, signal, options);
-}
-
-/**
- * Apply the turn's resolved context-window configuration to the manager.
- * Routing config updates through the compaction surface keeps the manager's
- * per-turn budget state owned by the compaction module rather than mutated
- * directly by the conversation and agent loop.
- */
-export function applyCompactionConfig(
-  manager: ContextWindowManager,
-  config: ContextWindowConfig,
-): void {
-  manager.updateConfig(config);
 }
