@@ -834,6 +834,12 @@ export class AgentLoop {
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     let appendedNewMessages = false;
+    // Armed at the end of a tool-use iteration so the budget gate runs at the
+    // top of the NEXT iteration — before that iteration's provider call —
+    // instead of after the current one. The first call and stop-hook re-query
+    // continues re-enter without arming, so the gate fires on exactly the same
+    // occasions as the prior post-call placement.
+    let budgetGateArmed = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -874,6 +880,89 @@ export class AgentLoop {
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
       try {
+        // Per-turn pipeline context. Real call sites thread a full
+        // `turnContext` into `run()` and it is used directly; standalone
+        // unit-test instantiations that never plumb a context through fall
+        // back to a synthesized placeholder scoped to the tool-use iteration.
+        const turnCtx =
+          turnContext ?? buildLoopTurnContext(requestId, toolUseTurns);
+
+        // ── Pre-call budget gate ─────────────────────────────────────
+        // When overflow recovery is enabled, estimate the running context
+        // size as it approaches the preflight budget before issuing the
+        // provider call. With `compactInPlace` the loop compacts in place and
+        // proceeds with the call; otherwise it yields (`exitReason =
+        // "budget"`) so the orchestrator can recover before the call risks a
+        // hard context-too-large rejection. Keyed off the loop's own
+        // `history.length` (the messages actually in context this turn,
+        // including tool iterations) rather than the durable conversation
+        // count. Gated on `budgetGateArmed` so it skips the first call and
+        // stop-hook re-query continues.
+        if (budgetGateArmed) {
+          budgetGateArmed = false;
+          const contextWindow = resolveContextWindow?.();
+          if (contextWindow?.overflowRecovery.enabled) {
+            const { maxInputTokens, overflowRecovery } = contextWindow;
+            const safetyMargin =
+              history.length > LONG_HISTORY_MESSAGE_THRESHOLD
+                ? Math.max(
+                    overflowRecovery.safetyMarginRatio,
+                    LONG_HISTORY_SAFETY_MARGIN_FLOOR,
+                  )
+                : overflowRecovery.safetyMarginRatio;
+            const preflightBudget = Math.floor(
+              maxInputTokens * (1 - safetyMargin),
+            );
+            const midLoopThreshold =
+              preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
+            const estimated = this.estimateTokens(history);
+            if (estimated > midLoopThreshold) {
+              let compactedInPlace = false;
+              if (compactInPlace) {
+                rlog.info(
+                  {
+                    phase: "mid-loop",
+                    estimated,
+                    threshold: midLoopThreshold,
+                  },
+                  "Token estimate approaching budget — compacting in place",
+                );
+                const compacted = await this.compact(
+                  history,
+                  turnCtx,
+                  contextWindowManager,
+                  signal,
+                  onEvent,
+                  resolveEffectiveOverrideProfile() ?? null,
+                  isNonInteractive,
+                  modelProfile,
+                  actorContext,
+                );
+                if (compacted) {
+                  history = compacted;
+                  // The compacted, re-injected array is the new base; output
+                  // produced after this point is what the orchestrator
+                  // persists.
+                  newMessagesStart = history.length;
+                  compactedInPlace = true;
+                }
+              }
+              if (!compactedInPlace) {
+                rlog.warn(
+                  {
+                    phase: "mid-loop",
+                    estimated,
+                    threshold: midLoopThreshold,
+                  },
+                  "Token estimate approaching budget — yielding for compaction",
+                );
+                exitReason = "budget";
+                break;
+              }
+            }
+          }
+        }
+
         // Resolve tools for this turn: use the dynamic resolver if provided,
         // otherwise fall back to the static tool list.
         const currentTools = this.resolveTools
@@ -1094,13 +1183,6 @@ export class AgentLoop {
           },
           signal,
         };
-
-        // Per-turn pipeline context. Real call sites thread a full
-        // `turnContext` into `run()` and it is used directly; standalone
-        // unit-test instantiations that never plumb a context through fall
-        // back to a synthesized placeholder scoped to the tool-use iteration.
-        const turnCtx =
-          turnContext ?? buildLoopTurnContext(requestId, toolUseTurns);
 
         // Let plugins edit the outbound request and opt this call into deferred
         // output streaming. Runs for every provider call; hooks self-gate on
@@ -1611,8 +1693,9 @@ export class AgentLoop {
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.
-        // Handoff is offered first so a queued message takes precedence over
-        // the mid-loop budget yield below.
+        // Handoff takes precedence over the budget gate: a handoff decision
+        // breaks here and leaves `budgetGateArmed` false, so a queued message
+        // is processed before the next iteration's pre-call budget gate.
         if (onCheckpoint) {
           const decision = await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
@@ -1626,64 +1709,11 @@ export class AgentLoop {
           }
         }
 
-        // Mid-loop budget gate: when overflow recovery is enabled, estimate
-        // the running context size as it approaches the preflight budget.
-        // With `compactInPlace` the loop compacts in place and continues;
-        // without it it yields (`exitReason = "budget"`) so the orchestrator
-        // can recover before the next provider call risks a hard
-        // context-too-large rejection. Keyed off the loop's own
-        // `history.length` (the messages actually in context this turn,
-        // including tool iterations) rather than the durable conversation
-        // count.
-        const contextWindow = resolveContextWindow?.();
-        if (contextWindow?.overflowRecovery.enabled) {
-          const { maxInputTokens, overflowRecovery } = contextWindow;
-          const safetyMargin =
-            history.length > LONG_HISTORY_MESSAGE_THRESHOLD
-              ? Math.max(
-                  overflowRecovery.safetyMarginRatio,
-                  LONG_HISTORY_SAFETY_MARGIN_FLOOR,
-                )
-              : overflowRecovery.safetyMarginRatio;
-          const preflightBudget = Math.floor(
-            maxInputTokens * (1 - safetyMargin),
-          );
-          const midLoopThreshold =
-            preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
-          const estimated = this.estimateTokens(history);
-          if (estimated > midLoopThreshold) {
-            if (compactInPlace) {
-              rlog.info(
-                { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-                "Token estimate approaching budget — compacting in place",
-              );
-              const compacted = await this.compact(
-                history,
-                turnCtx,
-                contextWindowManager,
-                signal,
-                onEvent,
-                resolveEffectiveOverrideProfile() ?? null,
-                isNonInteractive,
-                modelProfile,
-                actorContext,
-              );
-              if (compacted) {
-                history = compacted;
-                // The compacted, re-injected array is the new base; output
-                // produced after this point is what the orchestrator persists.
-                newMessagesStart = history.length;
-                continue;
-              }
-            }
-            rlog.warn(
-              { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-              "Token estimate approaching budget — yielding for compaction",
-            );
-            exitReason = "budget";
-            break;
-          }
-        }
+        // Arm the pre-call budget gate for the next iteration. Placed after
+        // the checkpoint so a handoff yield (which breaks above) leaves it
+        // disarmed; the gate then runs at the top of the next iteration,
+        // before that iteration's provider call.
+        budgetGateArmed = true;
       } catch (error) {
         // Abort errors are expected when user cancels — synthesize
         // cancellation tool_results so the history stays valid for the
