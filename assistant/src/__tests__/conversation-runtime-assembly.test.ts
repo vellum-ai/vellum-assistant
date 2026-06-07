@@ -99,6 +99,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -865,21 +866,15 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     // Non-interactive turn so the `<non_interactive_context>` branch fires.
     isNonInteractive: true,
-    // Interface label feeds the `<turn_context>` block; its timestamp is
-    // sourced from the live conversation's frozen temporal snapshot (seeded in
-    // `beforeEach`) so the `unified-turn-context` injector emits the block.
-    interfaceName: "telegram",
+    requestId: "injection-mode-req",
+    conversationId: "injection-mode-conv",
+    turnIndex: 0,
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
     // gate hinge purely on PKB content presence.
-    turnContext: {
-      requestId: "injection-mode-req",
-      conversationId: "injection-mode-conv",
-      turnIndex: 0,
-      trust: {
-        sourceChannel: "vellum" as const,
-        trustClass: "guardian" as const,
-      },
+    trust: {
+      sourceChannel: "vellum" as const,
+      trustClass: "guardian" as const,
     },
   };
 
@@ -1010,6 +1005,37 @@ describe("applyRuntimeInjections — injection mode", () => {
       .map((b) => b.text);
 
     expect(texts).toContain("Hello");
+  });
+
+  test("post-compaction re-injection resolves the live conversation from the turn context", async () => {
+    // GIVEN the seeded live conversation `injection-mode-conv` whose
+    // conversation-scoped blocks (`<active_workspace>`, `<channel_capabilities>`)
+    // only resolve when `applyRuntimeInjections` finds it by conversation id
+    // AND the agent loop hands the post-compaction hook its per-turn context as
+    // a single nested `turnContext` (its own working-state unit)
+    const { messages: result } = await postCompactReinject({
+      history: baseMessages,
+      turnContext: {
+        requestId: "reinject-req",
+        conversationId: "injection-mode-conv",
+        turnIndex: 0,
+        trust: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      isNonInteractive: false,
+      mode: "full",
+      modelProfile: null,
+      actorContext: null,
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // THEN the hook unnests `turnContext.conversationId` onto the flat injection
+    // options, so the re-injection resolves the same live conversation as the
+    // turn's initial assembly rather than the synthetic fallback.
+    expect(allText).toContain("<active_workspace>");
+    expect(allText).toContain("<channel_capabilities>");
   });
 });
 
