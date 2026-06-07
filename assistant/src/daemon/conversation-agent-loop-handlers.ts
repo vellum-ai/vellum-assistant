@@ -293,15 +293,6 @@ export interface EventHandlerState {
    * never claims content a flush has not yet written.
    */
   lastPersistedContentSeq: number | undefined;
-  /**
-   * Whether the reducer has compacted `ctx.messages`, gating the Slack
-   * chronological-transcript override on re-injection. The captured
-   * transcript is the full persisted history; blindly replaying it after
-   * compaction would overwrite the reduced messages and undo compaction, so
-   * once this is `true` the override falls back to the reduced
-   * `ctx.messages`.
-   */
-  reducerCompacted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -381,7 +372,6 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     lastPersistedContentSeq: undefined,
-    reducerCompacted: false,
   };
 }
 
@@ -2290,16 +2280,14 @@ export async function dispatchAgentEvent(
         // so re-injection re-applies onto the stripped history even when the
         // pipeline ran but did not compact. When it did compact, commit the
         // durable result (DB-record fields, Slack provenance, SSE) — which
-        // overwrites `ctx.messages` with the compacted history — and flip the
-        // per-turn re-injection guards the orchestrator reads. This runs
+        // overwrites `ctx.messages` with the compacted history. This runs
         // before the loop's `reinject` hook (the loop awaits this dispatch),
-        // so the guards are set in time. A failed durable commit re-throws
-        // below to abort the turn rather than re-injecting against
-        // half-applied state.
+        // so the committed history is in place in time. A failed durable
+        // commit re-throws below to abort the turn rather than re-injecting
+        // against half-applied state.
         deps.ctx.messages = event.basis;
         if (event.result.compacted) {
           await deps.applyCompaction(event.result, event.basis);
-          state.reducerCompacted = true;
         }
         break;
       case "history_stripped":
