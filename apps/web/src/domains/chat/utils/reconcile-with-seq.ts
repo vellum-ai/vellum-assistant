@@ -105,33 +105,31 @@ export function reconcileMessagesWithSeq(
     }
   }
 
-  const reconciled: DisplayMessage[] = server
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .flatMap((m) => {
-      const localMsg = findDisplayMessageByRuntimeIdentity(localById, m);
+  const reconciled: DisplayMessage[] = server.flatMap((m) => {
+    const localMsg = findDisplayMessageByRuntimeIdentity(localById, m);
 
-      const serverTs = timestampToMs(m.timestamp) ?? null;
-      if (
-        !localMsg &&
-        oldestLocalTs != null &&
-        serverTs != null &&
-        serverTs < oldestLocalTs
-      ) {
-        return [];
-      }
+    const serverTs = timestampToMs(m.timestamp) ?? null;
+    if (
+      !localMsg &&
+      oldestLocalTs != null &&
+      serverTs != null &&
+      serverTs < oldestLocalTs
+    ) {
+      return [];
+    }
 
-      if (streamAhead && localMsg) {
-        // Stale snapshot, live local row: keep the streamed row and adopt
-        // only the server-assigned identity so dedupe and the optimistic
-        // echo-swap still resolve the row to its canonical id.
-        return [adoptServerIdentity(localMsg, m)];
-      }
+    if (streamAhead && localMsg) {
+      // Stale snapshot, live local row: keep the streamed row and adopt
+      // only the server-assigned identity so dedupe and the optimistic
+      // echo-swap still resolve the row to its canonical id.
+      return [adoptServerIdentity(localMsg, m)];
+    }
 
-      // Authoritative snapshot, or a server row with no live local copy: take
-      // the server row wholesale, carrying only the client-only blob
-      // attachments the snapshot cannot represent.
-      return [preserveClientAttachments(m, localMsg)];
-    });
+    // Authoritative snapshot, or a server row with no live local copy: take
+    // the server row wholesale, carrying only the client-only blob
+    // attachments the snapshot cannot represent.
+    return [preserveClientAttachments(m, localMsg)];
+  });
 
   preserveUnreflectedLocalRows(reconciled, local, serverIds);
 
