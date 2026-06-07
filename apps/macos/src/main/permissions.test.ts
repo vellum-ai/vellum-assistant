@@ -115,8 +115,11 @@ describe("permission policy", () => {
   test("installed request handler grants renderer audio requests", () => {
     installPermissionHandler();
 
-    let granted: boolean | null = null;
-    permissionRequestHandler?.(
+    const handler = permissionRequestHandler;
+    if (!handler) throw new Error("expected permission request handler");
+
+    let granted = false;
+    handler(
       { getURL: () => "app://vellum.ai/assistant" } as Electron.WebContents,
       "media",
       (value) => {
