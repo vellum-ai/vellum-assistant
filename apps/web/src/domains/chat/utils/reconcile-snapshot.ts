@@ -13,17 +13,17 @@ import type { ConversationMessage } from "@vellumai/assistant-api";
  * transcript, routing between the legacy heuristic reconcile and the seq-aware
  * monotonic merge based on `isSeqGapDetectionEnabled()`.
  *
- * Fully pure (reads no module state): the caller passes the applied frontier
- * `F` — captured before advancing it — so the seq-aware merge can tell whether
+ * Fully pure (reads no module state): the caller passes the local seq
+ * `L` — captured before advancing it — so the seq-aware merge can tell whether
  * this snapshot advanced the frontier. Advancing the frontier
- * (`recordAppliedSeq`) is the caller's responsibility and must run outside the
+ * (`recordLocalSeq`) is the caller's responsibility and must run outside the
  * updater.
  */
 export interface ReconcileSnapshotOptions {
   /** Watermark `seq` the snapshot was persisted at (top-level `/messages` seq). */
-  snapshotSeq: number | null;
-  /** Applied frontier `F` as of before this snapshot is applied. */
-  appliedSeq: number | null;
+  serverSeq: number | null;
+  /** Local seq `L` as of before this snapshot is applied. */
+  localSeq: number | null;
   oldestPageTimestamp?: number | null;
 }
 
@@ -39,8 +39,8 @@ export function reconcileSnapshot(
   }
 
   return reconcileMessagesWithSeq(local, server.map(mapRuntimeToDisplayMessage), {
-    snapshotSeq: options.snapshotSeq,
-    appliedSeq: options.appliedSeq,
+    serverSeq: options.serverSeq,
+    localSeq: options.localSeq,
     oldestPageTimestamp: options.oldestPageTimestamp,
   });
 }
@@ -51,16 +51,16 @@ export function reconcileSnapshot(
  *
  * When the seq flag is on this routes through the single authoritative
  * `reconcileMessagesWithSeq`, so initial load uses the same monotonic merge as
- * every other snapshot-apply site: a stale page (`F > S`) keeps the live local
- * rows, a fresh page (`S >= F`) is authoritative. The latest page is already a
+ * every other snapshot-apply site: a stale page (`L > S`) keeps the live local
+ * rows, a fresh page (`S >= L`) is authoritative. The latest page is already a
  * projected `DisplayMessage[]`, so it feeds the merge directly. While the flag
  * is off, the legacy cache-merge runs unchanged.
  */
 export interface ReconcileLatestHistoryOptions {
   /** Watermark `seq` of the latest history page (`latestPage.seq`). */
-  snapshotSeq: number | null;
-  /** Applied frontier `F` as of before this page is applied. */
-  appliedSeq: number | null;
+  serverSeq: number | null;
+  /** Local seq `L` as of before this page is applied. */
+  localSeq: number | null;
   isProcessing: boolean;
 }
 
@@ -71,8 +71,8 @@ export function reconcileLatestHistorySnapshot(
 ): DisplayMessage[] {
   if (isSeqGapDetectionEnabled()) {
     return reconcileMessagesWithSeq(current, latestHistory, {
-      snapshotSeq: options.snapshotSeq,
-      appliedSeq: options.appliedSeq,
+      serverSeq: options.serverSeq,
+      localSeq: options.localSeq,
     });
   }
 

@@ -27,18 +27,18 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  *
  * This reconciler replaces those heuristics with one CDC-style invariant,
  * comparing two per-conversation numbers:
- *   - `S` = the snapshot watermark (`snapshot-seq.ts`, recorded from the
+ *   - `S` = the server seq (`server-seq.ts`, recorded from the
  *     top-level `seq` on `/messages`).
- *   - `F` = the applied frontier the live stream has carried this conversation
- *     to (`applied-seq.ts`, advanced by the SSE consumer).
+ *   - `L` = the local seq the live stream has carried this conversation
+ *     to (`local-seq.ts`, advanced by the SSE consumer).
  *
- * When `F > S` the snapshot is stale: every row it carries reflects state at
+ * When `L > S` the snapshot is stale: every row it carries reflects state at
  * or below `S`, so applying it would regress rows the stream advanced past
- * `S`. We keep the live local rows. When `S >= F` (or either is unknown) the
+ * `S`. We keep the live local rows. When `S >= L` (or either is unknown) the
  * snapshot has seen everything the stream applied, so it is authoritative and
  * we take the server rows wholesale.
  *
- * Idempotent stream apply (events with `seq <= F` are no-ops) is enforced
+ * Idempotent stream apply (events with `seq <= L` are no-ops) is enforced
  * upstream in the SSE consumer, so this merge never has to dedupe replays.
  *
  * Both sides are already-projected `DisplayMessage[]`: callers project the
@@ -52,10 +52,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  * the legacy ones are removed when the flag graduates.
  */
 export interface ReconcileWithSeqOptions {
-  /** Snapshot watermark `S` — how far `/messages` had persisted. */
-  snapshotSeq: number | null;
-  /** Applied frontier `F` — how far the stream has carried this conversation. */
-  appliedSeq: number | null;
+  /** Server seq `S` — how far `/messages` had persisted. */
+  serverSeq: number | null;
+  /** Local seq `L` — how far the stream has carried this conversation. */
+  localSeq: number | null;
   /**
    * Stable oldest-page timestamp boundary. Server rows with no local match
    * and a timestamp older than this are paginated-out history and dropped, so
@@ -79,9 +79,9 @@ export function reconcileMessagesWithSeq(
   }
 
   const streamAhead =
-    options.snapshotSeq != null &&
-    options.appliedSeq != null &&
-    options.snapshotSeq < options.appliedSeq;
+    options.serverSeq != null &&
+    options.localSeq != null &&
+    options.serverSeq < options.localSeq;
 
   const serverIds = new Set(server.flatMap((m) => messageIdentityKeys(m)));
 
@@ -138,7 +138,7 @@ export function reconcileMessagesWithSeq(
   const deduped = dedupeDisplayMessages(reconciled);
 
   // Stability mirrors the merge's own branch decision above. A stale snapshot
-  // (`streamAhead`, `S < F`) kept the live local rows and adopted only their
+  // (`streamAhead`, `S < L`) kept the live local rows and adopted only their
   // server identity, so the merge cannot have changed any row's content — the
   // only differences are structural (rows added, dropped, folded, or
   // re-identified), which the row-id sequence captures with an O(n) walk
@@ -148,7 +148,7 @@ export function reconcileMessagesWithSeq(
     return sameIdentitySequence(local, deduped) ? local : deduped;
   }
 
-  // Authoritative snapshot (`S >= F`) or a daemon predating seq reporting: the
+  // Authoritative snapshot (`S >= L`) or a daemon predating seq reporting: the
   // merge took the server rows wholesale, so their content can differ from the
   // local rows even when the row ids line up (e.g. a server-normalized row
   // re-persisted at the same watermark). Compare content so an authoritative
@@ -160,7 +160,7 @@ export function reconcileMessagesWithSeq(
 /**
  * Whether two transcripts carry the same rows in the same order, compared by
  * the server-assigned row id. The seq-path structural-stability signal: on a
- * stale snapshot (`S < F`) the merge keeps local content, so an identical id
+ * stale snapshot (`S < L`) the merge keeps local content, so an identical id
  * sequence means the merge was a no-op and the original reference can be
  * returned for caller-side reference-equality stability.
  */

@@ -50,7 +50,7 @@
  *
  * Per-conversation idempotent apply (same flag):
  *   Past the active-conversation filter, each applied event advances a
- *   per-conversation frontier (`applied-seq.ts`). An event whose seq is
+ *   per-conversation frontier (`local-seq.ts`). An event whose seq is
  *   at or below that frontier has already been applied to the transcript
  *   (a replay after reconnect, or overlap with an in-flight reconcile),
  *   so it is skipped rather than re-applied — re-running a delta handler
@@ -70,7 +70,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
-import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import {
   advanceReconnectCursor,
   getReconnectCursor,
@@ -201,22 +201,22 @@ export function createSseEventConsumer(
         eventConversationId === deps.activeConversationIdRef.current
       ) {
         // Idempotent apply: an event whose seq is at or below the
-        // conversation's applied frontier has already been applied to
+        // conversation's local seq has already been applied to
         // the transcript (a replay after reconnect, or overlap with an
         // in-flight reconcile). Re-applying would double-append deltas,
         // so skip it and leave the frontier untouched.
-        const appliedSeq = getAppliedSeq(eventConversationId);
+        const localSeq = getLocalSeq(eventConversationId);
         if (
           seqGapEnabled &&
           eventSeq != null &&
-          appliedSeq != null &&
-          eventSeq <= appliedSeq
+          localSeq != null &&
+          eventSeq <= localSeq
         ) {
           recordDiagnostic("sse_event_seq_replayed", {
             conversationId: eventConversationId,
             eventType: event.type,
             eventSeq,
-            appliedSeq,
+            localSeq,
           });
         } else {
           deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
@@ -226,8 +226,8 @@ export function createSseEventConsumer(
           // of this seq is recognised as a no-op above. Recording the
           // frontier is unconditional — it is just in-memory bookkeeping;
           // only the seq-based decisions above are flag-gated.
-          // `recordAppliedSeq` ignores a null/undefined seq itself.
-          recordAppliedSeq(eventConversationId, eventSeq);
+          // `recordLocalSeq` ignores a null/undefined seq itself.
+          recordLocalSeq(eventConversationId, eventSeq);
         }
       } else {
         recordDiagnostic("sse_event_wrong_conversation_filtered", {

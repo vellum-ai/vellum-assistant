@@ -4,10 +4,10 @@
  * every event up to global seq S".
  *
  * The daemon advertises this on the `/messages` response (see
- * `assistant/src/runtime/assistant-stream-state.ts`). It is the snapshot
- * counterpart to the live stream's seq: a client can align the two views
- * by treating the snapshot as authoritative through S and applying only
- * `/events` with `seq > S`.
+ * `assistant/src/runtime/assistant-stream-state.ts`). It is the server's
+ * view of the conversation: a client can align the two views by treating
+ * the snapshot as authoritative through S and applying only `/events` with
+ * `seq > S`.
  *
  * This module only stores the value. It is consumed by:
  *   - the monotonic snapshot/stream merge, which gates a snapshot at
@@ -21,7 +21,7 @@
  * reload. Persisting it would dangle against a restarted daemon's
  * counter (which restarts at 1) and manufacture false gaps.
  *
- * `null` means "no honest snapshot position" — consumers fall back to
+ * `null` means "no honest server position" — consumers fall back to
  * today's cold-start behavior (no alignment, no gating).
  *
  * The map grows by distinct conversations visited within a single page
@@ -29,34 +29,34 @@
  * load overwrites the same conversation's entry.
  */
 
-const snapshotSeqByConversation = new Map<string, number>();
+const serverSeqByConversation = new Map<string, number>();
 
 /**
- * Record the snapshot seq advertised by `/messages` for a conversation.
+ * Record the server seq advertised by `/messages` for a conversation.
  * A `null`/`undefined`/non-finite value clears any stored position so
  * consumers see "no honest position" rather than reusing a stale seq
  * from an earlier snapshot.
  */
-export function recordSnapshotSeq(
+export function recordServerSeq(
   conversationId: string,
   seq: number | null | undefined,
 ): void {
   if (typeof seq === "number" && Number.isFinite(seq)) {
-    snapshotSeqByConversation.set(conversationId, seq);
+    serverSeqByConversation.set(conversationId, seq);
     return;
   }
-  snapshotSeqByConversation.delete(conversationId);
+  serverSeqByConversation.delete(conversationId);
 }
 
 /**
- * The snapshot seq last recorded for a conversation, or `null` when none
+ * The server seq last recorded for a conversation, or `null` when none
  * is known (never loaded, or the daemon reported no honest position).
  */
-export function getSnapshotSeq(conversationId: string): number | null {
-  return snapshotSeqByConversation.get(conversationId) ?? null;
+export function getServerSeq(conversationId: string): number | null {
+  return serverSeqByConversation.get(conversationId) ?? null;
 }
 
 /** Reset state. Test-only. */
-export function __resetSnapshotSeqForTesting(): void {
-  snapshotSeqByConversation.clear();
+export function __resetServerSeqForTesting(): void {
+  serverSeqByConversation.clear();
 }

@@ -47,8 +47,8 @@ describe("reconcileSnapshot", () => {
 
     // WHEN a snapshot at watermark 5 (behind the frontier) is reconciled
     const result = reconcileSnapshot(local, server, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the streamed local content is kept
@@ -76,8 +76,8 @@ describe("reconcileSnapshot", () => {
 
     // WHEN the snapshot is reconciled
     const result = reconcileSnapshot(local, server, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the server content is applied (no seq gate)
@@ -104,8 +104,8 @@ describe("reconcileLatestHistorySnapshot", () => {
 
     // WHEN the latest page (watermark 5, behind the frontier) is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
       isProcessing: false,
     });
 
@@ -116,7 +116,7 @@ describe("reconcileLatestHistorySnapshot", () => {
 
   test("flag on + not ahead: snapshot is authoritative", () => {
     /**
-     * When the page is not stale (`S >= F`) the seq merge trusts the server,
+     * When the page is not stale (`S >= L`) the seq merge trusts the server,
      * so the page content supersedes the local row.
      */
     // GIVEN no frontier ahead of the page watermark
@@ -129,8 +129,8 @@ describe("reconcileLatestHistorySnapshot", () => {
 
     // WHEN the latest page is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      snapshotSeq: 50,
-      appliedSeq: null,
+      serverSeq: 50,
+      localSeq: null,
       isProcessing: false,
     });
 
@@ -154,8 +154,8 @@ describe("reconcileLatestHistorySnapshot", () => {
 
     // WHEN the latest page is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
       isProcessing: false,
     });
 
