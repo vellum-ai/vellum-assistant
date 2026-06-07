@@ -3156,7 +3156,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("Slack compaction watermarks", () => {
-    test("start-of-turn Slack compaction derives and persists watermark from rendered context", async () => {
+    test("first-call compaction runs in the loop and drops the Slack watermark", async () => {
       const renderedSlackMessages: Message[] = [
         {
           role: "user",
@@ -3184,8 +3184,12 @@ describe("session-agent-loop", () => {
         })),
         compactableStartIndex: 0,
       };
-      const shouldCompactInputs: Message[][] = [];
       const maybeCompactInputs: Message[][] = [];
+
+      // Sits above the loop's mid-loop threshold (~80.75k) but below the
+      // preflight-overflow budget (95k), so the loop's first-call gate — not
+      // the orchestrator — owns the turn-start compaction.
+      mockEstimateTokens = 90_000;
 
       const ctx = makeCtx({
         channelCapabilities: {
@@ -3205,12 +3209,12 @@ describe("session-agent-loop", () => {
         }),
         contextWindowManager: {
           updateConfig: () => {},
-          shouldCompact: (messages: Message[]) => {
-            shouldCompactInputs.push(messages);
-            return { needed: true, estimatedTokens: 95_000 };
-          },
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
+            // Drop back under budget so the post-compaction provider call
+            // proceeds.
+            mockEstimateTokens = 1000;
             return {
               compacted: true,
               messages: [
@@ -3218,10 +3222,10 @@ describe("session-agent-loop", () => {
                   role: "user",
                   content: [{ type: "text", text: "summary" }],
                 },
-                messages[2]!,
+                messages[messages.length - 1]!,
               ],
               compactedPersistedMessages: 2,
-              previousEstimatedInputTokens: 95_000,
+              previousEstimatedInputTokens: 90_000,
               estimatedInputTokens: 5_000,
               maxInputTokens: 100_000,
               thresholdTokens: 80_000,
@@ -3237,19 +3241,21 @@ describe("session-agent-loop", () => {
         } as unknown as Conversation["contextWindowManager"],
       });
 
-      await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
+      await runAgentLoopImpl(
+        ctx,
+        "next reply",
+        "user-msg-first-call",
+        () => {},
+      );
 
-      expect(shouldCompactInputs[0]).toBe(renderedSlackMessages);
-      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
-      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
-        mockSlackChronologicalContext,
-        2,
-      );
-      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
-        "test-conv",
-        "1700000020.000000",
-        expect.any(Number),
-      );
+      // The loop compacts its own stripped working history, never the loaded
+      // Slack transcript array, so provenance cannot be projected and the
+      // watermark is left untouched — matching mid-loop compaction.
+      expect(maybeCompactInputs.length).toBeGreaterThan(0);
+      expect(maybeCompactInputs[0]).not.toBe(renderedSlackMessages);
+      expect(
+        updateConversationSlackContextWatermarkMock,
+      ).not.toHaveBeenCalled();
     });
 
     test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
@@ -3356,160 +3362,6 @@ describe("session-agent-loop", () => {
       );
     });
 
-    test("same-turn Slack compaction updates watermark from projected provenance", async () => {
-      const renderedSlackMessages: Message[] = [
-        {
-          role: "user",
-          content: [{ type: "text", text: "first rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "second rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "third rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "retained Slack row" }],
-        },
-      ];
-      mockSlackChronologicalContext = {
-        messages: renderedSlackMessages,
-        renderedMessages: renderedSlackMessages.map((message, index) => ({
-          message,
-          sourceChannelTs: [
-            "1700000010.000000",
-            "1700000020.000000",
-            "1700000030.000000",
-            "1700000040.000000",
-          ][index]!,
-          tagLineProvenance: "none",
-        })),
-        compactableStartIndex: 0,
-      };
-
-      const firstSummaryMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: "first summary" }],
-      };
-      const firstCompactedMessages: Message[] = [
-        firstSummaryMessage,
-        renderedSlackMessages[2]!,
-        renderedSlackMessages[3]!,
-      ];
-      const secondSummaryMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: "second summary" }],
-      };
-      const secondCompactedMessages: Message[] = [
-        secondSummaryMessage,
-        renderedSlackMessages[3]!,
-      ];
-      const reducerInputs: Message[][] = [];
-      mockEstimateTokens = 120_000;
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerInputs.push(msgs);
-        mockEstimateTokens = 1000;
-        return {
-          messages: secondCompactedMessages,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 5_000,
-          compactionResult: {
-            compacted: true,
-            messages: secondCompactedMessages,
-            compactedPersistedMessages: 1,
-            previousEstimatedInputTokens: 120_000,
-            estimatedInputTokens: 5_000,
-            maxInputTokens: 100_000,
-            thresholdTokens: 80_000,
-            compactedMessages: 1,
-            summaryCalls: 1,
-            summaryInputTokens: 100,
-            summaryOutputTokens: 20,
-            summaryModel: "mock-model",
-            summaryText: "second summary",
-            summaryFailed: false,
-          },
-        };
-      };
-
-      const ctx = makeCtx({
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "channel",
-        },
-        trustContext: {
-          sourceChannel: "slack",
-          trustClass: "guardian",
-        } as Conversation["trustContext"],
-        getTurnChannelContext: () => ({
-          userMessageChannel: "slack" as const,
-          assistantMessageChannel: "slack" as const,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
-          maybeCompact: async (messages: Message[]) => {
-            expect(messages).toBe(renderedSlackMessages);
-            return {
-              compacted: true,
-              messages: firstCompactedMessages,
-              compactedPersistedMessages: 2,
-              previousEstimatedInputTokens: 120_000,
-              estimatedInputTokens: 60_000,
-              maxInputTokens: 100_000,
-              thresholdTokens: 80_000,
-              compactedMessages: 2,
-              summaryCalls: 1,
-              summaryInputTokens: 100,
-              summaryOutputTokens: 20,
-              summaryModel: "mock-model",
-              summaryText: "first summary",
-              summaryFailed: false,
-            };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
-
-      await runAgentLoopImpl(ctx, "next reply", "user-msg-repeat", () => {});
-
-      expect(reducerInputs[0]).toBe(firstCompactedMessages);
-      expect(getSlackCompactionWatermarkForPrefixMock.mock.calls).toEqual([
-        [mockSlackChronologicalContext, 2],
-        [
-          {
-            renderedMessages: [
-              {
-                message: firstSummaryMessage,
-                sourceChannelTs: null,
-                tagLineProvenance: "none",
-              },
-              mockSlackChronologicalContext!.renderedMessages[2],
-              mockSlackChronologicalContext!.renderedMessages[3],
-            ],
-            messages: firstCompactedMessages,
-            compactableStartIndex: 1,
-          },
-          1,
-        ],
-      ]);
-      expect(updateConversationSlackContextWatermarkMock.mock.calls).toEqual([
-        ["test-conv", "1700000020.000000", expect.any(Number)],
-        ["test-conv", "1700000030.000000", expect.any(Number)],
-      ]);
-      expect(loadSlackChronologicalContextMock).toHaveBeenCalledTimes(1);
-    });
-
     test("mid-loop Slack compaction does not persist watermark from mismatched loaded context", async () => {
       const renderedSlackMessages: Message[] = [
         {
@@ -3585,23 +3437,6 @@ describe("session-agent-loop", () => {
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
-            if (messages === renderedSlackMessages) {
-              return {
-                compacted: false,
-                messages,
-                compactedPersistedMessages: 0,
-                previousEstimatedInputTokens: 1000,
-                estimatedInputTokens: 1000,
-                maxInputTokens: 100_000,
-                thresholdTokens: 80_000,
-                compactedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-              };
-            }
             // The mid-loop gate compacted its in-loop basis; drop the estimate
             // back under budget so the post-compaction provider call proceeds.
             mockEstimateTokens = 1000;
@@ -3632,10 +3467,11 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-mid-loop", () => {});
 
-      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
       // The mid-loop gate compacts the loop's own in-loop history, never the
-      // loaded Slack rows — the mismatch this test guards against.
-      expect(maybeCompactInputs[1]).not.toBe(renderedSlackMessages);
+      // loaded Slack rows — the mismatch this test guards against. No
+      // start-of-turn compaction runs, so this is the turn's only compaction.
+      expect(maybeCompactInputs).toHaveLength(1);
+      expect(maybeCompactInputs[0]).not.toBe(renderedSlackMessages);
       expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
         null,
         2,

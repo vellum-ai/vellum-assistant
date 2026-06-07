@@ -647,8 +647,6 @@ export async function runAgentLoopImpl(
       };
     let slackChronologicalContext: SlackChronologicalContext | null =
       loadCurrentSlackChronologicalContext();
-    const messagesForStartOfTurnCompaction =
-      slackChronologicalContext?.messages ?? ctx.messages;
     const getSlackProvenanceContextForCompactionBasis = (
       messages: Message[],
       compactedMessages: number,
@@ -741,49 +739,6 @@ export async function runAgentLoopImpl(
         result,
       );
     };
-
-    const compactCheck = ctx.contextWindowManager.shouldCompact(
-      messagesForStartOfTurnCompaction,
-    );
-    // Skip auto-compaction while the circuit breaker is open. Force paths
-    // and user-initiated /compact bypass this check.
-    const autoCompactAllowed =
-      !(await ctx.agentLoop.compactionCircuit.isOpen());
-    if (compactCheck.needed && autoCompactAllowed) {
-      ctx.emitActivityState("thinking", "context_compacting", {
-        requestId: reqId,
-      });
-    }
-    let compacted: Awaited<
-      ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-    > | null = null;
-    if (autoCompactAllowed) {
-      compacted = await defaultCompact({
-        manager: ctx.contextWindowManager,
-        messages: messagesForStartOfTurnCompaction,
-        signal: abortController.signal,
-        precomputedEstimate: compactCheck.estimatedTokens,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
-        actorTrustClass: resolveTurnActorTrustClass(ctx),
-      });
-    }
-    // Only track circuit-breaker state when a summary LLM call actually ran.
-    // `summaryFailed` is `undefined` on early returns (compaction disabled,
-    // below threshold, no eligible messages, truncation-only
-    // path) — treating those as "successful" compactions would silently reset
-    // the 3-strike counter and break the invariant.
-    if (compacted && compacted.summaryFailed !== undefined) {
-      await ctx.agentLoop.compactionCircuit.recordOutcome(
-        compacted.summaryFailed,
-        onEvent,
-      );
-    }
-    if (compacted?.compacted) {
-      await applySuccessfulCompaction(
-        compacted,
-        messagesForStartOfTurnCompaction,
-      );
-    }
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
@@ -1250,8 +1205,10 @@ export async function runAgentLoopImpl(
      * context and maps the loop's returned checkpoint pause-reason into the
      * orchestrator's yield bookkeeping. Returns the updated history so call
      * sites consume it exactly as before. Pass `compactInPlace` only for the
-     * primary run, where the loop compacts in place when its budget gate
-     * trips; reruns omit it and keep yielding for budget.
+     * primary run: the loop then runs its budget gate before the first call
+     * (subsuming the proactive turn-start compaction) and compacts in place
+     * whenever the gate trips. Reruns omit it, skip the first-call gate, and
+     * keep yielding for budget.
      */
     const runAgentLoop = async (
       msgs: Message[],
@@ -1269,6 +1226,7 @@ export async function runAgentLoopImpl(
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
           compactInPlace,
+          compactBeforeFirstCall: compactInPlace,
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,

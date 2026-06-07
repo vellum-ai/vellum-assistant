@@ -1860,14 +1860,15 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       toolUseResponse("tu-1", "bash", { command: "ls" }),
     ]);
 
-    // `maybeCompact` is invoked through three distinct call sites:
-    //   1. Start-of-turn compaction (no `force` option) — return a no-op
-    //      so the start-of-turn pass doesn't perturb state. The mock's
-    //      `shouldCompact` already returns `needed: false`, but the
-    //      orchestrator still invokes the compaction pipeline.
-    //   2. Mid-loop after the initial agent-loop yield (`force: true`) —
-    //      must signal `exhausted: true` so the daemon escalates to the
-    //      convergence reducer instead of looping forever.
+    // Every forced `maybeCompact` is invoked through three distinct call
+    // sites, all owned by the loop's pre-call budget gate / recovery ladder:
+    //   1. First-call (turn-start) gate (`force: true`) — the loop now owns
+    //      the turn-start compaction. It succeeds, but the mocked estimate
+    //      stays above the mid-loop threshold, so the turn proceeds and the
+    //      mid-loop gate still trips on the next iteration.
+    //   2. Mid-loop after the first tool turn (`force: true`) — must signal
+    //      `exhausted: true` so the daemon escalates to the convergence
+    //      reducer instead of looping forever.
     //   3. auto_compress_latest_turn emergency compaction (`force: true`,
     //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
     //      threshold; the subsequent rerun yields again and is classified
@@ -1894,16 +1895,40 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           _signal: AbortSignal,
           opts?: { force?: boolean },
         ) => {
-          // Start-of-turn calls pass no `force` option; route them to a
-          // no-op so only the mid-loop and emergency paths drive the test.
+          // Only forced compactions drive this test; any non-forced probe is
+          // a no-op.
           if (!opts?.force) {
             return { compacted: false };
           }
           forcedMaybeCompactCallCount++;
           if (forcedMaybeCompactCallCount === 1) {
-            // Mid-loop call — under the new architecture (Compaction
-            // Re-homing Arc, Bullet 1) the manager owns its own retry
-            // budget; signal exhaustion to escalate to convergence.
+            // First-call (turn-start) gate: succeeds, but the mocked estimate
+            // stays above the threshold so the turn proceeds to the call and
+            // the mid-loop gate still trips next iteration.
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user" as const,
+                  content: [{ type: "text", text: "turn-start compacted" }],
+                },
+              ] as Message[],
+              compactedPersistedMessages: 5,
+              summaryText: "Turn-start summary",
+              previousEstimatedInputTokens: 170_000,
+              estimatedInputTokens: 165_000,
+              maxInputTokens: 200_000,
+              thresholdTokens: 160_000,
+              compactedMessages: 10,
+              summaryCalls: 1,
+              summaryInputTokens: 500,
+              summaryOutputTokens: 200,
+              summaryModel: "mock-model",
+            };
+          }
+          if (forcedMaybeCompactCallCount === 2) {
+            // Mid-loop call — the manager owns its own retry budget; signal
+            // exhaustion to escalate to convergence.
             return {
               compacted: true,
               messages: [
