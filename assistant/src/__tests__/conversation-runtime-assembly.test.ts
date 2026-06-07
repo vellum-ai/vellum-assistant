@@ -99,6 +99,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -1004,6 +1005,37 @@ describe("applyRuntimeInjections — injection mode", () => {
       .map((b) => b.text);
 
     expect(texts).toContain("Hello");
+  });
+
+  test("post-compaction re-injection resolves the live conversation from the turn context", async () => {
+    // GIVEN the seeded live conversation `injection-mode-conv` whose
+    // conversation-scoped blocks (`<active_workspace>`, `<channel_capabilities>`)
+    // only resolve when `applyRuntimeInjections` finds it by conversation id
+    // AND the agent loop hands the post-compaction hook its per-turn context as
+    // a single nested `turnContext` (its own working-state unit)
+    const { messages: result } = await postCompactReinject({
+      history: baseMessages,
+      turnContext: {
+        requestId: "reinject-req",
+        conversationId: "injection-mode-conv",
+        turnIndex: 0,
+        trust: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      isNonInteractive: false,
+      mode: "full",
+      modelProfile: null,
+      actorContext: null,
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // THEN the hook unnests `turnContext.conversationId` onto the flat injection
+    // options, so the re-injection resolves the same live conversation as the
+    // turn's initial assembly rather than the synthetic fallback.
+    expect(allText).toContain("<active_workspace>");
+    expect(allText).toContain("<channel_capabilities>");
   });
 });
 
