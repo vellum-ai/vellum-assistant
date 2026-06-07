@@ -261,6 +261,7 @@ declare global {
           loginHint?: string;
           intent?: string;
         }): Promise<{ sessionToken: string }>;
+        cancelOAuth(): Promise<void>;
       };
       mainWindow: {
         ensureVisible(): Promise<void>;
