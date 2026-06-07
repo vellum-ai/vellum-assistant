@@ -40,6 +40,7 @@ import {
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
+  PluginSourceUnavailableError,
 } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
 import {
@@ -114,6 +115,7 @@ mock.module("../../../cli/lib/install-from-github.js", () => ({
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
+  PluginSourceUnavailableError,
   installPlugin: installSpy,
 }));
 
@@ -741,6 +743,7 @@ describe("POST /v1/plugins/install", () => {
       target: `/workspace/.vellum/plugins/${opts.name}`,
       fileCount: 7,
       ref: opts.ref ?? "main",
+      commit: null,
     }));
 
     const result = await invokeInstall({
@@ -799,6 +802,22 @@ describe("POST /v1/plugins/install", () => {
     await expect(
       invokeInstall({ body: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
+    // A rate-limited or temporarily-down GitHub source is retryable: the
+    // route surfaces 503 so the client can back off and try again, rather
+    // than a misleading 500 that reads as a permanent failure.
+    installSpy.mockImplementation(async () => {
+      throw new PluginSourceUnavailableError(
+        "GitHub tree listing for JuliusBrussee/caveman @ v1.8.2: HTTP 403",
+        403,
+      );
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
   test("unknown errors → InternalError with original message preserved", async () => {

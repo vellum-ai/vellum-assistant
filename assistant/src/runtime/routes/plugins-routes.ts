@@ -31,6 +31,7 @@ import {
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
+  PluginSourceUnavailableError,
 } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
@@ -465,6 +466,11 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
     }
     if (err instanceof PluginNotFoundError) {
       throw new NotFoundError(err.message);
+    }
+    // A rate-limited or otherwise temporarily-down GitHub source is
+    // retryable, so surface 503 rather than a misleading 500.
+    if (err instanceof PluginSourceUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin install failed",
