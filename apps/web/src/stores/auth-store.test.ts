@@ -74,6 +74,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => mockIsLocalMode,
+  isLocalAssistant: (a: { cloud?: string; resources?: { gatewayPort?: number } }) =>
+    a.cloud !== "vellum" && a.resources?.gatewayPort != null,
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   clearSelectedAssistant: () => {},

@@ -20,10 +20,7 @@ import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
-import {
-    useResolvedAssistantsStore,
-    type ResolvedAssistant,
-} from "@/stores/resolved-assistants-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 interface ConnectError {
   message: string;
