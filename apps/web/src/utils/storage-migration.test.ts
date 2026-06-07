@@ -173,7 +173,9 @@ describe("runStorageMigrations", () => {
 
     expect(localStorage.getItem("vellum:onboarding:tosAccepted")).toBe("true");
     expect(localStorage.getItem("vellum:onboarding:aiDataConsent")).toBe("true");
-    expect(localStorage.getItem("vellum:onboarding:completed")).toBe("true");
+    // completed key is removed (no longer used), not migrated
+    expect(localStorage.getItem("onboarding.completed")).toBeNull();
+    expect(localStorage.getItem("vellum:onboarding:completed")).toBeNull();
     expect(localStorage.getItem("vellum:onboarding:selectedVersion")).toBe("v1.0");
     expect(localStorage.getItem("onboarding.tosAccepted")).toBeNull();
   });
@@ -313,7 +315,7 @@ describe("runStorageMigrations", () => {
   test("full migration is idempotent", () => {
     localStorage.setItem("assistantSidebarCollapsed", "true");
     localStorage.setItem("voice:ttsProvider", "openai");
-    localStorage.setItem("onboarding.completed", "true");
+    localStorage.setItem("onboarding.tosAccepted", "true");
     localStorage.setItem("ff:client:flag", "true");
 
     runStorageMigrations();

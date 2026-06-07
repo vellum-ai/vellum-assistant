@@ -13,7 +13,6 @@ import {
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
-    readOnboardingCompleted,
     useAiDataConsent,
     useShareAnalytics,
     useShareDiagnostics,
@@ -70,7 +69,6 @@ const CONSENT_CHECKBOX_CLASS =
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
   const preChatExperimentArm =
@@ -83,16 +81,10 @@ export function PrivacyScreen() {
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
-    if (!isNative && !isReplay) {
+    if (!isNative) {
       getOnboardingFunnelSessionId();
     }
-  }, [isNative, isReplay]);
-
-  useEffect(() => {
-    if (readOnboardingCompleted() && !isReplay) {
-      void navigate(routes.assistant, { replace: true });
-    }
-  }, [isReplay, navigate]);
+  }, [isNative]);
 
   const onStart = useCallback(() => {
     try {
@@ -101,7 +93,7 @@ export function PrivacyScreen() {
     } catch (err) {
       captureError(err, { context: "onboarding_persist_share_prefs" });
     }
-    if (!isNative && !isReplay) {
+    if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
@@ -113,12 +105,10 @@ export function PrivacyScreen() {
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
-    if (isReplay) params.set("replay", "1");
     const qs = params.toString();
     void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     isNative,
-    isReplay,
     navigate,
     preferredFunnelVariant,
     searchParams,
