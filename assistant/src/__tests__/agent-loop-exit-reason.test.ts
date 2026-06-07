@@ -22,8 +22,8 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import type { TurnContext } from "../plugins/types.js";
 import type {
   Message,
   Provider,
@@ -120,21 +120,16 @@ const userMessage: Message = {
   content: [{ type: "text", text: "Hello" }],
 };
 
-// A turn context plus a context-window manager whose `maybeCompact` returns a
+// A trust snapshot plus a context-window manager whose `maybeCompact` returns a
 // canned result, so the loop's compaction call runs without the real
-// orchestrator machinery. The manager is supplied to the loop as a dedicated
-// run option rather than riding on the turn context.
+// orchestrator machinery. Both are supplied to the loop as dedicated run
+// options.
 function fakeCompaction(result: { compacted: boolean; exhausted: boolean }): {
-  turnContext: TurnContext;
+  trust: TrustContext;
   contextWindowManager: AgentLoopRunOptions["contextWindowManager"];
 } {
   return {
-    turnContext: {
-      requestId: "req-compact",
-      conversationId: "conv-compact",
-      turnIndex: 0,
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    },
+    trust: { sourceChannel: "vellum", trustClass: "unknown" },
     contextWindowManager: {
       maybeCompact: async () => result,
     } as unknown as AgentLoopRunOptions["contextWindowManager"],
