@@ -249,14 +249,16 @@ function preserveUnreflectedLocalRows(
   local: DisplayMessage[],
   serverIds: Set<string>,
 ): void {
+  const claimed = new Set<DisplayMessage>();
   for (const m of local) {
     if (!m.isOptimistic && hasServerIdentity(serverIds, m)) {
       continue;
     }
 
     if (m.isOptimistic) {
-      const match = findOptimisticEcho(reconciled, m);
+      const match = findOptimisticEcho(reconciled, m, claimed);
       if (match) {
+        claimed.add(match);
         if (!match.timestamp && m.timestamp) {
           match.timestamp = m.timestamp;
         }
@@ -283,24 +285,36 @@ function preserveUnreflectedLocalRows(
  *     of the server row's content — the live tail rendered before the daemon
  *     assigned the row an id (only against pre-anchor-protocol daemons that
  *     stream deltas without a `messageId`).
+ *
+ * `claimed` carries the server rows already folded into an earlier optimistic
+ * row in the same pass; a claimed row is never reused, so two optimistic sends
+ * can't collapse onto one server row (which would drop a row from the
+ * transcript). This matters for the nonce-less fallback, where multiple
+ * optimistic rows would otherwise all resolve to the same most-recent server
+ * row.
  */
 function findOptimisticEcho(
   reconciled: DisplayMessage[],
   optimistic: DisplayMessage,
+  claimed: Set<DisplayMessage>,
 ): DisplayMessage | undefined {
   if (optimistic.role === "user") {
     if (optimistic.clientMessageId !== undefined) {
       const byNonce = reconciled.find(
         (r) =>
           r.role === "user" &&
-          r.clientMessageId === optimistic.clientMessageId,
+          r.clientMessageId === optimistic.clientMessageId &&
+          !claimed.has(r),
       );
       if (byNonce) {
         return byNonce;
       }
     }
     return reconciled.findLast(
-      (r) => r.role === "user" && r.clientMessageId === undefined,
+      (r) =>
+        r.role === "user" &&
+        r.clientMessageId === undefined &&
+        !claimed.has(r),
     );
   }
 
@@ -312,6 +326,7 @@ function findOptimisticEcho(
     return reconciled.find(
       (r) =>
         r.role === "assistant" &&
+        !claimed.has(r) &&
         segmentsToPlainText(r.textSegments).trim().startsWith(optimisticText),
     );
   }

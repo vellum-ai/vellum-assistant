@@ -421,6 +421,64 @@ describe("reconcileMessagesWithSeq", () => {
     expect(users[0]!.id).toBe("srv-legacy");
   });
 
+  test("keeps both optimistic rows when two legacy sends share no echoed nonce", () => {
+    /**
+     * Against a pre-idempotency daemon neither server row carries a nonce, so
+     * both optimistic rows fall to the recency branch. Claiming a folded
+     * server row keeps the second optimistic row from collapsing onto the same
+     * server row, so no message is dropped from the transcript.
+     */
+    // GIVEN two optimistic user rows whose nonces the server never echoes
+    const local = [
+      makeRow({
+        id: "nonce-a",
+        clientMessageId: "nonce-a",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "nonce-b",
+        clientMessageId: "nonce-b",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // AND a snapshot whose two server rows both carry no clientMessageId
+    const server = [
+      makeRow({
+        id: "srv-legacy-1",
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "srv-legacy-2",
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // WHEN the merge runs with an authoritative snapshot
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN both server rows survive — neither optimistic row is dropped
+    const users = result.filter((m) => m.role === "user");
+    expect(users).toHaveLength(2);
+    expect(users.map((m) => m.id).sort()).toEqual([
+      "srv-legacy-1",
+      "srv-legacy-2",
+    ]);
+  });
+
   test("returns the same reference for a stale no-op snapshot via the row-id walk", () => {
     /**
      * On the streaming hot path a debounced snapshot lags the stream (`S < L`).
