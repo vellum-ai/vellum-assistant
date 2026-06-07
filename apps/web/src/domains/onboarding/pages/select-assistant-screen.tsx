@@ -4,36 +4,29 @@ import { useNavigate } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import {
-  isLocalAssistant,
-  isPlatformAssistant,
-  type LockfileAssistant,
-} from "@/lib/local-mode";
+import { useAssistants, type AssistantEntry } from "@/hooks/use-assistants";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { useLockfileStore } from "@/stores/lockfile-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
-function assistantLabel(a: LockfileAssistant): string {
+function assistantLabel(a: AssistantEntry): string {
   if (a.name) return a.name;
-  return isPlatformAssistant(a) ? "Cloud Assistant" : "Local Assistant";
+  return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: LockfileAssistant): string {
-  if (isPlatformAssistant(a)) return "Hosted on Vellum Cloud";
-  return "Running locally on this device";
+function assistantSubtitle(a: AssistantEntry): string {
+  return a.isLocal ? "Running locally on this device" : "Hosted on Vellum Cloud";
 }
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const hasPlatformSession = useHasPlatformSession();
-  const lockfile = useLockfileStore.use.lockfile();
-  const assistants = lockfile?.assistants ?? [];
+  const { assistants, isLoading } = useAssistants();
 
-  const isAccessible = (a: LockfileAssistant): boolean =>
-    isLocalAssistant(a) || (isPlatformAssistant(a) && hasPlatformSession);
+  const isAccessible = (a: AssistantEntry): boolean =>
+    a.isLocal || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
@@ -45,18 +38,18 @@ export function SelectAssistantScreen() {
   // Default selection to first accessible assistant
   useEffect(() => {
     if (selected == null && accessibleAssistants.length > 0) {
-      setSelected(accessibleAssistants[0].assistantId);
+      setSelected(accessibleAssistants[0].id);
     }
   }, [selected, accessibleAssistants]);
 
-  const handleConnect = async (assistant: LockfileAssistant) => {
+  const handleConnect = async (assistant: AssistantEntry) => {
     setConnecting(true);
     setError(null);
     try {
-      if (isLocalAssistant(assistant)) {
-        await useAuthStore.getState().connectLocalAssistant(assistant.assistantId);
+      if (assistant.isLocal) {
+        await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
-        await selectPlatformAssistant(assistant.assistantId);
+        await selectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
     } catch {
@@ -65,25 +58,25 @@ export function SelectAssistantScreen() {
     }
   };
 
-  // Redirect to hosting if no assistants in lockfile
+  // Redirect to hosting if no assistants after loading
   useEffect(() => {
-    if (assistants.length === 0) {
+    if (!isLoading && assistants.length === 0) {
       void navigate(routes.onboarding.hosting, { replace: true });
     }
-  }, [assistants.length, navigate]);
+  }, [isLoading, assistants.length, navigate]);
 
   // Auto-skip when exactly one accessible assistant
   useEffect(() => {
-    if (assistants.length === 0) return;
+    if (isLoading || assistants.length === 0) return;
     if (accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isLoading]);
 
   const onContinue = () => {
-    const assistant = assistants.find((a) => a.assistantId === selected);
+    const assistant = assistants.find((a) => a.id === selected);
     if (assistant) void handleConnect(assistant);
   };
 
@@ -91,8 +84,8 @@ export function SelectAssistantScreen() {
     void navigate(routes.onboarding.welcome);
   };
 
-  // Loading state during auto-skip
-  if (autoSkipping && !error) {
+  // Loading state during auto-skip or initial load
+  if (isLoading || (autoSkipping && !error)) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
@@ -132,16 +125,15 @@ export function SelectAssistantScreen() {
         >
           {assistants.map((assistant) => {
             const accessible = isAccessible(assistant);
-            const isPlatform = isPlatformAssistant(assistant);
             return (
               <AssistantCard
-                key={assistant.assistantId}
+                key={assistant.id}
                 assistant={assistant}
-                selected={selected === assistant.assistantId}
+                selected={selected === assistant.id}
                 disabled={!accessible}
-                badge={!accessible && isPlatform ? "Requires Account" : undefined}
+                badge={!accessible && !assistant.isLocal ? "Requires Account" : undefined}
                 onSelect={() => {
-                  if (accessible) setSelected(assistant.assistantId);
+                  if (accessible) setSelected(assistant.id);
                 }}
               />
             );
@@ -187,13 +179,12 @@ function AssistantCard({
   badge,
   onSelect,
 }: {
-  assistant: LockfileAssistant;
+  assistant: AssistantEntry;
   selected: boolean;
   disabled: boolean;
   badge?: string;
   onSelect: () => void;
 }) {
-  const isPlatform = isPlatformAssistant(assistant);
   return (
     <button
       type="button"
@@ -207,7 +198,11 @@ function AssistantCard({
           : "border-[var(--border-element)] bg-transparent"
       }`}
     >
-      {isPlatform ? <Cloud className={ICON_CLASS} /> : <Laptop className={ICON_CLASS} />}
+      {assistant.isLocal ? (
+        <Laptop className={ICON_CLASS} />
+      ) : (
+        <Cloud className={ICON_CLASS} />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-body-medium-default text-[var(--content-default)]">
