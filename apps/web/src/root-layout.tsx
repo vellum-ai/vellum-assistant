@@ -14,9 +14,8 @@ import {
   useIsSessionInitializing,
   useHasPlatformSession,
 } from "@/stores/auth-store";
-import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { handleLogout } from "@/lib/auth/handle-logout";
 import { getSelectedAssistant } from "@/lib/local-mode";
-import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -156,11 +155,7 @@ export function RootLayout() {
       void navigate(routes.settings.root);
     },
     logout: () => {
-      void setMenuPlatformSession(false).then(() =>
-        useAuthStore.getState().logout(),
-      ).then(() => {
-        navigate(getOnboardingEntrypoint());
-      });
+      void handleLogout(navigate);
     },
     rePair: () => {
       const id = getSelectedAssistant()?.assistantId;
