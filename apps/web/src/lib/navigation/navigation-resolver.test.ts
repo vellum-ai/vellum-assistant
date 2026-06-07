@@ -75,6 +75,15 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("redirects unauthenticated local-mode user from select-assistant to hosting when no assistants", () => {
+      expect(
+        guard(
+          s({ isAuthenticated: false, isLocalMode: true, hasAssistants: false }),
+          "/assistant/onboarding/select-assistant",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hosting" });
+    });
+
     test("redirects unauthenticated local-mode fresh user to welcome", () => {
       expect(
         guard(s({ isAuthenticated: false, isLocalMode: true, hasAssistants: false })),
@@ -105,6 +114,15 @@ describe("resolveNavigation", () => {
           "/assistant/onboarding/hatching?hosting=local",
         ),
       ).toEqual(ALLOW);
+    });
+
+    test("redirects authenticated user from select-assistant to hosting when no assistants", () => {
+      expect(
+        guard(
+          s({ isLocalMode: true, hasAssistants: false }),
+          "/assistant/onboarding/select-assistant",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hosting" });
     });
 
     test("redirects non-local user from local-only onboarding screen", () => {

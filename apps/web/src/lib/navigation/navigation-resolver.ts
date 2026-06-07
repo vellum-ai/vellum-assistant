@@ -118,7 +118,12 @@ function resolveRouteGuard(
 
   // 3. Unauthenticated
   if (!state.isAuthenticated) {
-    if (state.isLocalMode && isOnboardingPath(path)) return { action: "allow" };
+    if (state.isLocalMode && isOnboardingPath(path)) {
+      if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
+        return { action: "redirect", to: routes.onboarding.hosting };
+      }
+      return { action: "allow" };
+    }
     if (state.isLocalMode && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.welcome };
     }
@@ -132,6 +137,9 @@ function resolveRouteGuard(
   if (isOnboardingPath(path)) {
     if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
+    }
+    if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
+      return { action: "redirect", to: routes.onboarding.hosting };
     }
     if (path === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };

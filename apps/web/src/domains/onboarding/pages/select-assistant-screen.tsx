@@ -58,13 +58,6 @@ export function SelectAssistantScreen() {
     }
   };
 
-  // Redirect to hosting if no assistants after loading
-  useEffect(() => {
-    if (!isLoading && assistants.length === 0) {
-      void navigate(routes.onboarding.hosting, { replace: true });
-    }
-  }, [isLoading, assistants.length, navigate]);
-
   // Auto-skip when exactly one accessible assistant
   useEffect(() => {
     if (isLoading || assistants.length === 0) return;
