@@ -15,6 +15,7 @@ export async function handleLogout(navigate: NavigateFunction): Promise<void> {
   if (isLocalMode()) {
     const active = getActiveAssistant();
     if (active && isLocalAssistant(active)) {
+      await setMenuPlatformSession(false);
       return;
     }
 
