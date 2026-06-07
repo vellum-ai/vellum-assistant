@@ -29,7 +29,7 @@ import {
     useActiveAssistantIsPlatformHosted,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { handleLogout } from "@/lib/auth/handle-logout";
 import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -157,7 +157,6 @@ function PreferencesMenuContent({
   onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
-  const logout = useAuthStore.use.logout();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
   const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
@@ -247,9 +246,8 @@ function PreferencesMenuContent({
           icon={LogOut}
           label="Log Out"
           onSelect={async () => {
-            await logout();
+            await handleLogout(navigate);
             onClose();
-            hardNavigate(routes.account.login);
           }}
         />
       ) : null}
