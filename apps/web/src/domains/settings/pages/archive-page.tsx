@@ -1,8 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -98,10 +98,7 @@ function ArchivedConversationRow({
 
 export function ArchivePage() {
   const queryClient = useQueryClient();
-  const { data: assistantList, isLoading: isAssistantLoading } = useQuery(
-    assistantsListOptions(),
-  );
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
+  const assistantId = useActiveAssistantId();
 
   const {
     conversations: archived,
@@ -136,7 +133,7 @@ export function ArchivePage() {
     [assistantId, queryClient],
   );
 
-  const isLoading = isAssistantLoading || isLoadingConversations;
+  const isLoading = isLoadingConversations;
 
   if (isLoading) {
     return (

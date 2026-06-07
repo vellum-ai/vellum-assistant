@@ -19,7 +19,7 @@ import {
     type SoundsConfig,
 } from "@/domains/settings/types/sounds";
 import { getSoundManager } from "@/domains/settings/utils/sound-manager";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
     assistantSoundsAvailableQueryKey,
     assistantSoundsConfigQueryKey,
@@ -200,8 +200,7 @@ function SoundEventRow({
 
 export function SoundsPage() {
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? "";
+  const assistantId = useActiveAssistantId();
 
   const configQueryKey = useMemo(
     () => assistantSoundsConfigQueryKey(assistantId),
@@ -215,13 +214,11 @@ export function SoundsPage() {
   const { data: rawConfig } = useQuery({
     queryKey: configQueryKey,
     queryFn: () => fetchSoundsConfig(assistantId),
-    enabled: Boolean(assistantId),
   });
 
   const { data: availableRaw } = useQuery({
     queryKey: availableQueryKey,
     queryFn: () => listAvailableSounds(assistantId),
-    enabled: Boolean(assistantId),
   });
 
   const config = rawConfig ?? defaultSoundsConfig();
