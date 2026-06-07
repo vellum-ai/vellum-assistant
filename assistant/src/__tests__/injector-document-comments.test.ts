@@ -62,7 +62,8 @@ describe("document-comments injector", () => {
   test("returns null when no active documents exist", async () => {
     const block = await injector.produce(
       makeContext({
-        injectionInputs: { mode: "full", activeDocuments: [] },
+        mode: "full",
+        activeDocuments: [],
       }),
     );
     expect(block).toBeNull();
@@ -71,7 +72,7 @@ describe("document-comments injector", () => {
   test("returns null when activeDocuments is undefined", async () => {
     const block = await injector.produce(
       makeContext({
-        injectionInputs: { mode: "full" },
+        mode: "full",
       }),
     );
     expect(block).toBeNull();
@@ -80,17 +81,15 @@ describe("document-comments injector", () => {
   test("returns null when mode is minimal", async () => {
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "minimal",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "My Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "minimal",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "My Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
     expect(block).toBeNull();
@@ -100,17 +99,15 @@ describe("document-comments injector", () => {
     listCommentsMock = mock(() => []);
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "My Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "My Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
     expect(block).toBeNull();
@@ -127,17 +124,15 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "My Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "My Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
 
@@ -162,17 +157,15 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "My Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "My Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
 
@@ -200,17 +193,15 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-xxx",
-              title: "Title",
-              wordCount: 200,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-xxx",
+            title: "Title",
+            wordCount: 200,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
 
@@ -236,17 +227,15 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "Big Doc",
-              wordCount: 500,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "Big Doc",
+            wordCount: 500,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
 
@@ -282,23 +271,21 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "Doc A",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-            {
-              surfaceId: "doc-2",
-              title: "Doc B",
-              wordCount: 200,
-              updatedAt: 2000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "Doc A",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+          {
+            surfaceId: "doc-2",
+            title: "Doc B",
+            wordCount: 200,
+            updatedAt: 2000,
+          },
+        ],
       }),
     );
 
@@ -319,23 +306,21 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "Empty Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-            {
-              surfaceId: "doc-2",
-              title: "Commented Doc",
-              wordCount: 200,
-              updatedAt: 2000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "Empty Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+          {
+            surfaceId: "doc-2",
+            title: "Commented Doc",
+            wordCount: 200,
+            updatedAt: 2000,
+          },
+        ],
       }),
     );
 
@@ -356,17 +341,15 @@ describe("document-comments injector", () => {
 
     const block = await injector.produce(
       makeContext({
-        injectionInputs: {
-          mode: "full",
-          activeDocuments: [
-            {
-              surfaceId: "doc-1",
-              title: "My Doc",
-              wordCount: 100,
-              updatedAt: 1000,
-            },
-          ],
-        },
+        mode: "full",
+        activeDocuments: [
+          {
+            surfaceId: "doc-1",
+            title: "My Doc",
+            wordCount: 100,
+            updatedAt: 1000,
+          },
+        ],
       }),
     );
 

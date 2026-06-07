@@ -101,21 +101,48 @@ export type CompactionCircuitEvent =
 // ─── TurnContext ─────────────────────────────────────────────────────────────
 
 /**
- * Per-turn injection inputs threaded to every {@link Injector}.
+ * Per-turn execution context threaded to the injector chain and to hook
+ * consumers that need turn-level identity.
  *
- * These fields carry the text, gating state, and PKB-search parameters that
- * the orchestrator resolves once per turn and hands to the injector chain so
- * each default injector can derive its own {@link InjectionBlock} output.
+ * Combines turn-level identifiers (`requestId`, `conversationId`,
+ * `turnIndex`) and the canonical {@link TrustContext} (trust class and
+ * channel identity for the inbound actor) with the per-turn injection inputs
+ * consumed by the default {@link Injector} chain — the text, gating state,
+ * and timezone/actor parameters that drive each injector's
+ * {@link InjectionBlock} output.
  *
- * The orchestrator populates this bag inside
- * `buildPluginTurnContextWithInjectionInputs` (called from
- * `conversation-agent-loop.ts` right before `applyRuntimeInjections`). Call
- * sites that synthesize a {@link TurnContext} outside of the agent loop
- * (tests, overflow-reducer reinjection, etc.) may omit the bag entirely —
- * every field is optional and every default injector treats a missing input
- * as "no injection on this turn".
+ * `applyRuntimeInjections` resolves the injection fields once per turn and
+ * layers them onto the caller's context right before
+ * {@link collectInjectorBlocks}. Call sites that synthesize a context outside
+ * the agent loop (tests, overflow-reducer reinjection, etc.) may omit them —
+ * every injection field is optional and every default injector treats a
+ * missing input as "no injection on this turn".
+ *
+ * `TrustContext` is re-exposed here (rather than redefined) so the plugin
+ * surface always stays in sync with the assistant's trust model.
  */
-export interface TurnInjectionInputs {
+export interface TurnContext {
+  /** Stable ID for the current request (one per inbound message). */
+  requestId: string;
+  /** Conversation ID the turn is scoped to. */
+  conversationId: string;
+  /** 0-based turn index within the conversation. */
+  turnIndex: number;
+  /** Trust classification and channel identity for the inbound actor. */
+  trust: TrustContext;
+  /**
+   * Optional handle to the conversation's {@link ContextWindowManager}.
+   *
+   * Attached by the orchestrator so the default compaction implementation can
+   * defer to the real compaction machinery via `context.manager`. Call sites
+   * that never touch compaction may omit it.
+   *
+   * Declared as an optional typed field so plugin code can read it without a
+   * lenient cast. The optional shape is load-bearing: synthesized handler
+   * contexts and other non-compaction call sites still construct valid
+   * `TurnContext` literals without attaching a manager.
+   */
+  contextWindowManager?: ContextWindowManager;
   /**
    * Controls which runtime injections are applied. `"full"` (default) runs
    * every gating branch; `"minimal"` skips high-token optional blocks
@@ -193,50 +220,6 @@ export interface TurnInjectionInputs {
     wordCount: number;
     updatedAt: number;
   }> | null;
-}
-
-/**
- * Per-turn execution context threaded to the injector chain and to hook
- * consumers that need turn-level identity.
- *
- * Combines turn-level identifiers (`requestId`, `conversationId`,
- * `turnIndex`) with the canonical {@link TrustContext} that carries trust
- * class and channel identity for the inbound actor.
- *
- * `TrustContext` is re-exposed here (rather than redefined) so the plugin
- * surface always stays in sync with the assistant's trust model.
- */
-export interface TurnContext {
-  /** Stable ID for the current request (one per inbound message). */
-  requestId: string;
-  /** Conversation ID the turn is scoped to. */
-  conversationId: string;
-  /** 0-based turn index within the conversation. */
-  turnIndex: number;
-  /** Trust classification and channel identity for the inbound actor. */
-  trust: TrustContext;
-  /**
-   * Optional handle to the conversation's {@link ContextWindowManager}.
-   *
-   * Attached by the orchestrator so the default compaction implementation can
-   * defer to the real compaction machinery via `context.manager`. Call sites
-   * that never touch compaction may omit it.
-   *
-   * Declared as an optional typed field so plugin code can read it without a
-   * lenient cast. The optional shape is load-bearing: synthesized handler
-   * contexts and other non-compaction call sites still construct valid
-   * `TurnContext` literals without attaching a manager.
-   */
-  contextWindowManager?: ContextWindowManager;
-  /**
-   * Per-turn injection inputs consumed by the default injector chain.
-   *
-   * Omitted for call sites that don't drive runtime injection (synthesized
-   * handler contexts, some background jobs). Each default injector treats
-   * missing/absent fields as "no injection on this turn", so a context
-   * without `injectionInputs` produces an empty injection chain.
-   */
-  injectionInputs?: TurnInjectionInputs;
   /**
    * The {@link LLMCallSite} this turn belongs to — `"mainAgent"` for the
    * user-facing conversational reply, or the specific background/utility site
