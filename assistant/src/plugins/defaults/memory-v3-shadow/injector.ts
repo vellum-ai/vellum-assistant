@@ -20,7 +20,7 @@ import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
   type Injector,
-  type TurnContext as PluginTurnContext,
+  type TurnContext,
 } from "../../types.js";
 import { renderV3PageContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
@@ -39,7 +39,7 @@ export const memoryV3Injector: Injector = {
   // after-memory-prefix placement so it lands at the memory boundary regardless
   // of this sort key, which only orders content-producing injectors.
   order: 1000,
-  async produce(ctx: PluginTurnContext): Promise<InjectionBlock | null> {
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
     const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);

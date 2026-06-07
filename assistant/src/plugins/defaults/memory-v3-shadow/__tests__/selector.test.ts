@@ -31,8 +31,8 @@ import type {
   LeafNode,
   LeafPath,
   LeafTree,
+  MemoryRoutingTurn,
   Slug,
-  TurnContext,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ function makeTree(): LeafTree {
 
 const ALICE_MEMBERS = ["alice-bio", "alice-1on1", "alice-feedback"];
 
-function makeTurn(currentMessage: string): TurnContext {
+function makeTurn(currentMessage: string): MemoryRoutingTurn {
   return {
     conversationId: "conv-xyz",
     turnNumber: 1,

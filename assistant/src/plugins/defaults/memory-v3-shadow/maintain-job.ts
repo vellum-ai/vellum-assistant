@@ -27,10 +27,17 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../../config/types.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "../../../memory/checkpoints.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../memory/checkpoints.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
-import { listPages, readPage, writePage } from "../../../memory/v2/page-store.js";
+import {
+  listPages,
+  readPage,
+  writePage,
+} from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { assignPages as realAssignPages } from "./assign.js";

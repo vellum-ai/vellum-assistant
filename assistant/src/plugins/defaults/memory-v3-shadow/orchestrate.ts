@@ -30,7 +30,7 @@ import { routeL1 } from "./router.js";
 import type { SelectedPage } from "./selector.js";
 import { selectAcrossLeaves } from "./selector.js";
 import { coreSlugs, leavesOf } from "./tree.js";
-import type { LeafPath, LeafTree, Slug, TurnContext } from "./types.js";
+import type { LeafPath, LeafTree, MemoryRoutingTurn, Slug } from "./types.js";
 import { WorkingSet } from "./working-set.js";
 
 /** Default number of needle hits to fold into the open set when unspecified. */
@@ -66,7 +66,7 @@ function unique<T>(items: Iterable<T>): T[] {
 }
 
 export async function orchestrate(
-  turn: TurnContext,
+  turn: MemoryRoutingTurn,
   deps: OrchestrateDeps,
 ): Promise<OrchestrateResult> {
   // Step 1: routing (LLM) and needle (sync BM25) run in parallel.

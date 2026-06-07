@@ -26,7 +26,12 @@ import type {
   SendMessageOptions,
   ToolUseContent,
 } from "../../../../providers/types.js";
-import type { LeafNode, LeafPath, LeafTree, TurnContext } from "../types.js";
+import type {
+  LeafNode,
+  LeafPath,
+  LeafTree,
+  MemoryRoutingTurn,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks installed BEFORE the router import so the module observes them at
@@ -143,7 +148,7 @@ function makeTree(): LeafTree {
   };
 }
 
-function makeTurn(currentMessage: string): TurnContext {
+function makeTurn(currentMessage: string): MemoryRoutingTurn {
   return {
     conversationId: "conv-xyz",
     turnNumber: 1,

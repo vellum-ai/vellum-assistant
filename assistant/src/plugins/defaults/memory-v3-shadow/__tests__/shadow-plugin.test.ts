@@ -42,7 +42,9 @@ const realCore = { ...(await import("../core.js")) };
 const realNeedle = { ...(await import("../needle.js")) };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realPlatform = { ...(await import("../../../../util/platform.js")) };
-const realPageStore = { ...(await import("../../../../memory/v2/page-store.js")) };
+const realPageStore = {
+  ...(await import("../../../../memory/v2/page-store.js")),
+};
 const realConversationCrud = {
   ...(await import("../../../../memory/conversation-crud.js")),
 };
@@ -205,11 +207,8 @@ mock.module("../orchestrate.js", () => ({
 }));
 
 // Import AFTER mocks so the plugin binds to them.
-const {
-  runShadowObservation,
-  resetShadowLanesForTests,
-  invalidateLanes,
-} = await import("../shadow-plugin.js");
+const { runShadowObservation, resetShadowLanesForTests, invalidateLanes } =
+  await import("../shadow-plugin.js");
 const { memoryV3Injector } = await import("../injector.js");
 
 // The module stubs above stay installed for the rest of the process (Bun can't
