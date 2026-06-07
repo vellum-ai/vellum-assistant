@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
@@ -1665,40 +1666,58 @@ export interface RuntimeInjectionOptions {
    */
   modelProfile?: string | null;
   /**
-   * Per-turn {@link TurnContext} forwarded to plugin-registered
-   * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
-   * `applyRuntimeInjections` synthesizes an ephemeral context (with a
-   * fallback `trust` classification) so the default-injector chain still
-   * runs — call sites that build the options bag without holding a full
-   * `TurnContext` get the same chain output.
-   *
-   * When provided, the caller's `trust`, `conversationId`, `turnIndex`,
-   * etc. are preserved; the function layers its per-turn injection inputs
-   * onto a shallow clone so the caller's `TurnContext` is not mutated.
+   * Stable ID for the current request (one per inbound message). Forwarded
+   * verbatim onto the {@link TurnContext} handed to plugin-registered
+   * {@link Injector}s — it is the one turn-identity field that cannot be
+   * recovered from the live conversation, so callers must supply it.
    */
-  turnContext?: TurnContext;
+  requestId?: string;
+  /**
+   * Conversation the turn is scoped to. Drives the live-conversation lookup
+   * that sources every self-resolved per-turn field, and is forwarded onto
+   * the injector {@link TurnContext}. Defaults to the runtime-assembly
+   * fallback id when omitted (test call sites).
+   */
+  conversationId?: string;
+  /**
+   * 0-based turn index forwarded onto the injector {@link TurnContext}.
+   * Defaults to the live conversation's `turnCount` when omitted.
+   */
+  turnIndex?: number;
+  /**
+   * Trust classification and channel identity for the inbound actor,
+   * forwarded onto the injector {@link TurnContext}. Defaults to the live
+   * conversation's per-turn (then conversation-level) trust when omitted.
+   */
+  trust?: TrustContext;
+  /**
+   * Call site driving the turn, forwarded onto the injector
+   * {@link TurnContext}. Defaults to the live conversation's current call
+   * site when omitted.
+   */
+  callSite?: LLMCallSite;
 }
 
 /**
  * Conversation id used for the synthetic fallback {@link TurnContext} and the
- * live-conversation lookup when the caller omits a context (test call sites).
+ * live-conversation lookup when the caller omits one (test call sites).
  */
 const RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
-/** Minimal synthetic TurnContext used when the caller omits one. */
-function synthesizeFallbackTurnContext(
+/**
+ * Last-resort `trust` for the injector {@link TurnContext} when neither the
+ * caller nor the live conversation supplies one — an `"unknown"` trust class
+ * keyed to the channel so the default-injector chain still runs (test call
+ * sites, conversations resolved before their trust context is set).
+ */
+function fallbackTurnTrust(
   channelCapabilities: ChannelCapabilities | null,
-): TurnContext {
+): TrustContext {
   return {
-    requestId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
-    conversationId: RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
-    turnIndex: 0,
-    trust: {
-      sourceChannel: channelCapabilities?.channel
-        ? (channelCapabilities.channel as TrustContext["sourceChannel"])
-        : "vellum",
-      trustClass: "unknown",
-    },
+    sourceChannel: channelCapabilities?.channel
+      ? (channelCapabilities.channel as TrustContext["sourceChannel"])
+      : "vellum",
+    trustClass: "unknown",
   };
 }
 
@@ -1708,10 +1727,11 @@ function synthesizeFallbackTurnContext(
  * The canonical per-turn assembly pipeline for every provider call:
  *
  *  1. Resolve the per-turn injection inputs from `options` and the live
- *     conversation, and layer them onto a {@link TurnContext} — either the
- *     one the caller supplies via `options.turnContext` (preserving its
- *     `requestId`, trust, and other fields) or an ephemeral fallback
- *     synthesized here.
+ *     conversation, and layer them onto a {@link TurnContext}. The turn
+ *     identity (`requestId`, `conversationId`, `turnIndex`, `trust`,
+ *     `callSite`) comes from `options` when supplied, falling back to the
+ *     live conversation's values (and an ephemeral fallback when neither is
+ *     present) so the chain still runs for test call sites.
  *  2. Drive the default + third-party {@link Injector} chain via
  *     {@link collectInjectorBlocks}.
  *  3. Apply the chain's `"replace-run-messages"` block (Slack chronological
@@ -1751,8 +1771,7 @@ export async function applyRuntimeInjections(
   const mode = options.mode ?? "full";
 
   const conversationId =
-    options.turnContext?.conversationId ??
-    RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID;
+    options.conversationId ?? RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID;
 
   // Resolve the live conversation (or subagent) once and source every per-turn
   // field below from it rather than from orchestrator-computed options.
@@ -1862,10 +1881,13 @@ export async function applyRuntimeInjections(
       })
     : null;
 
-  // Layer the per-injector inputs onto the caller's TurnContext (without
-  // mutating it). When the caller didn't supply one, synthesize a minimal
-  // fallback so the chain still runs — test call sites that drive injection
-  // via `options` without constructing a full context continue to work.
+  // Assemble the per-turn TurnContext handed to the injector chain. The
+  // turn-identity fields come from `options` when supplied; `requestId` is the
+  // only one the caller must provide, since the other three are recovered from
+  // the live conversation that backs this turn (the same instance the per-turn
+  // injection inputs below are sourced from). Test call sites that omit the
+  // live conversation can still drive the chain by passing the identity fields
+  // directly. The per-injector inputs are layered on last so they win.
   const injectionInputs = {
     mode: options.mode,
     subagentStatusBlock,
@@ -1886,8 +1908,15 @@ export async function applyRuntimeInjections(
     modelProfile: options.modelProfile,
   };
   const turnCtx: TurnContext = {
-    ...(options.turnContext ??
-      synthesizeFallbackTurnContext(channelCapabilities)),
+    requestId: options.requestId ?? RUNTIME_ASSEMBLY_FALLBACK_CONVERSATION_ID,
+    conversationId,
+    turnIndex: options.turnIndex ?? liveConversation?.turnCount ?? 0,
+    trust:
+      options.trust ??
+      liveConversation?.currentTurnTrustContext ??
+      liveConversation?.trustContext ??
+      fallbackTurnTrust(channelCapabilities),
+    callSite: options.callSite ?? liveConversation?.currentCallSite,
     ...injectionInputs,
   };
 

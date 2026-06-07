@@ -865,21 +865,15 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     // Non-interactive turn so the `<non_interactive_context>` branch fires.
     isNonInteractive: true,
-    // Interface label feeds the `<turn_context>` block; its timestamp is
-    // sourced from the live conversation's frozen temporal snapshot (seeded in
-    // `beforeEach`) so the `unified-turn-context` injector emits the block.
-    interfaceName: "telegram",
+    requestId: "injection-mode-req",
+    conversationId: "injection-mode-conv",
+    turnIndex: 0,
     // Guardian trust so the personal-memory gate admits the actor regardless
     // of the telegram channel capabilities under test, letting the reminder
     // gate hinge purely on PKB content presence.
-    turnContext: {
-      requestId: "injection-mode-req",
-      conversationId: "injection-mode-conv",
-      turnIndex: 0,
-      trust: {
-        sourceChannel: "vellum" as const,
-        trustClass: "guardian" as const,
-      },
+    trust: {
+      sourceChannel: "vellum" as const,
+      trustClass: "guardian" as const,
     },
   };
 

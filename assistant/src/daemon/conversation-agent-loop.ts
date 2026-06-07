@@ -207,42 +207,6 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
- * Build the {@link TurnContext} passed to {@link runHook}.
- *
- * Canonical source of truth for every hook call site inside the agent
- * loop. Every `runHook` invocation in `runAgentLoopImpl` (and in the
- * handlers that share its ambient state) must route through this helper
- * rather than constructing a `TurnContext` literal inline — this keeps
- * `turnIndex` and trust resolution consistent across hooks, which in turn
- * keeps structured logs filtered by `conversationId`/`turnIndex` coherent
- * across slots.
- *
- * Behavior:
- * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
- *   0-based turn counter. Reading from a single source avoids the
- *   earlier inconsistency (`ctx.turnCount`, `ctx.messages.length - 1`,
- *   `ctx.messages.length`, and `0` were all used for the same turn).
- * - Trust pulls from the per-turn snapshot first, then the conversation-
- *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
- *   the one inside the orchestrator's inline injection assembly so
- *   middleware reads the same trust class the runtime sees.
- */
-function buildPluginTurnContext(
-  ctx: Conversation,
-  requestId: string,
-): PluginTurnContext {
-  const trust =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId,
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-    callSite: ctx.currentCallSite,
-  };
-}
-
-/**
  * Trust class of the actor whose turn is in progress, for the compactor's
  * image manifest filter. Prefers the turn-start snapshot
  * ({@link Conversation.currentTurnTrustContext}) over the live
@@ -1000,23 +964,22 @@ export async function runAgentLoopImpl(
 
     let currentInjectionMode: InjectionMode = "full";
 
-    // Canonical per-turn TurnContext forwarded to the injector chain. Every
-    // per-turn injection input — the Slack chronological transcript, the
-    // unified `<turn_context>` block, channel/voice/transport hints — is
-    // self-resolved inside `applyRuntimeInjections` from the live
-    // conversation; we only hand in identity + trust here so third-party
-    // injectors see the real turn metadata. `isNonInteractive`,
-    // `modelProfile`, and `actorContext` are resolved once at turn start and
-    // threaded per call site so post-compaction re-injection receives them as
-    // explicit hook inputs rather than via live state that can flip mid-turn.
-    const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
-
+    // `applyRuntimeInjections` self-resolves every per-turn injection input —
+    // the Slack chronological transcript, the unified `<turn_context>` block,
+    // channel/voice/transport hints, and the turn's trust/index/call-site —
+    // from the live conversation, so we only hand in the request id (the one
+    // turn-identity field it can't recover) plus the conversation id that keys
+    // that lookup. `isNonInteractive`, `modelProfile`, and `actorContext` are
+    // resolved once at turn start and threaded per call site so post-compaction
+    // re-injection receives them as explicit inputs rather than via live state
+    // that can flip mid-turn.
     const injection = await applyRuntimeInjections(runMessages, {
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
       mode: currentInjectionMode,
-      turnContext: injectionTurnCtx,
+      requestId: reqId,
+      conversationId: ctx.conversationId,
     });
     runMessages = injection.messages;
 
@@ -1177,7 +1140,8 @@ export async function runAgentLoopImpl(
             modelProfile: modelProfileStr,
             actorContext,
             mode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           let next = injection.messages;
           if (isTrustedActor && mode !== "minimal") {
@@ -1276,7 +1240,17 @@ export async function runAgentLoopImpl(
     // real conversation identity / trust / contextWindowManager instead of
     // the synthesized `"agent-loop"` placeholder. The loop clones this value
     // and overwrites `turnIndex` with its own tool-use iteration counter.
-    const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
+    // Trust prefers the per-turn snapshot, then the conversation-level
+    // context, then the fallback — matching the trust the runtime injection
+    // assembly resolves for the same turn.
+    const loopTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: ctx.turnCount,
+      trust:
+        ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST,
+      callSite: ctx.currentCallSite,
+    };
 
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
@@ -1649,7 +1623,8 @@ export async function runAgentLoopImpl(
           modelProfile: modelProfileStr,
           actorContext,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
+          requestId: reqId,
+          conversationId: ctx.conversationId,
         });
         runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1737,7 +1712,8 @@ export async function runAgentLoopImpl(
             modelProfile: modelProfileStr,
             actorContext,
             mode: currentInjectionMode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
