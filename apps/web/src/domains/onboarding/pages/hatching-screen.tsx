@@ -191,6 +191,14 @@ export function HatchingScreen() {
         try {
           const existing = await getAssistant();
           if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+            if (isLocalMode()) {
+              void saveLockfileAssistant({
+                assistantId: existing.data.id,
+                cloud: "vellum",
+                runtimeUrl: getPlatformRuntimeUrl(),
+                hatchedAt: new Date().toISOString(),
+              });
+            }
             handleHatchReady();
             return;
           }
