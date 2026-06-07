@@ -31,7 +31,7 @@ import {
     updateHeartbeatConfig,
     updateSchedule,
 } from "@/domains/settings/api/schedules";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
     assistantScheduleRunsQueryKey,
@@ -722,7 +722,7 @@ export function scheduleUsageSummaryQueryOptions(
         resolveScheduleUsageWindow(tz),
       );
     },
-    enabled: !!assistantId && enabled,
+    enabled,
     staleTime: 10_000,
   };
 }
@@ -1225,13 +1225,7 @@ export function SchedulesPage() {
     assistantFlagsHydrated,
     systemScheduleToggles,
   );
-  const {
-    data: assistantList,
-    isLoading: isAssistantLoading,
-    isError: isAssistantError,
-    refetch: refetchAssistants,
-  } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantId = useActiveAssistantId();
 
   const {
     data: schedules,
@@ -1240,8 +1234,7 @@ export function SchedulesPage() {
     refetch,
   } = useQuery({
     queryKey: assistantSchedulesQueryKey(assistantId),
-    queryFn: () => fetchSchedules(assistantId!),
-    enabled: !!assistantId,
+    queryFn: () => fetchSchedules(assistantId),
     staleTime: 10_000,
   });
 
@@ -1260,8 +1253,7 @@ export function SchedulesPage() {
     refetch: refetchHeartbeat,
   } = useQuery({
     queryKey: ["heartbeat-config", assistantId],
-    queryFn: () => fetchHeartbeatConfig(assistantId!),
-    enabled: !!assistantId,
+    queryFn: () => fetchHeartbeatConfig(assistantId),
     staleTime: 10_000,
   });
 
@@ -1272,8 +1264,7 @@ export function SchedulesPage() {
     refetch: refetchConsolidation,
   } = useQuery({
     queryKey: ["consolidation-config", assistantId],
-    queryFn: () => fetchConsolidationConfig(assistantId!),
-    enabled: !!assistantId,
+    queryFn: () => fetchConsolidationConfig(assistantId),
     staleTime: 10_000,
   });
 
@@ -1289,8 +1280,8 @@ export function SchedulesPage() {
       "heartbeat",
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
-    queryFn: () => fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
-    enabled: !!assistantId && heartbeatConfig != null,
+    queryFn: () => fetchHeartbeatRuns(assistantId, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: heartbeatConfig != null,
     staleTime: 10_000,
   });
 
@@ -1307,8 +1298,8 @@ export function SchedulesPage() {
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
     queryFn: () =>
-      fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
-    enabled: !!assistantId && consolidationConfig?.available === true,
+      fetchConsolidationRuns(assistantId, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: consolidationConfig?.available === true,
     staleTime: 10_000,
   });
 
@@ -1554,7 +1545,7 @@ export function SchedulesPage() {
     [assistantId, queryClient],
   );
 
-  const isLoading = isAssistantLoading || isSchedulesLoading;
+  const isLoading = isSchedulesLoading;
   const isSelectedSystemTaskLoading =
     (selectedSystemTask === "heartbeat" && isHeartbeatLoading) ||
     (selectedSystemTask === "consolidation" && isConsolidationLoading);
@@ -1628,20 +1619,14 @@ export function SchedulesPage() {
     );
   }
 
-  if ((isAssistantError && !assistantId) || (isSchedulesError && !schedules)) {
+  if (isSchedulesError && !schedules) {
     return (
       <div className="w-full">
         <Notice tone="error">
           Failed to load schedules.{" "}
           <button
             type="button"
-            onClick={() => {
-              if (isAssistantError) {
-                void refetchAssistants();
-              } else {
-                void refetch();
-              }
-            }}
+            onClick={() => void refetch()}
             className="cursor-pointer underline hover:no-underline"
           >
             Retry

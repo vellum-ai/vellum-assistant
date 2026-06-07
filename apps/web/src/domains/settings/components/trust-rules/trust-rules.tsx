@@ -1,17 +1,14 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
-
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 
 import { TrustRulesModal } from "@/domains/settings/components/trust-rules/trust-rules-modal";
 
 export function TrustRules() {
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
+  const assistantId = useActiveAssistantId();
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
@@ -30,12 +27,11 @@ export function TrustRules() {
         <Button
           variant="outlined"
           onClick={() => setModalOpen(true)}
-          disabled={!assistantId}
         >
           Manage
         </Button>
       </div>
-      {modalOpen && assistantId && (
+      {modalOpen && (
         <TrustRulesModal
           assistantId={assistantId}
           onClose={() => setModalOpen(false)}

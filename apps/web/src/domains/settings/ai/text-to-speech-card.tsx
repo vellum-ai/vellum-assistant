@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -26,16 +27,15 @@ import {
 } from "@/domains/settings/ai/ai-types";
 
 export function TextToSpeechCard() {
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
-  const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
+  const assistantId = useActiveAssistantId();
+  const assistantName = useAssistantIdentityStore.use.name() ?? "your assistant";
   const isOrgReady = useIsOrgReady();
 
   const { data: catalogData } = useQuery({
     ...ttsProvidersGetOptions({
-      path: { assistant_id: assistantId! },
+      path: { assistant_id: assistantId },
     }),
-    enabled: !!assistantId && isOrgReady,
+    enabled: isOrgReady,
     staleTime: Infinity,
   });
   const providers = catalogData?.providers ?? TTS_PROVIDERS;
