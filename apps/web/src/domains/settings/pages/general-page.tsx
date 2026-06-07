@@ -226,7 +226,7 @@ export function GeneralPage() {
   const infraGate = usePlatformGate({ platformHostedOnly: true });
   const diskPressure = useDiskPressureMonitor({
     assistantId: assistant?.id ?? null,
-    enabled: true,
+    enabled: infraGate === "full",
   });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
