@@ -219,6 +219,7 @@ export interface VellumBridge {
       loginHint?: string;
       intent?: string;
     }): Promise<{ sessionToken: string }>;
+    cancelOAuth(): Promise<void>;
   };
   hotkeys: {
     /** Resolved catalog of rebindable commands and their effective bindings. */
