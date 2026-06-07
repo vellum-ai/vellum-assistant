@@ -45,6 +45,7 @@ export function WelcomeScreen() {
   };
 
   const handleContinueWithoutAccount = () => {
+    if (loading) handleCancel();
     void navigate(routes.onboarding.hosting);
   };
 
