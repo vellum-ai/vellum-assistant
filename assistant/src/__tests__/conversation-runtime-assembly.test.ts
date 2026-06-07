@@ -2868,6 +2868,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       content: JSON.stringify([{ type: "text", text: opts.text }]),
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
+      clientMessageId: null,
     };
   }
 
@@ -2886,6 +2887,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       content: JSON.stringify([{ type: "text", text: opts.text }]),
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
+      clientMessageId: null,
     };
   }
 

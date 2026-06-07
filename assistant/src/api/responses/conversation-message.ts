@@ -336,6 +336,13 @@ export const ConversationMessageSchema = z.object({
    */
   mergedMessageIds: z.array(z.string()).optional(),
   /**
+   * Client-generated idempotency nonce echoed back on the persisted row.
+   * Present only for messages a client sent with one (user sends); lets the
+   * client correlate an optimistic row with its confirmed server row by
+   * identity instead of matching message text.
+   */
+  clientMessageId: z.string().optional(),
+  /**
    * Renderable conversation roles only. The messages endpoint emits a
    * UI-facing transcript, so it excludes the `system` rows that the
    * underlying `MessageRole` column also permits — those are agent-context
