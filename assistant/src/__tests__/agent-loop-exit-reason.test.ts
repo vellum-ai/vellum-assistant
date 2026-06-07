@@ -163,18 +163,20 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("emits exit event exactly once with 'no_tool_calls' on plain text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(countExitEvents(events)).toBe(1);
     const exit = lastExitEvent(events);
@@ -183,18 +185,20 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("agent_loop_exit is the last event emitted", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(events.length).toBeGreaterThan(0);
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
@@ -204,18 +208,20 @@ describe("AgentLoop exit-reason instrumentation", () => {
     const { provider } = createMockProvider([
       maxTokensResponse("Partial answer"),
     ]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(events.map((e) => e.type)).toEqual([
       "llm_call_started",
@@ -245,19 +251,21 @@ describe("AgentLoop exit-reason instrumentation", () => {
         stopReason: "max_tokens",
       },
     ]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
       tools: dummyTools,
     });
 
     const events: AgentEvent[] = [];
-    const { history: result } = await loop.run(
-      [userMessage],
-      (e) => {
+    const { history: result } = await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(events.some((e) => e.type === "tool_use")).toBe(false);
     expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
@@ -268,7 +276,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("emits 'aborted_pre_call' when signal is already aborted at run start", async () => {
     const { provider } = createMockProvider([textResponse("never sent")]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
@@ -276,16 +286,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
     controller.abort();
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      {
-        trust: { sourceChannel: "vellum", trustClass: "unknown" },
-        signal: controller.signal,
-      },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_pre_call");
@@ -300,20 +308,22 @@ describe("AgentLoop exit-reason instrumentation", () => {
       isError: false,
       yieldToUser: true,
     });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
@@ -325,7 +335,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -335,16 +347,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
       "budget";
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      {
-        trust: { sourceChannel: "vellum", trustClass: "unknown" },
-        onCheckpoint,
-      },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
 
     expect(countExitEvents(events)).toBe(0);
   });
@@ -357,7 +367,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -366,7 +378,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // AND an effective context window so small that any real token estimate
     // of the running history exceeds the mid-loop threshold.
     // WHEN the loop checkpoints after the tool results land
-    const result = await loop.run([userMessage], () => {}, {
+    const result = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
@@ -386,14 +400,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("done"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     // WHEN the loop runs to completion
-    const result = await loop.run([userMessage], () => {}, {
+    const result = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
@@ -413,7 +431,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("done after compaction"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -427,23 +447,21 @@ describe("AgentLoop exit-reason instrumentation", () => {
     };
 
     // WHEN the in-loop budget gate trips at the checkpoint
-    const result = await loop.run(
-      [userMessage],
-      (event) => {
+    const result = await loop.run({
+      messages: [userMessage],
+      onEvent: (event) => {
         events.push(event);
       },
-      {
-        resolveContextWindow: () => ({
-          maxInputTokens: 10,
-          overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-        }),
-        compactInPlace: true,
-        ...fakeCompaction({
-          compacted: true,
-          exhausted: false,
-        }),
-      },
-    );
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compactInPlace: true,
+      ...fakeCompaction({
+        compacted: true,
+        exhausted: false,
+      }),
+    });
 
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget. The durable commit is
@@ -461,7 +479,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -474,7 +494,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     };
 
     // WHEN compaction exhausts its retry budget
-    const result = await loop.run([userMessage], () => {}, {
+    const result = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -497,18 +519,20 @@ describe("AgentLoop exit-reason instrumentation", () => {
         throw new Error("provider exploded");
       },
     };
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("error");
@@ -526,20 +550,22 @@ describe("AgentLoop exit-reason instrumentation", () => {
       isError: false,
       yieldToUser: true,
     });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(countExitEvents(events)).toBe(1);
   });
@@ -555,23 +581,23 @@ describe("AgentLoop exit-reason instrumentation", () => {
       controller.abort();
       return { content: "ok", isError: false };
     };
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run(
-      [userMessage],
-      (e) => {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
         events.push(e);
       },
-      {
-        trust: { sourceChannel: "vellum", trustClass: "unknown" },
-        signal: controller.signal,
-      },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_during_tools");

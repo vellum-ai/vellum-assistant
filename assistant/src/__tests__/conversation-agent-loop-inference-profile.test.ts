@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -377,19 +377,17 @@ function makeCtx(
   overrides?: Partial<Conversation>,
 ): Conversation {
   const agentLoopRun = async (
-    messages: Message[],
-    _onEvent: (event: AgentEvent) => void,
-    options?: AgentLoopRunOptions,
+    options: AgentLoopRunOptions,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
     captured.push({
-      callSite: options?.callSite,
-      overrideProfile: options?.overrideProfile,
-      resolvedOverrideProfile: options?.resolveOverrideProfile?.(),
-      resolvedMaxInputTokens: options?.resolveContextWindow?.().maxInputTokens,
+      callSite: options.callSite,
+      overrideProfile: options.overrideProfile,
+      resolvedOverrideProfile: options.resolveOverrideProfile?.(),
+      resolvedMaxInputTokens: options.resolveContextWindow?.().maxInputTokens,
     });
     return [
-      ...messages,
+      ...options.messages,
       {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: "response" }],

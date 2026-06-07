@@ -447,6 +447,10 @@ export interface ResolvedSystemPrompt {
 }
 
 export interface AgentLoopRunOptions {
+  /** Input history the run starts from; the loop appends its output onto a copy. */
+  messages: Message[];
+  /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
+  onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
   requestId?: string;
   onCheckpoint?: (
@@ -571,6 +575,10 @@ export type LoopToolExecutor = (
 }>;
 
 export interface AgentLoopConstructorOptions {
+  /** LLM provider the loop issues every call through. */
+  provider: Provider;
+  /** Base system prompt, before any per-turn dynamic resolution. */
+  systemPrompt: string;
   config?: Partial<AgentLoopConfig>;
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
@@ -612,12 +620,10 @@ export class AgentLoop {
    */
   readonly compactionCircuit: CompactionCircuit;
 
-  constructor(
-    provider: Provider,
-    systemPrompt: string,
-    options: AgentLoopConstructorOptions,
-  ) {
+  constructor(options: AgentLoopConstructorOptions) {
     const {
+      provider,
+      systemPrompt,
       config,
       tools,
       toolExecutor,
@@ -786,12 +792,10 @@ export class AgentLoop {
     return injection.messages;
   }
 
-  async run(
-    messages: Message[],
-    onEvent: (event: AgentEvent) => void | Promise<void>,
-    options: AgentLoopRunOptions,
-  ): Promise<AgentLoopRunResult> {
+  async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
     const {
+      messages,
+      onEvent,
       signal,
       requestId,
       onCheckpoint,

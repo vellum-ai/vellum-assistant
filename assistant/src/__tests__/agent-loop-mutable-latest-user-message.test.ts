@@ -104,7 +104,9 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
         },
       },
     ];
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 1024 },
       tools: dummyTools,
@@ -112,7 +114,9 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
     });
 
     // WHEN the loop runs
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -130,13 +134,17 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
 
     // AND a provider that records the config of each LLM call
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
     // WHEN the loop runs
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });

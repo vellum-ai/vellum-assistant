@@ -100,12 +100,16 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 64000 },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -124,7 +128,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
@@ -132,7 +138,9 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -151,7 +159,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
@@ -162,7 +172,9 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -186,7 +198,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
@@ -197,7 +211,9 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -218,12 +234,16 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 64000 },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });
@@ -247,7 +267,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
@@ -257,7 +279,9 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -285,13 +309,17 @@ describe("AgentLoop — call-site precedence", () => {
       maxTokens: 8192,
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 64000 },
       resolveSystemPrompt: resolveSystemPrompt,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
     });

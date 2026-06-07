@@ -128,13 +128,17 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const start = Date.now();
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
     const elapsed = Date.now() - start;
@@ -172,13 +176,17 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const start = Date.now();
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
     const elapsed = Date.now() - start;
@@ -228,14 +236,18 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
     const start = Date.now();
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
     const elapsed = Date.now() - start;
@@ -298,13 +310,17 @@ describe("Parallel tool execution benchmarks", () => {
         return { content: "should not return", isError: false };
       };
 
-      const loop = new AgentLoop(provider, "system", {
+      const loop = new AgentLoop({
+        provider: provider,
+        systemPrompt: "system",
         conversationId: "test-conversation",
         tools: dummyTools,
         toolExecutor: toolExecutor,
       });
       const start = Date.now();
-      const { history } = await loop.run([userMessage], () => {}, {
+      const { history } = await loop.run({
+        messages: [userMessage],
+        onEvent: () => {},
         trust: { sourceChannel: "vellum", trustClass: "unknown" },
         signal: controller.signal,
       });

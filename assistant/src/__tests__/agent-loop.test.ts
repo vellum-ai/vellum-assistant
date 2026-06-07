@@ -56,12 +56,16 @@ describe("AgentLoop", () => {
   // 1. Basic text response
   test("returns history with assistant message for simple text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -89,13 +93,17 @@ describe("AgentLoop", () => {
       return { content: "file data here", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -141,13 +149,17 @@ describe("AgentLoop", () => {
       overrideProfile = "quality-optimized";
       return { content: "ok", isError: false };
     };
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    await loop.run([userMessage], collectEvents([]), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents([]),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
@@ -172,13 +184,17 @@ describe("AgentLoop", () => {
       maxInputTokens = 10_000;
       return { content: toolOutput, isError: false };
     };
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    await loop.run([userMessage], collectEvents([]), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents([]),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
@@ -215,12 +231,16 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -241,11 +261,15 @@ describe("AgentLoop", () => {
     ]);
 
     // No tool executor provided
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
     });
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -264,11 +288,15 @@ describe("AgentLoop", () => {
       },
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -289,10 +317,14 @@ describe("AgentLoop", () => {
     controller.abort(); // abort immediately
 
     const { provider } = createMockProvider([textResponse("Should not reach")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
@@ -320,12 +352,16 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
@@ -368,13 +404,17 @@ describe("AgentLoop", () => {
       return { content: "should never return", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const start = Date.now();
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
@@ -414,12 +454,16 @@ describe("AgentLoop", () => {
   // 7. Events — verify text_delta and other events are emitted
   test("emits text_delta events during streaming", async () => {
     const { provider } = createMockProvider([textResponse("Hello world")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -432,12 +476,16 @@ describe("AgentLoop", () => {
 
   test("emits usage events", async () => {
     const { provider } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -454,12 +502,16 @@ describe("AgentLoop", () => {
 
   test("emits message_complete events", async () => {
     const { provider } = createMockProvider([textResponse("Done")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -478,14 +530,18 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -525,13 +581,17 @@ describe("AgentLoop", () => {
       content: "ENOENT: file not found",
       isError: true,
     });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -563,13 +623,17 @@ describe("AgentLoop", () => {
       return { content: "full output", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -588,12 +652,16 @@ describe("AgentLoop", () => {
   // 11. System prompt and tools are passed to provider
   test("passes system prompt and tools to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "My system prompt", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "My system prompt",
       conversationId: "test-conversation",
       tools: dummyTools,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -604,11 +672,15 @@ describe("AgentLoop", () => {
   // 12. No tools configured — tools are not passed to provider
   test("does not pass tools to provider when none are configured", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -663,13 +735,17 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -760,13 +836,17 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
@@ -836,13 +916,17 @@ describe("AgentLoop", () => {
       return { content: `contents of ${path}`, isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -871,7 +955,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -883,7 +969,9 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -907,7 +995,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -915,7 +1005,9 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (): CheckpointDecision => "continue";
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -936,7 +1028,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -944,7 +1038,9 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (): CheckpointDecision => "budget";
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -965,13 +1061,17 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -991,7 +1091,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -1003,7 +1105,9 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -1019,7 +1123,9 @@ describe("AgentLoop", () => {
     const { provider } = createMockProvider([
       textResponse("Just a text response"),
     ]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
     });
@@ -1030,7 +1136,9 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -1076,7 +1184,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -1088,7 +1198,9 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -1111,7 +1223,9 @@ describe("AgentLoop", () => {
 
     const { provider, calls } = createMockProvider(responses);
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -1125,7 +1239,9 @@ describe("AgentLoop", () => {
     };
 
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -1182,7 +1298,9 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
@@ -1193,7 +1311,9 @@ describe("AgentLoop", () => {
       return checkpoint.turnIndex === 1 ? "budget" : "continue";
     };
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
@@ -1211,12 +1331,16 @@ describe("AgentLoop", () => {
   // 25. Without resolveTools, static tools are used
   test("without resolveTools, static tools are passed to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1249,12 +1373,16 @@ describe("AgentLoop", () => {
       return resolvedTools;
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       toolExecutor: toolExecutor,
       resolveTools: resolveTools,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1284,12 +1412,16 @@ describe("AgentLoop", () => {
     const resolveTools = (): ToolDefinition[] => dynamicTools;
 
     // Pass different static tools to verify they are overridden
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       resolveTools: resolveTools,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1344,12 +1476,16 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       toolExecutor: toolExecutor,
       resolveTools: resolveTools,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1370,12 +1506,16 @@ describe("AgentLoop", () => {
       textResponse("No tools available"),
     ]);
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       resolveTools: resolveTools,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1401,14 +1541,18 @@ describe("AgentLoop", () => {
       return { content: largeContent, isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxInputTokens: 180_000 },
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1453,14 +1597,18 @@ describe("AgentLoop", () => {
       return { content: smallContent, isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxInputTokens: 180_000 },
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1514,13 +1662,17 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1583,13 +1735,17 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1618,13 +1774,17 @@ describe("AgentLoop", () => {
       // No sensitiveBindings
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1665,12 +1825,16 @@ describe("AgentLoop", () => {
       return { content: "file contents", isError: false };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1726,12 +1890,16 @@ describe("AgentLoop", () => {
       return { content: "service unavailable", isError: true };
     };
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1775,13 +1943,17 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1853,13 +2025,17 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1915,13 +2091,17 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1952,11 +2132,15 @@ describe("AgentLoop", () => {
 
     const { provider, calls } = createMockProvider([emptyResponse]);
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -1971,10 +2155,14 @@ describe("AgentLoop", () => {
   test("threads callSite from AgentLoop.run() into per-call provider config", async () => {
     const { provider, calls } = createMockProvider([textResponse("ok")]);
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "heartbeatAgent",
     });
@@ -1986,10 +2174,14 @@ describe("AgentLoop", () => {
   test("omits callSite from provider config when not supplied", async () => {
     const { provider, calls } = createMockProvider([textResponse("ok")]);
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
     });
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 

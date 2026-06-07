@@ -110,14 +110,18 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
       _input: Record<string, unknown>,
     ) => ({ content: "ok", isError: false });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 1024 },
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "fast",
@@ -132,12 +136,16 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
 
   test("omits overrideProfile from providerConfig when unset (default behavior unchanged)", async () => {
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
@@ -153,12 +161,16 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     // receives so a non-existent profile silently falls back at the
     // provider layer (covered by provider-send-message-override-profile.test.ts).
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
       conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "does-not-exist",

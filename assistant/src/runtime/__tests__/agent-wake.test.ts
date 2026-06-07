@@ -361,19 +361,16 @@ function makeWakeConversation(options: {
       );
     },
     agentLoop: {
-      run: async (
-        input: Message[],
-        onEvent: (event: AgentEvent) => void | Promise<void>,
-        runOptions?: AgentLoopRunOptions,
-      ) => {
+      run: async (options: AgentLoopRunOptions) => {
+        const { messages: input, onEvent } = options;
         probe.runCalls.push({
           input: [...input],
-          requestId: runOptions?.requestId,
-          trust: runOptions?.trust,
+          requestId: options.requestId,
+          trust: options.trust,
           allowedTools: snapshotAllowedTools(),
           order: order++,
         });
-        return runBody(input, onEvent, runOptions);
+        return runBody(input, onEvent, options);
       },
     },
     messages,
@@ -798,13 +795,9 @@ describe("wakeAgentForOpportunity", () => {
     // hold the processing flag while agentLoop.run executes.
     const observedDuringRun: boolean[] = [];
     const originalRun = conversation.agentLoop.run;
-    conversation.agentLoop.run = async (
-      input: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-      runOptions: AgentLoopRunOptions,
-    ) => {
+    conversation.agentLoop.run = async (options: AgentLoopRunOptions) => {
       observedDuringRun.push(conversation.isProcessing());
-      return originalRun(input, onEvent, runOptions);
+      return originalRun(options);
     };
 
     await wakeAgentForOpportunity(

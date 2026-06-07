@@ -586,7 +586,9 @@ function makeCtx(
       providerResponses ?? [textResponse("response")],
       loopProviderName,
     ).provider;
-  const agentLoop = new AgentLoop(provider, "system prompt", {
+  const agentLoop = new AgentLoop({
+    provider: provider,
+    systemPrompt: "system prompt",
     conversationId,
     tools: loopTools ?? [],
     toolExecutor,

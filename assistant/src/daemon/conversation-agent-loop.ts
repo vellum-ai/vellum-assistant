@@ -1244,7 +1244,9 @@ export async function runAgentLoopImpl(
       compactInPlace = false,
     ): Promise<Message[]> => {
       const { history, exitReason, appendedNewMessages, newMessages } =
-        await ctx.agentLoop.run(msgs, eventHandler, {
+        await ctx.agentLoop.run({
+          messages: msgs,
+          onEvent: eventHandler,
           signal: abortController.signal,
           requestId: reqId,
           onCheckpoint,

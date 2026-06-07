@@ -832,31 +832,29 @@ export async function wakeAgentForOpportunity(
 
       let updatedHistory: Message[];
       try {
-        ({ history: updatedHistory } = await conversation.agentLoop.run(
-          runInput,
+        ({ history: updatedHistory } = await conversation.agentLoop.run({
+          messages: runInput,
           onEvent,
-          {
-            requestId: `wake:${source}`,
-            onCheckpoint,
-            // Route through the caller-supplied call site (defaults to
-            // `mainAgent` so a normal user-turn wake shares the user's chat
-            // selection). Without an explicit callSite, the resolver in
-            // `RetryProvider` and the routing in `CallSiteRoutingProvider`
-            // short-circuit and silently drop both per-callsite config and the
-            // pinned `overrideProfile` below.
-            callSite,
-            trust: wakeTrust,
-            overrideProfile,
-            // Wake runs have no orchestrator-side mid-loop compaction path,
-            // so the budget gate stays disabled (`overflowRecovery.enabled =
-            // false`); `maxInputTokens` is still supplied for tool-result
-            // truncation.
-            resolveContextWindow: () => ({
-              maxInputTokens: effectiveContextWindow.maxInputTokens,
-              overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
-            }),
-          },
-        ));
+          requestId: `wake:${source}`,
+          onCheckpoint,
+          // Route through the caller-supplied call site (defaults to
+          // `mainAgent` so a normal user-turn wake shares the user's chat
+          // selection). Without an explicit callSite, the resolver in
+          // `RetryProvider` and the routing in `CallSiteRoutingProvider`
+          // short-circuit and silently drop both per-callsite config and the
+          // pinned `overrideProfile` below.
+          callSite,
+          trust: wakeTrust,
+          overrideProfile,
+          // Wake runs have no orchestrator-side mid-loop compaction path,
+          // so the budget gate stays disabled (`overflowRecovery.enabled =
+          // false`); `maxInputTokens` is still supplied for tool-result
+          // truncation.
+          resolveContextWindow: () => ({
+            maxInputTokens: effectiveContextWindow.maxInputTokens,
+            overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+          }),
+        }));
       } catch (err) {
         // Capture the error for post-finally logging, then short-circuit
         // the rest of the try body — no tail to push/persist when the

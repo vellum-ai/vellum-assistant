@@ -600,7 +600,9 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+    this.agentLoop = new AgentLoop({
+      provider,
+      systemPrompt,
       conversationId: this.conversationId,
       config: agentLoopConfig,
       tools: toolDefs.length > 0 ? toolDefs : undefined,

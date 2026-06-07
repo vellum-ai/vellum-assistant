@@ -48,7 +48,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { AgentLoopRunOptions } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -81,18 +81,14 @@ function makeTarget(): {
   const target = {
     conversationId: "conv-wake-override",
     agentLoop: {
-      run: async (
-        input: Message[],
-        _onEvent: (event: AgentEvent) => void | Promise<void>,
-        options?: AgentLoopRunOptions,
-      ) => {
+      run: async (options: AgentLoopRunOptions) => {
         runArgs.push({
-          messages: [...input],
+          messages: [...options.messages],
           options,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
         // Wake never yields at a checkpoint, so the pause-reason is null.
-        return { history: input, exitReason: null };
+        return { history: options.messages, exitReason: null };
       },
     },
     messages,

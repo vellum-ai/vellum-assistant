@@ -73,8 +73,8 @@ function makeTarget(): Conversation {
   const target = {
     conversationId: "conv-wake-callsite",
     agentLoop: {
-      run: async (input: Message[]) => ({
-        history: input,
+      run: async ({ messages }: { messages: Message[] }) => ({
+        history: messages,
         exitReason: null,
         appendedNewMessages: false,
         newMessages: [],
