@@ -14,7 +14,6 @@ import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -83,7 +82,6 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
@@ -1326,49 +1324,17 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
-    // trigger (its budget gate), the `compaction` pipeline call, the result
-    // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; this callback bridges the injection state the
-    // loop is intentionally blind to. Durable persistence is signalled via
-    // events; re-injection stays orchestrator-supplied for now.
-    const midLoopCompaction: MidLoopCompaction = {
-      postCompactionHook: async ({
-        history,
-        turnContext,
-        isNonInteractive,
-        mode,
-        modelProfile,
-        actorContext,
-      }) => {
-        // stripInjectionsForCompaction() unconditionally removed the existing
-        // memory-static block, so re-inject the current content regardless of
-        // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
-        // v2 static `<info>` blocks self-gate inside their injectors on block
-        // presence.
-        const injection = await postCompactReinject({
-          isNonInteractive,
-          modelProfile,
-          actorContext,
-          mode,
-          turnContext,
-          history,
-        });
-        return injection.messages;
-      },
-    };
-
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
      * context and maps the loop's returned checkpoint pause-reason into the
      * orchestrator's yield bookkeeping. Returns the updated history so call
-     * sites consume it exactly as before. Pass `compaction` only for the
+     * sites consume it exactly as before. Pass `compactInPlace` only for the
      * primary run, where the loop compacts in place when its budget gate
      * trips; reruns omit it and keep yielding for budget.
      */
     const runAgentLoop = async (
       msgs: Message[],
-      compaction?: MidLoopCompaction,
+      compactInPlace = false,
     ): Promise<Message[]> => {
       const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
@@ -1380,7 +1346,7 @@ export async function runAgentLoopImpl(
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
-          compaction,
+          compactInPlace,
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,
@@ -1397,7 +1363,7 @@ export async function runAgentLoopImpl(
       return history;
     };
 
-    let updatedHistory = await runAgentLoop(runMessages, midLoopCompaction);
+    let updatedHistory = await runAgentLoop(runMessages, true);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },

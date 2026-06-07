@@ -24,7 +24,7 @@ import {
   DEFAULT_COMPACTION_PLUGIN_NAME,
   defaultCompact,
 } from "../plugins/defaults/compaction/compact.js";
-import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent, TurnContext } from "../plugins/types.js";
 import { PluginExecutionError } from "../plugins/types.js";
@@ -313,7 +313,7 @@ export type AgentEvent =
        * immediately before re-injection — whether or not the pipeline actually
        * compacted. The daemon's event dispatcher always commits `basis` (the
        * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection ({@link MidLoopCompaction.reinject}) re-applies
+       * state, so re-injection ({@link postCompactReinject}) re-applies
        * injections onto the stripped base rather than stacking on top of the
        * still-injected messages. When `result.compacted` is set it
        * additionally commits the durable compaction result (DB-record fields,
@@ -473,28 +473,6 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
-/**
- * Orchestrator-supplied hook the loop invokes when the mid-loop budget gate
- * trips and inline compaction runs. The loop owns the trigger, the
- * compaction call, the result interpretation (circuit-breaker
- * bookkeeping + the exhaustion decision), and the inline continue; this hook
- * bridges the injection state the loop is intentionally blind to. Durable
- * persistence is signalled out-of-band via the `history_stripped` (marker)
- * and `compaction_completed` (basis commit + successful summary) {@link
- * AgentEvent}s; the {@link MidLoopCompaction.postCompactionHook} is
- * orchestrator-supplied, and its inputs migrate loop-ward as the loop
- * subsumes the re-injection ceremony.
- */
-export interface MidLoopCompaction {
-  /**
-   * Re-apply runtime injections onto the post-compaction history and return
-   * the history to continue from. The loop supplies its own working state via
-   * {@link PostCompactionHookInput} so the hook re-injects from that rather
-   * than reading it back from orchestrator state.
-   */
-  postCompactionHook: (input: PostCompactionHookInput) => Promise<Message[]>;
-}
-
 export interface AgentLoopRunOptions {
   signal?: AbortSignal;
   requestId?: string;
@@ -533,16 +511,18 @@ export interface AgentLoopRunOptions {
     overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
   };
   /**
-   * Hooks for inline mid-loop compaction. When supplied and the budget gate
-   * trips, the loop compacts in place and continues instead of yielding
-   * `exitReason = "budget"`. Callers without a compaction path (agent wakes,
-   * convergence/auto-compress reruns) omit this and keep yielding for budget.
+   * When `true` and the mid-loop budget gate trips, the loop compacts the
+   * running history in place — re-applying runtime injections via the default
+   * post-compaction hook ({@link postCompactReinject}) — and continues instead
+   * of yielding `exitReason = "budget"`. Reruns without an inline compaction
+   * path (agent wakes, convergence/auto-compress reruns) leave it `false` and
+   * keep yielding for budget. Defaults to `false` when omitted.
    */
-  compaction?: MidLoopCompaction;
+  compactInPlace?: boolean;
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once by the orchestrator at turn start and forwarded to
-   * the {@link MidLoopCompaction.postCompactionHook} so post-compaction
+   * {@link postCompactReinject} so post-compaction
    * re-injection uses the turn-start snapshot rather than re-reading mutable
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
@@ -550,8 +530,8 @@ export interface AgentLoopRunOptions {
   /**
    * The `model_profile:` turn-context label resolved once by the orchestrator
    * at turn start, or `null` when the active inference profile is unchanged
-   * since the last notified one. Forwarded to the
-   * {@link MidLoopCompaction.postCompactionHook} so post-compaction re-injection
+   * since the last notified one. Forwarded to
+   * {@link postCompactReinject} so post-compaction re-injection
    * re-emits the turn-start value rather than re-deriving the change-detected
    * label (which flips once the notification is persisted mid-turn). Defaults to
    * `null` when omitted.
@@ -561,8 +541,8 @@ export interface AgentLoopRunOptions {
    * Inbound actor identity and trust fields for the unified `<turn_context>`
    * block, or `null` on guardian turns. Resolved once by the orchestrator at
    * turn start via the actor-trust resolver, whose contact/member registry
-   * inputs can be mutated mid-turn by contact tools, and forwarded to the
-   * {@link MidLoopCompaction.postCompactionHook} so post-compaction
+   * inputs can be mutated mid-turn by contact tools, and forwarded to
+   * {@link postCompactReinject} so post-compaction
    * re-injection re-emits the turn-start value rather than re-resolving it.
    * Defaults to `null` when omitted.
    */
@@ -738,7 +718,6 @@ export class AgentLoop {
   private async compact(
     history: Message[],
     turnContext: TurnContext,
-    compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
@@ -800,7 +779,7 @@ export class AgentLoop {
     // Re-inject onto the same base the `compaction_completed` dispatch commits:
     // the compacted messages when the pipeline compacted, the stripped
     // pre-compaction history otherwise.
-    return compaction.postCompactionHook({
+    const injection = await postCompactReinject({
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       turnContext,
       isNonInteractive,
@@ -809,6 +788,7 @@ export class AgentLoop {
       modelProfile,
       actorContext,
     });
+    return injection.messages;
   }
 
   async run(
@@ -825,7 +805,7 @@ export class AgentLoop {
       overrideProfile,
       resolveOverrideProfile,
       resolveContextWindow,
-      compaction,
+      compactInPlace = false,
       isNonInteractive = false,
       modelProfile = null,
       actorContext = null,
@@ -1636,8 +1616,8 @@ export class AgentLoop {
 
         // Mid-loop budget gate: when overflow recovery is enabled, estimate
         // the running context size as it approaches the preflight budget.
-        // With a `compaction` hook the loop compacts in place and continues;
-        // without one it yields (`exitReason = "budget"`) so the orchestrator
+        // With `compactInPlace` the loop compacts in place and continues;
+        // without it it yields (`exitReason = "budget"`) so the orchestrator
         // can recover before the next provider call risks a hard
         // context-too-large rejection. Keyed off the loop's own
         // `history.length` (the messages actually in context this turn,
@@ -1660,7 +1640,7 @@ export class AgentLoop {
             preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
           const estimated = this.estimateTokens(history);
           if (estimated > midLoopThreshold) {
-            if (compaction) {
+            if (compactInPlace) {
               rlog.info(
                 { phase: "mid-loop", estimated, threshold: midLoopThreshold },
                 "Token estimate approaching budget — compacting in place",
@@ -1668,7 +1648,6 @@ export class AgentLoop {
               const compacted = await this.compact(
                 history,
                 turnCtx,
-                compaction,
                 signal,
                 onEvent,
                 resolveEffectiveOverrideProfile() ?? null,

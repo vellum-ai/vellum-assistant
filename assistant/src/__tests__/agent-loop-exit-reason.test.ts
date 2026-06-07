@@ -13,15 +13,15 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
   CheckpointDecision,
   CheckpointInfo,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import type { PostCompactionHookInput } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import type { TurnContext } from "../plugins/types.js";
 import type {
   Message,
@@ -30,6 +30,25 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+
+// The agent loop invokes the default post-compaction re-injection hook directly
+// when it compacts in place. Stub it so these unit tests can drive the
+// re-injection result without the daemon-level injector chain. Tests assign
+// `postCompactReinjectImpl` to observe the call or force a failure; when unset
+// the hook is a no-op that returns the history it was handed.
+let postCompactReinjectImpl:
+  | ((input: PostCompactionHookInput) => Promise<Message[]>)
+  | null = null;
+mock.module(
+  "../plugins/defaults/memory-retrieval/hooks/post-compact.js",
+  () => ({
+    default: async (input: PostCompactionHookInput) => ({
+      messages: postCompactReinjectImpl
+        ? await postCompactReinjectImpl(input)
+        : input.history,
+    }),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -363,11 +382,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     let reinjected = false;
     const events: AgentEvent[] = [];
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        reinjected = true;
-        return [userMessage];
-      },
+    postCompactReinjectImpl = async () => {
+      reinjected = true;
+      return [userMessage];
     };
 
     // WHEN the in-loop budget gate trips at the checkpoint
@@ -381,7 +398,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
           maxInputTokens: 10,
           overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
         }),
-        compaction,
+        compactInPlace: true,
         turnContext: fakeCompactionTurnContext({
           compacted: true,
           exhausted: false,
@@ -410,10 +427,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor: toolExecutor,
     });
 
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        throw new Error("postCompactionHook must not run when exhausted");
-      },
+    postCompactReinjectImpl = async () => {
+      throw new Error(
+        "post-compaction re-injection must not run when exhausted",
+      );
     };
 
     // WHEN compaction exhausts its retry budget
@@ -422,7 +439,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
       }),
-      compaction,
+      compactInPlace: true,
       turnContext: fakeCompactionTurnContext({
         compacted: false,
         exhausted: true,
