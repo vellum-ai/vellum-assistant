@@ -34,7 +34,7 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import {
-  ContextWindowManager,
+  type ContextWindowManager,
   type ContextWindowResult,
   createContextSummaryMessage,
 } from "../context/window-manager.js";
@@ -63,6 +63,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import { createContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -607,7 +608,7 @@ export class Conversation {
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
     });
-    this.contextWindowManager = new ContextWindowManager({
+    this.contextWindowManager = createContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
