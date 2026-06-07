@@ -208,14 +208,12 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     compactionCircuit = new CompactionCircuit("test-conv");
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      options?: {
-        config?: Record<string, unknown>;
-        resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
-      },
-    ) {
+    constructor(options?: {
+      provider?: unknown;
+      systemPrompt?: string;
+      config?: Record<string, unknown>;
+      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
+    }) {
       captured.constructorMaxTokens = options?.config?.maxTokens;
       const resolved = options?.resolveSystemPrompt?.([]);
       captured.resolvedMaxTokens = resolved?.maxTokens;
@@ -229,12 +227,13 @@ mock.module("../agent/loop.js", () => ({
     getResolvedTools() {
       return [];
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: Record<string, unknown>) => void,
-      options?: { callSite?: string },
-    ): Promise<Message[]> {
-      captured.callSite = options?.callSite;
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: Record<string, unknown>) => void;
+      callSite?: string;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
+      captured.callSite = options.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,

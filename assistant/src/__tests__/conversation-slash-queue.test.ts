@@ -222,10 +222,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-    ): Promise<AgentLoopRunResult> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void | Promise<void>;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });

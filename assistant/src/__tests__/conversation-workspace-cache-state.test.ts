@@ -177,10 +177,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
       const assistantMessage: Message = {
         role: "assistant",
         content: [{ type: "text", text: "ok" }],

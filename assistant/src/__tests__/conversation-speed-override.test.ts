@@ -199,11 +199,11 @@ let lastAgentLoopConfig: Partial<AgentLoopConfig> | undefined;
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     compactionCircuit = new CompactionCircuit("test-conv");
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      options?: { config?: Partial<AgentLoopConfig> },
-    ) {
+    constructor(options?: {
+      provider?: unknown;
+      systemPrompt?: string;
+      config?: Partial<AgentLoopConfig>;
+    }) {
       lastAgentLoopConfig = options?.config;
     }
     getToolTokenBudget() {
@@ -215,10 +215,10 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      _messages: Message[],
-      _onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(_options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
       return [];
     }
   },

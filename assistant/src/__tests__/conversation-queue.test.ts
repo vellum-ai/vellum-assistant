@@ -354,15 +354,14 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-      options?: {
-        onCheckpoint?: (
-          checkpoint: CheckpointInfo,
-        ) => CheckpointDecision | Promise<CheckpointDecision>;
-      },
-    ): Promise<AgentLoopRunResult> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void | Promise<void>;
+      onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       return new Promise<AgentLoopRunResult>((resolveResult, reject) => {
         const pending: PendingRun = {
           resolve: (history: Message[]) =>

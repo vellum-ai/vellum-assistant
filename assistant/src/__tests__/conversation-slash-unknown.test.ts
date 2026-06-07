@@ -246,10 +246,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
