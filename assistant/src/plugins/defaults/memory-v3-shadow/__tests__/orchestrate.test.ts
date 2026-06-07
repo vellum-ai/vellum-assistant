@@ -23,8 +23,8 @@ import type {
   LeafNode,
   LeafPath,
   LeafTree,
+  MemoryRoutingTurn,
   Slug,
-  TurnContext,
 } from "../types.js";
 import evalTurns from "./fixtures/eval-turns.json" with { type: "json" };
 
@@ -104,7 +104,10 @@ function fakeNeedle(hits: Slug[]): NeedleIndex {
   return { query: (_text, k) => hits.slice(0, k) };
 }
 
-function makeTurn(turnNumber: number, currentMessage: string): TurnContext {
+function makeTurn(
+  turnNumber: number,
+  currentMessage: string,
+): MemoryRoutingTurn {
   return {
     conversationId: "conv-xyz",
     turnNumber,

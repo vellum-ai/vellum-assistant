@@ -18,7 +18,11 @@
  * omitted, resolves the `memoryV3RouteL1` callsite provider.
  */
 
-import { listPages, readPage, writePage } from "../../../memory/v2/page-store.js";
+import {
+  listPages,
+  readPage,
+  writePage,
+} from "../../../memory/v2/page-store.js";
 import type { ConceptPage } from "../../../memory/v2/types.js";
 import {
   extractToolUse,

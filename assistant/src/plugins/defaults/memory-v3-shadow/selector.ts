@@ -40,7 +40,7 @@ import { mapLimit } from "../../../util/map-limit.js";
 import { retryForResult } from "./llm-retry.js";
 import { cachedTextBlock } from "./provider-blocks.js";
 import { membersOf } from "./tree.js";
-import type { LeafPath, LeafTree, Slug, TurnContext } from "./types.js";
+import type { LeafPath, LeafTree, MemoryRoutingTurn, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-selector");
 
@@ -122,7 +122,7 @@ async function renderPagesBlock(
  */
 export async function selectFromLeaf(
   leaf: LeafPath,
-  turn: TurnContext,
+  turn: MemoryRoutingTurn,
   tree: LeafTree,
   pageSummary: (slug: Slug) => Promise<string>,
 ): Promise<SelectedPage[]> {
@@ -214,7 +214,7 @@ export async function selectFromLeaf(
  */
 export async function selectAcrossLeaves(
   leaves: LeafPath[],
-  turn: TurnContext,
+  turn: MemoryRoutingTurn,
   tree: LeafTree,
   pageSummary: (slug: Slug) => Promise<string>,
   concurrency = 4,
