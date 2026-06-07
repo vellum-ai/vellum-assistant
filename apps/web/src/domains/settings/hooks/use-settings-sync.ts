@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { createSyncTagRegistry } from "@/lib/sync/tag-registry";
 import {
@@ -21,7 +21,7 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  */
 export function useSettingsSync(): void {
   const queryClient = useQueryClient();
-  const assistantId = useActiveAssistantId();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const registry = useMemoizedRegistry(queryClient, assistantId);
 
   useBusSubscription("sse.event", (envelope) => {
@@ -54,9 +54,10 @@ import type { SyncTagRegistry } from "@/lib/sync/tag-registry";
 
 function useMemoizedRegistry(
   queryClient: QueryClient,
-  assistantId: string,
-): SyncTagRegistry {
+  assistantId: string | null,
+): SyncTagRegistry | null {
   const registry = useMemo(() => {
+    if (!assistantId) return null;
     const r = createSyncTagRegistry();
     r.register(SYNC_TAGS.assistantConfig, () => {
       invalidateAssistantConfigQueries(queryClient, assistantId);

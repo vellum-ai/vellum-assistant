@@ -103,7 +103,7 @@ export function SettingsLayout() {
       }
       title={pageTitle}
     >
-      {!assistantId || assistantStateKind !== "active" ? (
+      {!assistantId || (assistantStateKind !== "active" && assistantStateKind !== "self_hosted") ? (
         <div
           className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[var(--app-spacing-md)] text-[var(--content-tertiary)]"
           role="status"
