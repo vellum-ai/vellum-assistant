@@ -47,13 +47,21 @@ const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/memory-retrieval/injectors.js");
 const { getInjectorChain } =
   await import("../plugins/defaults/memory-retrieval/injector-chain.js");
+import { eq } from "drizzle-orm";
+
 import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
+import { conversations, messages } from "../memory/schema.js";
+import {
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
@@ -156,6 +164,52 @@ function seedFallbackTemporalSnapshot(timestamp: string): void {
   } as never);
 }
 
+// Persist Slack-channel rows for the turn conversation so
+// `applyRuntimeInjections` self-resolves the chronological transcript from
+// conversation state, exactly as production does (the slack-messages injector
+// reads the live conversation rather than receiving a pre-built transcript).
+const SLACK_CHANNEL_ID = "C0123CHANNEL";
+function seedSlackChannelRows(
+  conversationId: string,
+  rows: Array<{
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    channelTs: string;
+    displayName: string;
+    createdAt: number;
+  }>,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations)
+    .values({ id: conversationId, createdAt: now, updatedAt: now })
+    .onConflictDoNothing()
+    .run();
+  for (const r of rows) {
+    const meta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID,
+      channelTs: r.channelTs,
+      eventKind: "message",
+      displayName: r.displayName,
+    } as SlackMessageMetadata;
+    db.insert(messages)
+      .values({
+        id: r.id,
+        conversationId,
+        role: r.role,
+        content: JSON.stringify([{ type: "text", text: r.text }]),
+        createdAt: r.createdAt,
+        metadata: JSON.stringify({
+          provenanceTrustClass: "guardian",
+          slackMeta: writeSlackMetadata(meta),
+        }),
+      })
+      .run();
+  }
+}
+
 // `applyRuntimeInjections` self-resolves the `<active_subagents>` block from the
 // global subagent manager keyed by the conversation, so tests seed children
 // directly into the manager's private maps rather than threading a pre-built
@@ -213,6 +267,13 @@ describe("injector chain", () => {
     clearNowScratchpad();
     clearConversations();
     clearSeededSubagents();
+    const db = getDb();
+    db.delete(messages)
+      .where(eq(messages.conversationId, TEST_CONVERSATION_ID))
+      .run();
+    db.delete(conversations)
+      .where(eq(conversations.id, TEST_CONVERSATION_ID))
+      .run();
   });
 
   test("defaultInjectors lists the defaults in the documented order", () => {
@@ -423,13 +484,12 @@ describe("injector chain", () => {
     );
   });
 
-  test("slack-messages injector replaces runMessages when a chronological transcript is provided", async () => {
-    // End-to-end verification for the `replace-run-messages` placement:
-    // a Slack channel turn with a pre-rendered chronological transcript
-    // swaps the incoming `runMessages` for the transcript before the
-    // after-memory/append placements run. Memory-prefix blocks from the
-    // original tail are re-prepended onto the new tail so PKB / NOW
-    // splices still find them.
+  test("slack-messages injector replaces runMessages with the self-resolved transcript", async () => {
+    // End-to-end verification for the `replace-run-messages` placement: a
+    // Slack channel turn swaps the incoming `runMessages` for the
+    // self-resolved chronological transcript before the after-memory/append
+    // placements run. Memory-prefix blocks from the original tail are
+    // re-prepended onto the new tail so PKB / NOW splices still find them.
     const originalRun: Message[] = [
       {
         role: "user",
@@ -444,22 +504,30 @@ describe("injector chain", () => {
         ],
       },
     ];
-    const slackTranscript: Message[] = [
+    seedSlackChannelRows(TEST_CONVERSATION_ID, [
       {
+        id: "s1",
         role: "user",
-        content: [{ type: "text", text: "[12:00 alice]: kickoff" }],
+        text: "kickoff",
+        channelTs: "1700000000.000001",
+        displayName: "alice",
+        createdAt: 1700000000_000,
       },
       {
+        id: "s2",
         role: "user",
-        content: [{ type: "text", text: "[12:05 @user]: What's happening?" }],
+        text: "What's happening?",
+        channelTs: "1700000005.000001",
+        displayName: "user",
+        createdAt: 1700000005_000,
       },
-    ];
-
+    ]);
     setConversation(TEST_CONVERSATION_ID, {
       conversationId: TEST_CONVERSATION_ID,
       workingDir: "/sandbox",
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
+      trustContext: { trustClass: "guardian" },
       channelCapabilities: {
         channel: "slack",
         dashboardCapable: false,
@@ -470,7 +538,6 @@ describe("injector chain", () => {
     } as never);
     const result = await applyRuntimeInjections(originalRun, {
       turnContext: makeTurnContext(),
-      slackChronologicalMessages: slackTranscript,
     });
 
     // The swap replaced the run-messages wholesale but preserved the
@@ -488,7 +555,7 @@ describe("injector chain", () => {
       true,
     );
     expect(texts).toContain("<memory __injected>\nrecalled fact\n</memory>");
-    expect(texts[texts.length - 1]).toBe("[12:05 @user]: What's happening?");
+    expect(texts[texts.length - 1]).toContain("What's happening?");
   });
 
   test("minimal mode: only unified-turn-context survives; workspace/PKB/NOW/subagent are skipped", async () => {

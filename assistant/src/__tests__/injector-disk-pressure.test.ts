@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 import {
   clearConversations,
   setConversation,
@@ -9,7 +11,13 @@ import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { conversations, messages } from "../memory/schema.js";
+import {
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectors,
@@ -74,6 +82,7 @@ let liveConversation: {
   workspaceTopLevelDirty: boolean;
   diskPressureCleanupModeActive: boolean;
   channelCapabilities?: ChannelCapabilities;
+  trustContext?: { trustClass: string };
   currentTurnTemporalSnapshot?: {
     timestamp: string;
     clientTimezone: string | null;
@@ -91,6 +100,7 @@ function resetLiveConversation(): void {
     workspaceTopLevelContext: "",
     workspaceTopLevelDirty: false,
     diskPressureCleanupModeActive: false,
+    trustContext: { trustClass: "guardian" },
     // The unified-turn-context injector sources the interface label from the
     // live conversation's turn interface context; match the expected blocks.
     currentTurnInterfaceContext: {
@@ -127,10 +137,61 @@ function seedWorkspaceContext(text: string): void {
   setConversation(TEST_CONVERSATION_ID, liveConversation as never);
 }
 
+// Persist Slack-channel rows for the turn conversation so
+// `applyRuntimeInjections` self-resolves the chronological transcript from
+// conversation state, exactly as production does (the slack-messages injector
+// reads the live conversation rather than receiving a pre-built transcript).
+const SLACK_CHANNEL_ID = "C0123CHANNEL";
+function seedSlackChannelRows(
+  rows: Array<{
+    id: string;
+    text: string;
+    channelTs: string;
+    displayName: string;
+    createdAt: number;
+  }>,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations)
+    .values({ id: TEST_CONVERSATION_ID, createdAt: now, updatedAt: now })
+    .onConflictDoNothing()
+    .run();
+  for (const r of rows) {
+    const meta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID,
+      channelTs: r.channelTs,
+      eventKind: "message",
+      displayName: r.displayName,
+    } as SlackMessageMetadata;
+    db.insert(messages)
+      .values({
+        id: r.id,
+        conversationId: TEST_CONVERSATION_ID,
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: r.text }]),
+        createdAt: r.createdAt,
+        metadata: JSON.stringify({
+          provenanceTrustClass: "guardian",
+          slackMeta: writeSlackMetadata(meta),
+        }),
+      })
+      .run();
+  }
+}
+
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     clearConversations();
     resetLiveConversation();
+    const db = getDb();
+    db.delete(messages)
+      .where(eq(messages.conversationId, TEST_CONVERSATION_ID))
+      .run();
+    db.delete(conversations)
+      .where(eq(conversations.id, TEST_CONVERSATION_ID))
+      .run();
   });
 
   test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
@@ -226,17 +287,23 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
         content: [{ type: "text", text: "latest raw user text" }],
       },
     ];
-    const slackTranscript: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "[12:00 user]: earlier" }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: "[12:01 @assistant]: cleanup?" }],
-      },
-    ];
 
+    seedSlackChannelRows([
+      {
+        id: "dp-1",
+        text: "earlier",
+        channelTs: "1700000000.000001",
+        displayName: "user",
+        createdAt: 1700000000_000,
+      },
+      {
+        id: "dp-2",
+        text: "cleanup?",
+        channelTs: "1700000005.000001",
+        displayName: "user",
+        createdAt: 1700000005_000,
+      },
+    ]);
     seedDiskPressure(true);
     seedChannelCapabilities({
       channel: "slack",
@@ -247,7 +314,6 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     });
     const result = await applyRuntimeInjections(originalRun, {
       turnContext: makeContext(),
-      slackChronologicalMessages: slackTranscript,
     });
 
     expect(result.messages).toHaveLength(2);
@@ -256,7 +322,7 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
     expect(
       texts.some((text) => text.startsWith("<channel_capabilities>")),
     ).toBe(true);
-    expect(texts[texts.length - 1]).toBe("[12:01 @assistant]: cleanup?");
+    expect(texts[texts.length - 1]).toContain("cleanup?");
   });
 
   test("compaction strip plus re-apply does not duplicate the warning", async () => {

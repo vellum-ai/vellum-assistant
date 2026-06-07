@@ -77,25 +77,14 @@ export interface OverflowReduceArgs {
    * explicitly so the orchestrator doesn't need to read mutable shared
    * state. Returns the new `runMessages`.
    *
-   * Two distinct "did compact" signals are passed so the orchestrator can
-   * apply the correct per-iteration vs sticky gating:
-   * - `stepCompacted` — whether THIS iteration's reducer step produced a
-   *   fresh compaction. Gates PKB / NOW re-injection: compaction strips the
-   *   existing blocks, so only iterations that just compacted need the
-   *   content re-threaded. Iterations that only truncated tool results or
-   *   downgraded injections must NOT force a re-injection or the token
-   *   count grows each round.
-   * - `accumulatedCompacted` — whether ANY iteration in this invocation has
-   *   compacted. Gates `slackChronologicalMessages` suppression: once
-   *   compaction has run, the captured Slack transcript snapshot would
-   *   overwrite the compacted history, so it must stay suppressed for every
-   *   subsequent iteration even if that iteration didn't re-compact.
+   * Re-injection self-resolves every per-turn block (including the Slack
+   * chronological transcript, which it loads scoped by the conversation's
+   * current compaction boundary), so the loop's compaction signals don't
+   * need to be threaded in.
    */
   readonly reinjectForMode: (
     messages: Message[],
     mode: InjectionMode,
-    stepCompacted: boolean,
-    accumulatedCompacted: boolean,
   ) => Promise<Message[]>;
   /**
    * Invoked after each step to post-estimate the rebuilt `runMessages`.
@@ -175,9 +164,8 @@ export async function runOverflowReductionLoop(
     messages = step.messages;
     injectionMode = step.state.injectionMode;
 
-    // Per-iteration compaction flag: whether THIS step just produced a
-    // fresh compaction. PKB / NOW re-injection is gated on this — see the
-    // reinjectForMode JSDoc for why the two signals differ.
+    // Whether THIS step just produced a fresh compaction — tracked so the
+    // returned `reducerCompacted` flips true once any iteration compacts.
     const stepCompacted = step.compactionResult?.compacted === true;
 
     // Let the orchestrator apply compaction side effects (circuit-breaker
@@ -200,17 +188,7 @@ export async function runOverflowReductionLoop(
     // has to read from mutable shared state to rebuild runMessages — a
     // tier that doesn't trigger compaction (tool-result truncation, media
     // stubbing) won't update `ctx.messages` on its own.
-    //
-    // `stepCompacted` and `reducerCompacted` are both passed so the
-    // orchestrator can gate PKB / NOW re-injection per-iteration while
-    // keeping `slackChronologicalMessages` suppressed once any iteration
-    // has compacted.
-    runMessages = await args.reinjectForMode(
-      messages,
-      injectionMode,
-      stepCompacted,
-      reducerCompacted,
-    );
+    runMessages = await args.reinjectForMode(messages, injectionMode);
 
     // Re-estimate with injections included — `step.estimatedTokens` was
     // computed on bare history and doesn't account for tokens added by

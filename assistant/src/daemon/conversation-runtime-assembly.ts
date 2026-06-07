@@ -1652,39 +1652,6 @@ export interface RuntimeInjectionOptions {
    * injector.
    */
   isNonInteractive?: boolean;
-  /**
-   * Pre-rendered Slack chronological transcript that replaces the
-   * default `runMessages` history for any Slack conversation (channels
-   * and DMs alike).
-   *
-   * When `channelCapabilities` describes a Slack conversation and this
-   * array is non-empty, the `slack-messages` default injector emits a
-   * `replace-run-messages` block that swaps `runMessages` with this
-   * transcript. Channel renders include sibling-thread tags; DM renders
-   * are flat (DMs have no threads). The `transportHints` pipeline is
-   * skipped for any Slack conversation so the persisted view isn't
-   * duplicated by gateway-side hints.
-   *
-   * Callers build this via `loadSlackChronologicalContext` (or the
-   * underlying `assembleSlackChronologicalMessages`) before invoking
-   * this function so the assembly path stays free of direct DB calls
-   * and remains easy to test.
-   *
-   * When {@link slackChronologicalCompacted} is set, this snapshot is
-   * suppressed (treated as `null`) — see that field for why.
-   */
-  slackChronologicalMessages?: Message[] | null;
-  /**
-   * Whether compaction has collapsed `ctx.messages` during the in-flight
-   * turn up to this injection point. {@link slackChronologicalMessages} is
-   * a snapshot of the full persisted transcript captured at turn start; once
-   * compaction folds earlier messages into a summary, replaying that snapshot
-   * would overwrite the compacted history and undo compaction. So when this is
-   * `true`, the `slack-messages` injector is given no transcript to splice in.
-   * The flag is sticky within a turn (set on the first compacting step and
-   * carried through subsequent non-compacting re-injections).
-   */
-  slackChronologicalCompacted?: boolean;
   mode?: InjectionMode;
   /**
    * Inbound actor identity and trust fields. Populated only on non-guardian
@@ -1864,6 +1831,25 @@ export async function applyRuntimeInjections(
       })
     : null;
 
+  // The Slack chronological transcript that the `slack-messages` injector
+  // splices in to replace the default `runMessages` history. Rendered fresh
+  // from persisted rows scoped by the conversation's Slack compaction
+  // boundary: once compaction runs, the watermark advances and the summary
+  // message is prepended, so the load returns the compacted view rather than
+  // resurrecting folded history. Sourced from the live conversation so every
+  // re-injection (including the post-compaction hook) reflects the current
+  // boundary without the orchestrator threading a snapshot in.
+  const slackChronologicalMessages = channelCapabilities
+    ? loadSlackChronologicalMessages(conversationId, channelCapabilities, {
+        trustClass: liveConversation?.trustContext?.trustClass,
+        contextSummary: liveConversation?.contextSummary,
+        contextCompactedMessageCount:
+          liveConversation?.contextCompactedMessageCount,
+        slackContextCompactionWatermarkTs:
+          liveConversation?.slackContextCompactionWatermarkTs,
+      })
+    : null;
+
   // Layer the per-injector inputs onto the caller's TurnContext (without
   // mutating it). When the caller didn't supply one, synthesize a minimal
   // fallback so the chain still runs — test call sites that drive injection
@@ -1872,9 +1858,7 @@ export async function applyRuntimeInjections(
     mode: options.mode,
     subagentStatusBlock,
     channelCapabilities,
-    slackChronologicalMessages: options.slackChronologicalCompacted
-      ? null
-      : options.slackChronologicalMessages,
+    slackChronologicalMessages,
     slackActiveThreadFocusBlock,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation,

@@ -927,7 +927,8 @@ export async function runAgentLoopImpl(
     // Unified `<turn_context>` actor input, included only for non-guardian
     // turns. Resolved once at turn start and threaded per call site (like
     // `modelProfile`) so post-compaction re-injection receives it as an
-    // explicit hook input rather than via the `injectionOpts` closure.
+    // explicit hook input rather than re-deriving it from live state that can
+    // flip mid-turn.
     const actorContext = isGuardian ? null : resolvedInboundActorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
@@ -1040,43 +1041,25 @@ export async function runAgentLoopImpl(
         },
       );
     }
-    const slackChronologicalMessages =
-      slackChronologicalContext?.messages ?? null;
-
     state.reducerCompacted = compactedThisTurn;
-
-    // Shared orchestrator-content injection options — reused whenever we need
-    // to re-inject after reduction. The non-interactive flag is threaded
-    // separately (alongside the loop's other per-turn state) so this bag holds
-    // only channel/conversation content the orchestrator assembles.
-    const injectionOpts = {
-      slackChronologicalMessages,
-      // The unified `<turn_context>` block is built by the `unified-turn-context`
-      // injector. The timestamp, client timezone, and long-absence gap are
-      // sourced from the conversation's frozen `currentTurnTemporalSnapshot`,
-      // the interface and channel labels from the live conversation's turn
-      // interface/channel context, and the configured and detected timezones
-      // from config — all self-resolved in `applyRuntimeInjections`.
-      // `modelProfile` and `actorContext` are resolved once at turn start and
-      // threaded per call site (like `isNonInteractive`) so post-compaction
-      // re-injection receives them as explicit hook inputs rather than via this
-      // closure.
-    } as const;
 
     let currentInjectionMode: InjectionMode = "full";
 
-    // Canonical per-turn TurnContext forwarded to the injector chain. The
-    // per-turn injection inputs are built inside `applyRuntimeInjections`
-    // from the `injectionOpts` bag; we only need to hand in identity +
-    // trust here so third-party injectors see the real turn metadata.
+    // Canonical per-turn TurnContext forwarded to the injector chain. Every
+    // per-turn injection input — the Slack chronological transcript, the
+    // unified `<turn_context>` block, channel/voice/transport hints — is
+    // self-resolved inside `applyRuntimeInjections` from the live
+    // conversation; we only hand in identity + trust here so third-party
+    // injectors see the real turn metadata. `isNonInteractive`,
+    // `modelProfile`, and `actorContext` are resolved once at turn start and
+    // threaded per call site so post-compaction re-injection receives them as
+    // explicit hook inputs rather than via live state that can flip mid-turn.
     const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     const injection = await applyRuntimeInjections(runMessages, {
-      ...injectionOpts,
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
-      slackChronologicalCompacted: state.reducerCompacted,
       mode: currentInjectionMode,
       turnContext: injectionTurnCtx,
     });
@@ -1216,21 +1199,14 @@ export async function runAgentLoopImpl(
             await applySuccessfulCompaction(result, compactedBasis);
           }
         },
-        reinjectForMode: async (
-          reducedMessages,
-          mode,
-          stepCompacted,
-          accumulatedCompacted,
-        ) => {
-          // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
-          // reducer's latest output before re-injection runs, because other
-          // sites consulted through `injectionOpts` (slack history, etc.) and
-          // the injectors' own message-presence scans depend on it, and
-          // `applyCompactionResult` only updates `ctx.messages` on a
-          // compaction tier. Assigning here
-          // keeps non-compaction tiers (tool-result truncation, media
-          // stubbing, injection downgrade) observable to downstream
-          // injection assembly on the same turn.
+        reinjectForMode: async (reducedMessages, mode) => {
+          // `ctx.messages` must track the reducer's latest output before
+          // re-injection runs: the injectors' message-presence scans and the
+          // self-resolved Slack chronological transcript read live conversation
+          // state, and `applyCompactionResult` only updates `ctx.messages` on a
+          // compaction tier. Assigning here keeps non-compaction tiers
+          // (tool-result truncation, media stubbing, injection downgrade)
+          // observable to downstream injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
           // When THIS iteration compacted, it stripped the existing
@@ -1242,11 +1218,9 @@ export async function runAgentLoopImpl(
           // self-gate inside their injectors on whether they are already
           // present in `reducedMessages`.)
           const injection = await applyRuntimeInjections(reducedMessages, {
-            ...injectionOpts,
             isNonInteractive,
             modelProfile: modelProfileStr,
             actorContext,
-            slackChronologicalCompacted: accumulatedCompacted,
             mode,
             turnContext: buildPluginTurnContext(ctx, reqId),
           });
@@ -1373,11 +1347,9 @@ export async function runAgentLoopImpl(
         // v2 static `<info>` blocks self-gate inside their injectors on block
         // presence.
         const injection = await postCompactReinject({
-          ...injectionOpts,
           isNonInteractive,
           modelProfile,
           actorContext,
-          slackChronologicalCompacted: state.reducerCompacted,
           mode,
           turnContext,
           history,
@@ -1750,11 +1722,9 @@ export async function runAgentLoopImpl(
         // blocks self-gate inside their injectors on whether they are already
         // present in `ctx.messages`.)
         const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,
-          slackChronologicalCompacted: state.reducerCompacted,
           mode: currentInjectionMode,
           turnContext: buildPluginTurnContext(ctx, reqId),
         });
@@ -1841,11 +1811,9 @@ export async function runAgentLoopImpl(
           // self-gate inside their injectors on whether they are already
           // present in `ctx.messages`.)
           const injection = await applyRuntimeInjections(ctx.messages, {
-            ...injectionOpts,
             isNonInteractive,
             modelProfile: modelProfileStr,
             actorContext,
-            slackChronologicalCompacted: state.reducerCompacted,
             mode: currentInjectionMode,
             turnContext: buildPluginTurnContext(ctx, reqId),
           });

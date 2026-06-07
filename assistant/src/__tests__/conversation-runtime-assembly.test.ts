@@ -2831,19 +2831,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    seedChannelCapabilitiesConversation(slackChannelCaps);
-    const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      slackChronologicalMessages,
-    });
+    // Persist the rows + live conversation so `applyRuntimeInjections`
+    // self-resolves the chronological transcript from conversation state,
+    // exactly as production does.
+    seedSlackChannelConversationWithRows(slackChannelCaps, rows);
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {});
     return messages;
   }
 
@@ -3137,16 +3133,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {
-        // Even if we accidentally pass a chronological transcript, the
-        // branch must be a no-op for non-slack channels.
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "should not appear" }],
-          },
-        ],
-      },
+      {},
     );
     expect(result.length).toBe(1);
     const allText = result[0].content
@@ -3154,7 +3141,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).toContain("vellum question");
-    expect(allText).not.toContain("should not appear");
   });
 
   // ── DMs (chatType === "im") use chronological rendering ────────────────
@@ -3167,36 +3153,38 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
     };
-    seedChannelCapabilitiesConversation({
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "im",
-    });
+    const rows: MessageRow[] = [
+      userRow({
+        id: "dm-1",
+        createdAt: 1700000000_000,
+        text: "earlier DM line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+      assistantRow({
+        id: "dm-2",
+        createdAt: 1700000005_000,
+        text: "prior reply",
+        slackMeta: buildSlackMeta({ channelTs: T0_REPLY1 }),
+      }),
+    ];
+    seedSlackChannelConversationWithRows(
+      {
+        channel: "slack",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "im",
+      },
+      rows,
+    );
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "[11/14/23 14:25 @alice]: earlier DM line",
-              },
-            ],
-          },
-          {
-            role: "assistant",
-            content: [{ type: "text", text: "prior reply" }],
-          },
-        ],
-      },
+      {},
     );
-    // The chronological transcript REPLACES the default runMessages, so
-    // the inbound `DM question` text does not appear — only the rendered
-    // transcript lines do (plus any non-Slack injections).
+    // The self-resolved chronological transcript REPLACES the default
+    // runMessages, so the inbound `DM question` text does not appear — only
+    // the rendered transcript lines do (plus any non-Slack injections).
     const allText = result
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -3207,44 +3195,60 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("DM question");
   });
 
-  // ── Compaction suppresses the chronological transcript ───────────────
-  // The transcript snapshot reflects the full persisted history; once
-  // compaction has collapsed `ctx.messages` this turn, replaying it would
-  // overwrite the compacted history and undo compaction. `slackChronological-
-  // Compacted` suppresses the splice so the compacted tail is preserved.
-  test("slackChronologicalCompacted suppresses the transcript replacement", async () => {
-    const lastUserMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: "post-compaction question" }],
-    };
-    seedChannelCapabilitiesConversation({
+  // ── Compaction boundary scopes the self-resolved transcript ──────────
+  // The transcript self-resolves from persisted rows scoped by the
+  // conversation's Slack compaction boundary. Rows at or before the
+  // persisted watermark were folded into the summary, so a fresh load
+  // excludes them and surfaces only the post-watermark tail — returning
+  // the compacted view rather than resurrecting folded history.
+  test("self-resolved transcript respects the Slack compaction watermark", async () => {
+    const slackCaps: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      chatType: "im",
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "folded",
+        createdAt: 1700000000_000,
+        text: "folded pre-compaction line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+      userRow({
+        id: "fresh",
+        createdAt: 1700000030_000,
+        text: "fresh post-compaction line",
+        slackMeta: buildSlackMeta({ channelTs: T2, displayName: "bob" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    // A persisted watermark at T0 folds the first row into the summary.
+    seedSlackChannelConversationWithRows(slackCaps, rows, {
+      slackContextCompactionWatermarkTs: T0,
+      contextCompactedMessageCount: 1,
     });
     const { messages: result } = await applyRuntimeInjections(
-      [lastUserMessage],
-      {
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "full-transcript row" }],
-          },
-        ],
-        slackChronologicalCompacted: true,
-      },
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: "post-compaction question" }],
+        },
+      ],
+      {},
     );
     const allText = result
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    // The compacted tail survives and the full-transcript snapshot is not
-    // spliced back in.
-    expect(allText).toContain("post-compaction question");
-    expect(allText).not.toContain("full-transcript row");
+    // The folded row stays in the summary; only the post-watermark tail is
+    // surfaced, and it replaces the default runMessages.
+    expect(allText).toContain("fresh post-compaction line");
+    expect(allText).not.toContain("folded pre-compaction line");
+    expect(allText).not.toContain("post-compaction question");
   });
 
   // ── Memory-injection carry-through on slack replacement ──────────────
@@ -3271,21 +3275,23 @@ describe("Slack channel chronological rendering — multi-thread", () => {
             type: "text",
             text: "<memory __injected>\nrecalled fact about the user\n</memory>",
           },
-          { type: "text", text: "hello there" },
+          { type: "text", text: "original turn text" },
         ],
       },
     ];
-    seedChannelCapabilitiesConversation(slackCaps);
+    const rows: MessageRow[] = [
+      userRow({
+        id: "mem-1",
+        createdAt: 1700000000_000,
+        text: "recalled conversation line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: hello there" }],
-          },
-        ],
-      },
+      {},
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -3295,15 +3301,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).toContain("<memory __injected>");
     expect(allText).toContain("recalled fact about the user");
-    expect(allText).toContain("[19:55 alice]: hello there");
+    expect(allText).toContain("recalled conversation line");
     // Memory block must appear before the Slack transcript tail so the
     // model sees recalled context ahead of the conversation view.
     const memoryIdx = allText.indexOf("<memory __injected>");
-    const transcriptIdx = allText.indexOf("[19:55 alice]: hello there");
+    const transcriptIdx = allText.indexOf("recalled conversation line");
     expect(memoryIdx).toBeLessThan(transcriptIdx);
-    // The pre-replacement "hello there" text from the original runMessages
-    // must NOT leak through — only the Slack-rendered line appears.
-    expect(allText.match(/hello there/g)?.length).toBe(1);
+    // The pre-replacement inbound turn text must NOT leak through — only the
+    // carried memory prefix + the self-resolved transcript tail remain.
+    expect(allText).not.toContain("original turn text");
   });
 
   test("slack replacement preserves memory-image groups + text block", async () => {
@@ -3339,17 +3345,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
-    seedChannelCapabilitiesConversation(slackCaps);
+    const rows: MessageRow[] = [
+      userRow({
+        id: "mem-img-1",
+        createdAt: 1700000000_000,
+        text: "recalled conversation line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
-          },
-        ],
-      },
+      {},
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -3364,7 +3372,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("<memory_image __injected>");
     expect(allText).toContain("</memory_image>");
     expect(allText).toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 alice]: transcript line");
+    expect(allText).toContain("recalled conversation line");
     // The original turn text (before the Slack replacement) must NOT
     // leak through — only the memory prefix + transcript tail are kept.
     expect(allText).not.toContain("original turn text");
@@ -3378,17 +3386,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "im",
     };
-    seedChannelCapabilitiesConversation(slackCaps);
+    const rows: MessageRow[] = [
+      userRow({
+        id: "no-prefix-1",
+        createdAt: 1700000000_000,
+        text: "only transcript line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
-      {
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: only transcript" }],
-          },
-        ],
-      },
+      {},
     );
     const tail = result[result.length - 1];
     const allText = tail.content
@@ -3396,7 +3406,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).not.toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 alice]: only transcript");
+    expect(allText).toContain("only transcript line");
   });
 
   // ── transport_hints suppression for slack channels ────────────────────
@@ -3408,28 +3418,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const rows: MessageRow[] = [
-      userRow({
-        id: "m1",
-        createdAt: 1700000000_000,
-        text: "Original message",
-        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
-      }),
-    ];
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
-
     seedChannelCapabilitiesConversation(slackChannelCaps, [
       "thread context: ...",
     ]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
-      {
-        slackChronologicalMessages,
-      },
+      {},
     );
 
     const allText = result
@@ -3855,11 +3849,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "runtime-assembly-fallback",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
     seedSlackChannelConversationWithRows(slackChannelCaps, rows, compaction);
     const focusBlock = loadSlackActiveThreadFocusBlock(
       "runtime-assembly-fallback",
@@ -3875,9 +3864,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      slackChronologicalMessages,
-    });
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {});
     return { messages, focusBlock };
   }
 

@@ -8,7 +8,7 @@
  * a faithful re-implementation of the original inline loop — and asserting
  * the final `(messages, runMessages, injectionMode, reducerState,
  * reducerCompacted, attempts)` tuple matches byte-for-byte. Additional cases
- * cover the two abort gates and the `reinjectForMode` two-flag semantics.
+ * cover the two abort gates.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -141,8 +141,6 @@ async function runInlineBaseline(args: {
   readonly reinjectForMode: (
     reducedMessages: Message[],
     mode: InjectionMode,
-    stepCompacted: boolean,
-    accumulatedCompacted: boolean,
   ) => Promise<Message[]>;
   readonly estimatePostInjection: (runMsgs: Message[]) => number;
 }): Promise<{
@@ -188,12 +186,7 @@ async function runInlineBaseline(args: {
 
     args.abortSignal?.throwIfAborted();
 
-    runMessages = await args.reinjectForMode(
-      messages,
-      injectionMode,
-      stepCompacted,
-      reducerCompacted,
-    );
+    runMessages = await args.reinjectForMode(messages, injectionMode);
 
     const postInjectionTokens = args.estimatePostInjection(runMessages);
     if (postInjectionTokens <= args.preflightBudget) break;
@@ -211,11 +204,7 @@ async function runInlineBaseline(args: {
 
 function buildArgs(messages: Message[]): {
   args: OverflowReduceArgs;
-  reinjectCalls: Array<{
-    mode: InjectionMode;
-    stepCompacted: boolean;
-    accumulatedCompacted: boolean;
-  }>;
+  reinjectCalls: Array<{ mode: InjectionMode }>;
   compactionResults: ContextWindowResult[];
   rawCompactFn: (
     messages: Message[],
@@ -223,11 +212,7 @@ function buildArgs(messages: Message[]): {
     options: ContextWindowCompactOptions,
   ) => Promise<ContextWindowResult>;
 } {
-  const reinjectCalls: Array<{
-    mode: InjectionMode;
-    stepCompacted: boolean;
-    accumulatedCompacted: boolean;
-  }> = [];
+  const reinjectCalls: Array<{ mode: InjectionMode }> = [];
   const compactionResults: ContextWindowResult[] = [];
   const compactFn = makeCompactFn();
 
@@ -239,10 +224,8 @@ function buildArgs(messages: Message[]): {
   const reinjectForMode = async (
     reducedMessages: Message[],
     mode: InjectionMode,
-    stepCompacted: boolean,
-    accumulatedCompacted: boolean,
   ): Promise<Message[]> => {
-    reinjectCalls.push({ mode, stepCompacted, accumulatedCompacted });
+    reinjectCalls.push({ mode });
     return reducedMessages;
   };
 
@@ -406,42 +389,6 @@ describe("runOverflowReductionLoop", () => {
       // AND no compaction or reinject callbacks were observed.
       expect(build.compactionResults).toHaveLength(0);
       expect(build.reinjectCalls).toHaveLength(0);
-    });
-  });
-
-  describe("reinjectForMode two-flag semantics", () => {
-    test("stepCompacted reflects current iteration; accumulatedCompacted stays sticky", async () => {
-      // GIVEN a history that stays over-budget so the loop runs every tier:
-      // the first iteration compacts (stepCompacted=true), later iterations
-      // run other tiers (stepCompacted=false), but accumulatedCompacted must
-      // remain true for slack suppression.
-      const longToolResult = "r".repeat(8000);
-      const history: Message[] = [
-        msg("user", "Start"),
-        toolUseMsg("tu_1", "read_file"),
-        toolResultMsg("tu_1", longToolResult),
-        msg("user", "Next"),
-      ];
-      const build = buildArgs(history);
-      const overBudget: OverflowReduceArgs = {
-        ...build.args,
-        estimatePostInjection: () => build.args.preflightBudget + 1_000_000,
-      };
-
-      // WHEN the loop runs to exhaustion / maxAttempts.
-      await runOverflowReductionLoop(overBudget);
-
-      // THEN at least one compaction iteration happened.
-      expect(build.reinjectCalls.length).toBeGreaterThanOrEqual(1);
-      // AND once an iteration compacted, accumulatedCompacted stays true for
-      // every subsequent iteration even when that step did not compact.
-      const firstCompactedAt = build.reinjectCalls.findIndex(
-        (c) => c.stepCompacted,
-      );
-      expect(firstCompactedAt).toBeGreaterThanOrEqual(0);
-      for (let i = firstCompactedAt; i < build.reinjectCalls.length; i++) {
-        expect(build.reinjectCalls[i]!.accumulatedCompacted).toBe(true);
-      }
     });
   });
 });
