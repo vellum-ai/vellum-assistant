@@ -69,10 +69,11 @@ export function SelectAssistantScreen() {
     }
   };
 
-  // Auto-skip when exactly one accessible assistant
+  // Auto-skip when there's exactly one assistant and it's accessible.
+  // Don't skip when inaccessible assistants exist — the user may want to log in.
   useEffect(() => {
     if (assistants.length === 0) return;
-    if (accessibleAssistants.length === 1) {
+    if (assistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
