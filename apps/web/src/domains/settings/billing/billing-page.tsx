@@ -91,8 +91,18 @@ export function BillingPage() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  if (billingGate !== "full") {
+  if (billingGate === "gated") {
     return <Navigate replace to={routes.settings.general} />;
+  }
+
+  if (billingGate === "disabled") {
+    return (
+      <div className="space-y-4">
+        <Notice tone="info">
+          Log in to the Vellum platform to manage billing and usage.
+        </Notice>
+      </div>
+    );
   }
 
   if (isLifecycleLoading) {
