@@ -13,14 +13,13 @@ import { routes } from "@/utils/routes";
 
 export async function handleLogout(navigate: NavigateFunction): Promise<void> {
   if (isLocalMode()) {
-    await setMenuPlatformSession(false);
-    await useAuthStore.getState().logout();
-
     const active = getActiveAssistant();
     if (active && isLocalAssistant(active)) {
       return;
     }
 
+    await setMenuPlatformSession(false);
+    await useAuthStore.getState().logout();
     navigate(getOnboardingEntrypoint());
   } else {
     await useAuthStore.getState().logout();
