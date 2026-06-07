@@ -45,8 +45,8 @@ proxy) with a 1.5s timeout and picks one of two paths:
      to live in `apps/macos/node_modules`. Pinning the port via the
      Vite CLI overrides `apps/web/.env` if `PORT` is set there.
    - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
-     polls `:5173` (30s timeout), then runs `electron-vite dev` against
-     it. The wait avoids Electron racing the renderer.
+     polls `:5173` (30s timeout), then runs `electron-vite dev --watch`
+     against it. The wait avoids Electron racing the renderer.
 
    `concurrently --kill-others` tears both down on Ctrl+C or on either
    child exiting. Logs are prefixed and color-coded (`[web]` blue,
@@ -63,6 +63,11 @@ the marketing page in vel-up mode, or on a Vite 404 in standalone).
 Override the env var yourself (e.g.,
 `VELLUM_DEV_URL=http://localhost:3002/assistant bun run dev:electron-only`)
 if you need to point at a non-default service.
+
+Both Electron dev paths run `electron-vite dev --watch`: main-process source
+changes rebuild and restart the Electron app, and preload source changes rebuild
+and trigger a renderer reload. Renderer source changes are handled by the web
+Vite server (`vel up` in attached mode, or `dev:web` in standalone mode).
 
 The app shows up as **Vellum Electron** in the menu bar and Dock
 (via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
@@ -105,10 +110,10 @@ need a distributable artifact.
 ```sh
 bun run dev                # probe vel-up at :3000, dispatch to dev:electron-only or dev:standalone
 bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite dev (no backends)
-bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
+bun run dev:electron-only  # explicit: electron-vite dev --watch only, honors $VELLUM_DEV_URL (default :5173)
 bun run install:all        # bun install in apps/macos and apps/web (called automatically by dev)
 bun run dev:web            # apps/web Vite (port 5173, strict) — invoked by dev:standalone
-bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
+bun run dev:electron       # wait-on :5173 then electron-vite dev --watch — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 bun run test               # bun test — single Bun process (fastest for local iteration)
