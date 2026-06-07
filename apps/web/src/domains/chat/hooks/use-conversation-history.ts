@@ -24,8 +24,8 @@ import { reconcileLatestHistorySnapshot } from "@/domains/chat/utils/reconcile-s
 import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
-import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
-import { getAppliedSeq, recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { recordServerSeq } from "@/lib/streaming/server-seq";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -118,11 +118,11 @@ export function useConversationHistory({
     // committed query data) can't regress the baseline. Older-page loads keep
     // the same `latestPage`, so re-running here records the same seq.
     const latestPageSeq = pagination.latestPage?.seq ?? null;
-    // Capture the applied frontier `F` before advancing it so the merge below
-    // can tell whether this page moved the frontier (`S > F`).
-    const priorAppliedSeq = getAppliedSeq(activeConversationId);
-    recordSnapshotSeq(activeConversationId, latestPageSeq);
-    recordAppliedSeq(activeConversationId, latestPageSeq);
+    // Capture the local seq `L` before advancing it so the merge below
+    // can tell whether this page moved the frontier (`S > L`).
+    const priorLocalSeq = getLocalSeq(activeConversationId);
+    recordServerSeq(activeConversationId, latestPageSeq);
+    recordLocalSeq(activeConversationId, latestPageSeq);
     // On a cold session, anchor the live SSE connection at this snapshot
     // watermark so the daemon ring-replays events emitted between the
     // snapshot and the stream attaching. No-op past the first cold load
@@ -163,8 +163,8 @@ export function useConversationHistory({
             isFreshSwitch || prev.length === 0
               ? filteredMessages
               : reconcileLatestHistorySnapshot(prev, filteredMessages, {
-                  snapshotSeq: latestPageSeq,
-                  appliedSeq: priorAppliedSeq,
+                  serverSeq: latestPageSeq,
+                  localSeq: priorLocalSeq,
                   isProcessing: useConversationStore
                     .getState()
                     .processingConversationIds.has(activeConversationId),
