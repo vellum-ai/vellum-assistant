@@ -78,7 +78,9 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
   test("injects workspace context when registered", async () => {
     seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
@@ -88,7 +90,9 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 
   test("does not inject when no workspace context is registered", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
@@ -101,7 +105,9 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
     const messages: Message[] = [userMsg(sampleContext), userMsg("Hello")];
 
     // WHEN injections are applied
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN presence detection skips the block to keep the prefix stable.
     expect(result).toHaveLength(2);
@@ -117,7 +123,9 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
       surfaceState: makeSurfaceState("sf_1", { html: "<div>test</div>" }),
     });
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // Workspace is injected last (in applyRuntimeInjections order) so it
     // prepends to whatever was already prepended by activeSurface.
@@ -144,7 +152,9 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
       }),
     });
     const messages: Message[] = [userMsg("Edit this app")];
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     const activeWorkspaceText = (result[0].content[0] as { text: string }).text;
     expect(activeWorkspaceText).toContain('skill: "app-builder"');
@@ -161,6 +171,7 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
     seedWorkspaceContext(sampleContext);
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -176,6 +187,7 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
     });
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -192,7 +204,9 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
       surfaceState: makeSurfaceState("sf_1", { html: "<div>test</div>" }),
     });
     const messages: Message[] = [userMsg("Hello")];
-    const { messages: result } = await applyRuntimeInjections(messages, {});
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result[0].content).toHaveLength(3);
     expect((result[0].content[0] as { text: string }).text).toBe(sampleContext);

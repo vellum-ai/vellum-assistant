@@ -49,8 +49,12 @@ const log = getLogger("post-compact-reinject");
 export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */
   history: Message[];
-  /** Per-turn conversation context forwarded to the injector chain. */
-  turnContext?: TurnContext;
+  /**
+   * Per-turn conversation context forwarded to the injector chain. Its
+   * `conversationId` is the key the re-injection resolves the live
+   * conversation through, so the loop always supplies it.
+   */
+  turnContext: TurnContext;
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once by the agent loop at turn start (from its
@@ -89,14 +93,22 @@ export interface PostCompactionHookInput {
 
 /**
  * Everything the hook needs in a single context: the loop-supplied
- * {@link PostCompactionHookInput}, the resolved {@link RuntimeInjectionOptions}
- * (spread top-level so each field stays individually addressable). The memory
- * graph handle is not part of this context — the hook sources it internally via
- * {@link getLiveGraphMemory} — and the actor's trust class is derived from
- * {@link PostCompactionHookInput.turnContext} rather than threaded in.
+ * {@link PostCompactionHookInput} plus the non-identity
+ * {@link RuntimeInjectionOptions} (spread top-level so each field stays
+ * individually addressable). The turn-identity fields (`requestId`,
+ * `conversationId`, `turnIndex`, `trust`, `callSite`) are omitted from the
+ * inherited options because the hook sources them from
+ * {@link PostCompactionHookInput.turnContext}; the memory graph handle is
+ * likewise sourced internally via {@link getLiveGraphMemory} rather than
+ * threaded in.
  */
 export interface PostCompactContext
-  extends RuntimeInjectionOptions, PostCompactionHookInput {
+  extends
+    Omit<
+      RuntimeInjectionOptions,
+      "requestId" | "conversationId" | "turnIndex" | "trust" | "callSite"
+    >,
+    PostCompactionHookInput {
   /**
    * Re-declared to reconcile the optional {@link RuntimeInjectionOptions} field
    * with the required {@link PostCompactionHookInput} one: the hook always
@@ -131,11 +143,11 @@ export default async function postCompactReinject(
   // transcript state) as the turn's initial assembly.
   const result = await applyRuntimeInjections(history, {
     ...options,
-    requestId: turnContext?.requestId,
-    conversationId: turnContext?.conversationId,
-    turnIndex: turnContext?.turnIndex,
-    trust: turnContext?.trust,
-    callSite: turnContext?.callSite,
+    requestId: turnContext.requestId,
+    conversationId: turnContext.conversationId,
+    turnIndex: turnContext.turnIndex,
+    trust: turnContext.trust,
+    callSite: turnContext.callSite,
   });
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
@@ -145,16 +157,16 @@ export default async function postCompactReinject(
   // live graph handle is looked up from the plugin's own registry by the
   // turn's conversation id — the same instance the turn's retrieval mutated,
   // so re-tracking sees the real cached-node state.
-  const isTrustedActor = resolveTrustClass(turnContext?.trust) === "guardian";
+  const isTrustedActor = resolveTrustClass(turnContext.trust) === "guardian";
   if (isTrustedActor && options.mode !== "minimal") {
-    getLiveGraphMemory(turnContext?.conversationId)?.retrackCachedNodes();
+    getLiveGraphMemory(turnContext.conversationId)?.retrackCachedNodes();
   }
   const strip = stripHistoricalWebSearchResults(result.messages);
   if (strip.stats.blocksStripped > 0) {
     log.info(
       {
         phase: "mid-loop-compact",
-        conversationId: turnContext?.conversationId,
+        conversationId: turnContext.conversationId,
         ...strip.stats,
       },
       "Converted historical web_search_tool_result blocks to text summaries",

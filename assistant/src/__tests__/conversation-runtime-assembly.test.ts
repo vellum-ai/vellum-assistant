@@ -53,6 +53,10 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
 // `buildUnifiedTurnContextBlock` expectations below. The rest of the module
 // (timezone canonicalization/resolution) keeps its real behavior.
 const FIXED_TURN_TIMESTAMP = "2026-04-02T12:00:00Z";
+// Conversation id the runtime-injection tests register their live conversation
+// under; passed explicitly now that `applyRuntimeInjections` requires the
+// caller to name the conversation it resolves through.
+const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 const realDateContextForAssemblyTest =
   await import("../daemon/date-context.js");
 mock.module("../daemon/date-context.js", () => ({
@@ -695,7 +699,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     };
 
     seedChannelCapabilitiesConversation(caps);
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
@@ -707,14 +713,18 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
 
   test("does not inject when channelCapabilities is null", async () => {
     seedChannelCapabilitiesConversation(null);
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
   test("does not inject when channelCapabilities is omitted", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -729,7 +739,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     };
 
     seedChannelCapabilitiesConversation(caps);
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     // channelCapabilities prepends
@@ -1376,7 +1388,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
 
   test("injects NOW.md block when the file has content", async () => {
     seedNowScratchpad("Current focus: fix the bug");
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
@@ -1388,7 +1402,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
 
   test("scratchpad appears before user's original text content", async () => {
     seedNowScratchpad("scratchpad notes");
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // Scratchpad comes first (before user content)
     expect(
@@ -1401,7 +1417,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("does not inject when the NOW.md file is absent", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -1410,6 +1428,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   test("skipped in minimal mode", async () => {
     seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -1876,7 +1895,9 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   test("injects the turn-context block when the inputs are provided", async () => {
     seedTemporalSnapshot();
 
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
@@ -1890,7 +1911,9 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("does not inject when the timestamp snapshot is absent", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
@@ -1900,6 +1923,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     seedTemporalSnapshot();
 
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       ...sampleOptions,
       mode: "full",
     });
@@ -1916,6 +1940,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     seedTemporalSnapshot();
 
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       ...sampleOptions,
       mode: "minimal",
     });
@@ -1990,7 +2015,9 @@ describe("applyRuntimeInjections timezone resolution", () => {
     seedTemporalSnapshot(null);
 
     // WHEN a turn is assembled
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN the injector surfaces the mismatch using the config-sourced values
     const injected = injectedText(result);
@@ -2012,7 +2039,9 @@ describe("applyRuntimeInjections timezone resolution", () => {
     seedTemporalSnapshot("America/Los_Angeles");
 
     // WHEN a turn is assembled
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN the injector surfaces the mismatch using the snapshot's client value
     const injected = injectedText(result);
@@ -2032,7 +2061,9 @@ describe("applyRuntimeInjections timezone resolution", () => {
     seedTemporalSnapshot("America/New_York");
 
     // WHEN a turn is assembled
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN no timezone-mismatch lines are injected
     const injected = injectedText(result);
@@ -2050,7 +2081,9 @@ describe("applyRuntimeInjections timezone resolution", () => {
     seedTemporalSnapshot(null, "2d ago");
 
     // WHEN a turn is assembled without the gap in the options bag
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN the injector surfaces the gap from the snapshot
     const injected = injectedText(result);
@@ -2066,7 +2099,9 @@ describe("applyRuntimeInjections timezone resolution", () => {
     seedTemporalSnapshot(null, null);
 
     // WHEN a turn is assembled
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // THEN no gap line is injected
     const injected = injectedText(result);
@@ -2122,7 +2157,9 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
   test("captures unifiedTurnContext when tail is a user message", async () => {
     seedTemporalSnapshot();
 
-    const result = await applyRuntimeInjections(userTailMessages, {});
+    const result = await applyRuntimeInjections(userTailMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
   });
@@ -2141,13 +2178,17 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
       },
     ];
 
-    const result = await applyRuntimeInjections(assistantTailMessages, {});
+    const result = await applyRuntimeInjections(assistantTailMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });
 
   test("does not capture when unifiedTurnContext option is absent", async () => {
-    const result = await applyRuntimeInjections(userTailMessages, {});
+    const result = await applyRuntimeInjections(userTailMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });
@@ -2303,6 +2344,7 @@ describe("applyRuntimeInjections — subagent status", () => {
 
     // WHEN runtime injections run in full mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 
@@ -2325,6 +2367,7 @@ describe("applyRuntimeInjections — subagent status", () => {
 
     // WHEN runtime injections run in minimal mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -2354,6 +2397,7 @@ describe("applyRuntimeInjections — subagent status", () => {
 
     // WHEN runtime injections run in full mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 
@@ -2430,6 +2474,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
+      conversationId: FALLBACK_CONVERSATION_ID,
       ...overrides,
     };
   }
@@ -2716,7 +2761,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
       preCompactionMessages,
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -2750,7 +2795,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
@@ -2867,7 +2912,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // self-resolves the chronological transcript from conversation state,
     // exactly as production does.
     seedSlackChannelConversationWithRows(slackChannelCaps, rows);
-    const { messages } = await applyRuntimeInjections([lastUserMessage], {});
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
     return messages;
   }
 
@@ -3161,7 +3208,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     expect(result.length).toBe(1);
     const allText = result[0].content
@@ -3208,7 +3255,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     );
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     // The self-resolved chronological transcript REPLACES the default
     // runMessages, so the inbound `DM question` text does not appear — only
@@ -3265,7 +3312,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
           content: [{ type: "text", text: "post-compaction question" }],
         },
       ],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -3319,7 +3366,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -3385,7 +3432,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -3426,7 +3473,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     const allText = tail.content
@@ -3451,7 +3498,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     ]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
 
     const allText = result
@@ -3478,7 +3525,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     seedChannelCapabilitiesConversation(slackDmCaps, ["dm context: ..."]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
 
     const allText = result
@@ -3504,7 +3551,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     );
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -3892,7 +3939,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    const { messages } = await applyRuntimeInjections([lastUserMessage], {});
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
     return { messages, focusBlock };
   }
 
@@ -4280,7 +4329,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Re-run injection on the stripped messages — the conversation is still
     // seeded, so the rebuild re-derives the focus block; only ONE
     // `<active_thread>` block must end up in the result.
-    const { messages: reInjected } = await applyRuntimeInjections(stripped, {});
+    const { messages: reInjected } = await applyRuntimeInjections(stripped, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
     const reInjectedTexts = reInjected
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -4306,7 +4357,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -4330,7 +4381,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
-      {},
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -5686,6 +5737,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     pkbSearchResults = [];
     pkbSearchThrows = null;
     const { blocks } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 
@@ -5696,6 +5748,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
   test("not captured in minimal mode", async () => {
     seedPkbContent();
     const { blocks } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -5704,6 +5757,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
 
   test("not captured when PKB inactive", async () => {
     const { blocks } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 

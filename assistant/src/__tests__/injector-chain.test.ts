@@ -88,6 +88,10 @@ initializeDb();
 // `makeTurnContext` and the workspace registry seed share this id so the
 // `workspace-context` injector resolves the seeded block for the turn.
 const TEST_CONVERSATION_ID = "conv-test-1";
+// Conversation id the fallback-context test registers its live conversation
+// under; passed explicitly now that `applyRuntimeInjections` requires the
+// caller to name the conversation it resolves through.
+const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
 /** A fake TurnContext sufficient for driving `composeInjectorChain`. */
 function makeTurnContext(): TurnContext {
@@ -402,7 +406,9 @@ describe("injector chain", () => {
       interfaceName: "web",
     });
     seedFallbackTemporalSnapshot();
-    const result = await applyRuntimeInjections(runMessages, {});
+    const result = await applyRuntimeInjections(runMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     // The unified-turn-context injector fires even without a caller-supplied
     // turnContext, proving the chain runs under the synthesized context.
