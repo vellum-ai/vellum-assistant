@@ -29,10 +29,9 @@ interface PushToTalkTarget {
 }
 
 /**
- * Elements whose keyboard events should never trigger PTT. Modifier-only
- * activators like plain "Ctrl" are common editing modifiers (Ctrl+C,
- * Ctrl+A, Ctrl+Enter) and holding Ctrl alone while typing should not start
- * voice capture. We skip all editable targets unconditionally.
+ * Elements where key-based activators should not trigger PTT. Modifier-only
+ * activators are still allowed so PTT works while the chat composer is focused;
+ * shortcut chords cancel during the hold window below.
  */
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -186,7 +185,7 @@ export function usePushToTalk(
         return;
       }
 
-      if (isEditableTarget(event.target)) {
+      if (activator.kind === "key" && isEditableTarget(event.target)) {
         return;
       }
 
