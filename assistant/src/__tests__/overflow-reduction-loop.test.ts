@@ -7,7 +7,7 @@
  * running the same inputs through two paths — `runOverflowReductionLoop` and
  * a faithful re-implementation of the original inline loop — and asserting
  * the final `(messages, runMessages, injectionMode, reducerState,
- * reducerCompacted, attempts)` tuple matches byte-for-byte. Additional cases
+ * attempts)` tuple matches byte-for-byte. Additional cases
  * cover the two abort gates.
  */
 
@@ -148,14 +148,12 @@ async function runInlineBaseline(args: {
   runMessages: Message[];
   injectionMode: InjectionMode;
   reducerState: ReducerState;
-  reducerCompacted: boolean;
   attempts: number;
 }> {
   let messages = args.messages;
   let runMessages = args.runMessages;
   let injectionMode: InjectionMode = "full";
   let reducerState: ReducerState = createInitialReducerState();
-  let reducerCompacted = false;
   let attempts = 0;
 
   while (attempts < args.maxAttempts && !reducerState.exhausted) {
@@ -179,11 +177,6 @@ async function runInlineBaseline(args: {
     messages = step.messages;
     injectionMode = step.state.injectionMode;
 
-    const stepCompacted = step.compactionResult?.compacted === true;
-    if (stepCompacted) {
-      reducerCompacted = true;
-    }
-
     args.abortSignal?.throwIfAborted();
 
     runMessages = await args.reinjectForMode(messages, injectionMode);
@@ -197,7 +190,6 @@ async function runInlineBaseline(args: {
     runMessages,
     injectionMode,
     reducerState,
-    reducerCompacted,
     attempts,
   };
 }
@@ -303,7 +295,6 @@ describe("runOverflowReductionLoop", () => {
       expect(directResult.runMessages).toEqual(inlineResult.runMessages);
       expect(directResult.injectionMode).toBe(inlineResult.injectionMode);
       expect(directResult.reducerState).toEqual(inlineResult.reducerState);
-      expect(directResult.reducerCompacted).toBe(inlineResult.reducerCompacted);
       expect(directResult.attempts).toBe(inlineResult.attempts);
     });
 
@@ -337,7 +328,6 @@ describe("runOverflowReductionLoop", () => {
       expect(directResult.attempts).toBe(inlineResult.attempts);
       expect(directResult.attempts).toBeGreaterThanOrEqual(1);
       expect(directResult.messages).toEqual(inlineResult.messages);
-      expect(directResult.reducerCompacted).toBe(inlineResult.reducerCompacted);
     });
   });
 

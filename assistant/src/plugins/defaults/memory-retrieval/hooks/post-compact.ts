@@ -43,8 +43,8 @@ const log = getLogger("post-compact-reinject");
 /**
  * The slice of the hook's context the agent loop supplies from its own working
  * state. Re-injection inputs migrate loop-ward by growing this type; the loop
- * hands the hook an object of this shape via
- * {@link MidLoopCompaction.postCompactionHook}.
+ * hands the hook an object of this shape when it calls
+ * {@link postCompactReinject} directly.
  */
 export interface PostCompactionHookInput {
   /** Compacted message history to re-inject onto. */

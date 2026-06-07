@@ -223,17 +223,6 @@ export class Conversation {
   inferenceProfile: string | null = null;
   /** @internal */ inferenceProfileSessionId: string | null = null;
   /** @internal */ inferenceProfileExpiresAt: number | null = null;
-  /**
-   * Set true by `applyCompactionResult` when compaction strips runtime
-   * injections from the tail. The next agent loop turn reads this flag at
-   * entry, treats it as a `compactedThisTurn` trigger (re-injecting NOW.md,
-   * PKB, and the v2 essentials/threads/recent/buffer block), and clears it.
-   *
-   * Required because `/compact` runs outside the agent loop — without this
-   * signal, the next turn cannot tell that the static blocks were just
-   * stripped and never re-emits them.
-   */
-  /** @internal */ pendingPostCompactReinject = false;
   /** @internal */ currentRequestId?: string;
   /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
@@ -1477,7 +1466,6 @@ export class Conversation {
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
-    this.pendingPostCompactReinject = true;
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
     const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
       this.messages,

@@ -104,8 +104,6 @@ export interface OverflowReduceResult {
   readonly injectionMode: InjectionMode;
   /** Accumulated reducer state at exit. */
   readonly reducerState: ReducerState;
-  /** True if any step successfully compacted history. */
-  readonly reducerCompacted: boolean;
   /** How many iterations of the tier loop executed. */
   readonly attempts: number;
 }
@@ -128,7 +126,6 @@ export async function runOverflowReductionLoop(
   let runMessages = args.runMessages;
   let injectionMode: "full" | "minimal" = "full";
   let reducerState: ReducerState = createInitialReducerState();
-  let reducerCompacted = false;
   let attempts = 0;
 
   while (attempts < args.maxAttempts && !reducerState.exhausted) {
@@ -164,17 +161,10 @@ export async function runOverflowReductionLoop(
     messages = step.messages;
     injectionMode = step.state.injectionMode;
 
-    // Whether THIS step just produced a fresh compaction — tracked so the
-    // returned `reducerCompacted` flips true once any iteration compacts.
-    const stepCompacted = step.compactionResult?.compacted === true;
-
     // Let the orchestrator apply compaction side effects (circuit-breaker
     // tracking, event emission, ctx mutation) before we re-inject.
     if (step.compactionResult) {
       await args.onCompactionResult(step.compactionResult, basisMessages);
-      if (stepCompacted) {
-        reducerCompacted = true;
-      }
     }
 
     // Second abort gate — if the side effects or the step itself took us
@@ -202,7 +192,6 @@ export async function runOverflowReductionLoop(
     runMessages,
     injectionMode,
     reducerState,
-    reducerCompacted,
     attempts,
   };
 }

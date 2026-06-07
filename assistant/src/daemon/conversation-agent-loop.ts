@@ -14,7 +14,6 @@ import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -83,7 +82,6 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
@@ -677,13 +675,6 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
-    // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
-    // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
-    // turn even when no mid-turn compaction fires. Clear the flag immediately
-    // so this fires exactly once per `/compact` event.
-    const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
-    ctx.pendingPostCompactReinject = false;
-    let compactedThisTurn = consumedPostCompactReinject;
     let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     const loadCurrentSlackChronologicalContext =
@@ -842,9 +833,6 @@ export async function runAgentLoopImpl(
         compacted,
         messagesForStartOfTurnCompaction,
       );
-      if (compacted.compactedPersistedMessages > 0) {
-        compactedThisTurn = true;
-      }
     }
 
     // Register confirmation outcome tracker so the agent loop can link
@@ -1037,7 +1025,6 @@ export async function runAgentLoopImpl(
         },
       );
     }
-    state.reducerCompacted = compactedThisTurn;
 
     let currentInjectionMode: InjectionMode = "full";
 
@@ -1240,9 +1227,6 @@ export async function runAgentLoopImpl(
       runMessages = overflowResult.runMessages;
       currentInjectionMode = overflowResult.injectionMode;
       reducerState = overflowResult.reducerState;
-      if (overflowResult.reducerCompacted) {
-        state.reducerCompacted = true;
-      }
     }
 
     // Replace historical web_search_tool_result blocks with text summaries.
@@ -1322,49 +1306,17 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
-    // trigger (its budget gate), the `compaction` pipeline call, the result
-    // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; this callback bridges the injection state the
-    // loop is intentionally blind to. Durable persistence is signalled via
-    // events; re-injection stays orchestrator-supplied for now.
-    const midLoopCompaction: MidLoopCompaction = {
-      postCompactionHook: async ({
-        history,
-        turnContext,
-        isNonInteractive,
-        mode,
-        modelProfile,
-        actorContext,
-      }) => {
-        // stripInjectionsForCompaction() unconditionally removed the existing
-        // memory-static block, so re-inject the current content regardless of
-        // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
-        // v2 static `<info>` blocks self-gate inside their injectors on block
-        // presence.
-        const injection = await postCompactReinject({
-          isNonInteractive,
-          modelProfile,
-          actorContext,
-          mode,
-          turnContext,
-          history,
-        });
-        return injection.messages;
-      },
-    };
-
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
      * context and maps the loop's returned checkpoint pause-reason into the
      * orchestrator's yield bookkeeping. Returns the updated history so call
-     * sites consume it exactly as before. Pass `compaction` only for the
+     * sites consume it exactly as before. Pass `compactInPlace` only for the
      * primary run, where the loop compacts in place when its budget gate
      * trips; reruns omit it and keep yielding for budget.
      */
     const runAgentLoop = async (
       msgs: Message[],
-      compaction?: MidLoopCompaction,
+      compactInPlace = false,
     ): Promise<Message[]> => {
       const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
@@ -1377,7 +1329,7 @@ export async function runAgentLoopImpl(
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
-          compaction,
+          compactInPlace,
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,
@@ -1394,7 +1346,7 @@ export async function runAgentLoopImpl(
       return history;
     };
 
-    let updatedHistory = await runAgentLoop(runMessages, midLoopCompaction);
+    let updatedHistory = await runAgentLoop(runMessages, true);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -1710,7 +1662,6 @@ export async function runAgentLoopImpl(
             step.compactionResult,
             convergenceCompactionBasis,
           );
-          state.reducerCompacted = true;
         }
 
         // Only re-inject the memory-static block when ctx.messages was
@@ -1799,7 +1750,6 @@ export async function runAgentLoopImpl(
           }
           if (emergencyCompact.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-            state.reducerCompacted = true;
           }
 
           // Only re-inject the memory-static block when ctx.messages was
@@ -2460,7 +2410,6 @@ export interface CompactionApplyContext {
   contextCompactedAt: number | null;
   contextSummary: string | null;
   slackContextCompactionWatermarkTs: string | null;
-  pendingPostCompactReinject: boolean;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
   usageStats: UsageStats;
@@ -2523,10 +2472,6 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  // Signal to the next agent loop turn that NOW.md / PKB / v2 static blocks
-  // were stripped from the tail and need fresh re-injection. Consumed and
-  // cleared at the top of the next `runAgentLoopImpl` run.
-  ctx.pendingPostCompactReinject = true;
   await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
