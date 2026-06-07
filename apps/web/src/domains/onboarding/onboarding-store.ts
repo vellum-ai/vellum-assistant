@@ -1,11 +1,11 @@
 /**
  * Zustand store for onboarding boolean preferences.
  *
- * Owns the five onboarding/privacy flags consumed by the privacy page,
- * the onboarding pages, the chat-gate, and Sentry. `prefs.ts` exposes
- * thin hooks (`useShareAnalytics`, `useShareDiagnostics`,
- * `useTosAccepted`, `useAiDataConsent`, `useOnboardingCompleted`) that
- * wrap `.use.field()` selectors and setter actions on this store.
+ * Owns the four onboarding/privacy flags consumed by the privacy page,
+ * the onboarding pages, and Sentry. `prefs.ts` exposes thin hooks
+ * (`useShareAnalytics`, `useShareDiagnostics`, `useTosAccepted`,
+ * `useAiDataConsent`) that wrap `.use.field()` selectors and setter
+ * actions on this store.
  *
  * **Storage model — strict per-key, with absence semantics preserved:**
  *
@@ -17,7 +17,6 @@
  * | `shareDiagnostics`| `device:share_diagnostics`    | privacy page + Sentry  |
  * | `tosAccepted`     | `vellum:onboarding:tosAccepted`  | onboarding pages       |
  * | `aiDataConsent`   | `vellum:onboarding:aiDataConsent`| onboarding pages       |
- * | `completed`       | `vellum:onboarding:completed`    | onboarding + chat gate |
  *
  * We deliberately do **not** use Zustand's `persist` middleware here.
  * `persist` writes the full state envelope on every update, which would
@@ -58,7 +57,6 @@ import { deviceKey } from "@/utils/device-settings";
 import {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
-  KEY_COMPLETED,
 } from "@/utils/onboarding-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +78,6 @@ const KEY_TO_FIELD: ReadonlyMap<string, keyof OnboardingState> = new Map([
   [KEY_SHARE_DIAGNOSTICS, "shareDiagnostics" as const],
   [KEY_TOS_ACCEPTED, "tosAccepted" as const],
   [KEY_AI_DATA_CONSENT, "aiDataConsent" as const],
-  [KEY_COMPLETED, "completed" as const],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -96,8 +93,6 @@ export interface OnboardingState {
   tosAccepted: boolean;
   /** Explicit AI-data-sharing consent. Default `false`. */
   aiDataConsent: boolean;
-  /** Onboarding flow completed. Default `false`. */
-  completed: boolean;
 }
 
 export interface OnboardingActions {
@@ -105,7 +100,6 @@ export interface OnboardingActions {
   setShareDiagnostics: (value: boolean) => void;
   setTosAccepted: (value: boolean) => void;
   setAiDataConsent: (value: boolean) => void;
-  setOnboardingCompleted: (value: boolean) => void;
 }
 
 export type OnboardingStore = OnboardingState & OnboardingActions;
@@ -119,7 +113,6 @@ const FIELD_DEFAULTS: Record<keyof OnboardingState, boolean> = {
   shareDiagnostics: true,
   tosAccepted: false,
   aiDataConsent: false,
-  completed: false,
 };
 
 function computeInitialFromLS(): OnboardingState {
@@ -128,7 +121,6 @@ function computeInitialFromLS(): OnboardingState {
     shareDiagnostics: getLocalBool(KEY_SHARE_DIAGNOSTICS, true),
     tosAccepted: getLocalBool(KEY_TOS_ACCEPTED, false),
     aiDataConsent: getLocalBool(KEY_AI_DATA_CONSENT, false),
-    completed: getLocalBool(KEY_COMPLETED, false),
   };
 }
 
@@ -154,10 +146,6 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   setAiDataConsent: (value) => {
     set({ aiDataConsent: value });
     setLocalBool(KEY_AI_DATA_CONSENT, value);
-  },
-  setOnboardingCompleted: (value) => {
-    set({ completed: value });
-    setLocalBool(KEY_COMPLETED, value);
   },
 }));
 

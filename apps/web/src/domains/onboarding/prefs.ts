@@ -2,7 +2,7 @@
  * Onboarding preference public API.
  *
  * Boolean preferences (`shareAnalytics`, `shareDiagnostics`, `tosAccepted`,
- * `aiDataConsent`, `completed`) are owned by `useOnboardingStore` — a
+ * `aiDataConsent`) are owned by `useOnboardingStore` — a
  * Zustand store with a custom per-key `persist` adapter that maps each
  * field to its existing localStorage key. This file exposes the hook +
  * non-React shim around the store, plus the non-store helpers for the
@@ -24,7 +24,6 @@ import { getDeviceBool, getDeviceSetting } from "@/utils/device-settings";
 import {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
-  KEY_COMPLETED,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
@@ -92,28 +91,9 @@ export function useAiDataConsent(): [boolean, (next: boolean) => void] {
   return [value, setter];
 }
 
-/** Whether the user completed the onboarding flow. Defaults to `false`. */
-export function useOnboardingCompleted(): [boolean, (next: boolean) => void] {
-  const value = useOnboardingStore.use.completed();
-  const setter = useCallback((next: boolean) => {
-    useOnboardingStore.getState().setOnboardingCompleted(next);
-  }, []);
-  return [value, setter];
-}
-
 // ---------------------------------------------------------------------------
 // Non-hook readers (for gates/guards outside React render)
 // ---------------------------------------------------------------------------
-
-/** SSR-safe, non-hook read of the onboarding completion flag. */
-export function readOnboardingCompleted(): boolean {
-  return useOnboardingStore.getState().completed;
-}
-
-/** SSR-safe, non-hook clear of the completion flag. */
-export function clearOnboardingCompleted(): void {
-  useOnboardingStore.getState().setOnboardingCompleted(false);
-}
 
 /**
  * SSR-safe, non-hook read of the TOS-accepted flag. Used by
@@ -208,5 +188,4 @@ export function writeSelectedVersion(version: string): void {
 export const __testing = {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
-  KEY_COMPLETED,
 };

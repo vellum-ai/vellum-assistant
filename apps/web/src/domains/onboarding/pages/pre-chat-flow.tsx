@@ -1,4 +1,3 @@
-import { captureError } from "@/lib/sentry/capture-error";
 import { useQuery } from "@tanstack/react-query";
 import {
   useCallback,
@@ -6,7 +5,7 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
@@ -51,9 +50,7 @@ import {
 import { GOOGLE_TOOL_IDS } from "@/domains/onboarding/prechat-tools";
 import {
   readAiDataConsent,
-  readOnboardingCompleted,
   readTosAccepted,
-  useOnboardingCompleted,
 } from "@/domains/onboarding/prefs";
 import {
   getPlatformAssistants,
@@ -84,7 +81,6 @@ function readLocalPlatformAssistantId(): string | null {
 
 export function PreChatFlow() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const user = useAuthStore.use.user();
   const isAuthenticated = useIsAuthenticated();
   const isAuthInitializing = useIsSessionInitializing();
@@ -94,10 +90,7 @@ export function PreChatFlow() {
   const isNative = useIsNativePlatform();
   const activeAssistantId =
     useAssistantSelectionStore.use.activeAssistantId();
-  const [, setOnboardingCompleted] = useOnboardingCompleted();
-
   const localMode = isLocalMode();
-  const isReplay = searchParams.get("replay") === "1";
   const isIOSWeb = useIsIOSWeb();
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
   const preChatExperimentArm =
@@ -254,10 +247,6 @@ export function PreChatFlow() {
       void navigate(routes.account.login, { replace: true });
       return;
     }
-    if (readOnboardingCompleted() && !isReplay) {
-      void navigateToChatAfterLifecycleRefresh();
-      return;
-    }
     if (consentDecision === "missing" && !isNative) {
       void navigate(routes.onboarding.privacy, { replace: true });
       return;
@@ -268,10 +257,8 @@ export function PreChatFlow() {
     isAuthInitializing,
     isAuthenticated,
     isNative,
-    isReplay,
     navigate,
     navigateToChatAfterLifecycleRefresh,
-    setOnboardingCompleted,
     userId,
   ]);
 
@@ -281,14 +268,12 @@ export function PreChatFlow() {
     isAuthInitializing ||
     !isAuthenticated ||
     !consentReady ||
-    !recipeReady ||
-    (readOnboardingCompleted() && !isReplay);
+    !recipeReady;
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
     variant = webFunnelVariant,
   ): void {
-    if (isReplay) return;
     emitOnboardingFunnelStepCompleted(step, {
       userId,
       variant: resolveOnboardingFunnelVariant(variant),
@@ -336,11 +321,6 @@ export function PreChatFlow() {
     setPendingPreChatContext(context);
     const trimmedAssistant = assistantName.trim();
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
-    try {
-      setOnboardingCompleted(true);
-    } catch (err) {
-      captureError(err, { context: "prechat_mark_onboarding_completed" });
-    }
     // User finished pre-chat; the post-hatch greeting is forthcoming.
     // Mark before navigating so the destination chat mount shows the
     // loading gate until the greeting arrives.

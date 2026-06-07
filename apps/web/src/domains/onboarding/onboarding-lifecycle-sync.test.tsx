@@ -49,7 +49,6 @@ const getAssistantMock = mock(async () => ({
 
 const fetchCharacterTraitsMock = mock(async () => null);
 const saveCharacterTraitsMock = mock(async () => undefined);
-const setOnboardingCompletedMock = mock(() => {});
 const writeSelectedVersionMock = mock(() => {});
 
 type TestOnboardingRecipe = {
@@ -62,7 +61,6 @@ type TestOnboardingRecipe = {
   skipPrechat: boolean;
 };
 
-let onboardingCompleted = false;
 let preChatOnboardingExperiment = "variant-a";
 let activationFlowExperiment = false;
 let selfIntroGreeting = true;
@@ -153,16 +151,11 @@ mock.module("@sentry/react", () => ({
 
 mock.module("@/domains/onboarding/prefs", () => ({
   readAiDataConsent: () => true,
-  readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
   readShareAnalytics: () => true,
   readTosAccepted: () => true,
-  clearOnboardingCompleted: mock(() => {}),
-  useOnboardingCompleted: () =>
-    [onboardingCompleted, setOnboardingCompletedMock] as const,
   writeSelectedVersion: writeSelectedVersionMock,
 }));
-
 
 mock.module("@/domains/onboarding/recipe-client.js", () => ({
   fetchOnboardingRecipe: fetchOnboardingRecipeMock,
@@ -180,10 +173,8 @@ mock.module("@/lib/navigation/build-state", () => ({
     sessionSettled: true,
     isAuthenticated: true,
     platformSession: platformSessionValue,
-    onboardingCompleted: onboardingCompleted,
     tosAccepted: true,
     aiDataConsent: true,
-    isReplay: false,
     ...overrides,
   }),
 }));
@@ -363,7 +354,6 @@ const { PreChatFlow } = await import(
 beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
-  onboardingCompleted = false;
   preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = false;
   selfIntroGreeting = true;
@@ -383,7 +373,6 @@ beforeEach(() => {
   getAssistantMock.mockClear();
   fetchCharacterTraitsMock.mockClear();
   saveCharacterTraitsMock.mockClear();
-  setOnboardingCompletedMock.mockClear();
   writeSelectedVersionMock.mockClear();
   fetchOnboardingRecipeMock.mockClear();
 });
@@ -414,23 +403,6 @@ describe("onboarding lifecycle sync", () => {
       expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat, {
         replace: true,
       }),
-    );
-  });
-
-  test("hatching replay preserves the replay flag when onboarding is already completed", async () => {
-    searchParams = new URLSearchParams("replay=1");
-    onboardingCompleted = true;
-
-    render(<HatchingScreen />);
-
-    await waitFor(() => expect(getAssistantMock).toHaveBeenCalled());
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
-
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith(
-        `${routes.onboarding.prechat}?replay=1`,
-        { replace: true },
-      ),
     );
   });
 
@@ -593,7 +565,6 @@ describe("onboarding lifecycle sync", () => {
       ),
     );
 
-    expect(setOnboardingCompletedMock).toHaveBeenCalledWith(true);
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
       tools: [],
       tasks: recipe.tasks,
@@ -605,26 +576,6 @@ describe("onboarding lifecycle sync", () => {
       bootstrapTemplate: recipe.bootstrapTemplate,
       skills: recipe.skills,
     });
-  });
-
-  test("pre-chat replay ignores recipe skip so the standard screens are visible", async () => {
-    searchParams = new URLSearchParams("replay=1");
-    onboardingCompleted = true;
-    fetchOnboardingRecipeImpl = async () => ({
-      cohort: "content-automation",
-      tasks: ["writing", "research"],
-      tone: "grounded",
-      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
-      initialMessage: "I want to write articles that rank better in GEO",
-      skills: ["content-automation"],
-      skipPrechat: true,
-    });
-
-    render(<PreChatFlow />);
-
-    await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
-    expect(await screen.findByTestId("name-continue")).toBeTruthy();
-    expect(checkAssistantMock).not.toHaveBeenCalled();
   });
 
   test("local mode never fetches the platform-only onboarding recipe", async () => {

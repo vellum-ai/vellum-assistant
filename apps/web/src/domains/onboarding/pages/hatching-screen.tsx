@@ -15,7 +15,6 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
     readSelectedVersion,
-    useOnboardingCompleted,
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
@@ -78,11 +77,9 @@ export type HatchGateDecision =
   | { kind: "wait" }
   | { kind: "redirect"; to: string };
 
-export function decideHatchGate(input: {
-  isReplay: boolean;
-}): HatchGateDecision {
+export function decideHatchGate(): HatchGateDecision {
   const decision = resolveNavigation(
-    buildNavigationState({ isReplay: input.isReplay }),
+    buildNavigationState(),
     { kind: "hatch-gate" },
   );
   if (decision.action === "redirect") return { kind: "redirect", to: decision.to };
@@ -93,11 +90,9 @@ export function decideHatchGate(input: {
 export function HatchingScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const isReplay = searchParams.get("replay") === "1";
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
-  const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
   );
@@ -133,7 +128,7 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
-    const decision = decideHatchGate({ isReplay });
+    const decision = decideHatchGate();
     if (decision.kind === "redirect") {
       void navigate(decision.to, { replace: true });
       return;
@@ -167,11 +162,6 @@ export function HatchingScreen() {
           await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
-            try {
-              setOnboardingCompleted(true);
-            } catch (err) {
-              captureError(err, { context: "hatching_mark_onboarding_completed_native" });
-            }
             // Native flow skips the pre-chat screen, so there's no
             // typed message to drive the auto-greet gate. Mark the
             // lifecycle one-shot so the destination chat mount shows
@@ -183,9 +173,7 @@ export function HatchingScreen() {
             return;
           }
           void navigate(
-            isReplay
-              ? `${routes.onboarding.prechat}?replay=1`
-              : routes.onboarding.prechat,
+            routes.onboarding.prechat,
             { replace: true },
           );
         })();
@@ -194,10 +182,19 @@ export function HatchingScreen() {
 
     const startHatch = async () => {
       transitionPhase("provisioning");
-      if (isReplay) {
-        scheduleNextPoll(0);
-        return;
+
+      // If an assistant is already active (debug replay, returning user),
+      // skip the hatch request and go straight to readiness polling.
+      try {
+        const existing = await getAssistant();
+        if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+          handleHatchReady();
+          return;
+        }
+      } catch {
+        // Fall through to normal hatch
       }
+      if (cancelled) return;
 
       // Local/Docker hatch lifecycle:
       // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
@@ -396,9 +393,7 @@ export function HatchingScreen() {
     attempt,
     hatchTraits,
     sessionStatus,
-    isReplay,
     navigate,
-    setOnboardingCompleted,
     transitionPhase,
     useLocalHatch,
   ]);
@@ -495,9 +490,7 @@ export function HatchingScreen() {
                 void navigate(
                   useLocalHatch
                     ? routes.onboarding.hosting
-                    : isReplay
-                      ? `${routes.onboarding.privacy}?replay=1`
-                      : routes.onboarding.privacy,
+                    : routes.onboarding.privacy,
                   { replace: true },
                 )
               }

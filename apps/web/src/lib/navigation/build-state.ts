@@ -3,7 +3,6 @@ import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
 import {
-  readOnboardingCompleted,
   readTosAccepted,
   readAiDataConsent,
 } from "@/domains/onboarding/prefs";
@@ -20,10 +19,8 @@ export function buildNavigationState(
     sessionSettled: isSessionSettled(sessionStatus),
     isAuthenticated: isAuthenticated(sessionStatus),
     platformSession,
-    onboardingCompleted: readOnboardingCompleted(),
     tosAccepted: readTosAccepted(),
     aiDataConsent: readAiDataConsent(),
-    isReplay: false,
     ...overrides,
   };
 }
