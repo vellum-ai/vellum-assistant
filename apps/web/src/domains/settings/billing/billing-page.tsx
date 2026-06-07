@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { useNavigate, useSearchParams } from "react-router";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -21,7 +21,6 @@ import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { useHasPlatformSession } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -61,7 +60,7 @@ function BillingStatusHandler() {
 
 export function BillingPage() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  const hasPlatformSession = useHasPlatformSession();
+  const billingGate = usePlatformGate();
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
@@ -92,14 +91,8 @@ export function BillingPage() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  if (!hasPlatformSession) {
-    return (
-      <div className="space-y-4">
-        <Notice tone="info">
-          Log in to the Vellum platform to manage billing and usage.
-        </Notice>
-      </div>
-    );
+  if (billingGate !== "full") {
+    return <Navigate replace to={routes.settings.general} />;
   }
 
   if (isLifecycleLoading) {
