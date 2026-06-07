@@ -197,6 +197,7 @@ mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => isLocalModeValue,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
+  getPlatformRuntimeUrl: () => "https://platform.vellum.ai",
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},

@@ -58,6 +58,15 @@ const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
+export function getPlatformRuntimeUrl(): string {
+  const injected = (
+    window as unknown as {
+      __VELLUM_CONFIG__?: { platformUrl?: string };
+    }
+  ).__VELLUM_CONFIG__;
+  return injected?.platformUrl || window.location.origin;
+}
+
 // Advance the in-memory cache and mirror the lockfile to persisted storage in
 // one step. The mirror lets the synchronous `getLockfile()` hydrate from
 // storage on a cold read before the host transport has responded.
@@ -164,7 +173,7 @@ export async function syncPlatformAssistantsToLockfile(
     .map((a) => ({
       assistantId: a.id,
       cloud: "vellum",
-      runtimeUrl: window.location.origin,
+      runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,
     }));
 
