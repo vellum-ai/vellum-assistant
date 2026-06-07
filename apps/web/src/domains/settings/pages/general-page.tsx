@@ -31,7 +31,7 @@ import {
     writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences";
 import { client } from "@/generated/api/client.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useActiveAssistantIsPlatformHosted, usePlatformGate } from "@/hooks/use-platform-gate";
 import {
     getSelectedAssistant,
     isLocalAssistant,
@@ -224,9 +224,10 @@ export function GeneralPage() {
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const diskPressure = useDiskPressureMonitor({
     assistantId: assistant?.id ?? null,
-    enabled: true,
+    enabled: infraGate === "full" && isPlatformHosted,
   });
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
