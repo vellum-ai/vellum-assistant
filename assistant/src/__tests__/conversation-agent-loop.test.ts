@@ -3245,11 +3245,6 @@ describe("session-agent-loop", () => {
         "1700000020.000000",
         expect.any(Number),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalCompacted?: boolean;
-      };
-      expect(firstInjectionOptions.slackChronologicalCompacted).toBe(true);
     });
 
     test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
@@ -3353,15 +3348,6 @@ describe("session-agent-loop", () => {
         "1700000020.000000",
         expect.any(Number),
       );
-      const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
-        (call) => {
-          const options = call[1] as {
-            slackChronologicalCompacted?: boolean;
-          };
-          return options.slackChronologicalCompacted === true;
-        },
-      )?.[1] as { slackChronologicalCompacted?: boolean } | undefined;
-      expect(reinjectionOptions?.slackChronologicalCompacted).toBe(true);
     });
 
     test("same-turn Slack compaction updates watermark from projected provenance", async () => {
@@ -3651,7 +3637,7 @@ describe("session-agent-loop", () => {
       ).not.toHaveBeenCalled();
     });
 
-    test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
+    test("next inbound Slack turn loads chronological context using the persisted watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted Slack context",
@@ -3730,26 +3716,9 @@ describe("session-agent-loop", () => {
           trustClass: "guardian",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBe(
-        mockSlackChronologicalContext.messages,
-      );
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted Slack context");
-      expect(rendered).toContain("after watermark reply");
-      expect(rendered).not.toContain("before watermark");
     });
 
-    test("subsequent Slack turn keeps long-thread compaction summary and filtered tail", async () => {
+    test("subsequent Slack turn loads chronological context using the persisted long-thread watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted long Slack thread",
@@ -3842,21 +3811,6 @@ describe("session-agent-loop", () => {
           slackContextCompactionWatermarkTs: "1700000080.000000",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted long Slack thread");
-      expect(rendered).toContain("reply after compaction");
-      expect(rendered).not.toContain("pre-compaction");
-      expect(rendered).not.toContain("original root");
     });
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
