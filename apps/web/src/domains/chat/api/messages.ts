@@ -416,6 +416,7 @@ export async function postChatMessage(
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
+  clientMessageId?: string,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -452,6 +453,13 @@ export async function postChatMessage(
   }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;
+  }
+  // Client-generated idempotency nonce. The daemon persists it, dedupes
+  // duplicate sends for the same (conversation, clientMessageId), and echoes
+  // it back so the originating client can correlate its optimistic row by
+  // identity. Omitted when absent so pre-idempotency daemons are unaffected.
+  if (clientMessageId) {
+    body.clientMessageId = clientMessageId;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

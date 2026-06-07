@@ -236,11 +236,11 @@ function preserveClientAttachments(
 
 /**
  * Append local rows not yet reflected on the server so they don't vanish:
- *   1. Optimistic rows (client UUID, never in `serverIds`) — matched by
- *      content to a reconciled server row of the same role; on a hit the
- *      client timestamp and blob attachments transfer to the server row and
- *      the optimistic row is dropped, otherwise it is preserved until the
- *      server echoes it back.
+ *   1. Optimistic rows (client UUID, never in `serverIds`) — correlated by
+ *      `clientMessageId` to a reconciled server row (see `findOptimisticEcho`);
+ *      on a hit the client timestamp and blob attachments transfer to the
+ *      server row and the optimistic row is dropped, otherwise it is preserved
+ *      until the server echoes it back.
  *   2. Non-optimistic local rows whose id isn't on the server yet (brief
  *      replication lag or pagination) — preserved as-is.
  */
@@ -273,8 +273,12 @@ function preserveUnreflectedLocalRows(
 
 /**
  * Resolve an optimistic local row to the reconciled server row it echoes:
- *   - user rows match on exact derived text (the echo of what was sent before
- *     the POST resolved);
+ *   - user rows correlate on the client-generated `clientMessageId` nonce the
+ *     daemon echoes back on the persisted row; absent the nonce (a daemon that
+ *     predates the idempotency contract) they fall back to the most recent
+ *     server user row not already correlated by a nonce. Identity-first
+ *     correlation is robust to duplicate or normalized text and to two sends
+ *     fired in quick succession;
  *   - assistant rows match when the streamed local text is a non-empty prefix
  *     of the server row's content — the live tail rendered before the daemon
  *     assigned the row an id (only against pre-anchor-protocol daemons that
@@ -285,11 +289,18 @@ function findOptimisticEcho(
   optimistic: DisplayMessage,
 ): DisplayMessage | undefined {
   if (optimistic.role === "user") {
-    const optimisticText = segmentsToPlainText(optimistic.textSegments);
-    return reconciled.find(
-      (r) =>
-        r.role === "user" &&
-        segmentsToPlainText(r.textSegments) === optimisticText,
+    if (optimistic.clientMessageId !== undefined) {
+      const byNonce = reconciled.find(
+        (r) =>
+          r.role === "user" &&
+          r.clientMessageId === optimistic.clientMessageId,
+      );
+      if (byNonce) {
+        return byNonce;
+      }
+    }
+    return reconciled.findLast(
+      (r) => r.role === "user" && r.clientMessageId === undefined,
     );
   }
 

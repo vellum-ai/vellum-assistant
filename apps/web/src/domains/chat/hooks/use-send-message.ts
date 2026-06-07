@@ -210,7 +210,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -254,6 +254,7 @@ export function useSendMessage({
         content,
         attachmentIds,
         onboardingContext ?? undefined,
+        clientMessageId,
       );
       if (
         useServerMint &&
@@ -523,6 +524,7 @@ export function useSendMessage({
       const optimisticUserId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: optimisticUserId,
+        clientMessageId: optimisticUserId,
         isOptimistic: true,
         role: "user",
         textSegments: [content],
@@ -544,6 +546,8 @@ export function useSendMessage({
             activeConversationId,
             content,
             attachmentIds,
+            undefined,
+            optimisticUserId,
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -628,6 +632,7 @@ export function useSendMessage({
           turnId,
           attachments.map((att) => att.id),
           isDraft,
+          optimisticUserId,
         );
 
         if (result.status === "failed") {

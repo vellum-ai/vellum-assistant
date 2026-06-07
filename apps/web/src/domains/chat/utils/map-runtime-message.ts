@@ -147,6 +147,7 @@ export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessa
     role: m.role,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
+  if (m.clientMessageId) msg.clientMessageId = m.clientMessageId;
   if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
   if (contentBlocks) msg.contentBlocks = contentBlocks;
   if (normalizedSegments) msg.textSegments = normalizedSegments;

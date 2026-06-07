@@ -405,6 +405,40 @@ export function finalizeMessageComplete(
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the optimistic user row a `user_message_echo` confirms.
+ *
+ * Primary match is the correlation nonce: the originating client minted
+ * `clientMessageId` at send time and the daemon echoes it back, so the
+ * optimistic row whose `clientMessageId` equals the event's is the exact send
+ * being confirmed — robust to duplicate or normalized text and to two sends
+ * fired in quick succession (each carries a distinct nonce). When the event
+ * carries no nonce — a daemon that predates the idempotency contract, or a
+ * synthetic surface-action echo — fall back to the most recent
+ * still-optimistic user row.
+ */
+function findOptimisticUserEchoIdx(
+  prev: DisplayMessage[],
+  clientMessageId: string | undefined,
+): number {
+  if (clientMessageId !== undefined) {
+    return prev.findIndex(
+      (m) =>
+        m.role === "user" &&
+        m.isOptimistic === true &&
+        m.clientMessageId === clientMessageId,
+    );
+  }
+
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i];
+    if (m && m.role === "user" && m.isOptimistic === true) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Apply a `user_message_echo` to the message array.
  *
  * The daemon emits this whenever a user message is persisted — direct
@@ -418,19 +452,20 @@ export function finalizeMessageComplete(
  *  1. A row already carries `messageId` (as `id` or a merged alias) — the
  *     originating client whose POST already resolved, or a prior echo /
  *     reconcile pulled the row in. No-op.
- *  2. An optimistic user row matches by derived text — the originating
- *     client whose POST hasn't resolved yet (the echo beat the 202). Swap
- *     its id to the server `messageId` and clear `isOptimistic`, mirroring
- *     the POST-resolve path so a later reconcile text-match can't double it.
- *     With no `messageId` (synthetic echo) there is nothing to upgrade to,
- *     so the optimistic row is left as-is.
+ *  2. An optimistic user row is correlated by `clientMessageId` (or, absent
+ *     the nonce, the most recent optimistic row) — the originating client
+ *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id to
+ *     the server `messageId` and clear `isOptimistic`, mirroring the
+ *     POST-resolve path so a later reconcile can't double it. With no
+ *     `messageId` (synthetic echo) there is nothing to upgrade to, so the
+ *     optimistic row is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
- *     by id; otherwise optimistic so reconcile text-matches it.
+ *     by id; otherwise optimistic.
  */
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
-  event: { text: string; messageId?: string },
+  event: { text: string; messageId?: string; clientMessageId?: string },
 ): DisplayMessage[] {
   const serverId = event.messageId;
 
@@ -445,12 +480,7 @@ export function applyUserMessageEcho(
     }
   }
 
-  const optimisticIdx = prev.findIndex(
-    (m) =>
-      m.role === "user" &&
-      m.isOptimistic &&
-      segmentsToPlainText(m.textSegments) === event.text,
-  );
+  const optimisticIdx = findOptimisticUserEchoIdx(prev, event.clientMessageId);
   if (optimisticIdx !== -1) {
     if (serverId === undefined) {
       return prev;
