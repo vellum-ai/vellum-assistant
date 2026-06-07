@@ -1,13 +1,22 @@
 /**
- * Resolved assistants store.
+ * Resolved assistants store — **the UI-facing assistant list**.
  *
- * Unified list of all known assistants (local + platform) populated
- * during session initialization. In local mode the list stays in sync
- * with the lockfile store automatically; in platform mode it is
- * populated from the `listAssistants` API during `initSession`.
+ * Holds a normalized `ResolvedAssistant[]` that merges local and
+ * platform assistants into a single list. This is what UI components
+ * (the select-assistant screen, the login page, etc.) and
+ * `buildNavigationState` should read from.
  *
- * The select-assistant onboarding screen and `buildNavigationState`
- * read from this store so assistant resolution is done once, at boot.
+ * Population:
+ *  - Local mode: auto-syncs with the lockfile store via subscription,
+ *    so every hatch / sync / retire is reflected automatically.
+ *  - Platform mode: populated from the `listAssistants` API during
+ *    `initSession` in the auth store.
+ *
+ * Do NOT confuse with `lockfile-store.ts`, which is the raw on-disk
+ * lockfile cache used internally by `lib/local-mode.ts` for host IPC.
+ *
+ * @see lockfile-store.ts — raw lockfile cache (internal to local-mode)
+ * @see lib/navigation/build-state.ts — derives `hasAssistants` from here
  */
 
 import { create } from "zustand";
