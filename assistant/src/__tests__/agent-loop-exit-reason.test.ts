@@ -17,6 +17,7 @@ import { describe, expect, test } from "bun:test";
 
 import type {
   AgentEvent,
+  AgentLoopRunOptions,
   CheckpointDecision,
   CheckpointInfo,
   MidLoopCompaction,
@@ -100,22 +101,25 @@ const userMessage: Message = {
   content: [{ type: "text", text: "Hello" }],
 };
 
-// A turn context whose `contextWindowManager.maybeCompact` returns a canned
-// result, so the loop's compaction call runs without the real orchestrator
-// machinery.
-function fakeCompactionTurnContext(result: {
-  compacted: boolean;
-  exhausted: boolean;
-}): TurnContext {
+// A turn context plus a context-window manager whose `maybeCompact` returns a
+// canned result, so the loop's compaction call runs without the real
+// orchestrator machinery. The manager is supplied to the loop as a dedicated
+// run option rather than riding on the turn context.
+function fakeCompaction(result: { compacted: boolean; exhausted: boolean }): {
+  turnContext: TurnContext;
+  contextWindowManager: AgentLoopRunOptions["contextWindowManager"];
+} {
   return {
-    requestId: "req-compact",
-    conversationId: "conv-compact",
-    turnIndex: 0,
-    trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    turnContext: {
+      requestId: "req-compact",
+      conversationId: "conv-compact",
+      turnIndex: 0,
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    },
     contextWindowManager: {
       maybeCompact: async () => result,
-    },
-  } as unknown as TurnContext;
+    } as unknown as AgentLoopRunOptions["contextWindowManager"],
+  };
 }
 
 function lastExitEvent(
@@ -382,7 +386,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
           overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
         }),
         compaction,
-        turnContext: fakeCompactionTurnContext({
+        ...fakeCompaction({
           compacted: true,
           exhausted: false,
         }),
@@ -423,7 +427,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
       }),
       compaction,
-      turnContext: fakeCompactionTurnContext({
+      ...fakeCompaction({
         compacted: false,
         exhausted: true,
       }),
