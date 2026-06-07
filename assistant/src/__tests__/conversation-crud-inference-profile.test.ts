@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
 import {
   createConversation,
   getConversation,
-  getConversationOverrideProfileFromRow,
+  resolveOverrideProfile,
   setConversationInferenceProfile,
   setConversationInferenceProfileSession,
 } from "../memory/conversation-crud.js";
@@ -55,7 +55,7 @@ describe("setConversationInferenceProfile", () => {
   });
 });
 
-describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
+describe("resolveOverrideProfile — lazy expiry check", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM messages`);
@@ -73,7 +73,7 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
     );
     const row = getConversation(conv.id);
     expect(row).not.toBeNull();
-    expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+    expect(resolveOverrideProfile(row)).toBeUndefined();
   });
 
   test("returns the profile when inferenceProfileExpiresAt is in the future", () => {
@@ -86,7 +86,7 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
     );
     const row = getConversation(conv.id);
     expect(row).not.toBeNull();
-    expect(getConversationOverrideProfileFromRow(row)).toBe("balanced");
+    expect(resolveOverrideProfile(row)).toBe("balanced");
   });
 
   test("returns undefined at the exact-expiry boundary (expiresAt === now)", () => {
@@ -110,7 +110,7 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
     const realNow = Date.now;
     Date.now = () => now;
     try {
-      expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+      expect(resolveOverrideProfile(row)).toBeUndefined();
     } finally {
       Date.now = realNow;
     }
@@ -126,9 +126,7 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
     );
     const row = getConversation(conv.id);
     expect(row).not.toBeNull();
-    expect(getConversationOverrideProfileFromRow(row)).toBe(
-      "quality-optimized",
-    );
+    expect(resolveOverrideProfile(row)).toBe("quality-optimized");
   });
 
   test.each<"background" | "scheduled">(["background", "scheduled"])(
@@ -148,7 +146,7 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
       expect(row).not.toBeNull();
       expect(row?.conversationType).toBe(conversationType);
       expect(row?.inferenceProfile).toBe("quality-optimized");
-      expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+      expect(resolveOverrideProfile(row)).toBeUndefined();
     },
   );
 });

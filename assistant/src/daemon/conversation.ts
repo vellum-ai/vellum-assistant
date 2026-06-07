@@ -55,8 +55,8 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
-  getConversationOverrideProfileFromRow,
   getMessages,
+  resolveOverrideProfile,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -211,6 +211,18 @@ export class Conversation {
   /** @internal */ contextSummary: string | null = null;
   /** @internal */ slackContextCompactionWatermarkTs: string | null = null;
   /** @internal */ lastNotifiedInferenceProfile: string | null = null;
+  /**
+   * Per-conversation inference-profile override mirrored from the DB row.
+   * `inferenceProfileSessionId`/`inferenceProfileExpiresAt` are set when the
+   * override is session-backed (expiring); both are null for a sticky
+   * override or when no override is active. Hydrated on load and kept in sync
+   * by the HTTP setters and the background expiry reaper so the live instance
+   * is the single source of truth for the per-turn override derivation.
+   * @internal
+   */
+  inferenceProfile: string | null = null;
+  /** @internal */ inferenceProfileSessionId: string | null = null;
+  /** @internal */ inferenceProfileExpiresAt: number | null = null;
   /**
    * Set true by `applyCompactionResult` when compaction strips runtime
    * injections from the tail. The next agent loop turn reads this flag at
@@ -630,6 +642,22 @@ export class Conversation {
     return this.onboardingContext;
   }
 
+  /**
+   * Mirror an inference-profile override write onto the live instance so the
+   * per-turn override derivation reads current state without re-fetching the
+   * DB row. Called alongside the corresponding DB write by the HTTP setters
+   * and the background expiry reaper.
+   */
+  applyInferenceProfileState(state: {
+    profile: string | null;
+    sessionId: string | null;
+    expiresAt: number | null;
+  }): void {
+    this.inferenceProfile = state.profile;
+    this.inferenceProfileSessionId = state.sessionId;
+    this.inferenceProfileExpiresAt = state.expiresAt;
+  }
+
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
@@ -703,6 +731,9 @@ export class Conversation {
       conv?.slackContextCompactionWatermarkTs ?? null;
     this.lastNotifiedInferenceProfile =
       conv?.lastNotifiedInferenceProfile ?? null;
+    this.inferenceProfile = conv?.inferenceProfile ?? null;
+    this.inferenceProfileSessionId = conv?.inferenceProfileSessionId ?? null;
+    this.inferenceProfileExpiresAt = conv?.inferenceProfileExpiresAt ?? null;
     this.contextCompactedMessageCount = Math.max(
       0,
       conv?.contextCompactedMessageCount ?? 0,
@@ -1367,9 +1398,7 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
-    const conversationRow = getConversation(this.conversationId);
-    const overrideProfile =
-      getConversationOverrideProfileFromRow(conversationRow) ?? null;
+    const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
@@ -1395,11 +1424,10 @@ export class Conversation {
             this.channelCapabilities,
             {
               trustClass: this.trustContext?.trustClass,
-              contextSummary: conversationRow?.contextSummary,
-              contextCompactedMessageCount:
-                conversationRow?.contextCompactedMessageCount,
+              contextSummary: this.contextSummary,
+              contextCompactedMessageCount: this.contextCompactedMessageCount,
               slackContextCompactionWatermarkTs:
-                conversationRow?.slackContextCompactionWatermarkTs,
+                this.slackContextCompactionWatermarkTs,
             },
           )
         : null;

@@ -1367,6 +1367,11 @@ export async function handleSendMessage(
       mapping.conversationId,
       requestedInferenceProfile,
     );
+    conversation.applyInferenceProfileState({
+      profile: requestedInferenceProfile,
+      sessionId: null,
+      expiresAt: null,
+    });
   }
 
   // Store pre-chat onboarding context on the conversation when this is the

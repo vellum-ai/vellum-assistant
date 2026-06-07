@@ -11,6 +11,7 @@
  * background sweeps in `http-server.ts`.
  */
 
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { clearExpiredInferenceProfiles } from "../../memory/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
@@ -37,6 +38,11 @@ export function tickInferenceProfileReaper(): void {
   const now = Date.now();
   const cleared = clearExpiredInferenceProfiles(now);
   for (const { conversationId } of cleared) {
+    findConversation(conversationId)?.applyInferenceProfileState({
+      profile: null,
+      sessionId: null,
+      expiresAt: null,
+    });
     publishConversationInferenceProfileChanged({
       conversationId,
       profile: null,

@@ -1903,21 +1903,30 @@ export function listActiveInferenceProfileSessions(
 }
 
 /**
- * Resolve the per-turn inference-profile override from an already-loaded
- * conversation row. Returns the row's `inferenceProfile` for interactive
- * conversations, `undefined` for automation threads (subagent fan-out,
- * scheduled tasks, update bulletins) so they run on the workspace defaults
- * rather than inheriting an interactive override.
- *
- * Prefer this row-based form when the caller already needs to read the
- * conversation row for other reasons (e.g. the agent loop's title check).
+ * The conversation fields needed to resolve a per-turn inference-profile
+ * override. Satisfied by both the DB {@link ConversationRow} and the live
+ * in-memory `Conversation`, so callers can derive the override from whichever
+ * representation they already hold without a redundant row fetch.
  */
-export function getConversationOverrideProfileFromRow(
-  conv: ConversationRow | null,
+export interface OverrideProfileFields {
+  conversationType?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
+}
+
+/**
+ * Resolve the per-turn inference-profile override from a conversation's
+ * fields. Returns the `inferenceProfile` for interactive conversations,
+ * `undefined` for automation threads (subagent fan-out, scheduled tasks,
+ * update bulletins) so they run on the workspace defaults rather than
+ * inheriting an interactive override.
+ */
+export function resolveOverrideProfile(
+  fields: OverrideProfileFields | null,
 ): string | undefined {
   if (
-    conv?.conversationType === "background" ||
-    conv?.conversationType === "scheduled"
+    fields?.conversationType === "background" ||
+    fields?.conversationType === "scheduled"
   ) {
     return undefined;
   }
@@ -1931,24 +1940,23 @@ export function getConversationOverrideProfileFromRow(
   // Without this, a session at the exact-expiry millisecond would be served
   // for one extra turn here while being cleared by the reaper.
   if (
-    conv?.inferenceProfileExpiresAt != null &&
-    conv.inferenceProfileExpiresAt <= Date.now()
+    fields?.inferenceProfileExpiresAt != null &&
+    fields.inferenceProfileExpiresAt <= Date.now()
   ) {
     return undefined;
   }
-  return conv?.inferenceProfile ?? undefined;
+  return fields?.inferenceProfile ?? undefined;
 }
 
 /**
  * Resolve the per-turn inference-profile override by conversation id.
- * Convenience wrapper around `getConversationOverrideProfileFromRow` for
- * standalone callers (e.g. subagent spawn, opportunity-wake) that don't
- * already have the row in hand.
+ * Convenience wrapper for standalone callers (e.g. subagent spawn,
+ * opportunity-wake) that don't already have the conversation in hand.
  */
 export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
-  return getConversationOverrideProfileFromRow(getConversation(conversationId));
+  return resolveOverrideProfile(getConversation(conversationId));
 }
 
 export function setLastNotifiedInferenceProfile(

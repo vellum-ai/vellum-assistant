@@ -150,12 +150,26 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   getMessages: () => [],
   getConversation: () => mockConversationRow,
-  getConversationOverrideProfileFromRow: (
-    row: { conversationType?: string; inferenceProfile?: string | null } | null,
+  resolveOverrideProfile: (
+    fields: {
+      conversationType?: string | null;
+      inferenceProfile?: string | null;
+      inferenceProfileExpiresAt?: number | null;
+    } | null,
   ) => {
-    if (row?.conversationType === "background") return undefined;
-    const profile = row?.inferenceProfile;
-    return typeof profile === "string" ? profile : undefined;
+    if (
+      fields?.conversationType === "background" ||
+      fields?.conversationType === "scheduled"
+    ) {
+      return undefined;
+    }
+    if (
+      fields?.inferenceProfileExpiresAt != null &&
+      fields.inferenceProfileExpiresAt <= Date.now()
+    ) {
+      return undefined;
+    }
+    return fields?.inferenceProfile ?? undefined;
   },
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -536,20 +550,11 @@ afterAll(() => {
 
 describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
   test("non-background conversation with inferenceProfile threads it through as overrideProfile", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "standard",
       inferenceProfile: "quality-optimized",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -559,21 +564,12 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("background conversation ignores inferenceProfile column", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+  test("background conversation ignores inferenceProfile", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "background",
       inferenceProfile: "quality-optimized",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -583,22 +579,9 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("absence of inferenceProfile column behaves identically to today (no override)", async () => {
-    // `mockConversationRow` already defaults to inferenceProfile: null.
-    // Also explicitly cover the case where the column is missing entirely.
-    mockConversationRow = {
-      id: "conv-1",
-      conversationType: "standard",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
+  test("absence of inferenceProfile behaves identically to today (no override)", async () => {
     const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    const ctx = makeCtx(captured, { conversationType: "standard" });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -608,26 +591,17 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("explicit options.overrideProfile takes precedence over the column read", async () => {
+  test("explicit options.overrideProfile takes precedence over the conversation override", async () => {
     // Subagent path: SubagentManager forwards the parent's pinned profile
     // into the spawned (background) conversation's runAgentLoop call via
     // `options.overrideProfile`. The agent loop must respect that even
-    // though the subagent's own conversation row is `background` (which
+    // though the subagent's own conversation is `background` (which
     // would otherwise zero out the override per the rule above).
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "background",
       inferenceProfile: null,
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
       overrideProfile: "fast",
@@ -640,26 +614,14 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
   });
 
   test("re-resolves inferenceProfile when a tool changes it mid-turn", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "standard",
       inferenceProfile: null,
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
+    });
     mutateBeforeResolveOverrideProfile = () => {
-      mockConversationRow = {
-        ...mockConversationRow!,
-        inferenceProfile: "quality-optimized",
-      };
+      ctx.inferenceProfile = "quality-optimized";
     };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 

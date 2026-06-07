@@ -62,10 +62,10 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
-  getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
   updateMessageMetadata,
@@ -367,22 +367,18 @@ export async function runAgentLoopImpl(
   // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
   ctx.currentCallSite = turnCallSite;
 
-  // Read the conversation row once for both the override-profile derivation
-  // below and the title-replaceability check at turn start. Later reads in
-  // this function (post-turn truncation, disk sync, home-feed emission)
-  // intentionally re-read because state can change during the turn.
-  const turnStartConversation = getConversation(ctx.conversationId);
-
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
   // this turn. Caller-supplied `options.overrideProfile` (e.g.
   // SubagentManager forwarding the parent's pinned profile into the
-  // spawned subagent's background conversation) wins over the row read
-  // so the agent loop's own background-skip rule doesn't zero out an
-  // explicitly inherited override.
+  // spawned subagent's background conversation) wins over the conversation's
+  // own override so the agent loop's background-skip rule doesn't zero out an
+  // explicitly inherited override. The override state is mirrored onto the
+  // live conversation (hydrated on load, kept current by the HTTP setters and
+  // the expiry reaper), so the derivation reads `ctx` rather than re-fetching
+  // the row.
   const userExplicitOverride =
-    options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(turnStartConversation);
+    options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
   const config = getConfig();
 
@@ -395,9 +391,7 @@ export async function runAgentLoopImpl(
 
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(
-      getConversation(ctx.conversationId),
-    ) ??
+    resolveOverrideProfile(ctx) ??
     ctx.toolRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
