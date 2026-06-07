@@ -389,22 +389,21 @@ export class Conversation {
   /** @internal */ clientTimezone?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
-   * `applyRuntimeInjections` to build the `<turn_context>` `current_time` and
-   * `time_since_last_message` lines and the client/config timezone-mismatch
-   * affordance. Holds the turn's formatted wall-clock timestamp, the
-   * client-reported timezone captured at turn start, and the human-readable gap
-   * since the previous user message (null unless it exceeds the long-absence
-   * threshold).
+   * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
+   * affordance and `time_since_last_message` line. Holds the client-reported
+   * timezone captured at turn start and the human-readable gap since the
+   * previous user message (null unless it exceeds the long-absence threshold).
    *
-   * Frozen here rather than re-derived in assembly so post-compaction
-   * re-injections reuse the same instant, and so the client timezone is not
+   * Frozen here rather than read live in assembly so the client timezone is not
    * clobbered when a newer message for the same conversation overwrites the
    * live {@link clientTimezone} mid-turn (every inbound message re-applies
-   * transport metadata before it is enqueued).
+   * transport metadata before it is enqueued). Its presence also gates the
+   * `<turn_context>` block: assembly emits the block only for turns the loop has
+   * frozen a snapshot for. The `current_time` value is computed fresh at each
+   * injection so post-compaction re-injections reflect the current wall clock.
    * @internal
    */
   currentTurnTemporalSnapshot?: {
-    timestamp: string;
     clientTimezone: string | null;
     timeSinceLastMessage: string | null;
   };

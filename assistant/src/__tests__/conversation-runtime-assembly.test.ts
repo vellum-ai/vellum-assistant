@@ -48,6 +48,18 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
   },
 }));
 
+// `applyRuntimeInjections` computes the `<turn_context>` `current_time` live via
+// `formatTurnTimestamp`; pin it so the rendered block matches the deterministic
+// `buildUnifiedTurnContextBlock` expectations below. The rest of the module
+// (timezone canonicalization/resolution) keeps its real behavior.
+const FIXED_TURN_TIMESTAMP = "2026-04-02T12:00:00Z";
+const realDateContextForAssemblyTest =
+  await import("../daemon/date-context.js");
+mock.module("../daemon/date-context.js", () => ({
+  ...realDateContextForAssemblyTest,
+  formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
+}));
+
 import {
   clearConversations,
   setConversation,
@@ -148,7 +160,6 @@ function seedActiveSurfaceConversation(
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
   currentTurnTemporalSnapshot?: {
-    timestamp: string;
     clientTimezone: string | null;
   },
 ): void {
@@ -886,7 +897,6 @@ describe("applyRuntimeInjections — injection mode", () => {
       channelCapabilities,
       { type: "start" },
       {
-        timestamp: "2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)",
         clientTimezone: null,
       },
     );
@@ -1806,20 +1816,19 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     },
   ];
 
-  const sampleTimestamp = "2026-04-02T12:00:00Z";
   const sampleOptions = {
     interfaceName: "macos",
   };
-  // The block reflects both the options-bag interface and the timestamp the
-  // loop freezes on the conversation; assembly merges the two.
+  // The block reflects the options-bag interface and the `current_time` the
+  // injector computes live (pinned to `FIXED_TURN_TIMESTAMP` for this suite).
   const sampleBlock = buildUnifiedTurnContextBlock({
-    timestamp: sampleTimestamp,
+    timestamp: FIXED_TURN_TIMESTAMP,
     ...sampleOptions,
   });
 
   // Seed the live fallback conversation with the per-turn temporal snapshot
-  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
-  // and the turn interface context (so it sources the interface label to match
+  // (its presence gates the `<turn_context>` block) and the turn interface
+  // context (so the injector sources the interface label to match
   // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
@@ -1829,7 +1838,6 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
       currentTurnTemporalSnapshot: {
-        timestamp: sampleTimestamp,
         clientTimezone: null,
       },
       currentTurnInterfaceContext: {
@@ -1910,13 +1918,10 @@ describe("applyRuntimeInjections timezone resolution", () => {
     { role: "user", content: [{ type: "text", text: "Hello there" }] },
   ];
 
-  const sampleTimestamp =
-    "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)";
-
   // Seed the live fallback conversation with the per-turn temporal snapshot the
   // loop freezes after memory retrieval. `applyRuntimeInjections` sources the
-  // `<turn_context>` timestamp, the client timezone, and the long-absence gap
-  // from it, so the turn-context block only emits when this snapshot is present.
+  // client timezone and the long-absence gap from it, so the turn-context block
+  // only emits when this snapshot is present.
   function seedTemporalSnapshot(
     clientTimezone: string | null,
     timeSinceLastMessage: string | null = null,
@@ -1928,7 +1933,6 @@ describe("applyRuntimeInjections timezone resolution", () => {
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
       currentTurnTemporalSnapshot: {
-        timestamp: sampleTimestamp,
         clientTimezone,
         timeSinceLastMessage,
       },
@@ -2058,20 +2062,19 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     },
   ];
 
-  const sampleTimestamp = "2026-04-02T12:00:00Z";
   const sampleOptions = {
     interfaceName: "macos",
   };
-  // The block reflects both the options-bag interface and the timestamp the
-  // loop freezes on the conversation; assembly merges the two.
+  // The block reflects the options-bag interface and the `current_time` the
+  // injector computes live (pinned to `FIXED_TURN_TIMESTAMP` for this suite).
   const sampleBlock = buildUnifiedTurnContextBlock({
-    timestamp: sampleTimestamp,
+    timestamp: FIXED_TURN_TIMESTAMP,
     ...sampleOptions,
   });
 
   // Seed the live fallback conversation with the per-turn temporal snapshot
-  // (so `applyRuntimeInjections` sources the `<turn_context>` timestamp from it)
-  // and the turn interface context (so it sources the interface label to match
+  // (its presence gates the `<turn_context>` block) and the turn interface
+  // context (so the injector sources the interface label to match
   // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
     setConversation("runtime-assembly-fallback", {
@@ -2081,7 +2084,6 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
       currentTurnTemporalSnapshot: {
-        timestamp: sampleTimestamp,
         clientTimezone: null,
       },
       currentTurnInterfaceContext: {

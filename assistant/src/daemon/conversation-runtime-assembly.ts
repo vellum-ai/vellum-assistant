@@ -61,7 +61,7 @@ import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
-import { canonicalizeTimeZone } from "./date-context.js";
+import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
   SurfaceData,
@@ -1638,10 +1638,11 @@ function applyInjectionBlock(
  * The remaining unified `<turn_context>` inputs (`actorContext` and
  * `modelProfile`) are flat top-level fields here. They flow through to the
  * matching {@link TurnContext} fields, and the `unified-turn-context`
- * injector builds the block from them — combined with the turn's frozen
- * timestamp, client timezone, and long-absence gap (from
- * `currentTurnTemporalSnapshot`), the interface and channel labels, and the two
- * self-resolved config timezones — via `buildUnifiedTurnContextBlock`.
+ * injector builds the block from them — combined with the freshly computed
+ * `current_time` timestamp, the turn's frozen client timezone and long-absence
+ * gap (from `currentTurnTemporalSnapshot`), the interface and channel labels,
+ * and the two self-resolved config timezones — via
+ * `buildUnifiedTurnContextBlock`.
  */
 export interface RuntimeInjectionOptions {
   /**
@@ -1783,15 +1784,20 @@ export async function applyRuntimeInjections(
 
   // The configured user timezone and the server-detected fallback are stable
   // settings, so they are read from config here rather than threaded through
-  // `options`. The per-turn timestamp, the client-reported timezone, and the
-  // long-absence gap are sourced from the conversation's frozen
-  // `currentTurnTemporalSnapshot` instead: the loop captures them once after
-  // memory retrieval so every post-compaction re-injection reuses the same
-  // instant, and so the live `Conversation.clientTimezone` (overwritten when a
-  // newer message for the same conversation arrives mid-turn) cannot leak a
-  // queued message's timezone into the in-flight turn. The
-  // `unified-turn-context` injector compares the configured and client
-  // timezones to surface a mismatch affordance.
+  // `options`. The client-reported timezone and the long-absence gap are
+  // sourced from the conversation's frozen `currentTurnTemporalSnapshot`
+  // instead: the loop captures them at turn start so the live
+  // `Conversation.clientTimezone` (overwritten when a newer message for the
+  // same conversation arrives mid-turn) cannot leak a queued message's timezone
+  // into the in-flight turn. The `unified-turn-context` injector compares the
+  // configured and client timezones to surface a mismatch affordance.
+  //
+  // `current_time` is computed fresh here from those timezone inputs rather
+  // than frozen, so every assembly — including post-compaction re-injections
+  // later in a long turn — reflects the current wall clock. The snapshot's
+  // presence gates the block: the timestamp (and therefore the whole
+  // `<turn_context>` injection) is only produced for turns the loop has frozen
+  // a snapshot for.
   const uiConfig = getConfig().ui;
   const configuredUserTimezone = canonicalizeTimeZone(
     uiConfig?.userTimezone ?? null,
@@ -1800,10 +1806,16 @@ export async function applyRuntimeInjections(
     uiConfig?.detectedTimezone ?? null,
   );
   const temporalSnapshot = liveConversation?.currentTurnTemporalSnapshot;
-  const timestamp = temporalSnapshot?.timestamp;
   const clientTimezone = canonicalizeTimeZone(
     temporalSnapshot?.clientTimezone ?? null,
   );
+  const timestamp = temporalSnapshot
+    ? formatTurnTimestamp({
+        configuredUserTimeZone: configuredUserTimezone,
+        clientTimezone,
+        detectedTimezone,
+      })
+    : undefined;
   const timeSinceLastMessage = temporalSnapshot?.timeSinceLastMessage ?? null;
 
   // The `<active_subagents>` status block is sourced from the live subagent

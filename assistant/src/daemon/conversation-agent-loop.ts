@@ -143,10 +143,7 @@ import {
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  formatTurnTimestamp,
-  resolveTurnTimezoneContext,
-} from "./date-context.js";
+import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
@@ -930,6 +927,19 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Freeze the turn-start client timezone and long-absence gap on the
+    // conversation so `applyRuntimeInjections` sources them from live state —
+    // like the channel/voice/transport hints. Frozen here (rather than read
+    // live in assembly) because the live `ctx.clientTimezone` is overwritten
+    // when a newer message for the same conversation arrives mid-turn, which
+    // would otherwise leak a queued message's timezone into the in-flight turn.
+    // The `current_time` value is computed fresh at each injection point, so
+    // it is not part of this snapshot.
+    ctx.currentTurnTemporalSnapshot = {
+      clientTimezone: timezoneContext.clientTimezone,
+      timeSinceLastMessage,
+    };
+
     // Resolve the effective profile key for this turn and detect changes.
     // Only inject model_profile into the turn context when the profile
     // changed since the last turn (or on the first turn of a conversation)
@@ -985,21 +995,6 @@ export async function runAgentLoopImpl(
     // pair on the graph handle for the PKB-reminder injector to read back; the
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
-
-    // Capture wall-clock "now" at its point of use, after the blocking memory
-    // retrieval, so the injected `<turn_context>` timestamp reflects current
-    // time rather than the moment the turn began. Freeze it (with the
-    // turn-start client timezone and the long-absence gap) on the conversation
-    // so `applyRuntimeInjections` sources it from live state — like the
-    // channel/voice/transport hints — and every post-compaction re-injection
-    // reuses the same instant.
-    ctx.currentTurnTemporalSnapshot = {
-      timestamp: formatTurnTimestamp({
-        timeZone: timezoneContext.effectiveTimezone,
-      }),
-      clientTimezone: timezoneContext.clientTimezone,
-      timeSinceLastMessage,
-    };
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
