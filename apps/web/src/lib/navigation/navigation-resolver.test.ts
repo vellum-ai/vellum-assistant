@@ -90,10 +90,10 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/welcome" });
     });
 
-    test("redirects unauthenticated local-mode returning user (has assistants) to login", () => {
+    test("redirects unauthenticated local-mode returning user (has assistants) to select-assistant", () => {
       expect(
         guard(s({ isAuthenticated: false, isLocalMode: true, hasAssistants: true })),
-      ).toEqual({ action: "redirect", to: "/account/login?returnTo=%2Fassistant" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/select-assistant" });
     });
 
     // -- authenticated, onboarding routes ---------------------------------

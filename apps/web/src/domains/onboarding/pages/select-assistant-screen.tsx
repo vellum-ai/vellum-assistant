@@ -1,9 +1,12 @@
 import { Cloud, Laptop } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { isPlatformLocal } from "@/lib/auth/loopback-auth";
+import { isLocalMode } from "@/lib/local-mode";
+import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
   useResolvedAssistantsStore,
@@ -33,10 +36,15 @@ export function SelectAssistantScreen() {
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
+  const hasPlatformAssistants = assistants.some((a) => !a.isLocal);
+  const showLogin = hasPlatformAssistants && !hasPlatformSession;
+
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [autoSkipping, setAutoSkipping] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loginFlowIdRef = useRef(0);
 
   // Default selection to first accessible assistant
   useEffect(() => {
@@ -78,6 +86,26 @@ export function SelectAssistantScreen() {
 
   const onBack = () => {
     void navigate(routes.onboarding.welcome);
+  };
+
+  const handleLogin = async () => {
+    const returnTo = routes.onboarding.selectAssistant;
+
+    if (isLocalMode() && isPlatformLocal()) {
+      void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    const flowId = ++loginFlowIdRef.current;
+    setError(null);
+    setLoginLoading(true);
+    try {
+      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
+      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
+    } catch {
+      if (flowId !== loginFlowIdRef.current) return;
+      setError("Something went wrong. Please try again.");
+      setLoginLoading(false);
+    }
   };
 
   // Loading state during auto-skip
@@ -152,13 +180,25 @@ export function SelectAssistantScreen() {
               {connecting ? "Connecting…" : "Continue"}
             </Button>
           )}
+          {showLogin && (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              className="h-11 text-base"
+              onClick={() => void handleLogin()}
+              disabled={connecting || loginLoading}
+            >
+              {loginLoading ? "Logging in…" : "Log In"}
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="regular"
             fullWidth
             className="h-11 text-base"
             onClick={onBack}
-            disabled={connecting}
+            disabled={connecting || loginLoading}
           >
             Back
           </Button>

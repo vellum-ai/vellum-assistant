@@ -127,6 +127,9 @@ function resolveRouteGuard(
     if (state.isLocalMode && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.welcome };
     }
+    if (state.isLocalMode) {
+      return { action: "redirect", to: routes.onboarding.selectAssistant };
+    }
     return {
       action: "redirect",
       to: `${routes.account.login}?returnTo=${encodeURIComponent(pathnameWithSearch)}`,

@@ -5,8 +5,6 @@ import { NativeSplash } from "@/components/native-splash";
 import { DarkLoginShell, LoginCard, LoginErrorText } from "@/domains/account/components/login-shell";
 import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
-import { LocalModeLoginPage } from "@/domains/account/pages/local-mode-login-page";
-import { isLocalMode } from "@/lib/local-mode";
 import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
 import { Button } from "@vellumai/design-library";
 
@@ -128,16 +126,14 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 /**
  * Branded sign-in screen for `/account/login`.
  *
- * Delegates to `LocalModeLoginPage` (lockfile-driven self-hosted),
- * `NativeLoginForm` (Capacitor iOS), or `WebLoginForm` (standard browser)
- * based on platform detection.
+ * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
+ * (standard browser / Electron) based on platform detection.
  */
 export function LoginPage() {
   const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
   const returnTo = searchParams.get("returnTo");
 
-  if (isLocalMode()) return <LocalModeLoginPage returnTo={returnTo} />;
   if (isNative) return <NativeLoginForm returnTo={returnTo} />;
   return <WebLoginForm returnTo={returnTo} />;
 }
