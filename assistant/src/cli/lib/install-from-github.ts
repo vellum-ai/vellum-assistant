@@ -1,16 +1,19 @@
 /**
  * Install a plugin by name from the canonical GitHub source.
  *
- * A name resolves to one of two sources, both fetched via the GitHub Contents
- * API and materialized into `<workspacePluginsDir>/<name>/` so the daemon
- * discovers it on next start:
+ * A name resolves to one of two sources, materialized into
+ * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start:
  *   1. A whitelisted external ecosystem plugin, when the name matches an entry
- *      in the curated `experimental/plugins/marketplace.json` manifest — fetched
- *      from that entry's pinned `owner/repo[/path]@ref` (see
- *      {@link ./plugin-marketplace}).
+ *      in the curated `experimental/plugins/marketplace.json` manifest. The
+ *      pinned `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is
+ *      fetched with a shallow `git` clone at that ref — one network operation
+ *      regardless of repo size, immune to GitHub's unauthenticated API
+ *      rate-limit, and recording the exact resolved commit for provenance.
  *   2. Otherwise the first-party convention
  *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
- *      configured ref.
+ *      configured ref, fetched via the GitHub Contents API (a small handful of
+ *      in-repo files — cloning the whole monorepo to install one would be
+ *      wasteful).
  *
  * Designed for direct programmatic use. The CLI command
  * `assistant plugins install <name>` is a thin wrapper that supplies
@@ -20,20 +23,27 @@
  * a test fixture) and an override workspace directory.
  */
 
+import { execFile } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   fetchMarketplaceEntries,
   resolveMarketplaceSource,
 } from "./plugin-marketplace.js";
+
+const execFileAsync = promisify(execFile);
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
@@ -62,6 +72,16 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/**
+ * Runs a `git` subcommand in `cwd` and resolves its stdout. Injected so tests
+ * can simulate a clone without spawning a real git process; production callers
+ * fall back to {@link defaultGitRunner}.
+ */
+export type GitRunner = (
+  args: readonly string[],
+  opts: { readonly cwd: string },
+) => Promise<{ readonly stdout: string }>;
+
 /** Options that control which plugin to install and how. */
 export interface InstallPluginOptions {
   readonly name: string;
@@ -78,6 +98,8 @@ export interface InstallPluginDeps {
   readonly fetch: FetchLike;
   /** Override the workspace plugins directory. Falls back to {@link getWorkspacePluginsDir}. */
   readonly workspacePluginsDir?: string;
+  /** Override the git runner used to clone external plugin sources. Falls back to {@link defaultGitRunner}. */
+  readonly runGit?: GitRunner;
 }
 
 /** Successful install result. */
@@ -87,6 +109,8 @@ export interface InstallPluginResult {
   readonly target: string;
   readonly fileCount: number;
   readonly ref: string;
+  /** Resolved commit SHA for git-cloned external sources; null for first-party (no clone). */
+  readonly commit: string | null;
 }
 
 /** Plugin name failed sanitization. */
@@ -153,6 +177,8 @@ function isTransientUpstreamStatus(res: Response): boolean {
 
 /** Resolved GitHub coordinates a plugin name is fetched from. */
 interface PluginFetchSource {
+  /** Whether the plugin lives in our monorepo or an external whitelisted repo. */
+  readonly kind: "first-party" | "external";
   readonly owner: string;
   readonly repo: string;
   /** Repo-relative directory holding the plugin root; `""` = repo root. */
@@ -170,6 +196,7 @@ function sourceLabel(source: PluginFetchSource): string {
 /** First-party `experimental/plugins/<name>` coordinates at a given ref. */
 function firstPartySource(name: string, ref: string): PluginFetchSource {
   return {
+    kind: "first-party",
     owner: PLUGIN_SOURCE_OWNER,
     repo: PLUGIN_SOURCE_REPO,
     rootPath: `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
@@ -240,6 +267,7 @@ async function resolvePluginSource(
   }
 
   return {
+    kind: "external",
     owner: resolved.owner,
     repo: resolved.repo,
     rootPath: resolved.path,
@@ -325,8 +353,26 @@ export async function installPlugin(
   mkdirSync(stagingDir, { recursive: true });
 
   let fileCount: number;
+  let commit: string | null = null;
   try {
-    fileCount = await copyPluginTree(source, stagingDir, deps.fetch);
+    if (source.kind === "external") {
+      const cloned = await copyExternalViaGit(
+        source,
+        stagingDir,
+        deps.runGit ?? defaultGitRunner,
+      );
+      fileCount = cloned.fileCount;
+      commit = cloned.commit;
+    } else {
+      fileCount = await copyDir(
+        source.owner,
+        source.repo,
+        source.rootPath,
+        ref,
+        stagingDir,
+        deps.fetch,
+      );
+    }
   } catch (err) {
     rmSync(stagingDir, { recursive: true, force: true });
     throw err;
@@ -337,6 +383,12 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(source));
   }
 
+  // Record install provenance (source coordinates + resolved commit) as a
+  // hidden sidecar before the swap so it lands atomically with the files. The
+  // daemon loader enumerates plugin directories and reads each plugin's
+  // `package.json`, skipping dotfiles — so this never gets mistaken for code.
+  writeInstallManifest(stagingDir, name, source, ref, commit);
+
   // Atomic-ish swap: rmSync + renameSync. On POSIX the rename itself is
   // atomic, so the only window where the target is absent is between the
   // rm and the rename — and at that point the staging dir is fully populated.
@@ -345,125 +397,267 @@ export async function installPlugin(
   }
   renameSync(stagingDir, target);
 
-  return { name, target, fileCount, ref };
+  return { name, target, fileCount, ref, commit };
 }
 
-/** Entry shape returned by the GitHub Git Trees API. */
-interface GitHubTreeEntry {
-  readonly path: string;
-  readonly type: "blob" | "tree" | "commit";
-  /** Git file mode; `120000` is a symlink. */
-  readonly mode: string;
+/** Cap on any single git invocation; a shallow fetch is well under this. */
+const GIT_TIMEOUT_MS = 120_000;
+
+/** Install-provenance sidecar written at the plugin root. */
+const INSTALL_MANIFEST_FILENAME = ".vellum-plugin.json";
+
+/**
+ * Materialize an external plugin by shallow-cloning its repo at the pinned ref.
+ *
+ * A single `git fetch --depth 1 <ref>` transfers the tree in one network
+ * operation regardless of how many directories the plugin spans, so it is
+ * immune to GitHub's 60/hr unauthenticated Contents-API rate limit — the
+ * failure mode a recursive per-directory walk hit on plugins like caveman
+ * (dozens of nested folders, one API request each). Cloning also resolves the
+ * exact commit the ref points at, recorded for version provenance.
+ *
+ * The clone lands in a sibling scratch dir; only the plugin root (the repo
+ * root, or `source.rootPath` within it) is copied into `destDir`, minus the
+ * `.git` metadata and any symlinks (the loader follows neither). Returns the
+ * file count and resolved commit; zero files means the ref exists but the
+ * declared sub-path doesn't, which the caller maps to not-found.
+ */
+async function copyExternalViaGit(
+  source: PluginFetchSource,
+  destDir: string,
+  runGit: GitRunner,
+): Promise<{ fileCount: number; commit: string | null }> {
+  const cloneDir = `${destDir}.gitclone`;
+  rmSync(cloneDir, { recursive: true, force: true });
+  mkdirSync(cloneDir, { recursive: true });
+
+  try {
+    const repoUrl = `https://github.com/${source.owner}/${source.repo}.git`;
+    await runGit(["init", "--quiet"], { cwd: cloneDir });
+    await runGit(["remote", "add", "origin", repoUrl], { cwd: cloneDir });
+
+    try {
+      await runGit(["fetch", "--depth", "1", "--quiet", "origin", source.ref], {
+        cwd: cloneDir,
+      });
+    } catch (err) {
+      // A missing repo/ref (or a private one we can't reach) is a hard
+      // not-found, surfaced as zero files. Anything else — network loss, a
+      // transient GitHub outage — is retryable, so map it to a 503.
+      if (isGitRefNotFound(err)) return { fileCount: 0, commit: null };
+      throw new PluginSourceUnavailableError(
+        `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${gitErrorText(err)}`,
+        503,
+      );
+    }
+
+    await runGit(["checkout", "--quiet", "FETCH_HEAD"], { cwd: cloneDir });
+
+    let commit: string | null = null;
+    try {
+      const { stdout } = await runGit(["rev-parse", "HEAD"], { cwd: cloneDir });
+      commit = stdout.trim() || null;
+    } catch {
+      // Provenance is best-effort; a missing commit must not fail the install.
+      commit = null;
+    }
+
+    const srcRoot = source.rootPath
+      ? join(cloneDir, source.rootPath)
+      : cloneDir;
+    if (!existsSync(srcRoot) || !statSync(srcRoot).isDirectory()) {
+      return { fileCount: 0, commit };
+    }
+
+    const fileCount = copyTreeSkippingGit(srcRoot, destDir);
+    return { fileCount, commit };
+  } finally {
+    rmSync(cloneDir, { recursive: true, force: true });
+  }
 }
 
 /**
- * Materialize a plugin subtree, fetching the whole repo tree in one request.
- *
- * Walking the Contents API directory-by-directory costs one API request per
- * directory, which exhausts GitHub's 60/hr unauthenticated rate limit on any
- * non-trivial plugin (e.g. a repo with dozens of nested folders). Instead we
- * enumerate the entire tree at the ref in a single `git/trees?recursive=1`
- * request, then download each file from `raw.githubusercontent.com` — a
- * separate host that does not draw from the API rate-limit budget. Net cost:
- * one API request plus N un-throttled raw downloads.
- *
- * Returns the number of files written; zero means the source path held no
- * files at this ref, which the caller maps to a not-found error.
+ * Recursively copy regular files from `srcRoot` into `destDir`, skipping the
+ * top-level `.git` directory and any symlinks. Returns the file count.
  */
-async function copyPluginTree(
+function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
+  let count = 0;
+  const walk = (relDir: string): void => {
+    const absDir = relDir ? join(srcRoot, relDir) : srcRoot;
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      // Drop git metadata and symlinks: the loader follows neither, and a
+      // symlink could otherwise point outside the staging tree.
+      if (relDir === "" && entry.name === ".git") continue;
+      if (entry.isSymbolicLink()) continue;
+
+      const rel = relDir ? join(relDir, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        walk(rel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      const dest = join(destDir, rel);
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(join(srcRoot, rel), dest);
+      count++;
+    }
+  };
+  walk("");
+  return count;
+}
+
+/** True when a git fetch failed because the repo or ref is unreachable. */
+function isGitRefNotFound(err: unknown): boolean {
+  const text = gitErrorText(err).toLowerCase();
+  return [
+    "could not find remote ref",
+    "couldn't find remote ref",
+    "remote branch",
+    "repository not found",
+    "could not read from remote repository",
+    "could not read username",
+    "terminal prompts disabled",
+    "authentication failed",
+  ].some((needle) => text.includes(needle));
+}
+
+/** Extract a stderr/message blob from a spawn error for classification/logging. */
+function gitErrorText(err: unknown): string {
+  if (err instanceof Error) {
+    const withStreams = err as Error & { stderr?: unknown };
+    const stderr =
+      typeof withStreams.stderr === "string" ? withStreams.stderr : "";
+    return `${err.message} ${stderr}`.trim();
+  }
+  return String(err);
+}
+
+/**
+ * Hardened `git` runner used in production. Strips inherited `GIT_*` vars
+ * (which could redirect config, hooks, or the object store), disables the
+ * credential prompt so a private/missing repo fails fast instead of hanging
+ * the daemon, and augments `PATH` so the real git is found when the daemon is
+ * launched from a macOS `.app` bundle with a minimal environment.
+ */
+export const defaultGitRunner: GitRunner = async (args, opts) => {
+  const { stdout } = await execFileAsync("git", [...args], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+    timeout: GIT_TIMEOUT_MS,
+    maxBuffer: 64 * 1024 * 1024,
+    env: pluginGitEnv(),
+  });
+  return { stdout };
+};
+
+function pluginGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !key.startsWith("GIT_")) env[key] = value;
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
+  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
+  const current = (env.PATH ?? "").split(":").filter(Boolean);
+  const missing = extraPaths.filter((p) => !current.includes(p));
+  if (missing.length > 0) {
+    env.PATH = [...current, ...missing].join(":");
+  }
+  return env;
+}
+
+/**
+ * Write the install-provenance sidecar into the staged plugin root, recording
+ * the resolved source coordinates and commit so we can later report or verify
+ * exactly what is installed. Hidden (dot-prefixed) so the daemon loader, which
+ * skips dotfiles, never mistakes it for plugin code.
+ */
+function writeInstallManifest(
+  stagingDir: string,
+  name: string,
   source: PluginFetchSource,
+  ref: string,
+  commit: string | null,
+): void {
+  const manifest = {
+    name,
+    source: {
+      kind: source.kind,
+      owner: source.owner,
+      repo: source.repo,
+      path: source.rootPath || undefined,
+      ref,
+    },
+    commit: commit ?? undefined,
+    installedAt: new Date().toISOString(),
+  };
+  writeFileSync(
+    join(stagingDir, INSTALL_MANIFEST_FILENAME),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+}
+
+/**
+ * Recursively copy a first-party plugin directory via the GitHub Contents API.
+ *
+ * First-party plugins live in our own monorepo as a small handful of files, so
+ * the per-directory walk stays well within the unauthenticated rate limit —
+ * and avoids cloning the entire repository just to install one plugin. Returns
+ * the number of files written; zero means the directory doesn't exist at this
+ * ref, which the caller maps to a not-found error.
+ */
+async function copyDir(
+  owner: string,
+  repo: string,
+  apiPath: string,
+  ref: string,
   destDir: string,
   fetchFn: FetchLike,
 ): Promise<number> {
-  const tree = await listPluginTree(source, fetchFn);
-  if (tree === null) return 0;
+  const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
+  if (entries === null) return 0;
 
-  const prefix = source.rootPath ? `${source.rootPath}/` : "";
   let count = 0;
-  for (const entry of tree) {
-    // Only regular files. Directories are implied by file paths (created on
-    // write); symlinks (mode 120000) and submodules (type "commit") are
-    // skipped to match the daemon loader, which follows neither.
-    if (entry.type !== "blob" || entry.mode === "120000") continue;
-    if (prefix && !entry.path.startsWith(prefix)) continue;
+  for (const entry of entries) {
+    // The daemon loader follows neither symlinks nor submodules; skip them.
+    if (entry.type === "symlink" || entry.type === "submodule") continue;
+    assertSafeFilename("entry name", entry.name);
 
-    const relPath = prefix ? entry.path.slice(prefix.length) : entry.path;
-    if (!relPath) continue;
-    const segments = relPath.split("/");
-    for (const segment of segments) assertSafeFilename("path segment", segment);
+    if (entry.type === "dir") {
+      const subDest = join(destDir, entry.name);
+      mkdirSync(subDest, { recursive: true });
+      count += await copyDir(owner, repo, entry.path, ref, subDest, fetchFn);
+      continue;
+    }
 
-    await downloadRawFile(source, entry.path, segments, destDir, fetchFn);
+    await copyFile(entry, join(destDir, entry.name), fetchFn);
     count++;
   }
   return count;
 }
 
-/**
- * List the full recursive tree at the source's ref in a single request.
- *
- * Returns null when the repo/ref doesn't exist (404 → not-found downstream).
- * Throws {@link PluginSourceUnavailableError} on a transient upstream failure
- * (rate limit / 5xx) so the caller can surface a retryable 503, and a hard
- * error otherwise. A truncated tree (a repo too large for GitHub to return in
- * one response) is a hard error rather than a silent partial install.
- */
-async function listPluginTree(
-  source: PluginFetchSource,
-  fetchFn: FetchLike,
-): Promise<readonly GitHubTreeEntry[] | null> {
-  const url =
-    `https://api.github.com/repos/${source.owner}/${source.repo}` +
-    `/git/trees/${encodeURIComponent(source.ref)}?recursive=1`;
-
-  const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const label = `tree listing for ${sourceLabel(source)} @ ${source.ref}: HTTP ${res.status}`;
-    if (isTransientUpstreamStatus(res)) {
-      throw new PluginSourceUnavailableError(`GitHub ${label}`, res.status);
-    }
-    throw new Error(`GitHub ${label}`);
-  }
-
-  const body = (await res.json()) as {
-    tree?: GitHubTreeEntry[];
-    truncated?: boolean;
-  };
-  if (body.truncated) {
-    throw new Error(
-      `GitHub tree for ${sourceLabel(source)} @ ${source.ref} is too large to install (response truncated).`,
-    );
-  }
-  return body.tree ?? [];
-}
-
-/**
- * Download one file from `raw.githubusercontent.com` and write it under
- * destDir at the given relative path segments. The raw host serves public
- * repo content without consuming the API rate-limit budget.
- */
-async function downloadRawFile(
-  source: PluginFetchSource,
-  repoPath: string,
-  relSegments: readonly string[],
-  destDir: string,
+/** Download one file entry from the Contents API into `dest`. */
+async function copyFile(
+  entry: GitHubContentEntry,
+  dest: string,
   fetchFn: FetchLike,
 ): Promise<void> {
-  const url =
-    `https://raw.githubusercontent.com/${source.owner}/${source.repo}/` +
-    `${encodeURIComponent(source.ref)}/` +
-    repoPath.split("/").map(encodeURIComponent).join("/");
-
-  const res = await githubFetch(url, "application/octet-stream", fetchFn);
+  if (!entry.download_url) {
+    throw new Error(`No download URL for ${entry.path}`);
+  }
+  const res = await githubFetch(
+    entry.download_url,
+    "application/octet-stream",
+    fetchFn,
+  );
   if (!res.ok) {
-    const label = `Download failed for ${repoPath}: HTTP ${res.status}`;
+    const label = `Download failed for ${entry.path}: HTTP ${res.status}`;
     if (isTransientUpstreamStatus(res)) {
       throw new PluginSourceUnavailableError(label, res.status);
     }
     throw new Error(label);
   }
   const buf = Buffer.from(await res.arrayBuffer());
-  const dest = join(destDir, ...relSegments);
   mkdirSync(dirname(dest), { recursive: true });
   writeFileSync(dest, buf);
 }
@@ -482,9 +676,11 @@ async function listDir(
   const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
   if (res.status === 404) return null;
   if (!res.ok) {
-    throw new Error(
-      `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`,
-    );
+    const label = `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`;
+    if (isTransientUpstreamStatus(res)) {
+      throw new PluginSourceUnavailableError(label, res.status);
+    }
+    throw new Error(label);
   }
 
   const body = (await res.json()) as unknown;

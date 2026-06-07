@@ -1,9 +1,14 @@
 /**
  * Tests for {@link installPlugin}.
  *
- * Network is replaced with an in-memory fixture passed via the `fetch`
- * dependency — no globals are monkey-patched and no `--test-hook` exports
- * leak into production code.
+ * Two materialization paths are exercised without touching the network or
+ * spawning real subprocesses:
+ *   - First-party plugins are fetched from the GitHub Contents API, replaced
+ *     by an in-memory fixture passed via the `fetch` dependency.
+ *   - External (whitelisted) plugins are shallow-cloned with `git`, replaced
+ *     by a fake {@link GitRunner} that materializes a tree into the clone dir.
+ * No globals are monkey-patched and no `--test-hook` exports leak into
+ * production code.
  */
 
 import {
@@ -16,11 +21,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   type FetchLike,
+  type GitRunner,
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
@@ -29,60 +35,70 @@ import {
   sanitizePluginName,
 } from "../install-from-github.js";
 
-/**
- * Build a fixture for a first-party install from an in-memory file tree.
- *
- * `tree` maps a path under the canonical `experimental/plugins/` prefix (e.g.
- * `simple-memory`, `simple-memory/hooks/init.ts`) to either:
- *   - a `Uint8Array`/`string` → a file with that content
- *   - `null` → a directory
- *
- * Install fetches the whole repo tree in one `git/trees?recursive=1` request,
- * then pulls each file from `raw.githubusercontent.com`. The fixture answers:
- *  - the marketplace manifest lookup with a 404 (so resolution degrades to
- *    the first-party source — these tests don't exercise the marketplace)
- *  - `…/git/trees/<ref>?recursive=1` with the blob listing
- *  - `raw.githubusercontent.com/vellum-ai/vellum-assistant/<ref>/…` with bytes
- */
-function fixtureFetch(
-  tree: Record<string, Uint8Array | string | null>,
-): FetchLike {
-  const REPO = "vellum-ai/vellum-assistant";
-  const MANIFEST_URL = `https://api.github.com/repos/${REPO}/contents/experimental/plugins/marketplace.json`;
-  const TREE_API = `https://api.github.com/repos/${REPO}/git/trees/`;
-  const RAW = `https://raw.githubusercontent.com/${REPO}/`;
-  const full = (key: string) => `experimental/plugins/${key}`;
+const CANON_REPO = "vellum-ai/vellum-assistant";
+/** Synthetic host the fixtures use for Contents API `download_url`s. */
+const DOWNLOAD_HOST = "https://files.test/";
 
-  function treeBody(): unknown {
-    const blobs = Object.keys(tree)
-      .filter((key) => tree[key] !== null)
-      .map((key) => ({ path: full(key), type: "blob", mode: "100644" }));
-    return { tree: blobs, truncated: false };
+/**
+ * Build a `fetch` that serves the GitHub Contents API from an in-memory tree.
+ *
+ * `tree` is keyed by full canonical-repo path (e.g.
+ * `experimental/plugins/simple-memory/package.json`) and maps each entry to a
+ * file's content (`string`/`Uint8Array`) or `null` for an explicit directory.
+ * Directory listings are derived from the key set; file `download_url`s point
+ * at {@link DOWNLOAD_HOST} and are served with the stored bytes.
+ *
+ * The marketplace manifest lookup is answered with `manifest` (or a 404 when
+ * omitted, so resolution degrades to the first-party source).
+ */
+function makeContentsFetch(opts: {
+  tree: Record<string, Uint8Array | string | null>;
+  manifest?: unknown;
+}): FetchLike {
+  const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/experimental/plugins/marketplace.json`;
+  const CONTENTS = `https://api.github.com/repos/${CANON_REPO}/contents/`;
+  const { tree } = opts;
+
+  function listing(apiPath: string):
+    | {
+        name: string;
+        path: string;
+        type: string;
+        download_url: string | null;
+      }[]
+    | null {
+    const prefix = apiPath ? `${apiPath}/` : "";
+    const direct = new Map<string, boolean>();
+    for (const key of Object.keys(tree)) {
+      if (!key.startsWith(prefix)) continue;
+      const remainder = key.slice(prefix.length);
+      if (!remainder) continue;
+      const seg = remainder.split("/")[0]!;
+      const isDir = remainder.includes("/") || tree[`${prefix}${seg}`] === null;
+      direct.set(seg, (direct.get(seg) ?? false) || isDir);
+    }
+    if (direct.size === 0) return null;
+    return Array.from(direct.entries()).map(([name, isDir]) => {
+      const path = `${prefix}${name}`;
+      return isDir
+        ? { name, path, type: "dir", download_url: null }
+        : { name, path, type: "file", download_url: `${DOWNLOAD_HOST}${path}` };
+    });
   }
 
-  return (async (input: RequestInfo | URL, _init?: RequestInit) => {
+  return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
 
-    // No marketplace manifest in these fixtures: degrade to first-party.
     if (url.startsWith(MANIFEST_URL)) {
-      return new Response("not found", { status: 404 });
+      if (opts.manifest === undefined) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(JSON.stringify(opts.manifest), { status: 200 });
     }
 
-    if (url.startsWith(TREE_API)) {
-      return new Response(JSON.stringify(treeBody()), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    if (url.startsWith(RAW)) {
-      // raw URL is `<RAW><ref>/experimental/plugins/<key>` — strip the ref.
-      const afterRef = decodeURIComponent(url.slice(RAW.length)).replace(
-        /^[^/]+\//,
-        "",
-      );
-      const rel = afterRef.replace(/^experimental\/plugins\//, "");
-      const file = tree[rel];
+    if (url.startsWith(DOWNLOAD_HOST)) {
+      const path = decodeURIComponent(url.slice(DOWNLOAD_HOST.length));
+      const file = tree[path];
       if (file === null || file === undefined) {
         return new Response("not found", { status: 404 });
       }
@@ -91,11 +107,82 @@ function fixtureFetch(
       return new Response(Buffer.from(bytes), { status: 200 });
     }
 
-    return new Response("unexpected url: " + url, { status: 500 });
+    if (url.startsWith(CONTENTS)) {
+      const after = decodeURIComponent(
+        url.slice(CONTENTS.length).split("?")[0]!,
+      );
+      const body = listing(after);
+      if (body === null) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(JSON.stringify(body), { status: 200 });
+    }
+
+    return new Response(`unexpected url: ${url}`, { status: 500 });
   }) as FetchLike;
 }
 
-describe("installPlugin", () => {
+/** First-party fixture: keys are relative to `experimental/plugins/`. */
+function fixtureFetch(
+  tree: Record<string, Uint8Array | string | null>,
+): FetchLike {
+  const full: Record<string, Uint8Array | string | null> = {};
+  for (const [key, value] of Object.entries(tree)) {
+    full[`experimental/plugins/${key}`] = value;
+  }
+  return makeContentsFetch({ tree: full });
+}
+
+/**
+ * Build a fake {@link GitRunner} that simulates a shallow clone.
+ *
+ * On `fetch`, the configured `tree` (repo-relative path → content, `null` =
+ * directory) plus a token `.git/config` are written into the clone `cwd`, so
+ * the subsequent copy can be asserted to include the tree and exclude `.git`.
+ * `rev-parse HEAD` returns `commit`. Optional hooks let a test record the git
+ * arguments or inject a fetch failure.
+ */
+function fakeGitRunner(opts: {
+  tree: Record<string, string | null>;
+  commit?: string;
+  calls?: string[][];
+  fetchError?: Error;
+}): GitRunner {
+  const commit = opts.commit ?? "abc123def4567890abc123def4567890abcdef12";
+  return async (args, { cwd }) => {
+    opts.calls?.push([...args]);
+    switch (args[0]) {
+      case "fetch": {
+        if (opts.fetchError) throw opts.fetchError;
+        mkdirSync(join(cwd, ".git"), { recursive: true });
+        writeFileSync(join(cwd, ".git", "config"), "[core]\n");
+        for (const [rel, content] of Object.entries(opts.tree)) {
+          if (content === null) {
+            mkdirSync(join(cwd, rel), { recursive: true });
+            continue;
+          }
+          const dest = join(cwd, rel);
+          mkdirSync(dirname(dest), { recursive: true });
+          writeFileSync(dest, content);
+        }
+        return { stdout: "" };
+      }
+      case "rev-parse":
+        return { stdout: `${commit}\n` };
+      default:
+        return { stdout: "" };
+    }
+  };
+}
+
+/** A git runner that fails the test if any git command is invoked. */
+const unusedGitRunner: GitRunner = async (args) => {
+  throw new Error(
+    `git should not run for a first-party install: ${args.join(" ")}`,
+  );
+};
+
+describe("installPlugin — first-party", () => {
   let ws: string;
   let pluginsDir: string;
 
@@ -109,7 +196,7 @@ describe("installPlugin", () => {
     rmSync(ws, { recursive: true, force: true });
   });
 
-  test("copies the GitHub tree into <workspacePluginsDir>/<name>", async () => {
+  test("copies a first-party plugin into <workspacePluginsDir>/<name>", async () => {
     const result = await installPlugin(
       { name: "simple-memory", force: false, ref: "main" },
       {
@@ -130,6 +217,8 @@ describe("installPlugin", () => {
     expect(result.target).toBe(target);
     expect(result.fileCount).toBe(4);
     expect(result.ref).toBe("main");
+    // First-party installs have no clone, so no commit is resolved.
+    expect(result.commit).toBeNull();
     expect(existsSync(join(target, "package.json"))).toBe(true);
     expect(existsSync(join(target, "README.md"))).toBe(true);
     expect(existsSync(join(target, "hooks", "init.ts"))).toBe(true);
@@ -137,6 +226,33 @@ describe("installPlugin", () => {
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"simple-memory"}',
     );
+  });
+
+  test("writes a provenance manifest recording the source and ref", async () => {
+    // GIVEN a first-party install
+    const target = join(pluginsDir, "simple-memory");
+
+    // WHEN it completes
+    await installPlugin(
+      { name: "simple-memory", force: false, ref: "main" },
+      {
+        fetch: fixtureFetch({
+          "simple-memory/package.json": '{"name":"simple-memory"}',
+        }),
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    // THEN a hidden manifest records the resolved coordinates (no commit for
+    // first-party) and is not counted as a plugin file
+    const manifest = JSON.parse(
+      readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
+    );
+    expect(manifest.name).toBe("simple-memory");
+    expect(manifest.source.kind).toBe("first-party");
+    expect(manifest.source.repo).toBe("vellum-assistant");
+    expect(manifest.source.ref).toBe("main");
+    expect(manifest.commit).toBeUndefined();
   });
 
   test("refuses to overwrite an existing install without --force", async () => {
@@ -149,7 +265,6 @@ describe("installPlugin", () => {
         { name: "simple-memory", force: false, ref: "main" },
         {
           fetch: fixtureFetch({
-            "simple-memory": null,
             "simple-memory/package.json": "{}",
           }),
           workspacePluginsDir: pluginsDir,
@@ -170,7 +285,6 @@ describe("installPlugin", () => {
       { name: "simple-memory", force: true, ref: "main" },
       {
         fetch: fixtureFetch({
-          "simple-memory": null,
           "simple-memory/package.json": '{"name":"simple-memory"}',
         }),
         workspacePluginsDir: pluginsDir,
@@ -182,9 +296,9 @@ describe("installPlugin", () => {
   });
 
   test("--force preserves the existing install when the fetch fails", async () => {
-    // Codex P1 from PR-5 review: a transient 5xx during a forced re-install
-    // must NOT delete the previously working plugin. The fetch error
-    // surfaces, but the existing tree on disk is untouched.
+    // A transient 5xx during a forced re-install must NOT delete the
+    // previously working plugin. The fetch error surfaces, but the existing
+    // tree on disk is untouched (all writes go through the staging dir).
     const target = join(pluginsDir, "simple-memory");
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, "marker"), "pre-existing");
@@ -200,12 +314,9 @@ describe("installPlugin", () => {
       ),
     ).rejects.toThrow(/HTTP 503/);
 
-    // Marker is still there because the failed install never touched the
-    // target — the staging dir handles all writes until the swap.
     expect(readFileSync(join(target, "marker"), "utf-8")).toBe("pre-existing");
     // And no staging dir leaks into the plugins directory.
-    const remaining = readdirSync(pluginsDir);
-    expect(remaining).toEqual(["simple-memory"]);
+    expect(readdirSync(pluginsDir)).toEqual(["simple-memory"]);
   });
 
   test("404 on the canonical path is reported as not-found", async () => {
@@ -240,18 +351,20 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("a rate-limited tree listing surfaces a retryable PluginSourceUnavailableError", async () => {
-    // GIVEN GitHub's unauthenticated rate limit is exhausted: the tree
+  test("a rate-limited contents listing surfaces a retryable PluginSourceUnavailableError", async () => {
+    // GIVEN GitHub's unauthenticated rate limit is exhausted: the contents
     // listing 403s with the remaining-quota header at zero
     const rateLimited: FetchLike = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (/\/git\/trees\//.test(url)) {
+      if (url.includes("marketplace.json")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/contents/")) {
         return new Response("rate limited", {
           status: 403,
           headers: { "x-ratelimit-remaining": "0" },
         });
       }
-      // Marketplace manifest lookup → 404 so resolution degrades to first-party.
       return new Response("not found", { status: 404 });
     }) as FetchLike;
 
@@ -269,12 +382,15 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("a forbidden tree listing with quota remaining stays a hard error", async () => {
+  test("a forbidden contents listing with quota remaining stays a hard error", async () => {
     // GIVEN a 403 that is NOT a rate-limit (quota header present and nonzero):
     // a genuine authorization failure, not a transient one
     const forbidden: FetchLike = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (/\/git\/trees\//.test(url)) {
+      if (url.includes("marketplace.json")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/contents/")) {
         return new Response("forbidden", {
           status: 403,
           headers: { "x-ratelimit-remaining": "57" },
@@ -295,85 +411,52 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("respects ref by forwarding to GitHub", async () => {
-    // The requested ref must reach both the tree listing (in the URL path)
-    // and the raw file download.
-    let treeRef: string | undefined;
-    let rawRef: string | undefined;
+  test("respects ref by forwarding it to the contents listing", async () => {
+    // The requested ref must reach the first-party contents listing request.
+    let listRef: string | undefined;
+    const base = fixtureFetch({ "demo/package.json": "{}" });
+    const fetch: FetchLike = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const match = /\/contents\/experimental\/plugins\/demo\?ref=([^&]+)/.exec(
+        url,
+      );
+      if (match) listRef = decodeURIComponent(match[1]!);
+      return base(url, init);
+    };
+
     await installPlugin(
       { name: "demo", force: false, ref: "feat-branch" },
-      {
-        fetch: (async (input: RequestInfo | URL) => {
-          const url = typeof input === "string" ? input : input.toString();
-          const treeMatch = /\/git\/trees\/([^?]+)\?recursive=1/.exec(url);
-          if (treeMatch) {
-            treeRef = decodeURIComponent(treeMatch[1]!);
-            return new Response(
-              JSON.stringify({
-                tree: [
-                  {
-                    path: "experimental/plugins/demo/package.json",
-                    type: "blob",
-                    mode: "100644",
-                  },
-                ],
-                truncated: false,
-              }),
-              {
-                status: 200,
-                headers: { "content-type": "application/json" },
-              },
-            );
-          }
-          const rawMatch =
-            /raw\.githubusercontent\.com\/vellum-ai\/vellum-assistant\/([^/]+)\//.exec(
-              url,
-            );
-          if (rawMatch && url.endsWith("/package.json")) {
-            rawRef = decodeURIComponent(rawMatch[1]!);
-            return new Response("{}", { status: 200 });
-          }
-          // Marketplace manifest lookup → 404 so resolution degrades to
-          // the first-party source.
-          return new Response("not found", { status: 404 });
-        }) as FetchLike,
-        workspacePluginsDir: pluginsDir,
-      },
+      { fetch, workspacePluginsDir: pluginsDir },
     );
 
-    expect(treeRef).toBe("feat-branch");
-    expect(rawRef).toBe("feat-branch");
+    expect(listRef).toBe("feat-branch");
     expect(existsSync(join(pluginsDir, "demo", "package.json"))).toBe(true);
   });
 
-  test("rejects untrusted entry paths from the GitHub response", async () => {
+  test("rejects untrusted entry names from the GitHub response", async () => {
     // Even though GitHub returns trustworthy data, defense-in-depth requires
-    // us to validate every path segment before any filesystem write. A
-    // malicious or buggy upstream that hands us `../escape` must not be able
-    // to write outside the target.
+    // us to validate every entry name before any filesystem write. A malicious
+    // or buggy upstream that hands us `../escape` must not write outside the
+    // target.
     const badFetch: FetchLike = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (/\/git\/trees\//.test(url)) {
+      if (url.includes("marketplace.json")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/contents/")) {
         return new Response(
-          JSON.stringify({
-            tree: [
-              {
-                path: "experimental/plugins/demo/../escape",
-                type: "blob",
-                mode: "100644",
-              },
-            ],
-            truncated: false,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          JSON.stringify([
+            {
+              name: "../escape",
+              path: "experimental/plugins/demo/../escape",
+              type: "file",
+              download_url: `${DOWNLOAD_HOST}escape`,
+            },
+          ]),
+          { status: 200 },
         );
       }
-      if (url.includes("raw.githubusercontent.com")) {
-        return new Response("x", { status: 200 });
-      }
-      // Marketplace manifest lookup → 404 so resolution degrades to
-      // the first-party source.
-      return new Response("not found", { status: 404 });
+      return new Response("x", { status: 200 });
     }) as FetchLike;
 
     await expect(
@@ -381,7 +464,7 @@ describe("installPlugin", () => {
         { name: "demo", force: false, ref: "main" },
         { fetch: badFetch, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toThrow(/Unsafe path segment/);
+    ).rejects.toThrow(/Unsafe entry name/);
 
     // Nothing was written outside the target — in fact, the target itself
     // is gone because the failed install rolled back the staging dir.
@@ -389,128 +472,6 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 });
-
-/**
- * Build a fixture that serves a marketplace manifest from the canonical repo
- * plus an external plugin repo's tree.
- *
- * `manifest` is served at the canonical marketplace contents URL.
- * `externalTree` maps repo-relative paths within `externalRepo` (e.g.
- * `package.json`, `.claude-plugin/plugin.json`) to file contents or `null`
- * for directories. `firstPartyTree` maps full canonical-repo paths (e.g.
- * `experimental/plugins/caveman/package.json`) for the first-party fallback
- * and collision cases.
- *
- * Install enumerates a repo's tree in one `git/trees?recursive=1` request
- * and downloads each file from `raw.githubusercontent.com`. The first-party
- * existence probe still uses the Contents API, so that surface is served too.
- */
-function marketplaceFixtureFetch(
-  manifest: unknown,
-  externalRepo: string,
-  externalTree: Record<string, string | null>,
-  firstPartyTree: Record<string, string | null> = {},
-): FetchLike {
-  const CANON = "vellum-ai/vellum-assistant";
-  const MANIFEST_URL = `https://api.github.com/repos/${CANON}/contents/experimental/plugins/marketplace.json`;
-  const EXTERNAL_TREE = `https://api.github.com/repos/${externalRepo}/git/trees/`;
-  const EXTERNAL_RAW = `https://raw.githubusercontent.com/${externalRepo}/`;
-  const CANON_TREE = `https://api.github.com/repos/${CANON}/git/trees/`;
-  const CANON_CONTENTS = `https://api.github.com/repos/${CANON}/contents/`;
-  const CANON_RAW = `https://raw.githubusercontent.com/${CANON}/`;
-
-  function treeBody(tree: Record<string, string | null>): unknown {
-    const blobs = Object.keys(tree)
-      .filter((key) => tree[key] !== null)
-      .map((key) => ({ path: key, type: "blob", mode: "100644" }));
-    return { tree: blobs, truncated: false };
-  }
-
-  function rawFile(
-    url: string,
-    rawPrefix: string,
-    tree: Record<string, string | null>,
-  ): Response {
-    // raw URL is `<rawPrefix><ref>/<repoPath>` — strip the ref.
-    const repoPath = decodeURIComponent(url.slice(rawPrefix.length)).replace(
-      /^[^/]+\//,
-      "",
-    );
-    const file = tree[repoPath];
-    if (file === null || file === undefined) {
-      return new Response("not found", { status: 404 });
-    }
-    return new Response(Buffer.from(new TextEncoder().encode(file)), {
-      status: 200,
-    });
-  }
-
-  // Direct-children Contents listing, used only by the first-party probe.
-  function contentsListing(
-    apiPath: string,
-    tree: Record<string, string | null>,
-  ): unknown {
-    const prefix = apiPath ? apiPath + "/" : "";
-    const direct = new Set<string>();
-    for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) continue;
-      const remainder = key.slice(prefix.length);
-      if (!remainder) continue;
-      direct.add(remainder.split("/")[0]!);
-    }
-    if (direct.size === 0) return null;
-    return Array.from(direct).map((name) => ({
-      name,
-      path: `${prefix}${name}`,
-      type: "dir",
-    }));
-  }
-
-  return (async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-
-    if (url.startsWith(MANIFEST_URL)) {
-      return new Response(JSON.stringify(manifest), { status: 200 });
-    }
-
-    if (url.startsWith(EXTERNAL_TREE)) {
-      return new Response(JSON.stringify(treeBody(externalTree)), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    if (url.startsWith(EXTERNAL_RAW)) {
-      return rawFile(url, EXTERNAL_RAW, externalTree);
-    }
-
-    if (url.startsWith(CANON_TREE)) {
-      return new Response(JSON.stringify(treeBody(firstPartyTree)), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    // First-party existence probe (Contents API), served from the canonical
-    // repo. MANIFEST_URL is checked first above, so this only sees plugin dirs.
-    if (url.startsWith(CANON_CONTENTS)) {
-      const after = decodeURIComponent(
-        url.slice(CANON_CONTENTS.length).split("?")[0]!,
-      );
-      const body = contentsListing(after, firstPartyTree);
-      if (body === null) {
-        return new Response("not found", { status: 404 });
-      }
-      return new Response(JSON.stringify(body), { status: 200 });
-    }
-
-    if (url.startsWith(CANON_RAW)) {
-      return rawFile(url, CANON_RAW, firstPartyTree);
-    }
-
-    return new Response("unexpected url: " + url, { status: 500 });
-  }) as FetchLike;
-}
 
 describe("installPlugin — marketplace resolution", () => {
   let ws: string;
@@ -541,31 +502,34 @@ describe("installPlugin — marketplace resolution", () => {
     ],
   };
 
-  test("installs a whitelisted plugin from its pinned external repo + ref", async () => {
+  test("installs a whitelisted plugin by shallow-cloning its pinned repo + ref", async () => {
     // GIVEN a marketplace whitelisting caveman at its repo root, pinned to a tag
-    const fetch = marketplaceFixtureFetch(
-      CAVEMAN_MANIFEST,
-      "JuliusBrussee/caveman",
-      {
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const calls: string[][] = [];
+    const runGit = fakeGitRunner({
+      tree: {
         "package.json": '{"name":"caveman"}',
         "README.md": "# caveman",
         ".claude-plugin": null,
         ".claude-plugin/plugin.json": "{}",
       },
-    );
+      commit: "1111111222222233333334444444555555666666",
+      calls,
+    });
 
     // WHEN we install by name (the install ref is ignored in favor of the
     // manifest's pinned ref)
     const result = await installPlugin(
       { name: "caveman", ref: "main" },
-      { fetch, workspacePluginsDir: pluginsDir },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
     );
 
-    // THEN the external tree is materialized under <pluginsDir>/caveman, and
-    // the result reports the pinned ref
+    // THEN the external tree is materialized under <pluginsDir>/caveman, the
+    // result reports the pinned ref and resolved commit, and `.git` is dropped
     const target = join(pluginsDir, "caveman");
     expect(result.target).toBe(target);
     expect(result.ref).toBe("v1.8.2");
+    expect(result.commit).toBe("1111111222222233333334444444555555666666");
     expect(result.fileCount).toBe(3);
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"caveman"}',
@@ -573,25 +537,80 @@ describe("installPlugin — marketplace resolution", () => {
     expect(existsSync(join(target, ".claude-plugin", "plugin.json"))).toBe(
       true,
     );
+    expect(existsSync(join(target, ".git"))).toBe(false);
+
+    // AND the clone fetched the pinned ref from the pinned repo URL.
+    const fetchCall = calls.find((c) => c[0] === "fetch");
+    expect(fetchCall).toContain("v1.8.2");
+    const remoteCall = calls.find((c) => c[0] === "remote");
+    expect(remoteCall?.at(-1)).toBe(
+      "https://github.com/JuliusBrussee/caveman.git",
+    );
+
+    // AND a provenance manifest records the external source + commit.
+    const manifest = JSON.parse(
+      readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
+    );
+    expect(manifest.source.kind).toBe("external");
+    expect(manifest.source.owner).toBe("JuliusBrussee");
+    expect(manifest.source.ref).toBe("v1.8.2");
+    expect(manifest.commit).toBe("1111111222222233333334444444555555666666");
+  });
+
+  test("a missing remote ref surfaces a clean not-found", async () => {
+    // GIVEN a clone whose fetch fails because the ref doesn't exist
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {},
+      fetchError: Object.assign(new Error("git fetch failed"), {
+        stderr: "fatal: couldn't find remote ref v1.8.2",
+      }),
+    });
+
+    // WHEN we install
+    // THEN it is a hard not-found, not a retryable error
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("a network failure during clone surfaces a retryable error", async () => {
+    // GIVEN a clone whose fetch fails with a transient network error
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {},
+      fetchError: Object.assign(new Error("git fetch failed"), {
+        stderr: "fatal: unable to access: Could not resolve host: github.com",
+      }),
+    });
+
+    // WHEN we install
+    // THEN it surfaces as the retryable variant so the route maps it to 503
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
   test("a name absent from the manifest falls back to the first-party source", async () => {
-    // GIVEN a manifest that does NOT whitelist "simple-memory", and an external
-    // fixture that would 404 any external lookup
-    const fetch = marketplaceFixtureFetch(
-      CAVEMAN_MANIFEST,
-      "JuliusBrussee/caveman",
-      {},
-    );
+    // GIVEN a manifest that does NOT whitelist "simple-memory", and no such
+    // first-party tree in the canonical repo
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
 
-    // WHEN we install a first-party name, the canonical repo has no such tree
-    // (the fixture only knows the manifest + caveman repo)
+    // WHEN we install a first-party name
     // THEN resolution falls back to the first-party path and surfaces a clean
-    // not-found pointing at the first-party source
+    // not-found pointing at the first-party source (git is never invoked)
     await expect(
       installPlugin(
         { name: "simple-memory", ref: "main" },
-        { fetch, workspacePluginsDir: pluginsDir },
+        { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
     ).rejects.toMatchObject({
       constructor: PluginNotFoundError,
@@ -602,26 +621,21 @@ describe("installPlugin — marketplace resolution", () => {
   test("first-party plugin wins a name collision with the marketplace", async () => {
     // GIVEN a manifest whitelisting "caveman" externally
     // AND an in-repo first-party plugin that also claims the name "caveman"
-    const fetch = marketplaceFixtureFetch(
-      CAVEMAN_MANIFEST,
-      "JuliusBrussee/caveman",
-      {
-        "package.json": '{"name":"external-caveman"}',
-        hooks: null,
-        "hooks/init.ts": "// external",
-      },
-      {
+    const fetch = makeContentsFetch({
+      tree: {
         "experimental/plugins/caveman/package.json":
           '{"name":"@vellumai/caveman"}',
         "experimental/plugins/caveman/hooks": null,
         "experimental/plugins/caveman/hooks/init.ts": "// first-party",
       },
-    );
+      manifest: CAVEMAN_MANIFEST,
+    });
 
-    // WHEN we install by the colliding name
+    // WHEN we install by the colliding name (git must NOT run — the in-repo
+    // plugin is served entirely from the Contents API)
     const result = await installPlugin(
       { name: "caveman", ref: "main" },
-      { fetch, workspacePluginsDir: pluginsDir },
+      { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
     );
 
     // THEN the in-repo plugin is installed (matching what the search catalog
@@ -629,6 +643,7 @@ describe("installPlugin — marketplace resolution", () => {
     // additive and never overrides a first-party plugin
     const target = join(pluginsDir, "caveman");
     expect(result.ref).toBe("main");
+    expect(result.commit).toBeNull();
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"@vellumai/caveman"}',
     );

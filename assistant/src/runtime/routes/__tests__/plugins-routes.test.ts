@@ -743,6 +743,7 @@ describe("POST /v1/plugins/install", () => {
       target: `/workspace/.vellum/plugins/${opts.name}`,
       fileCount: 7,
       ref: opts.ref ?? "main",
+      commit: null,
     }));
 
     const result = await invokeInstall({
