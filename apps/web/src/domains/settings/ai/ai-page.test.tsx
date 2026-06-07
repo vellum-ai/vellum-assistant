@@ -40,6 +40,7 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
 }));
 
+const { useAssistantSelectionStore } = await import("@/assistant/selection-store");
 const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_ID = "asst-1";
@@ -61,6 +62,7 @@ function makeSubscription(
 }
 
 function renderCard(subscription: SubscriptionResponse): string {
+  useAssistantSelectionStore.getState().setActiveAssistantId(ASSISTANT_ID);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
