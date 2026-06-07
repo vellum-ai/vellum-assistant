@@ -32,6 +32,9 @@
  *   a response with no tool calls
  * - {@link AssistantMessageContext} — passed to `assistant-message` hook,
  *   fired for each finalized assistant message to transform its content
+ * - {@link ConversationDisposeContext} — passed to `conversation-dispose`
+ *   hook, fired once when a conversation is torn down so plugins can release
+ *   any per-conversation state they hold
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -44,6 +47,7 @@ export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
 export type {
   AssistantMessageContext,
+  ConversationDisposeContext,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,

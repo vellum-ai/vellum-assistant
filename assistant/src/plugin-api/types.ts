@@ -363,3 +363,21 @@ export interface AssistantMessageContext {
   /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
   readonly logger: PluginLogger;
 }
+
+// ─── Conversation-dispose hook context ───────────────────────────────────────
+
+/**
+ * Context passed to the `conversation-dispose` hook. Fires once when a
+ * conversation is torn down, so a plugin can release any per-conversation state
+ * it holds (e.g. an entry in a `Map<conversationId, …>` store) keyed on the
+ * disposed conversation.
+ *
+ * Disposal is best-effort and runs from synchronous teardown: the hook chain is
+ * invoked fire-and-forget, so a hook must not assume its work completes before
+ * the conversation is gone, and a throwing hook is contained without blocking
+ * teardown.
+ */
+export interface ConversationDisposeContext {
+  /** Conversation ID being torn down. */
+  readonly conversationId: string;
+}

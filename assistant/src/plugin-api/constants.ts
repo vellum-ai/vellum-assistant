@@ -28,6 +28,8 @@ export const HOOKS = {
   STOP: "stop",
   /** Fires for each finalized assistant message, before it is persisted/streamed-final. A hook may transform the message content. */
   ASSISTANT_MESSAGE: "assistant-message",
+  /** Fires once when a conversation is torn down, so plugins can release any per-conversation state they hold. */
+  CONVERSATION_DISPOSE: "conversation-dispose",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */
