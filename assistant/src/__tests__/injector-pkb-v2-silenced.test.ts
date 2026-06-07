@@ -90,7 +90,7 @@ describe("PKB injector v2 cutover behavior", () => {
 
   test("v2 inactive → pkb-context, pkb-reminder, and now-md all produce blocks", async () => {
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     const texts = tailTexts(result.messages);
@@ -102,7 +102,7 @@ describe("PKB injector v2 cutover behavior", () => {
   test("v2 active → pkb-context and pkb-reminder silenced; now-md still fires", async () => {
     v2Active = true;
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     const texts = tailTexts(result.messages);

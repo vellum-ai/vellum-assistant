@@ -47,7 +47,7 @@ interface WakeConversationProbe {
   runCalls: Array<{
     input: Message[];
     requestId?: string;
-    turnContext?: unknown;
+    trust?: unknown;
     allowedTools?: string[];
     order: number;
   }>;
@@ -369,7 +369,7 @@ function makeWakeConversation(options: {
         probe.runCalls.push({
           input: [...input],
           requestId: runOptions?.requestId,
-          turnContext: runOptions?.turnContext,
+          trust: runOptions?.trust,
           allowedTools: snapshotAllowedTools(),
           order: order++,
         });
@@ -520,7 +520,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.runCalls).toHaveLength(0);
   });
 
-  test("builds a guardian turn context for explicit local-owner cleanup-mode wakes", async () => {
+  test("forwards a guardian trust snapshot for explicit local-owner cleanup-mode wakes", async () => {
     mockDiskPressureStatus = {
       enabled: true,
       state: "critical",
@@ -551,11 +551,9 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     expect(conversation.runCalls).toHaveLength(1);
-    expect(conversation.runCalls[0]!.turnContext).toEqual({
-      requestId: "wake:local-cleanup",
-      conversationId: conversation.conversationId,
-      turnIndex: 0,
-      trust: { sourceChannel: "vellum", trustClass: "guardian" },
+    expect(conversation.runCalls[0]!.trust).toEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
     });
   });
 
@@ -803,7 +801,7 @@ describe("wakeAgentForOpportunity", () => {
     conversation.agentLoop.run = async (
       input: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      runOptions?: AgentLoopRunOptions,
+      runOptions: AgentLoopRunOptions,
     ) => {
       observedDuringRun.push(conversation.isProcessing());
       return originalRun(input, onEvent, runOptions);

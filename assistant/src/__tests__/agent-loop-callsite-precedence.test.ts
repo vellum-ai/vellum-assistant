@@ -101,10 +101,14 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: { maxTokens: 64000 },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.max_tokens).toBe(4096);
   });
@@ -121,13 +125,17 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "high",
       },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.effort).toBe("low");
   });
@@ -144,6 +152,7 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "high",
@@ -153,7 +162,10 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.speed).toBe("fast");
   });
@@ -175,6 +187,7 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         // Conversation default also has thinking on — without the fix, this
@@ -184,7 +197,10 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // Call-site override resolves `thinking.enabled: false`, so the
     // RetryProvider normalizer must send Anthropic's explicit disabled shape.
@@ -203,10 +219,14 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: { maxTokens: 64000 },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // Must be wire-format `{ type: "adaptive" }` so the Anthropic SDK's
     // `ThinkingConfigParam` accepts it. The schema-shape `{ enabled,
@@ -228,6 +248,7 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "high",
@@ -236,7 +257,9 @@ describe("AgentLoop — call-site precedence", () => {
       },
     });
 
-    await loop.run([userMessage], () => {});
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     expect(config.max_tokens).toBe(64000);
@@ -263,11 +286,15 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       config: { maxTokens: 64000 },
       resolveSystemPrompt: resolveSystemPrompt,
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // Per-turn explicit value beats both the call-site (4096) and the
     // default (64000).

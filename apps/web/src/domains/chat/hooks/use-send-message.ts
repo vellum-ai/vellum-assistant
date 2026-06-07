@@ -25,7 +25,7 @@ import {
   type DisplayMessage,
 } from "@/domains/chat/utils/reconcile";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
-import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
@@ -385,25 +385,28 @@ export function useSendMessage({
             return;
           }
           let serverMessages: ConversationMessage[] = [];
-          let snapshotSeq: number | null = null;
+          let serverSeq: number | null = null;
           try {
             const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
             );
             serverMessages = snapshot?.messages ?? [];
-            snapshotSeq = snapshot?.seq ?? null;
+            serverSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort
           }
           if (!isCurrentSendScope(effectiveConversationId)) return;
-          recordAppliedSeq(effectiveConversationId, snapshotSeq);
+          // Capture the local seq `L` before advancing it so the merge
+          // can tell whether this snapshot moved the frontier (`S > L`).
+          const localSeq = getLocalSeq(effectiveConversationId);
+          recordLocalSeq(effectiveConversationId, serverSeq);
           setMessages((prev) => {
             if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
               return reconcileSnapshot(prev, serverMessages, {
-                conversationId: effectiveConversationId,
-                snapshotSeq,
+                serverSeq,
+                localSeq,
               });
             }
             const mapped = mapRuntimeToDisplayMessage(reply);

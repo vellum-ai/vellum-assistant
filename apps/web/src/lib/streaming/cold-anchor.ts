@@ -17,7 +17,7 @@
  * resumable cursor at `S` and re-anchor the connection so it reconnects
  * carrying `lastSeenSeq = S`. The daemon then replays `seq > S` from its
  * ring before going live, so the gap is delivered; the overlap with the
- * snapshot is an idempotent no-op via `applied-seq`. If `S` predates the
+ * snapshot is an idempotent no-op via `local-seq`. If `S` predates the
  * ring window the daemon goes live from a higher seq and the consumer's
  * seq-gap detector reconciles via `/messages` instead.
  *
@@ -41,7 +41,7 @@ import {
 } from "@/lib/streaming/reconnect-cursor";
 
 /**
- * Anchor the live SSE connection at the snapshot watermark `S` once per
+ * Anchor the live SSE connection at the server seq `S` once per
  * cold session.
  *
  * Called when `/messages` resolves for the active conversation. When seq
@@ -50,9 +50,9 @@ import {
  * requests a single re-anchor reconnect so the daemon replays `seq > S`
  * from its ring. A no-op otherwise.
  */
-export function anchorColdStartReplay(snapshotSeq: number | null): void {
+export function anchorColdStartReplay(serverSeq: number | null): void {
   if (!isSeqGapDetectionEnabled()) return;
-  if (snapshotSeq === null) return;
+  if (serverSeq === null) return;
   // A non-null cursor means a live event already seeded it — the
   // connection is no longer cold, so the running merge/apply path owns
   // alignment from here. Only a still-`null` cursor is a genuine cold
@@ -63,7 +63,7 @@ export function anchorColdStartReplay(snapshotSeq: number | null): void {
   // that is already in flight was opened cursor-less (before `S` was
   // known), so the bounce below is what actually carries `lastSeenSeq`;
   // seeding first means `buildEventsQuery` reads `S` on the reopen.
-  advanceReconnectCursor(snapshotSeq);
+  advanceReconnectCursor(serverSeq);
 
   // Re-anchor the connection. `sse-service` tears down the cursor-less
   // connect and reopens carrying `lastSeenSeq = S`. If no connection is

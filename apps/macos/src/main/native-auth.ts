@@ -197,6 +197,10 @@ export const installNativeAuth = (): void => {
       return startOAuth(options);
     },
   );
+
+  handle("vellum:auth:cancelOAuth", z.tuple([]), () => {
+    cancelPendingFlows();
+  });
 };
 
 export const __resetForTesting = (): void => {

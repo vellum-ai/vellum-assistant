@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  __resetSnapshotSeqForTesting,
-  getSnapshotSeq,
-  recordSnapshotSeq,
-} from "@/lib/streaming/snapshot-seq";
+  __resetServerSeqForTesting,
+  getServerSeq,
+  recordServerSeq,
+} from "@/lib/streaming/server-seq";
 
 beforeEach(() => {
-  __resetSnapshotSeqForTesting();
+  __resetServerSeqForTesting();
 });
 
-describe("snapshot-seq", () => {
+describe("server-seq", () => {
   test("returns null for a conversation that has never recorded a seq", () => {
     /**
      * Before any snapshot loads, consumers must see "no honest position"
@@ -18,7 +18,7 @@ describe("snapshot-seq", () => {
      */
     // GIVEN no snapshot has been recorded
     // WHEN the baseline is read
-    const seq = getSnapshotSeq("K");
+    const seq = getServerSeq("K");
 
     // THEN there is no position
     expect(seq).toBeNull();
@@ -30,13 +30,13 @@ describe("snapshot-seq", () => {
      * do not clobber each other's positions.
      */
     // GIVEN two conversations report different persisted seqs
-    recordSnapshotSeq("A", 10);
-    recordSnapshotSeq("B", 25);
+    recordServerSeq("A", 10);
+    recordServerSeq("B", 25);
 
     // WHEN each baseline is read
     // THEN each conversation keeps its own value
-    expect(getSnapshotSeq("A")).toBe(10);
-    expect(getSnapshotSeq("B")).toBe(25);
+    expect(getServerSeq("A")).toBe(10);
+    expect(getServerSeq("B")).toBe(25);
   });
 
   test("a later record overwrites the prior seq for the same conversation", () => {
@@ -44,13 +44,13 @@ describe("snapshot-seq", () => {
      * Each fresh snapshot load is authoritative, so the newest seq wins.
      */
     // GIVEN a conversation already has a baseline
-    recordSnapshotSeq("A", 10);
+    recordServerSeq("A", 10);
 
     // WHEN a newer snapshot reports a higher seq
-    recordSnapshotSeq("A", 11);
+    recordServerSeq("A", 11);
 
     // THEN the baseline reflects the latest snapshot
-    expect(getSnapshotSeq("A")).toBe(11);
+    expect(getServerSeq("A")).toBe(11);
   });
 
   test.each([
@@ -66,13 +66,13 @@ describe("snapshot-seq", () => {
        * position; a stale prior value must not survive it.
        */
       // GIVEN a conversation with a recorded baseline
-      recordSnapshotSeq("A", 10);
+      recordServerSeq("A", 10);
 
       // WHEN a non-honest value is recorded
-      recordSnapshotSeq("A", value);
+      recordServerSeq("A", value);
 
       // THEN the baseline is cleared
-      expect(getSnapshotSeq("A")).toBeNull();
+      expect(getServerSeq("A")).toBeNull();
     },
   );
 });

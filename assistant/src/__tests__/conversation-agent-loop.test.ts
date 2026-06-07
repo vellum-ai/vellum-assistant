@@ -617,6 +617,7 @@ function makeCtx(
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as Conversation["contextWindowManager"],
@@ -810,7 +811,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("freezes the timestamp and client timezone snapshot on the conversation, not the options bag", async () => {
+    test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -827,24 +828,19 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // The loop resolves the effective timezone to format the turn timestamp.
-      expect(formatTurnTimestampMock).toHaveBeenCalledWith({
-        timeZone: "America/New_York",
-      });
-      // The formatted timestamp, the turn-start client timezone, and the
-      // long-absence gap are frozen on the conversation as
-      // `currentTurnTemporalSnapshot` so every post-compaction re-injection
-      // reuses the same instant; the live `clientTimezone` would otherwise be
-      // clobbered mid-turn.
+      // The turn-start client timezone and the long-absence gap are frozen on
+      // the conversation as `currentTurnTemporalSnapshot`; the live
+      // `clientTimezone` would otherwise be clobbered mid-turn. `current_time`
+      // is not frozen — it is computed fresh at each injection inside
+      // `applyRuntimeInjections`.
       expect(ctx.currentTurnTemporalSnapshot).toEqual({
-        timestamp: "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
         clientTimezone: "America/Los_Angeles",
         timeSinceLastMessage: null,
       });
-      // Neither the timestamp, the timezones, nor the long-absence gap are
-      // threaded through the options bag — `applyRuntimeInjections` sources the
-      // timestamp, client timezone, and gap from the snapshot and the config
-      // timezones from config (`ui.userTimezone`, `ui.detectedTimezone`).
+      // Neither the timezones nor the long-absence gap are threaded through the
+      // options bag — `applyRuntimeInjections` sources the client timezone and
+      // gap from the snapshot and the config timezones from config
+      // (`ui.userTimezone`, `ui.detectedTimezone`).
       const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
       expect(injectionOptions).not.toHaveProperty("timestamp");
       expect(injectionOptions).not.toHaveProperty("clientTimezone");
@@ -1645,6 +1641,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1666,6 +1663,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
@@ -1725,6 +1723,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1774,6 +1773,7 @@ describe("session-agent-loop", () => {
         ],
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1874,6 +1874,7 @@ describe("session-agent-loop", () => {
         toolExecutor: async () => ({ content: "data", isError: false }),
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1959,6 +1960,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -1997,6 +1999,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -2688,6 +2691,7 @@ describe("session-agent-loop", () => {
           textResponse("retry succeeded"),
         ],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3200,6 +3204,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: (messages: Message[]) => {
             shouldCompactInputs.push(messages);
             return { needed: true, estimatedTokens: 95_000 };
@@ -3332,6 +3337,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3451,6 +3457,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
           maybeCompact: async (messages: Message[]) => {
             expect(messages).toBe(renderedSlackMessages);
@@ -3574,6 +3581,7 @@ describe("session-agent-loop", () => {
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
@@ -3941,6 +3949,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],
@@ -3990,6 +3999,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as Conversation["contextWindowManager"],

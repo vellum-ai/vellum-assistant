@@ -34,19 +34,19 @@ describe("buildShimSource", () => {
   test("emits a globalThis trampoline + one binding per export", () => {
     const source = buildShimSource(
       ["foo", "bar"],
-      Symbol.for("vellum.plugin-api.v1"),
+      Symbol.for("vellum.plugin-api"),
     );
     expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api.v1")];\n` +
+      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n` +
         `export const foo = api.foo;\n` +
         `export const bar = api.bar;\n`,
     );
   });
 
   test("handles an empty export list (today's types-only surface)", () => {
-    const source = buildShimSource([], Symbol.for("vellum.plugin-api.v1"));
+    const source = buildShimSource([], Symbol.for("vellum.plugin-api"));
     expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api.v1")];\n`,
+      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n`,
     );
   });
 });

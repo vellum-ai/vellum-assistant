@@ -277,6 +277,7 @@ export interface MessageRow {
   content: string;
   createdAt: number;
   metadata: string | null;
+  clientMessageId: string | null;
 }
 
 const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
@@ -286,6 +287,7 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   content: "content",
   createdAt: "createdAt",
   metadata: "metadata",
+  clientMessageId: "clientMessageId",
 });
 
 export type ConversationCreateType = "standard" | "background" | "scheduled";

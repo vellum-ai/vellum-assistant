@@ -1,6 +1,18 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
+
+import * as dateContext from "../daemon/date-context.js";
+
+// `applyRuntimeInjections` computes the `<turn_context>` `current_time` live via
+// `formatTurnTimestamp`; pin it so the rendered block matches the deterministic
+// `buildUnifiedTurnContextBlock` expectation below. The rest of the module
+// (timezone canonicalization/resolution) keeps its real behavior.
+const FIXED_TURN_TIMESTAMP = "2026-04-02T12:00:00Z";
+mock.module("../daemon/date-context.js", () => ({
+  ...dateContext,
+  formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
+}));
 
 import {
   clearConversations,
@@ -84,7 +96,6 @@ let liveConversation: {
   channelCapabilities?: ChannelCapabilities;
   trustContext?: { trustClass: string };
   currentTurnTemporalSnapshot?: {
-    timestamp: string;
     clientTimezone: string | null;
   };
   currentTurnInterfaceContext?: {
@@ -110,12 +121,11 @@ function resetLiveConversation(): void {
   };
 }
 
-// `applyRuntimeInjections` sources the `<turn_context>` timestamp from the live
-// conversation's frozen temporal snapshot, so seed it for tests that assert the
-// unified-turn-context block is present.
-function seedTemporalSnapshot(timestamp: string): void {
+// `applyRuntimeInjections` gates the `<turn_context>` block on the live
+// conversation's frozen temporal snapshot (computing `current_time` live), so
+// seed it for tests that assert the unified-turn-context block is present.
+function seedTemporalSnapshot(): void {
   liveConversation.currentTurnTemporalSnapshot = {
-    timestamp,
     clientTimezone: null,
   };
   setConversation(TEST_CONVERSATION_ID, liveConversation as never);
@@ -240,9 +250,9 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
 
     seedWorkspaceContext(workspace);
     seedDiskPressure(true);
-    seedTemporalSnapshot("2026-04-02T12:00:00Z");
+    seedTemporalSnapshot();
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
 
     expect(tailTexts(result.messages).slice(0, 4)).toEqual([
@@ -264,11 +274,11 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       interfaceName: "macos",
     });
     seedDiskPressure(true);
-    seedTemporalSnapshot("2026-04-02T12:00:00Z");
+    seedTemporalSnapshot();
     const result = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "status" }] }],
       {
-        turnContext: makeContext(),
+        ...makeContext(),
         mode: "minimal",
       },
     );
@@ -313,7 +323,7 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
       chatType: "channel",
     });
     const result = await applyRuntimeInjections(originalRun, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
 
     expect(result.messages).toHaveLength(2);
@@ -332,13 +342,13 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
 
     seedDiskPressure(true);
     const first = await applyRuntimeInjections(runMessages, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
     const stripped = stripInjectionsForCompaction(first.messages);
     expect(tailTexts(stripped)).toEqual(["find large files"]);
 
     const second = await applyRuntimeInjections(stripped, {
-      turnContext: makeContext(),
+      ...makeContext(),
     });
     expect(
       tailTexts(second.messages).filter(

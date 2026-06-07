@@ -16027,6 +16027,8 @@ paths:
                           type: array
                           items:
                             type: string
+                        clientMessageId:
+                          type: string
                         role:
                           type: string
                           enum:
@@ -16995,6 +16997,12 @@ paths:
                   type: string
                 clientTimezone:
                   type: string
+                clientMessageId:
+                  type: string
+                  description:
+                    Client-generated idempotency nonce. Persisted on the row and echoed back on the message_echo event and the
+                    messages snapshot so the client can correlate its optimistic row by identity. Duplicate sends for
+                    the same (conversation, clientMessageId) are deduplicated server-side.
                 inferenceProfile:
                   anyOf:
                     - type: string

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { isPlatformLocal } from "@/lib/auth/loopback-auth";
 import { hasAssistants, isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -12,6 +13,7 @@ export function WelcomeScreen() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const flowIdRef = useRef(0);
 
   const handleLogin = async () => {
     const returnTo = hasAssistants()
@@ -22,18 +24,30 @@ export function WelcomeScreen() {
       void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
       return;
     }
+    const flowId = ++flowIdRef.current;
     setError(null);
     setLoading(true);
     try {
       const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
       await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
     } catch {
+      if (flowId !== flowIdRef.current) return;
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   };
 
+  const handleCancel = () => {
+    flowIdRef.current++;
+    setLoading(false);
+    setError(null);
+    if (isElectron()) {
+      void window.vellum?.auth?.cancelOAuth();
+    }
+  };
+
   const handleContinueWithoutAccount = () => {
+    if (loading) handleCancel();
     if (hasAssistants()) {
       void navigate(routes.onboarding.selectAssistant);
     } else {
@@ -73,10 +87,9 @@ export function WelcomeScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={() => void handleLogin()}
-              disabled={loading}
+              onClick={loading ? handleCancel : () => void handleLogin()}
             >
-              {loading ? "Logging in…" : "Log In"}
+              {loading ? "Cancel" : "Log In"}
             </Button>
             <Button
               variant="ghost"
@@ -84,7 +97,6 @@ export function WelcomeScreen() {
               fullWidth
               className="h-11 text-base"
               onClick={handleContinueWithoutAccount}
-              disabled={loading}
             >
               Continue without account
             </Button>

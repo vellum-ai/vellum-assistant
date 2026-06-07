@@ -190,8 +190,8 @@ let mockCompactResult: ContextWindowResult = {
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     nonPersistedPrefixCount = 0;
-    summaryIsInjected = false;
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }

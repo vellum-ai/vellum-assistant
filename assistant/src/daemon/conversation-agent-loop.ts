@@ -44,10 +44,7 @@ import {
   estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowManager,
-} from "../context/window-manager.js";
+import type { ContextWindowCompactOptions } from "../context/window-manager.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -86,7 +83,6 @@ import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { runHook } from "../plugins/pipeline.js";
-import type { TurnContext as PluginTurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import {
@@ -143,10 +139,7 @@ import {
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  formatTurnTimestamp,
-  resolveTurnTimezoneContext,
-} from "./date-context.js";
+import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
@@ -191,11 +184,6 @@ function formatDiskPressureBlockedMessage(): string {
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
-//
-// Canonical {@link PluginTurnContext} builder threaded into every
-// `runHook` call inside `runAgentLoopImpl`. The orchestrator composes
-// the context on demand at each call site from ambient state rather than
-// carrying a persistent `TurnContext` instance across the turn.
 
 /**
  * Synthetic fallback trust context used when the orchestrator fires a hook
@@ -208,42 +196,6 @@ const FALLBACK_TURN_TRUST: TrustContext = {
   sourceChannel: "vellum",
   trustClass: "unknown",
 };
-
-/**
- * Build the {@link TurnContext} passed to {@link runHook}.
- *
- * Canonical source of truth for every hook call site inside the agent
- * loop. Every `runHook` invocation in `runAgentLoopImpl` (and in the
- * handlers that share its ambient state) must route through this helper
- * rather than constructing a `TurnContext` literal inline — this keeps
- * `turnIndex` and trust resolution consistent across hooks, which in turn
- * keeps structured logs filtered by `conversationId`/`turnIndex` coherent
- * across slots.
- *
- * Behavior:
- * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
- *   0-based turn counter. Reading from a single source avoids the
- *   earlier inconsistency (`ctx.turnCount`, `ctx.messages.length - 1`,
- *   `ctx.messages.length`, and `0` were all used for the same turn).
- * - Trust pulls from the per-turn snapshot first, then the conversation-
- *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
- *   the one inside the orchestrator's inline injection assembly so
- *   middleware reads the same trust class the runtime sees.
- */
-function buildPluginTurnContext(
-  ctx: Conversation,
-  requestId: string,
-): PluginTurnContext {
-  const trust =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId,
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-    callSite: ctx.currentCallSite,
-  };
-}
 
 /**
  * Trust class of the actor whose turn is in progress, for the compactor's
@@ -356,8 +308,8 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
-  // Expose the turn's call site to plugin pipeline/injector contexts (read by
-  // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
 
   // Optional per-turn inference-profile override. Plumbed through to every
@@ -402,11 +354,7 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     currentEffectiveContextWindow,
   );
-  const contextWindowManager =
-    ctx.contextWindowManager as ContextWindowManager & {
-      updateConfig?: (config: ContextWindowConfig) => void;
-    };
-  contextWindowManager.updateConfig?.(currentContextWindowConfig);
+  ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
   let emittedToolRoutedProfile: string | undefined;
@@ -426,7 +374,7 @@ export async function runAgentLoopImpl(
         }).contextWindow,
         currentEffectiveContextWindow,
       );
-      contextWindowManager.updateConfig?.(currentContextWindowConfig);
+      ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },
@@ -930,6 +878,19 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Freeze the turn-start client timezone and long-absence gap on the
+    // conversation so `applyRuntimeInjections` sources them from live state —
+    // like the channel/voice/transport hints. Frozen here (rather than read
+    // live in assembly) because the live `ctx.clientTimezone` is overwritten
+    // when a newer message for the same conversation arrives mid-turn, which
+    // would otherwise leak a queued message's timezone into the in-flight turn.
+    // The `current_time` value is computed fresh at each injection point, so
+    // it is not part of this snapshot.
+    ctx.currentTurnTemporalSnapshot = {
+      clientTimezone: timezoneContext.clientTimezone,
+      timeSinceLastMessage,
+    };
+
     // Resolve the effective profile key for this turn and detect changes.
     // Only inject model_profile into the turn context when the profile
     // changed since the last turn (or on the first turn of a conversation)
@@ -986,42 +947,26 @@ export async function runAgentLoopImpl(
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
 
-    // Capture wall-clock "now" at its point of use, after the blocking memory
-    // retrieval, so the injected `<turn_context>` timestamp reflects current
-    // time rather than the moment the turn began. Freeze it (with the
-    // turn-start client timezone and the long-absence gap) on the conversation
-    // so `applyRuntimeInjections` sources it from live state — like the
-    // channel/voice/transport hints — and every post-compaction re-injection
-    // reuses the same instant.
-    ctx.currentTurnTemporalSnapshot = {
-      timestamp: formatTurnTimestamp({
-        timeZone: timezoneContext.effectiveTimezone,
-      }),
-      clientTimezone: timezoneContext.clientTimezone,
-      timeSinceLastMessage,
-    };
-
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     let currentInjectionMode: InjectionMode = "full";
 
-    // Canonical per-turn TurnContext forwarded to the injector chain. Every
-    // per-turn injection input — the Slack chronological transcript, the
-    // unified `<turn_context>` block, channel/voice/transport hints — is
-    // self-resolved inside `applyRuntimeInjections` from the live
-    // conversation; we only hand in identity + trust here so third-party
-    // injectors see the real turn metadata. `isNonInteractive`,
-    // `modelProfile`, and `actorContext` are resolved once at turn start and
-    // threaded per call site so post-compaction re-injection receives them as
-    // explicit hook inputs rather than via live state that can flip mid-turn.
-    const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
-
+    // `applyRuntimeInjections` self-resolves every per-turn injection input —
+    // the Slack chronological transcript, the unified `<turn_context>` block,
+    // channel/voice/transport hints, and the turn's trust/index/call-site —
+    // from the live conversation, so we only hand in the request id (the one
+    // turn-identity field it can't recover) plus the conversation id that keys
+    // that lookup. `isNonInteractive`, `modelProfile`, and `actorContext` are
+    // resolved once at turn start and threaded per call site so post-compaction
+    // re-injection receives them as explicit inputs rather than via live state
+    // that can flip mid-turn.
     const injection = await applyRuntimeInjections(runMessages, {
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
       mode: currentInjectionMode,
-      turnContext: injectionTurnCtx,
+      requestId: reqId,
+      conversationId: ctx.conversationId,
     });
     runMessages = injection.messages;
 
@@ -1182,7 +1127,8 @@ export async function runAgentLoopImpl(
             modelProfile: modelProfileStr,
             actorContext,
             mode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           let next = injection.messages;
           if (isTrustedActor && mode !== "minimal") {
@@ -1276,12 +1222,14 @@ export async function runAgentLoopImpl(
 
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
-    // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (e.g. compaction) see the
-    // real conversation identity / trust / contextWindowManager instead of
-    // the synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
-    const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
+    // Trust snapshot the loop forwards to its mid-loop in-place compaction
+    // (scoping the compactor's image manifest) and the post-compaction
+    // re-injection. Prefers the per-turn snapshot, then the conversation-level
+    // context, then the fallback — matching the trust the runtime injection
+    // assembly resolves for the same turn. The loop's other turn-identity
+    // fields self-resolve from its own conversation id.
+    const loopTrust =
+      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
@@ -1301,7 +1249,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
-          turnContext: loopTurnCtx,
+          trust: loopTrust,
           contextWindowManager: ctx.contextWindowManager,
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
@@ -1608,8 +1556,11 @@ export async function runAgentLoopImpl(
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
-              ...(opts ?? {}),
+            defaultCompact({
+              manager: ctx.contextWindowManager,
+              messages: msgs,
+              signal,
+              ...((opts ?? {}) as ContextWindowCompactOptions),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
               actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
@@ -1651,7 +1602,8 @@ export async function runAgentLoopImpl(
           modelProfile: modelProfileStr,
           actorContext,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
+          requestId: reqId,
+          conversationId: ctx.conversationId,
         });
         runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1739,7 +1691,8 @@ export async function runAgentLoopImpl(
             modelProfile: modelProfileStr,
             actorContext,
             mode: currentInjectionMode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {

@@ -4,7 +4,7 @@
 // stored + 1`) or a server restart (`event.seq < stored`) is detected.
 //
 // The same flag also gates the per-conversation seq machinery that builds
-// on the cursor: the applied-seq frontier (`applied-seq.ts`), idempotent
+// on the cursor: the local-seq frontier (`local-seq.ts`), idempotent
 // stream apply, and the monotonic snapshot/stream merge
 // (`reconcile-with-seq.ts`).
 //
