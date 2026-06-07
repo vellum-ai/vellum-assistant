@@ -183,18 +183,22 @@ export function HatchingScreen() {
     const startHatch = async () => {
       transitionPhase("provisioning");
 
-      // If an assistant is already active (debug replay, returning user),
-      // skip the hatch request and go straight to readiness polling.
-      try {
-        const existing = await getAssistant();
-        if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
-          handleHatchReady();
-          return;
+      // For platform hatches, check if an assistant is already active
+      // (debug replay, returning user) and skip the hatch request.
+      // Local hatches always need to run hatchLocalAssistant() to
+      // create the local daemon, even when a cloud assistant exists.
+      if (!useLocalHatch) {
+        try {
+          const existing = await getAssistant();
+          if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+            handleHatchReady();
+            return;
+          }
+        } catch {
+          // Fall through to normal hatch
         }
-      } catch {
-        // Fall through to normal hatch
+        if (cancelled) return;
       }
-      if (cancelled) return;
 
       // Local/Docker hatch lifecycle:
       // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
