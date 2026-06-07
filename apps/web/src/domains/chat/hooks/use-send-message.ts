@@ -671,8 +671,8 @@ export function useSendMessage({
         // POST resolve — swap the optimistic user row's client id for the
         // server's. Gate on `isOptimistic` so a reconcile that already
         // swapped this row doesn't get clobbered. Queued sends skip this
-        // and keep their optimistic id until a later reconcile
-        // content-matches.
+        // and keep their optimistic id until the daemon echoes their
+        // `clientMessageId` back on the persisted row.
         if (result.userMessageId) {
           const serverUserMessageId = result.userMessageId;
           setMessages((prev) =>
