@@ -36,6 +36,7 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
@@ -217,9 +218,12 @@ export function ChatMainPanel({
     voiceError,
     clearVoiceError,
     setVoiceError,
+    showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
     setVoiceInterim,
+    handlePrimerContinue,
+    handlePrimerCancel,
     handleRetryMicPermission,
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
@@ -801,6 +805,11 @@ export function ChatMainPanel({
         queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
         readonlyBannerSlot={slackReadonlyBannerSlot}
         startersSlot={startersSlot}
+      />
+      <MicPermissionPrimer
+        open={showPrimer}
+        onContinue={handlePrimerContinue}
+        onCancel={handlePrimerCancel}
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}

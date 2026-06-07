@@ -50,6 +50,8 @@ module.exports = {
     entitlements: "./scripts/entitlements/app.plist",
     entitlementsInherit: "./scripts/entitlements/inherit.plist",
     extendInfo: {
+      NSMicrophoneUsageDescription:
+        "Vellum uses the microphone to record voice input for chat.",
       NSUserNotificationAlertStyle: "alert",
     },
     target: [
