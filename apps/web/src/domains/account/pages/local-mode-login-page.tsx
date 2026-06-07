@@ -14,15 +14,16 @@ import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-f
 import { useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
     getActiveAssistant,
-    isLocalAssistant,
-    isPlatformAssistant,
     loadLockfile,
 } from "@/lib/local-mode";
 import { captureError, normalizeToError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
-import { useLockfileStore } from "@/stores/lockfile-store";
+import {
+    useResolvedAssistantsStore,
+    type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 
 interface ConnectError {
   message: string;
@@ -47,11 +48,10 @@ function ConnectErrorMessage({ error }: { error: ConnectError | null }) {
 /**
  * Lockfile-driven self-hosted login for `/account/login`.
  *
- * Renders one of four states from the lockfile the host exposes: no
- * assistants (hatch prompt / platform sign-in), platform-only (redirect to
- * sign-in), local-only (auto-connect to the active assistant), or mixed
- * (two-card picker). The lockfile is read from its store so the screen
- * re-renders when a load or mutation changes it.
+ * Renders one of four states based on resolved assistants: no assistants
+ * (hatch prompt / platform sign-in), platform-only (redirect to sign-in),
+ * local-only (auto-connect to the active assistant), or mixed (two-card
+ * picker).
  */
 export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const navigate = useNavigate();
@@ -61,10 +61,9 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const [platformLoading, setPlatformLoading] = useState(false);
   const isPlatformLocal = useIsPlatformLocal();
 
-  const lockfile = useLockfileStore.use.lockfile();
-  const assistants = lockfile?.assistants ?? [];
-  const localAssistants = assistants.filter(isLocalAssistant);
-  const platformAssistants = assistants.filter(isPlatformAssistant);
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const localAssistants = assistants.filter((a) => a.isLocal);
+  const platformAssistants = assistants.filter((a) => !a.isLocal);
   const hasLocal = localAssistants.length > 0;
   const hasPlatform = platformAssistants.length > 0;
 
@@ -73,7 +72,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   // real active assistant.
   const autoConnectId =
     hasLocal && !hasPlatform
-      ? (getActiveAssistant() ?? localAssistants[0])?.assistantId
+      ? (getActiveAssistant()?.assistantId ?? localAssistants[0]?.id)
       : undefined;
 
   const callbackUrl = buildProviderCallbackUrl(returnTo);
@@ -90,12 +89,9 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
         await useAuthStore.getState().connectLocalAssistant(assistantId);
         navigate(returnTo || "/assistant");
       } catch (err) {
-        const target = localAssistants.find(
-          (assistant) => assistant.assistantId === assistantId,
-        );
         captureError(err, {
           context: "local-login.connect",
-          extra: { assistantId, gatewayPort: target?.resources?.gatewayPort },
+          extra: { assistantId },
         });
         setConnectError({
           message:
@@ -105,7 +101,7 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
         setConnectingId(null);
       }
     },
-    [navigate, returnTo, localAssistants],
+    [navigate, returnTo],
   );
 
   const handlePlatformProvider = useCallback(
@@ -308,25 +304,20 @@ export function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
           <div className="flex flex-col gap-2">
             {localAssistants.map((assistant) => (
               <button
-                key={assistant.assistantId}
+                key={assistant.id}
                 type="button"
                 className="flex w-full items-center justify-between rounded-lg border border-[var(--border-disabled)] bg-[var(--surface-sunken)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-lift)] disabled:opacity-50"
-                disabled={connectingId === assistant.assistantId}
+                disabled={connectingId === assistant.id}
                 onClick={() => {
-                  void connectToLocal(assistant.assistantId);
+                  void connectToLocal(assistant.id);
                 }}
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-body-small-default text-[var(--content-emphasised)]">
-                    {assistant.name || assistant.assistantId}
+                    {assistant.name || assistant.id}
                   </span>
-                  {assistant.species && (
-                    <span className="text-body-small-default text-[var(--content-secondary)]">
-                      {assistant.species}
-                    </span>
-                  )}
                 </div>
-                {connectingId === assistant.assistantId && (
+                {connectingId === assistant.id && (
                   <span className="text-body-small-default text-[var(--content-secondary)]">
                     Connecting...
                   </span>
