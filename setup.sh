@@ -209,30 +209,77 @@ cat >> "${VELLUM_COMP_DIR}/completions.zsh" << 'ZSH_COMP_END'
 compdef _vellum vellum
 ZSH_COMP_END
 
-# — Ensure ~/.bun/bin is on PATH in shell rc files —
+# ---------------------------------------------------------------------------
+# Wire up PATH + completions in shell rc files.
+#
+# nix / home-manager manage ~/.zshrc (and friends) as read-only symlinks into
+# the nix store. When the canonical rc isn't writable, fall back to a writable
+# "*.local" escape hatch it already sources (e.g. ~/.zshrc sources
+# ~/.zshenv.local) so our additions still load. If no hatch is found we use a
+# "<rc>.local" sidecar and tell the user to source it from their config.
+# ---------------------------------------------------------------------------
 BUN_BIN="${HOME}/.bun/bin"
-if [ -f "${HOME}/.bashrc" ]; then
-  if ! grep -q "${BUN_BIN}" "${HOME}/.bashrc"; then
-    printf '\nexport PATH="%s:$PATH"\n' "${BUN_BIN}" >> "${HOME}/.bashrc"
-  fi
-fi
 
-if [ -f "${HOME}/.zshrc" ]; then
-  if ! grep -q "${BUN_BIN}" "${HOME}/.zshrc"; then
-    printf '\nexport PATH="%s:$PATH"\n' "${BUN_BIN}" >> "${HOME}/.zshrc"
+# Echo the writable file to append to for a given canonical rc.
+rc_target() {
+  local rc="$1"
+  if [ -w "$rc" ]; then
+    printf '%s' "$rc"
+    return
   fi
-fi
+  # Read-only rc (nix symlink): reuse a "source ~/...local" hatch it already
+  # sources; otherwise fall back to a "<rc>.local" sidecar.
+  local hatch
+  hatch="$(sed -n 's/.*source[[:space:]]*\(~[^ ;&]*\.local\).*/\1/p' "$rc" 2>/dev/null | head -1)"
+  if [ -n "$hatch" ]; then
+    printf '%s' "${hatch/#\~/$HOME}"
+  else
+    printf '%s' "${rc}.local"
+  fi
+}
+
+# Warn if our chosen target isn't actually sourced by the canonical rc.
+warn_unsourced() {
+  local rc="$1" target="$2"
+  [ "$rc" = "$target" ] && return
+  if ! grep -qF "$(basename "$target")" "$rc" 2>/dev/null; then
+    echo "warning: ${rc} is read-only and does not source ${target}." >&2
+    echo "         Add this to your shell config so completions load:" >&2
+    echo "         [[ -f ${target} ]] && source ${target}" >&2
+  fi
+}
+
+# — Ensure ~/.bun/bin is on PATH in shell rc files —
+for rc in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
+  [ -e "$rc" ] || continue
+  target="$(rc_target "$rc")"
+  warn_unsourced "$rc" "$target"
+  [ -e "$target" ] || touch "$target"
+  if ! grep -qF "${BUN_BIN}" "$target"; then
+    printf '\nexport PATH="%s:$PATH"\n' "${BUN_BIN}" >> "$target"
+  fi
+done
 
 # — Source completions from shell rc files —
-if [ -f "${HOME}/.bashrc" ]; then
-  if ! grep -q '.config/vellum/completions/completions.bash' "${HOME}/.bashrc"; then
-    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.bash\n' >> "${HOME}/.bashrc"
+if [ -e "${HOME}/.bashrc" ]; then
+  target="$(rc_target "${HOME}/.bashrc")"
+  [ -e "$target" ] || touch "$target"
+  if ! grep -qF '.config/vellum/completions/completions.bash' "$target"; then
+    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.bash\n' >> "$target"
   fi
 fi
 
-if [ -f "${HOME}/.zshrc" ]; then
-  if ! grep -q '.config/vellum/completions/completions.zsh' "${HOME}/.zshrc"; then
-    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.zsh\n' >> "${HOME}/.zshrc"
+if [ -e "${HOME}/.zshrc" ]; then
+  target="$(rc_target "${HOME}/.zshrc")"
+  [ -e "$target" ] || touch "$target"
+  if ! grep -qF '.config/vellum/completions/completions.zsh' "$target"; then
+    # The escape hatch may be sourced before compinit defines `compdef`, so
+    # ensure the completion system is initialized before sourcing.
+    {
+      printf '\n# vellum completions\n'
+      printf 'if ! whence compdef >/dev/null 2>&1; then autoload -Uz compinit && compinit; fi\n'
+      printf 'source ~/.config/vellum/completions/completions.zsh\n'
+    } >> "$target"
   fi
 fi
 
