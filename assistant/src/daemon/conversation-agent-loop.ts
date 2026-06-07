@@ -139,7 +139,6 @@ import {
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
@@ -1044,26 +1043,6 @@ export async function runAgentLoopImpl(
     const slackChronologicalMessages =
       slackChronologicalContext?.messages ?? null;
 
-    // Active-thread focus block: when the inbound user message belongs to
-    // a Slack thread, append a non-persisted `<active_thread>` tail block
-    // to the final user turn listing the thread's parent + replies. Helps
-    // the model orient when the channel transcript is long and
-    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
-    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
-    // since DMs do not have threads.
-    const slackActiveThreadFocusBlock = isSlackConversation
-      ? loadSlackActiveThreadFocusBlock(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          {
-            trustClass: ctx.trustContext?.trustClass,
-            contextCompactedMessageCount: ctx.contextCompactedMessageCount,
-            slackContextCompactionWatermarkTs:
-              ctx.slackContextCompactionWatermarkTs,
-          },
-        )
-      : null;
-
     state.reducerCompacted = compactedThisTurn;
 
     // Shared orchestrator-content injection options — reused whenever we need
@@ -1072,7 +1051,6 @@ export async function runAgentLoopImpl(
     // only channel/conversation content the orchestrator assembles.
     const injectionOpts = {
       slackChronologicalMessages,
-      slackActiveThreadFocusBlock,
       // The unified `<turn_context>` block is built by the `unified-turn-context`
       // injector. The timestamp, client timezone, and long-absence gap are
       // sourced from the conversation's frozen `currentTurnTemporalSnapshot`,

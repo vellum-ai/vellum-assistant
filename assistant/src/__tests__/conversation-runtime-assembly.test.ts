@@ -2,6 +2,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
 // `true`) makes the PKB injector go silent — force it off here so the v1
 // injection chain assertions stay meaningful.
@@ -75,8 +77,11 @@ import {
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
+import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -91,6 +96,11 @@ import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+
+// `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
+// reading the live conversation's persisted message rows, so the schema must
+// exist before any Slack-channel assembly test runs.
+initializeDb();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
@@ -2732,7 +2742,18 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 // ---------------------------------------------------------------------------
 
 describe("Slack channel chronological rendering — multi-thread", () => {
-  afterEach(clearConversations);
+  afterEach(() => {
+    clearConversations();
+    // The focus-block tests persist rows under the runtime-assembly fallback
+    // conversation; clear them so later tests resolve against an empty DB.
+    const db = getDb();
+    db.delete(messages)
+      .where(eq(messages.conversationId, "runtime-assembly-fallback"))
+      .run();
+    db.delete(conversations)
+      .where(eq(conversations.id, "runtime-assembly-fallback"))
+      .run();
+  });
 
   // Slack ts values are seconds-since-epoch with microsecond precision.
   // Pick a few stable anchors so thread aliases (sha-derived) stay
@@ -3718,10 +3739,72 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   // interleaved. The block is non-persisted: replays / re-injections strip
   // any prior `<active_thread>` blocks via `RUNTIME_INJECTION_PREFIXES`.
 
-  // Re-run a Slack-channel turn through the public assembly path with the
-  // active-thread focus block plumbed in (mirrors production wiring in
-  // conversation-agent-loop.ts).
-  async function runSlackChannelAssemblyWithFocus(rows: MessageRow[]): Promise<{
+  interface SeededCompactionState {
+    slackContextCompactionWatermarkTs?: string | null;
+    contextCompactedMessageCount?: number;
+  }
+
+  // Persist the Slack rows under the runtime-assembly fallback conversation and
+  // mirror the channel capabilities + trust class + compaction state onto its
+  // live registry entry, so `applyRuntimeInjections` self-resolves the
+  // `<active_thread>` focus block from the conversation's stored rows — the same
+  // way it does in production, where the injector reads the live conversation
+  // rather than receiving a pre-built block.
+  function seedSlackChannelConversationWithRows(
+    caps: ChannelCapabilities,
+    rows: MessageRow[],
+    compaction: SeededCompactionState = {},
+  ): void {
+    const db = getDb();
+    const now = Date.now();
+    db.delete(messages)
+      .where(eq(messages.conversationId, "runtime-assembly-fallback"))
+      .run();
+    db.insert(conversations)
+      .values({
+        id: "runtime-assembly-fallback",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    if (rows.length > 0) {
+      db.insert(messages)
+        .values(
+          rows.map((r) => ({
+            id: r.id,
+            conversationId: "runtime-assembly-fallback",
+            role: r.role,
+            content: r.content,
+            createdAt: r.createdAt,
+            metadata: r.metadata,
+          })),
+        )
+        .run();
+    }
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      channelCapabilities: caps,
+      trustContext: { trustClass: "guardian" },
+      slackContextCompactionWatermarkTs:
+        compaction.slackContextCompactionWatermarkTs ?? null,
+      contextCompactedMessageCount:
+        compaction.contextCompactedMessageCount ?? 0,
+    } as never);
+  }
+
+  // Re-run a Slack-channel turn through the public assembly path. The
+  // active-thread focus block self-resolves inside `applyRuntimeInjections`
+  // from the seeded live conversation; `focusBlock` resolves it the same way
+  // (default DB loader, guardian trust + the seeded compaction state) for the
+  // expected-content assertions.
+  async function runSlackChannelAssemblyWithFocus(
+    rows: MessageRow[],
+    compaction: SeededCompactionState = {},
+  ): Promise<{
     messages: Message[];
     focusBlock: string | null;
   }> {
@@ -3733,23 +3816,27 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "channel",
     };
     const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
+      "runtime-assembly-fallback",
       slackChannelCaps,
       { loader: () => rows, trustClass: "guardian" },
     );
+    seedSlackChannelConversationWithRows(slackChannelCaps, rows, compaction);
     const focusBlock = loadSlackActiveThreadFocusBlock(
-      "conv-1",
+      "runtime-assembly-fallback",
       slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
+      {
+        trustClass: "guardian",
+        contextCompactedMessageCount: compaction.contextCompactedMessageCount,
+        slackContextCompactionWatermarkTs:
+          compaction.slackContextCompactionWatermarkTs,
+      },
     );
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    seedChannelCapabilitiesConversation(slackChannelCaps);
     const { messages } = await applyRuntimeInjections([lastUserMessage], {
       slackChronologicalMessages,
-      slackActiveThreadFocusBlock: focusBlock,
     });
     return { messages, focusBlock };
   }
@@ -3966,14 +4053,143 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     }
   });
 
+  test("focus block self-resolves the live conversation's compaction watermark", async () => {
+    /**
+     * The watermark + compacted count live on the live `Conversation`, not in
+     * the injection options, so `applyRuntimeInjections` must read them off the
+     * live conversation to bound the self-resolved `<active_thread>` block.
+     */
+    // GIVEN a thread whose earliest rows were folded into a prior compaction
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000005_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000020_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    // WHEN the live conversation carries a Slack compaction watermark at T1
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+      {
+        slackContextCompactionWatermarkTs: T1,
+        contextCompactedMessageCount: 2,
+      },
+    );
+
+    // THEN the self-resolved focus block keeps only the post-watermark reply
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("live reply");
+    expect(focusBlock!).not.toContain("compacted root");
+    expect(focusBlock!).not.toContain("compacted reply");
+    // AND `applyRuntimeInjections` injected exactly that self-resolved block,
+    // proving it read the watermark + count off the live conversation.
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<active_thread>");
+    expect(allText).toContain(focusBlock!);
+  });
+
+  test("focus block bounds by the compacted count when there is no watermark", async () => {
+    /**
+     * Conversations compacted before the Slack watermark migration have no
+     * watermark, so the raw `contextCompactedMessageCount` is the sole boundary
+     * the self-resolved focus block uses to drop already-compacted rows.
+     */
+    // GIVEN a thread whose first two rows were folded into a prior compaction
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000005_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000020_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    // WHEN the live conversation has a compacted count of 2 and no watermark
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+      {
+        slackContextCompactionWatermarkTs: null,
+        contextCompactedMessageCount: 2,
+      },
+    );
+
+    // THEN the self-resolved focus block drops the two compacted rows and keeps
+    // only the live reply
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("live reply");
+    expect(focusBlock!).not.toContain("compacted root");
+    expect(focusBlock!).not.toContain("compacted reply");
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<active_thread>");
+    expect(allText).toContain(focusBlock!);
+  });
+
   test("focus block is dropped when injection is replayed (rebuilds re-derive it)", async () => {
     // Defensive: the `<active_thread>` block is a per-turn injection. When
     // overflow recovery / compaction re-runs `applyRuntimeInjections` on
     // already-injected messages, prior `<active_thread>` blocks must be
     // stripped so the rebuild's freshly-derived block is the only one
     // present. We simulate by building a Slack channel turn, then
-    // running the strip pipeline + applying injections again with a
-    // different focus block to confirm no duplication occurs.
+    // running the strip pipeline + applying injections again to confirm the
+    // rebuild re-derives the block and no duplication occurs.
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
@@ -4006,20 +4222,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(strippedTexts).not.toContain("<active_thread>");
 
-    // Re-run injection with a fresh focus block — only ONE
+    // Re-run injection on the stripped messages — the conversation is still
+    // seeded, so the rebuild re-derives the focus block; only ONE
     // `<active_thread>` block must end up in the result.
-    const slackChannelCaps: ChannelCapabilities = {
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "channel",
-    };
-    const newFocus = "<active_thread>\nnewly built\n</active_thread>";
-    seedChannelCapabilitiesConversation(slackChannelCaps);
-    const { messages: reInjected } = await applyRuntimeInjections(stripped, {
-      slackActiveThreadFocusBlock: newFocus,
-    });
+    const { messages: reInjected } = await applyRuntimeInjections(stripped, {});
     const reInjectedTexts = reInjected
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -4030,13 +4236,13 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(blockCount).toBe(1);
     expect(
       reInjectedTexts.find((t) => t.startsWith("<active_thread>")),
-    ).toContain("newly built");
+    ).toContain("Reply in thread A");
   });
 
-  test("non-slack conversations ignore slackActiveThreadFocusBlock", async () => {
-    // Defensive: the focus injection is gated on `slackChannel` (i.e.
-    // `isSlackChannelConversation`). Even if a caller mistakenly forwards
-    // a focus block on a non-Slack channel, it must NOT be appended.
+  test("non-slack conversations never get an active-thread focus block", async () => {
+    // The focus block is gated on a Slack *channel* conversation
+    // (`isSlackChannelConversation`). A non-Slack conversation must never
+    // self-resolve an `<active_thread>` block.
     seedChannelCapabilitiesConversation({
       channel: "vellum",
       dashboardCapable: true,
@@ -4045,9 +4251,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
-      {
-        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
-      },
+      {},
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -4058,7 +4262,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("vellum question");
   });
 
-  test("slack DMs ignore slackActiveThreadFocusBlock", async () => {
+  test("slack DMs never get an active-thread focus block", async () => {
     // Same as above but for Slack DMs (chatType === "im"). The focus
     // injection is keyed on `isSlackChannelConversation` which excludes
     // DMs, so the block must not appear.
@@ -4071,9 +4275,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
-      {
-        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
-      },
+      {},
     );
     const allText = result
       .flatMap((m) => m.content)

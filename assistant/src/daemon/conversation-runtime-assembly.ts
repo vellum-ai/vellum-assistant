@@ -1612,9 +1612,9 @@ function applyInjectionBlock(
  * list, the channel command context, the voice call-control prompt, the
  * transport hints, the interface label, the channel label, the
  * background-conversation flag, the `<active_subagents>` status block, the
- * per-turn temporal snapshot (the `<turn_context>` timestamp, the client
- * timezone, and the long-absence gap), and the two config-sourced timezones
- * are not on this bag:
+ * `<active_thread>` focus block, the per-turn temporal snapshot (the
+ * `<turn_context>` timestamp, the client timezone, and the long-absence gap),
+ * and the two config-sourced timezones are not on this bag:
  * `applyRuntimeInjections` resolves them from the live conversation itself (its
  * surface state, `channelCapabilities`, the document store keyed by
  * `conversationId`, its `commandIntent`, its `voiceCallControlPrompt`, its
@@ -1622,10 +1622,12 @@ function applyInjectionBlock(
  * (falling back to its recorded `originInterface`, then `web`), its turn
  * channel context's `userMessageChannel` (falling back to its recorded
  * `originChannel`, then `vellum`), its `conversationType`, its
- * `currentTurnTemporalSnapshot`, and the subagent manager's children of
- * `conversationId` respectively) or from config (the configured user timezone
- * and the detected-timezone fallback), so the orchestrator does not compute or
- * thread any of them per turn.
+ * `currentTurnTemporalSnapshot`, the subagent manager's children of
+ * `conversationId`, and — for the focus block — its persisted Slack
+ * compaction boundary (`contextCompactedMessageCount` /
+ * `slackContextCompactionWatermarkTs`) and trust class) or from config (the
+ * configured user timezone and the detected-timezone fallback), so the
+ * orchestrator does not compute or thread any of them per turn.
  *
  * {@link isNonInteractive} is the exception: it is derived from the agent
  * loop's `isInteractive` option (not re-derivable from live conversation
@@ -1670,21 +1672,6 @@ export interface RuntimeInjectionOptions {
    * and remains easy to test.
    */
   slackChronologicalMessages?: Message[] | null;
-  /**
-   * Pre-rendered `<active_thread>` focus block listing the messages of
-   * the thread the current inbound user message belongs to.
-   *
-   * Appended to the FINAL user message ONLY when `channelCapabilities`
-   * describes a Slack non-DM channel. The block is non-persisted: history
-   * rebuilds re-derive it from storage on each turn, and
-   * `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>` blocks from
-   * prior turns so they do not accumulate.
-   *
-   * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
-   * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
-   * `undefined` when the inbound is a top-level (non-thread) post.
-   */
-  slackActiveThreadFocusBlock?: string | null;
   mode?: InjectionMode;
   /**
    * Inbound actor identity and trust fields. Populated only on non-guardian
@@ -1726,6 +1713,7 @@ function buildTurnInjectionInputs(
   activeDocuments: TurnInjectionInputs["activeDocuments"],
   isBackgroundConversation: boolean,
   subagentStatusBlock: string | null,
+  slackActiveThreadFocusBlock: string | null,
   timestamp: string | undefined,
   configuredUserTimezone: string | null,
   clientTimezone: string | null,
@@ -1739,7 +1727,7 @@ function buildTurnInjectionInputs(
     subagentStatusBlock,
     channelCapabilities,
     slackChronologicalMessages: options.slackChronologicalMessages,
-    slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
+    slackActiveThreadFocusBlock,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation,
     activeDocuments,
@@ -1892,6 +1880,22 @@ export async function applyRuntimeInjections(
         getSubagentManager().getChildrenOf(conversationId),
       );
 
+  // The `<active_thread>` focus block lists the messages of the thread the
+  // current inbound user message belongs to. The loader short-circuits to
+  // null for non-Slack and Slack-DM conversations before any DB read, and
+  // bounds the thread rows by the conversation's persisted Slack compaction
+  // boundary (raw `contextCompactedMessageCount` / watermark) so rows already
+  // folded into the summary are excluded.
+  const slackActiveThreadFocusBlock = channelCapabilities
+    ? loadSlackActiveThreadFocusBlock(conversationId, channelCapabilities, {
+        trustClass: liveConversation?.trustContext?.trustClass,
+        contextCompactedMessageCount:
+          liveConversation?.contextCompactedMessageCount,
+        slackContextCompactionWatermarkTs:
+          liveConversation?.slackContextCompactionWatermarkTs,
+      })
+    : null;
+
   // Build the per-injector inputs and attach them to the caller's
   // TurnContext (without mutating it). When the caller didn't supply one,
   // synthesize a minimal fallback so the chain still runs — test call sites
@@ -1903,6 +1907,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     isBackgroundConversation,
     subagentStatusBlock,
+    slackActiveThreadFocusBlock,
     timestamp,
     configuredUserTimezone,
     clientTimezone,
