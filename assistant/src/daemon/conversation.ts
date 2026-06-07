@@ -37,7 +37,6 @@ import {
   ContextWindowManager,
   type ContextWindowResult,
   createContextSummaryMessage,
-  getSummaryFromContextMessage,
 } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
@@ -1060,9 +1059,7 @@ export class Conversation {
       );
     }
     this.messages = [...messages];
-    this.contextWindowManager.nonPersistedPrefixCount = messages.length;
-    this.contextWindowManager.summaryIsInjected =
-      getSummaryFromContextMessage(messages[0]) != null;
+    this.contextWindowManager.seedNonPersistedPrefix(messages.length);
   }
 
   /**
