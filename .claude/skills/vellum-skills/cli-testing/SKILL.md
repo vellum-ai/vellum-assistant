@@ -67,20 +67,30 @@ vellum setup --provider anthropic    # reads ANTHROPIC_API_KEY from the env and
 
 ## 3. Verify functionality
 
-`vellum message` is async (returns a message id, not the reply). `vellum events`
-streams the reply but is long-running, so background it, send, wait, then read:
+`vellum message` is async (returns a message id, not the reply — `--json` only
+adds `{accepted, messageId}`). `vellum events` streams the reply but is
+long-running, so background it, send, wait, then read.
+
+**Assert on a token the assistant must *generate*, never one you put in the
+prompt.** `vellum events` echoes your prompt as `**You:** <text>`
+([`cli/src/commands/events.ts`](../../../../cli/src/commands/events.ts)), so
+grepping for a word that appears in the prompt passes even when the assistant
+never replied. Ask a question whose answer is absent from the prompt:
 
 ```bash
 ( vellum events > /tmp/vel_events.log 2>&1 & )   # stream in background
 sleep 2
-vellum message "Reply with exactly: CLI_TEST_OK"
+vellum message "What is 6 multiplied by 7? Reply with only the number."
 sleep 25                                          # let the assistant respond
 pkill -f "vellum events"
-grep -A1 "CLI_TEST_OK" /tmp/vel_events.log        # confirm the reply
+grep -w 42 /tmp/vel_events.log                    # "42" is NOT in the prompt,
+                                                  # so a match proves a real reply
 ```
 
-A successful run shows your message echoed as `**You:** ...` followed by the
-assistant's reply (`CLI_TEST_OK`) in the event log.
+The assistant's streamed reply is written as plain text (no `**You:**` prefix),
+so a match on a generated answer confirms the round-trip worked. If you must use
+a fixed sentinel string, strip the echoed prompt first
+(`grep -v '^\*\*You:\*\*' /tmp/vel_events.log | grep <sentinel>`).
 
 ### Common verification commands
 
@@ -109,7 +119,6 @@ processes; configures the provider key automatically from the env at hatch time:
 
 ```bash
 vellum hatch --name clitest          # defaults to --remote local
-vellum message "Reply with exactly: CLI_TEST_OK"
-# verify via the `vellum events` pattern above, then:
+# verify via the `vellum events` + generated-answer pattern in §3, then:
 vellum retire clitest --yes
 ```
