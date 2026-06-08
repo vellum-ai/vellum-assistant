@@ -17,7 +17,7 @@
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
@@ -276,6 +276,43 @@ export function ChatMainPanel({
 
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
+  const handleDismissUnknownNudge = useCallback(
+    (toolCallId: string) => useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
+    [],
+  );
+
+  const handleSurfaceActionCallback = useCallback(
+    (surfaceId: string, action: string, input: unknown) => {
+      void handleSurfaceAction(surfaceId, action, input as Record<string, unknown> | undefined);
+    },
+    [handleSurfaceAction],
+  );
+
+  const handleForkConversationCallback = useCallback(
+    (messageId: string) => { void handleForkConversation(messageId); },
+    [handleForkConversation],
+  );
+
+  const handleDismissApiKeyError = useCallback(
+    () => useChatSessionStore.getState().setError(null),
+    [],
+  );
+
+  const handleCompactionCircuitExpired = useCallback(
+    () => useChatSessionStore.getState().setCompactionCircuitOpenUntil(null),
+    [],
+  );
+
+  const handleMaintenanceExited = useCallback(
+    () => void checkAssistant(),
+    [checkAssistant],
+  );
+
+  const handleClearContext = useCallback(
+    () => void sendMessage("/clean"),
+    [sendMessage],
+  );
+
   // -------------------------------------------------------------------------
   // Feature flags
   // -------------------------------------------------------------------------
@@ -300,10 +337,27 @@ export function ChatMainPanel({
     sendMessage,
   });
 
+  const renderOnboardingChoice = useCallback(() => (
+    <OnboardingChoiceCard
+      onSelectSpecific={handleSelectSpecific}
+      onSubmitTasks={handleSubmitTasks}
+    />
+  ), [handleSelectSpecific, handleSubmitTasks]);
+
   // -------------------------------------------------------------------------
   // Edit-message recall (up-arrow)
   // -------------------------------------------------------------------------
   const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
+
+  const handleRecallLastMessage = useCallback(() => {
+    const content = startEditing();
+    if (content !== null) setInput(content);
+  }, [startEditing, setInput]);
+
+  const handleCancelEdit = useCallback(() => {
+    cancelEditing();
+    setInput("");
+  }, [cancelEditing, setInput]);
 
   // -------------------------------------------------------------------------
   // Nudges + ghost text
@@ -580,24 +634,6 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const billingBannerDecision = getChatBillingBannerDecision(error);
 
-  const renderBillingComposerBanner = (): ReactNode => {
-    if (billingBannerDecision === "managed_credits") {
-      return (
-        <CreditsExhaustedBanner
-          onAddFunds={() => setShowAddCreditsModal(true)}
-        />
-      );
-    }
-    if (billingBannerDecision === "provider_billing") {
-      return (
-        <ProviderBillingBanner
-          onOpenSettings={pushToAiSettings}
-        />
-      );
-    }
-    return null;
-  };
-
   // -------------------------------------------------------------------------
   // JSX construction
   // -------------------------------------------------------------------------
@@ -634,20 +670,11 @@ export function ChatMainPanel({
     onOpenDocument: handleOpenDocument,
     assistantId,
     unknownNudgeToolCallIds,
-    onDismissUnknownNudge: (toolCallId) =>
-      useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
-    onSurfaceAction: (surfaceId, action, input) => {
-      void handleSurfaceAction(
-        surfaceId,
-        action,
-        input as Record<string, unknown> | undefined,
-      );
-    },
+    onDismissUnknownNudge: handleDismissUnknownNudge,
+    onSurfaceAction: handleSurfaceActionCallback,
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
-    onForkConversation: (messageId) => {
-      void handleForkConversation(messageId);
-    },
+    onForkConversation: handleForkConversationCallback,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -658,29 +685,28 @@ export function ChatMainPanel({
     },
     onSubagentClick,
     onStopSubagent,
-    renderOnboardingChoice: () => (
-      <OnboardingChoiceCard
-        onSelectSpecific={handleSelectSpecific}
-        onSubmitTasks={handleSubmitTasks}
-      />
-    ),
+    renderOnboardingChoice,
   };
 
   const sharedComposerNoticeProps = {
-    billingBannerSlot: renderBillingComposerBanner(),
+    billingBannerSlot: billingBannerDecision === "managed_credits"
+      ? <CreditsExhaustedBanner onAddFunds={() => setShowAddCreditsModal(true)} />
+      : billingBannerDecision === "provider_billing"
+      ? <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+      : null,
     diskPressureBanner: diskPressureBannerSlot,
     showMissingApiKeyBanner:
       error?.code === "PROVIDER_NOT_CONFIGURED" ||
       error?.code === "MANAGED_KEY_INVALID",
     onOpenAiSettings: pushToAiSettings,
-    onDismissApiKeyError: () => useChatSessionStore.getState().setError(null),
+    onDismissApiKeyError: handleDismissApiKeyError,
     compactionCircuitOpenUntil,
-    onCompactionCircuitExpired: () => useChatSessionStore.getState().setCompactionCircuitOpenUntil(null),
+    onCompactionCircuitExpired: handleCompactionCircuitExpired,
     showMaintenanceBanner:
       assistantState.kind === "active" &&
       assistantState.maintenanceMode?.enabled === true,
     assistantId,
-    onMaintenanceExited: () => void checkAssistant(),
+    onMaintenanceExited: handleMaintenanceExited,
   };
 
   const chatBodyComposerProps = {
@@ -700,7 +726,7 @@ export function ChatMainPanel({
     onRemoveAttachment: removeChatAttachment,
     voiceInputRef,
     voiceInterim: voiceInterim ?? undefined,
-    onVoiceTranscript: (rawText: string) => handleVoiceTranscript(rawText),
+    onVoiceTranscript: handleVoiceTranscript,
     onVoiceInterimTranscript: setVoiceInterim,
     onVoiceError: setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
@@ -709,16 +735,8 @@ export function ChatMainPanel({
     assistantId,
     conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
-    onRecallLastMessage: isIdle ? () => {
-      const content = startEditing();
-      if (content !== null) {
-        setInput(content);
-      }
-    } : undefined,
-    onCancelEdit: isEditing ? () => {
-      cancelEditing();
-      setInput("");
-    } : undefined,
+    onRecallLastMessage: isIdle ? handleRecallLastMessage : undefined,
+    onCancelEdit: isEditing ? handleCancelEdit : undefined,
     textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
@@ -732,7 +750,7 @@ export function ChatMainPanel({
         assistantName={assistantName}
         onClearContext={
           activeConversation?.conversationId && !sendDisabled
-            ? () => void sendMessage("/clean")
+            ? handleClearContext
             : undefined
         }
       />
