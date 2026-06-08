@@ -93,6 +93,71 @@ describe("planPlatformForward", () => {
     expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
   });
 
+  test("marks app-origin platform requests as eligible for CSRF injection", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session", {
+        method: "POST",
+        origin: "app://vellum.ai",
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.shouldInjectCsrfToken).toBe(true);
+    expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
+  });
+
+  test("rejects platform requests with a foreign Origin before CSRF injection", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session", {
+        method: "POST",
+        origin: "https://evil.example",
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan).toEqual({
+      kind: "reject",
+      status: 403,
+      message: "Forbidden platform proxy request",
+    });
+  });
+
+  test("rejects platform requests with a foreign Referer when Origin is absent", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session", {
+        method: "POST",
+        headers: { referer: "https://evil.example/form" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("rejects source-less unsafe platform requests", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", { method: "POST" }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("does not auto-inject CSRF for source-less safe platform requests", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", { method: "GET" }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.shouldInjectCsrfToken).toBe(false);
+  });
+
   test("preserves non-Origin headers", () => {
     const plan = planPlatformForward(
       request("/_allauth/browser/v1/auth/session", {

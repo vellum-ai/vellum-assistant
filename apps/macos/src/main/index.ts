@@ -13,6 +13,7 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import { resolveAllowedOrigin } from "./app-origin";
 import { installCsp } from "./csp";
 import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
@@ -279,10 +280,19 @@ const forwardPlatformRequest = async (
   request: GlobalRequest,
   platformUrl: string,
 ): Promise<Response | null> => {
-  const plan = planPlatformForward(request, platformUrl);
+  const plan = planPlatformForward(request, platformUrl, {
+    allowedOrigin: resolveAllowedOrigin(),
+  });
   if (plan.kind === "pass") return null;
+  if (plan.kind === "reject") {
+    return new Response(plan.message, { status: plan.status });
+  }
 
-  if (cachedCsrfToken && !plan.headers.has("X-CSRFToken")) {
+  if (
+    plan.shouldInjectCsrfToken &&
+    cachedCsrfToken &&
+    !plan.headers.has("X-CSRFToken")
+  ) {
     plan.headers.set("X-CSRFToken", cachedCsrfToken);
   }
 
