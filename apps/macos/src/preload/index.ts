@@ -250,6 +250,10 @@ export interface VellumBridge {
       intent?: string;
     }): Promise<{ sessionToken: string }>;
     cancelOAuth(): Promise<void>;
+    /** Main's persisted session token, or null when signed out. */
+    getSessionToken(): string | null;
+    /** Clear main's persisted session token (used on logout). */
+    signOut(): Promise<void>;
   };
   hotkeys: {
     /** Resolved catalog of rebindable commands and their effective bindings. */
@@ -565,6 +569,10 @@ const bridge: VellumBridge = {
       }>,
     cancelOAuth: (): Promise<void> =>
       ipcRenderer.invoke("vellum:auth:cancelOAuth") as Promise<void>,
+    getSessionToken: (): string | null =>
+      ipcRenderer.sendSync("vellum:auth:getSessionToken") as string | null,
+    signOut: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:auth:signOut") as Promise<void>,
   },
   hotkeys: {
     get: (): Promise<ResolvedHotkey[]> =>

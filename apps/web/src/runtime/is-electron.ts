@@ -299,6 +299,9 @@ declare global {
           intent?: string;
         }): Promise<{ sessionToken: string }>;
         cancelOAuth(): Promise<void>;
+        // Optional: older shells predate the session-token bridge.
+        getSessionToken?(): string | null;
+        signOut?(): Promise<void>;
       };
       mainWindow: {
         ensureVisible(): Promise<void>;

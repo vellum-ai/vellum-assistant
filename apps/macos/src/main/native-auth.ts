@@ -1,10 +1,15 @@
-import crypto from "node:crypto";
 import { app, net, session, shell } from "electron";
+import crypto from "node:crypto";
 import { z } from "zod";
 
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
-import { handle } from "./ipc";
+import { handle, handleSync } from "./ipc";
+import {
+    clearSessionToken,
+    getSessionToken,
+    saveSessionToken,
+} from "./session-token-store";
 
 const AUTH_FLOW_TIMEOUT_MS = 5 * 60_000;
 
@@ -143,6 +148,8 @@ async function startOAuth(options: {
     void shell.openExternal(url);
   });
 
+  // The session cookie is here for backwards compatibility. We'll remove shortly.
+  saveSessionToken(sessionToken);
   await installSessionCookie(resolveProxyPlatformUrl(), sessionToken);
   return { sessionToken };
 }
@@ -201,6 +208,12 @@ export const installNativeAuth = (): void => {
   handle("vellum:auth:cancelOAuth", z.tuple([]), () => {
     cancelPendingFlows();
   });
+
+  handle("vellum:auth:signOut", z.tuple([]), () => {
+    clearSessionToken();
+  });
+
+  handleSync("vellum:auth:getSessionToken", () => getSessionToken());
 };
 
 export const __resetForTesting = (): void => {
