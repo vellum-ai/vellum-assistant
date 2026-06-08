@@ -11,7 +11,7 @@ metadata:
 
 Configure MCP servers to give the assistant access to any external tool or service that publishes an MCP endpoint.
 
-**DO NOT** run exploratory commands. Do not check available CLI commands, look up documentation, search for bun/npx/node, or investigate transport types. Follow the steps below exactly and stop when done.
+**DO NOT** run exploratory commands. Do not check available CLI commands, search for bun/npx/node, or investigate transport types. Follow the steps below exactly and stop when done. (Looking up a service's MCP endpoint URL in its own documentation is allowed when the service is not in the recipe table, per Step 3.)
 
 ## When to Use
 
@@ -161,4 +161,8 @@ Manually signals the assistant to reconnect all MCP servers from disk. Normally 
 
 ## SKILL COMPLETE WHEN
 
-The MCP server appears in `assistant mcp list` with status `✓ Connected` and the user confirms tools from that server are available in the conversation.
+Match the completion condition to the task:
+
+- **Add / authenticate:** the server appears in `assistant mcp list` with status `✓ Connected` and the user confirms its tools are available in the conversation.
+- **List:** the current servers (or the fact that none are configured) have been reported to the user.
+- **Remove / disconnect:** `assistant mcp remove <name>` succeeds and the server no longer appears in `assistant mcp list`.
