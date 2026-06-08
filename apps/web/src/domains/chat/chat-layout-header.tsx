@@ -97,21 +97,13 @@ export function ChatLayoutHeader({
     >
       <div
         className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
-        style={
-          !isMobile
-            ? {
-                minWidth: collapsed ? 48 : (sidebarWidth ?? 230),
-                ...(electron
-                  ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
-                  : {}),
-              }
-            : // On Electron the traffic lights stay inline even when the window
-              // narrows below `md` (mobile layout), so the mobile menu row needs
-              // the same left clearance or it would overlap the controls.
-              electron
-              ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
-              : undefined
-        }
+        style={{
+          // `minWidth` reserves the sidebar column on desktop only. The Electron
+          // inset clears the inline traffic lights regardless of `isMobile` —
+          // they stay put even in the narrow mobile layout.
+          ...(isMobile ? {} : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
+          ...(electron ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE } : {}),
+        }}
       >
         {isMobile ? (
           <Button
