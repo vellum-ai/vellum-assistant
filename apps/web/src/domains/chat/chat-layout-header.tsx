@@ -7,9 +7,19 @@ import {
     PanelLeft,
     Search,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 
+import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
+
+// On macOS the native window controls (traffic lights) overlay the top-left of
+// the renderer. In the Electron shell the header renders as a unified title bar
+// sitting *inline* with those controls (the desktop app centres the cluster
+// vertically via `MAIN_TRAFFIC_LIGHT_POSITION`), so the left icon row is inset
+// to start clear of the ~71px-wide cluster. The header's own `px-4` supplies
+// the first 16px; this adds the remainder. Off Electron the inset is 0.
+const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 62;
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
@@ -47,21 +57,54 @@ export function ChatLayoutHeader({
   const toggleCommandPalette = useCommandPaletteStore.use.toggle();
   const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
 
+  // In the Electron shell the header doubles as the macOS title bar: it sits
+  // inline with the traffic lights and drives window dragging
+  // (`-webkit-app-region: drag`), with its interactive children opting back
+  // out via `no-drag`. While mounted it claims the title bar so the global
+  // `WindowDragRegion` fallback strip yields (see `useTitleBarStore`) —
+  // otherwise that strip, living outside `.app-shell`'s `isolation: isolate`
+  // context, would out-stack and swallow clicks on the header's buttons.
+  // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
+  const electron = isElectron();
+
+  const setInlineTitleBarActive =
+    useTitleBarStore.use.setInlineTitleBarActive();
+  useEffect(() => {
+    if (!electron) return;
+    setInlineTitleBarActive(true);
+    return () => setInlineTitleBarActive(false);
+  }, [electron, setInlineTitleBarActive]);
+
   return (
     <header
       data-slot="chat-layout-header"
-      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile ? " pb-4" : ""}`}
+      className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile ? " pb-4" : ""}${
+        electron
+          ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
+          : ""
+      }`}
       style={{
         background: "var(--surface-base)",
-        minHeight:
-          "calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
-        paddingTop:
-          "calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+        minHeight: electron
+          ? "44px"
+          : "calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+        paddingTop: electron
+          ? 0
+          : "calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
       }}
     >
       <div
         className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
-        style={!isMobile ? { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) } : undefined}
+        style={
+          !isMobile
+            ? {
+                minWidth: collapsed ? 48 : (sidebarWidth ?? 230),
+                ...(electron
+                  ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+                  : {}),
+              }
+            : undefined
+        }
       >
         {isMobile ? (
           <Button
