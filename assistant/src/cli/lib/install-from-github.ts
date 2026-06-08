@@ -353,10 +353,19 @@ export async function installPlugin(
     throw new PluginAlreadyInstalledError(name, target);
   }
 
-  // Stage into a sibling temp dir so an in-progress install never destroys
-  // the currently installed version. `process.pid` keeps concurrent installs
-  // of the same plugin from clobbering each other's staging.
-  const stagingDir = `${target}.installing.${process.pid}`;
+  // Stage *outside* the served `plugins/` directory. The daemon watches that
+  // directory and its startup loader enumerates it, so a staging dir living
+  // inside it is observed mid-install — before the adapter overlay runs, an
+  // external clone still carries its upstream `package.json` (wrong name, no
+  // plugin-api peer dep), which the loader rejects with spurious name-mismatch
+  // and missing-peer-dependency warnings. Staging in a sibling directory keeps
+  // the half-built tree invisible until the final swap. The root is on the
+  // same filesystem as the target, so that swap stays an atomic rename.
+  // `process.pid` keeps concurrent installs of the same plugin from clobbering
+  // each other's staging.
+  const stagingRoot = join(dirname(pluginsDir), ".plugins-staging");
+  mkdirSync(stagingRoot, { recursive: true });
+  const stagingDir = join(stagingRoot, `${name}.installing.${process.pid}`);
   if (existsSync(stagingDir)) {
     rmSync(stagingDir, { recursive: true, force: true });
   }
@@ -431,6 +440,9 @@ export async function installPlugin(
   // Atomic-ish swap: rmSync + renameSync. On POSIX the rename itself is
   // atomic, so the only window where the target is absent is between the
   // rm and the rename — and at that point the staging dir is fully populated.
+  // Ensure the served `plugins/` directory exists: staging now lives outside
+  // it, so the target's parent is no longer created as a side effect.
+  mkdirSync(pluginsDir, { recursive: true });
   if (existsSync(target)) {
     rmSync(target, { recursive: true, force: true });
   }

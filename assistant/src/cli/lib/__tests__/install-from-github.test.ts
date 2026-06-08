@@ -737,6 +737,45 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).not.toContain("description: terse mode");
   });
 
+  test("stages the clone outside the served plugins/ directory", async () => {
+    // GIVEN caveman is whitelisted externally (raw clone, no adapter stub)
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    // AND a git runner that records the working directory it clones into
+    const cloneCwds: string[] = [];
+    const runGit: GitRunner = async (args, { cwd }) => {
+      if (args[0] === "fetch") {
+        cloneCwds.push(cwd);
+        mkdirSync(join(cwd, ".git"), { recursive: true });
+        writeFileSync(join(cwd, "package.json"), '{"name":"caveman"}');
+        return { stdout: "" };
+      }
+      if (args[0] === "rev-parse") {
+        return { stdout: "63a91ecadbf4c4719a4602a5abb00883f9966034\n" };
+      }
+      return { stdout: "" };
+    };
+
+    // WHEN we install
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the half-built clone was staged in a sibling directory, never inside
+    // the served plugins/ tree — so the daemon's source watcher and startup
+    // loader can't observe the un-adapted clone (wrong name, no peer dep) and
+    // log spurious name-mismatch / missing-peer-dependency warnings mid-install
+    expect(cloneCwds).toHaveLength(1);
+    expect(dirname(cloneCwds[0]!)).toBe(
+      join(dirname(pluginsDir), ".plugins-staging"),
+    );
+
+    // AND the finished plugin still lands inside plugins/, with no staging
+    // artifact left behind in the served directory
+    expect(result.target).toBe(join(pluginsDir, "caveman"));
+    expect(readdirSync(pluginsDir)).toEqual(["caveman"]);
+  });
+
   test("does not run a postinstall for a raw clone without an adapter stub", async () => {
     // GIVEN caveman is whitelisted but we curate NO adapter stub for it
     // (the Contents API has no experimental/plugins/caveman directory)
