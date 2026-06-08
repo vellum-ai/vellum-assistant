@@ -84,11 +84,12 @@ export interface LifecycleServiceInputs {
    */
   selectedPlatformAssistantId?: string | null;
   /**
-   * Whether the organization store has resolved an active org ID.
+   * Whether the org store has hydrated (or no platform session exists).
    * Platform API calls require the Vellum-Organization-Id header;
    * `respondToInputs` defers `checkAssistant` until this is true.
+   * Mirrors `useIsOrgReady()` from the React layer.
    */
-  hasOrganization?: boolean;
+  isOrgReady?: boolean;
 }
 
 const NOOP_REDIRECT = (_: string) => {};
@@ -200,7 +201,7 @@ class AssistantLifecycleService {
     if (this.inputs.hasPlatformSession) {
       setSelfHostedConnection(null);
     }
-    if (!this.inputs.hasOrganization) return;
+    if (!this.inputs.isOrgReady) return;
     await this.checkAssistant();
   }
 
