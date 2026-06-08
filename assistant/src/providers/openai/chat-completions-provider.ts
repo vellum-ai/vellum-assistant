@@ -101,6 +101,22 @@ export function extractApiErrorDetail(
  *  OpenRouter's `error.metadata.raw` strings, which are typically <1KB. */
 const MAX_API_ERROR_DETAIL_CHARS = 2000;
 
+const VISION_NOT_SUPPORTED_PATTERNS = [
+  /no endpoints found that support image input/i,
+  /does not support image/i,
+  /image input is not supported/i,
+  /this model does not support vision/i,
+  /vision is not supported/i,
+  /multi-?modal.*not.*support/i,
+];
+
+export function detectVisionNotSupported(
+  error: InstanceType<typeof OpenAI.APIError>,
+): boolean {
+  const haystack = `${error.message} ${JSON.stringify((error as { error?: unknown }).error ?? "")}`;
+  return VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack));
+}
+
 /**
  * Fallback `content` for an assistant turn that has neither visible text nor
  * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
@@ -648,6 +664,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
             statusCode: error.status,
             cause: error,
           });
+        }
+        if (detectVisionNotSupported(error)) {
+          const model = modelOverride ?? this.model;
+          throw new ProviderError(
+            `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
+            this.name,
+            error.status,
+            abortReason ? { abortReason } : undefined,
+          );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {

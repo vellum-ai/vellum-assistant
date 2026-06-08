@@ -487,11 +487,27 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Attachment drop zone
   // -------------------------------------------------------------------------
+  const handleDroppedFiles = useCallback(
+    (files: FileList | File[]) => {
+      const arr = Array.from(files);
+      const allowed = activeModelSupportsVision
+        ? arr
+        : arr.filter((f) => !f.type.startsWith("image/"));
+      if (allowed.length < arr.length) {
+        useComposerStore.setState({
+          attachmentLastError:
+            "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
+        });
+      }
+      if (allowed.length > 0) addChatAttachmentFiles(allowed);
+    },
+    [addChatAttachmentFiles, activeModelSupportsVision],
+  );
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
-    onFiles: addChatAttachmentFiles,
+    onFiles: handleDroppedFiles,
     disabled: typingDisabled || !assistantId,
   });
 
