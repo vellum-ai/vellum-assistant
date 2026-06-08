@@ -39,6 +39,7 @@ import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { prependConversation } from "@/utils/conversation-cache-mutations";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
@@ -432,10 +433,15 @@ export function useConversationLoader({
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftConversationId);
+      prependConversation(queryClient, assistantId, {
+        conversationId: draftConversationId,
+        lastMessageAt: Date.now(),
+        draft: true,
+      } as Conversation);
       void navigate(routes.conversation(draftConversationId));
       requestComposerFocus();
     },
-    [navigate],
+    [navigate, assistantId, queryClient],
   );
 
   return {

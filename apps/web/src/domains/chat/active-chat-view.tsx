@@ -157,7 +157,7 @@ export function ActiveChatView() {
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
-  } = useOnboardingOrchestrator();
+  } = useOnboardingOrchestrator(assistantId);
 
   // -------------------------------------------------------------------------
   // Reachability

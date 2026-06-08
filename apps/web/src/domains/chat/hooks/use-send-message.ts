@@ -618,7 +618,7 @@ export function useSendMessage({
 
       cancelReconciliation();
 
-      const isDraft = !currentConv;
+      const isDraft = !currentConv || currentConv.draft === true;
       let resolvedId: string | undefined;
 
       try {

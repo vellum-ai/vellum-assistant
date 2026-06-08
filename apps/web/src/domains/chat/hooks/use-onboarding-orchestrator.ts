@@ -22,10 +22,13 @@
 
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { prependConversation } from "@/utils/conversation-cache-mutations";
+import type { Conversation } from "@/types/conversation-types";
 import { routes } from "@/utils/routes";
 
 export interface UseOnboardingOrchestratorResult {
@@ -41,8 +44,11 @@ export interface UseOnboardingOrchestratorResult {
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
 }
 
-export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
+export function useOnboardingOrchestrator(
+  assistantId: string | null,
+): UseOnboardingOrchestratorResult {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
 
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
@@ -65,8 +71,15 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     onboardingDraftConversationIdRef.current = draftId;
     setOnboardingConversationId(draftId);
     useConversationStore.getState().setActiveConversationId(draftId);
+    if (assistantId) {
+      prependConversation(queryClient, assistantId, {
+        conversationId: draftId,
+        lastMessageAt: Date.now(),
+        draft: true,
+      } as Conversation);
+    }
     void navigate(routes.conversation(draftId), { replace: true });
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, assistantId, queryClient]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
