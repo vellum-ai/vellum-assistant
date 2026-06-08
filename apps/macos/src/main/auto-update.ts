@@ -55,6 +55,12 @@ export const checkForUpdates = (): void => {
 };
 
 export const installAutoUpdate = (): void => {
+  handle("vellum:update:getState", z.tuple([]), () => currentState);
+  handle("vellum:update:check", z.tuple([]), () => checkForUpdates());
+  handle("vellum:update:install", z.tuple([]), () =>
+    autoUpdater.quitAndInstall(),
+  );
+
   if (!app.isPackaged) return;
 
   const channel = resolveChannel();
@@ -99,12 +105,6 @@ export const installAutoUpdate = (): void => {
   autoUpdater.on("update-not-available", () => {
     setState({ status: "idle" });
   });
-
-  handle("vellum:update:getState", z.tuple([]), () => currentState);
-  handle("vellum:update:check", z.tuple([]), () => checkForUpdates());
-  handle("vellum:update:install", z.tuple([]), () =>
-    autoUpdater.quitAndInstall(),
-  );
 
   checkForUpdates();
   setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
