@@ -1,10 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
@@ -48,10 +43,7 @@ import {
   sampleSuggestionNames,
 } from "@/domains/onboarding/prechat-names";
 import { GOOGLE_TOOL_IDS } from "@/domains/onboarding/prechat-tools";
-import {
-  readAiDataConsent,
-  readTosAccepted,
-} from "@/domains/onboarding/prefs";
+import { readAiDataConsent, readTosAccepted } from "@/domains/onboarding/prefs";
 import {
   getPlatformAssistants,
   getSelectedAssistant,
@@ -88,15 +80,17 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  const activeAssistantId =
-    useResolvedAssistantsStore.use.activeAssistantId();
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const localMode = isLocalMode();
   const isIOSWeb = useIsIOSWeb();
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
   const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const activationFlowEnabled =
-    useClientFeatureFlagStore.use.experimentActivationFlow20260603();
+    useClientFeatureFlagStore.use.stringFlags()
+      .preChatOnboardingExperiment20260606 ?? "control";
+  const activationFlowArm =
+    useClientFeatureFlagStore.use.stringFlags()
+      .experimentActivationFlow20260603 ?? "control";
+  const activationFlowEnabled = activationFlowArm === "variant-a";
   const selfIntroGreetingEnabled =
     useClientFeatureFlagStore.use.selfIntroGreeting();
   const preferredFunnelVariant =
@@ -138,7 +132,9 @@ export function PreChatFlow() {
   useLayoutEffect(() => {
     if (!screenStorageKey) return;
     try {
-      const restored = restoreNativeStep(sessionStorage.getItem(screenStorageKey));
+      const restored = restoreNativeStep(
+        sessionStorage.getItem(screenStorageKey),
+      );
       if (restored) setCurrentStep(restored);
     } catch {
       // sessionStorage can throw under privacy modes — ignore.
@@ -170,8 +166,8 @@ export function PreChatFlow() {
     localMode && !hasPlatformSession ? "" : firstName || lastName,
   );
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [displayedAssistantNames] = useState<string[]>(
-    () => sampleSuggestionNames(),
+  const [displayedAssistantNames] = useState<string[]>(() =>
+    sampleSuggestionNames(),
   );
   const [assistantName, setAssistantName] = useState<string>("");
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -180,7 +176,9 @@ export function PreChatFlow() {
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
     enabled:
-      !isAuthInitializing && isAuthenticated && (!localMode || hasPlatformSession),
+      !isAuthInitializing &&
+      isAuthenticated &&
+      (!localMode || hasPlatformSession),
   });
   // The onboarding recipe is platform-only marketing-funnel data, resolved on
   // the platform from a UTM attribution cookie. Native and local runtimes have
@@ -226,8 +224,7 @@ export function PreChatFlow() {
     }
     return {
       userId,
-      decision:
-        readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
+      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
     };
   });
   const consentDecision = consent.decision;
@@ -236,8 +233,7 @@ export function PreChatFlow() {
     if (consent.userId === userId && consent.decision !== "pending") return;
     setConsent({
       userId,
-      decision:
-        readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
+      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
     });
   }, [consent, isAuthInitializing, isAuthenticated, userId]);
 
@@ -265,10 +261,7 @@ export function PreChatFlow() {
   const consentReady = isNative || consentDecision === "ok";
   const recipeReady = !recipeLoading;
   const shouldHidePrechat =
-    isAuthInitializing ||
-    !isAuthenticated ||
-    !consentReady ||
-    !recipeReady;
+    isAuthInitializing || !isAuthenticated || !consentReady || !recipeReady;
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],

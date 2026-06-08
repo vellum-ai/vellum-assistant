@@ -39,8 +39,9 @@
       "scope": "client",
       "key": "experiment-activation-flow-2026-06-03",
       "label": "Activation Flow Experiment 2026-06-03",
-      "description": "Route allowlisted users to the activation-rail bootstrap template after pre-chat. Off by default and targeted through LaunchDarkly.",
-      "defaultEnabled": false
+      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail. Targeted via LaunchDarkly.",
+      "defaultEnabled": "control",
+      "values": ["control", "variant-a"]
     },
     {
       "id": "local-docker-enabled",

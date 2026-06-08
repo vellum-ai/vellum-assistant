@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   CLIENT_FLAG_DEFAULTS,
+  CLIENT_STRING_FLAG_DEFAULTS,
 } from "@/lib/feature-flags/feature-flag-catalog";
 
 describe("feature flag catalog", () => {
@@ -11,10 +12,15 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
-  test("exposes the activation flow experiment as a client flag", () => {
-    expect(CLIENT_FLAG_DEFAULTS.experimentActivationFlow20260603).toBe(false);
+  test("exposes the activation flow experiment as a client string flag", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentActivationFlow20260603).toBe(
+      "control",
+    );
+    expect("experimentActivationFlow20260603" in CLIENT_FLAG_DEFAULTS).toBe(
+      false,
+    );
     expect("experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS).toBe(
-      false
+      false,
     );
   });
 
