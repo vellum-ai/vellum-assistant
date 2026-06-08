@@ -6,8 +6,9 @@
  * retries. That transformation is transient — the stored message row keeps the
  * full-size image block, so the rejected image is rehydrated on every later
  * turn and keeps re-entering the model's context. This module makes the
- * downgrade durable for images that can *never* be transmitted, so a rejected
- * upload cannot resurface after the user re-uploads a smaller version.
+ * downgrade durable: the oversized block is rewritten to its downscaled form,
+ * or to a text note when it cannot be shrunk on this host, so a rejected image
+ * cannot resurface and re-reject on every later turn.
  */
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
@@ -40,19 +41,25 @@ export const UNSENDABLE_IMAGE_NOTE =
   "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)";
 
 /**
- * True when a stored image block can never be transmitted to the provider: it
- * violates a provider hard limit (per-side pixel cap or payload size) and
- * cannot be shrunk to fit (re-optimization is a no-op).
+ * Replacement for an image that violates a provider hard limit (per-side pixel
+ * cap or payload size), or null when the image is within limits and should be
+ * left untouched. Gating on the provider hard caps is what keeps still-sendable
+ * images intact: a normally sized image is left alone rather than being noted or
+ * needlessly rewritten.
  *
- * Stored blocks are already post-optimization, so a block that is still
- * oversized here only stays oversized because resizing is unavailable on this
- * host (e.g. `sips` is absent off macOS, or the format is unsupported). A
- * downscalable image would have been reduced at upload time and would not reach
- * this predicate, so it is left untouched.
+ * An oversized image that can be shrunk is rewritten to its downscaled form; one
+ * that cannot be shrunk on this host (resize is a no-op, e.g. `sips` is absent
+ * off macOS or the format is unsupported) is replaced with a text note.
+ *
+ * Shared by the in-memory recovery transform and this durable persist pass so
+ * both apply the identical rule. Persisting the downscaled form is what lets a
+ * poisoned conversation durably self-heal — the latest tool-result media is kept
+ * in context, so without it the original oversized block rehydrates and
+ * re-rejects on every later turn.
  */
-function isImagePermanentlyUnsendable(
+export function oversizedImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
-): boolean {
+): ContentBlock | null {
   const payloadBytes = block.source.data.length;
   const dims = parseImageDimensions(block.source.data, block.source.media_type);
   const exceedsDimensionCap =
@@ -60,24 +67,35 @@ function isImagePermanentlyUnsendable(
     (dims.width > PROVIDER_MAX_IMAGE_DIMENSION ||
       dims.height > PROVIDER_MAX_IMAGE_DIMENSION);
   const exceedsPayloadCap = payloadBytes > PROVIDER_MAX_IMAGE_PAYLOAD_BYTES;
-  if (!exceedsDimensionCap && !exceedsPayloadCap) return false;
+  if (!exceedsDimensionCap && !exceedsPayloadCap) return null;
 
   const optimized = optimizeImageForTransport(
     block.source.data,
     block.source.media_type,
   );
-  return optimized.data === block.source.data;
+  if (optimized.data !== block.source.data) {
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: optimized.mediaType,
+        data: optimized.data,
+      },
+    };
+  }
+  return { type: "text", text: UNSENDABLE_IMAGE_NOTE };
 }
 
 /**
- * Rewrite every stored message in a conversation that holds a permanently
- * unsendable image, replacing those image blocks with {@link
- * UNSENDABLE_IMAGE_NOTE}. Reads stored content directly (not the in-memory,
- * injection-enriched copy) so injected prefixes and hydrated source paths are
- * never written back.
+ * Rewrite every stored message in a conversation that holds an oversized image
+ * the provider rejects — whether a top-level block or one nested in a
+ * tool_result's contentBlocks — replacing it with its downscaled form, or with
+ * {@link UNSENDABLE_IMAGE_NOTE} when it cannot be shrunk on this host. Reads
+ * stored content directly (not the in-memory, injection-enriched copy) so
+ * injected prefixes and hydrated source paths are never written back.
  *
- * Idempotent: once an image is replaced by the note there is no image block
- * left to match, so re-running is a no-op. Returns the number of rewritten
+ * Idempotent: a downscaled image is within limits and a note is no longer an
+ * image, so neither matches on a second run. Returns the number of rewritten
  * messages.
  */
 export function persistUnsendableImageDowngrades(
@@ -99,10 +117,29 @@ export function persistUnsendableImageDowngrades(
 
     let changed = false;
     const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
-      if (block.type !== "image") return block;
-      if (!isImagePermanentlyUnsendable(block)) return block;
-      changed = true;
-      return { type: "text", text: UNSENDABLE_IMAGE_NOTE };
+      if (block.type === "image") {
+        const replacement = oversizedImageReplacement(block);
+        if (!replacement) return block;
+        changed = true;
+        return replacement;
+      }
+      // Images returned by a tool (e.g. browser_screenshot) live inside the
+      // tool_result's contentBlocks, not as top-level blocks. Downgrade them
+      // in place so the tool_use/tool_result pairing stays intact.
+      if (block.type === "tool_result" && block.contentBlocks?.length) {
+        let nestedChanged = false;
+        const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
+          if (cb.type !== "image") return cb;
+          const replacement = oversizedImageReplacement(cb);
+          if (!replacement) return cb;
+          nestedChanged = true;
+          return replacement;
+        });
+        if (!nestedChanged) return block;
+        changed = true;
+        return { ...block, contentBlocks };
+      }
+      return block;
     });
     if (!changed) continue;
 

@@ -150,11 +150,15 @@ const STREAMING_ERROR_PATTERNS = [
 ];
 
 // User-initiated cancellation patterns — these should NOT produce conversation_error
-// Image-input validation patterns — Anthropic 400s with this message when an image
-// block exceeds the per-side pixel cap. Distinct classification matters because
-// retrying with the same oversized image is futile; the user needs to resize.
+// Image-input validation patterns — Anthropic 400s with one of these messages
+// when an image block violates a hard limit. The first matches the per-side
+// pixel cap ("image dimensions exceed max allowed size"); the second matches the
+// base64 payload cap ("image exceeds 5 MB maximum: 7465044 bytes > 5242880
+// bytes"). Distinct classification matters because retrying with the same
+// oversized image is futile — the recovery path must strip or downscale it.
 const IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS = [
   /image dimensions? exceeds? max allowed size/i,
+  /image exceeds \d+\s*MB maximum/i,
 ];
 
 const VISION_NOT_SUPPORTED_PATTERNS = [
@@ -457,7 +461,7 @@ function classifyCore(
         return {
           code: "IMAGE_TOO_LARGE",
           userMessage:
-            "An attached image is too large for the AI provider — image dimensions must be under 8000 pixels per side. Resize the image and try again.",
+            "An image in this conversation was too large for the AI provider and was automatically reduced. Send your message again to continue.",
           retryable: false,
           errorCategory: "image_dimensions_too_large",
         };
