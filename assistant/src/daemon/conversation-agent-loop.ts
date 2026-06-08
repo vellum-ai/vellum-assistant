@@ -913,6 +913,7 @@ export async function runAgentLoopImpl(
     // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      userMessageId,
       prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
