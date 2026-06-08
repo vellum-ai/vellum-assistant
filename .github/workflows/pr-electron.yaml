@@ -5,6 +5,8 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'apps/macos/**'
+      - 'clients/macos/VellumQLThumbnail/**'
+      - 'clients/macos/VellumQLPreview/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-electron.yaml'
