@@ -42,13 +42,16 @@ export class WorkingSet {
   /**
    * Prune the working set, in order:
    *   1. Core slugs never belong here — drop any entry whose slug is core.
+   *      The section-lane pipeline has no core set, so `coreSlugs` defaults to
+   *      empty (no-op); the tree pipeline passed its core slugs here. Stale and
+   *      cap eviction semantics are identical either way.
    *   2. Pinned entries never evict.
    *   3. Window eviction: drop a non-pinned entry unseen for more than
    *      `evictWindow` turns.
    *   4. Cap eviction: while over `maxPages`, evict the lowest-scoring
    *      non-pinned entry first (ties broken deterministically).
    */
-  evict(currentTurn: number, coreSlugs: Set<Slug>): void {
+  evict(currentTurn: number, coreSlugs: Set<Slug> = new Set()): void {
     // 1. Core slugs are owned by core, not the working set.
     for (const slug of this.entries.keys()) {
       if (coreSlugs.has(slug)) {

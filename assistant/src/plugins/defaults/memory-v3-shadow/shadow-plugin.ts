@@ -15,9 +15,10 @@
  *   - both OFF: orchestration is skipped entirely.
  *
  * On each turn (either flag on):
- *   1. Lazy-init the v3 lanes ONCE across the whole process (leaf tree, core
- *      set, BM25 needle, carry-forward working set), memoizing the init
- *      promise so concurrent first turns share a single build.
+ *   1. Lazy-init the v3 lanes ONCE across the whole process (section index,
+ *      section-grain BM25 needle, dense lane config, link-graph edge graph,
+ *      carry-forward working set), memoizing the init promise so concurrent
+ *      first turns share a single build.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
@@ -37,23 +38,25 @@ import { getMessages } from "../../../memory/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../../memory/message-content.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
+import { readPage, renderPageContent } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
-import { injectCapabilitiesLeaf, isCapabilitySlug } from "./capabilities.js";
-import { loadCore } from "./core.js";
-import type { NeedleIndex } from "./needle.js";
-import { buildNeedleIndex } from "./needle.js";
+import { isCapabilitySlug } from "./capabilities.js";
+import type { EdgeGraph } from "./edge.js";
+import { buildEdgeGraph } from "./edge.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
-import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
+import { ensureSectionCollection } from "./section-dense-store.js";
+import type { SectionNeedle } from "./section-needle.js";
+import { buildSectionNeedle } from "./section-needle.js";
+import { buildSectionIndex } from "./sections.js";
 import {
-  type LeafPath,
-  type LeafTree,
   type MemoryRoutingTurn,
+  type SectionIndex,
   type SelectionSource,
   type Slug,
 } from "./types.js";
@@ -74,26 +77,32 @@ const RECENT_CONTEXT_MESSAGES = 6;
  * carry-forward lane.
  */
 export interface ShadowLanes {
-  tree: LeafTree;
-  core: Set<LeafPath>;
-  needle: NeedleIndex;
+  sectionIndex: SectionIndex;
+  needle: SectionNeedle;
+  /** Config the dense lane needs to embed the query + search the section
+   *  collection. */
+  denseConfig: AssistantConfig;
+  edgeGraph: EdgeGraph;
   workingSet: WorkingSet;
+  /** Synthetic capability slugs (skills / CLI commands), always added to the
+   *  candidate pool in {@link orchestrate}. */
+  capabilitySlugs: Slug[];
 }
 
 /**
  * Memoized init promise. Caching the PROMISE (not the resolved value) means
  * concurrent first turns all await the same build instead of racing several
- * `loadLeafTree`/`buildNeedleIndex` passes.
+ * section-index / needle / edge-graph passes.
  */
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
 /**
  * Drop the memoized lanes so the NEXT `getLanes` rebuilds them from scratch
- * (fresh topic-tree load + fresh needle index). The rebuild is lazy — this only
- * clears the cache, so the cost is paid by the next caller, and concurrent
- * first-callers after the invalidation still share a single build via the
- * re-memoized promise. Call this whenever the underlying tree or needle sources
- * change on disk.
+ * (fresh section index + fresh needle + fresh edge graph). The rebuild is lazy
+ * — this only clears the cache, so the cost is paid by the next caller, and
+ * concurrent first-callers after the invalidation still share a single build via
+ * the re-memoized promise. Call this whenever the underlying pages change on
+ * disk.
  */
 export function invalidateLanes(): void {
   lanesPromise = null;
@@ -104,48 +113,61 @@ export function resetShadowLanesForTests(): void {
   invalidateLanes();
 }
 
-/**
- * Pull a page's summary from the existing v2 page index. Missing summaries
- * (and any read failure) degrade to "" — the needle and L2 selector treat an
- * empty summary as "no signal" rather than throwing.
- */
-async function pageSummary(slug: Slug): Promise<string> {
-  try {
-    const index = await getPageIndex(getWorkspaceDir());
-    return index.bySlug.get(slug)?.summary ?? "";
-  } catch {
-    return "";
-  }
-}
-
 async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
-  const dataDir = resolveDataDir();
   const pageIndex = await getPageIndex(getWorkspaceDir());
-  const pageLeaves = new Map<Slug, LeafPath[]>();
-  for (const entry of pageIndex.entries) {
-    pageLeaves.set(entry.slug, entry.leaves);
+  const slugs = pageIndex.entries.map((entry) => entry.slug);
+
+  // Read each page ONCE and feed BOTH forms downstream: the frontmatter-stripped
+  // body to the section index (lexical/dense matching), and the raw page
+  // (frontmatter + body) to the edge graph (so the `links:` frontmatter is
+  // available). A per-slug cache holds the parsed page so the second consumer
+  // reuses the first read.
+  const pageCache = new Map<Slug, { body: string; raw: string } | null>();
+  async function loadPage(
+    slug: Slug,
+  ): Promise<{ body: string; raw: string } | null> {
+    if (pageCache.has(slug)) return pageCache.get(slug)!;
+    let loaded: { body: string; raw: string } | null = null;
+    try {
+      const page = await readPage(getWorkspaceDir(), slug);
+      if (page) loaded = { body: page.body, raw: renderPageContent(page) };
+    } catch {
+      loaded = null;
+    }
+    pageCache.set(slug, loaded);
+    return loaded;
   }
-  const tree = await loadLeafTree(dataDir, pageLeaves);
-  const core = await loadCore(dataDir);
+  const pageBody = async (slug: Slug): Promise<string> =>
+    (await loadPage(slug))?.body ?? "";
+  const pageRaw = async (slug: Slug): Promise<string> => {
+    const loaded = await loadPage(slug);
+    if (!loaded) throw new Error(`page not found: ${slug}`);
+    return loaded.raw;
+  };
 
-  // Always-on synthetic capabilities leaf: skill + CLI-command rows the page
-  // index already carries (with summaries). Injecting them as leaf members puts
-  // them in the needle corpus (`tree.byPage`) and, via `core`, makes L1 always
-  // open the leaf so L2 selects the relevant subset each turn — matching v2's
-  // "always in the pool, router-selected" capability surfacing. Done before
-  // `buildNeedleIndex` so the synthetic members are indexed.
-  const capabilitySlugs = pageIndex.entries
-    .map((entry) => entry.slug)
-    .filter(isCapabilitySlug);
-  injectCapabilitiesLeaf(tree, core, capabilitySlugs);
+  const sectionIndex = await buildSectionIndex(slugs, pageBody);
+  const needle = buildSectionNeedle(sectionIndex);
+  const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw);
+  await ensureSectionCollection(config);
 
-  const needle = await buildNeedleIndex(tree, pageSummary);
+  // Synthetic capability slugs (skills + CLI commands) the page index already
+  // carries. Always added to the candidate pool in `orchestrate`; proper
+  // lane-ranking of synthetic pages is a documented fast-follow.
+  const capabilitySlugs = slugs.filter(isCapabilitySlug);
+
   const workingSet = new WorkingSet(
     config.memory.v3.workingSet.maxPages,
     config.memory.v3.workingSet.evictWindow,
   );
 
-  return { tree, core, needle, workingSet };
+  return {
+    sectionIndex,
+    needle,
+    denseConfig: config,
+    edgeGraph,
+    workingSet,
+    capabilitySlugs,
+  };
 }
 
 /** Lazy, memoized accessor for the shadow lanes. */
@@ -180,11 +202,11 @@ function readNowContext(): string | null {
 }
 
 /**
- * Compose the situational signal threaded into L1 routing and L2 selection: the
- * current date plus the live NOW.md scratchpad. The date alone is a weak signal,
- * but together with the scratchpad it lets retrieval surface a leaf the message
- * never names (e.g. an anniversary that falls today). Always returns at least
- * the date line — this mirrors the `c_now`/NOW.md signal the v2 retriever uses.
+ * Compose the situational signal threaded into pool selection: the current date
+ * plus the live NOW.md scratchpad. The date alone is a weak signal, but together
+ * with the scratchpad it lets retrieval surface a page the message never names
+ * (e.g. an anniversary that falls today). Always returns at least the date line
+ * — this mirrors the `c_now`/NOW.md signal the v2 retriever uses.
  */
 function buildSituationalContext(): string {
   const now = readNowContext();
@@ -240,29 +262,25 @@ interface SelectionRow {
  * Map an orchestrate result onto telemetry rows with best-effort lane
  * attribution.
  *
- * - A current selection whose page belongs to a core leaf → `"core+l2"`,
- *   otherwise `"l1+l2"`.
+ * - A current selection whose page matched a section this turn → `"needle"` or
+ *   `"dense"`; an edge-only candidate that survived selection → `"edge"`. The
+ *   pool is a union of lanes that only ever adds candidates, so a page can be
+ *   surfaced by more than one lane; this coarse mapping records the lane that
+ *   provided the matched section (needle/dense) and falls back to `"edge"` for
+ *   candidates with no matched section.
  * - A slug in `finalInjection` but NOT re-selected this turn → `"carry-forward"`.
  *
- * Precise needle attribution is a documented follow-up: the needle lane only
- * widens the open set, so a needle-surfaced page that survives L2 selection is
- * indistinguishable here from an L1-routed one. This coarse mapping is
- * acceptable for v0 shadow telemetry.
+ * Precise per-lane attribution (which lane FIRST surfaced a page) is a
+ * documented follow-up; this is acceptable for v0 shadow telemetry.
  */
-function attributeSelections(
-  tree: LeafTree,
-  core: Set<LeafPath>,
-  result: OrchestrateResult,
-): SelectionRow[] {
-  const coreOwnedSlugs = coreSlugs(tree, core);
-
+function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const rows: SelectionRow[] = [];
   const seen = new Set<Slug>();
   for (const sel of result.currentSelections) {
     seen.add(sel.slug);
     rows.push({
       slug: sel.slug,
-      source: coreOwnedSlugs.has(sel.slug) ? "core+l2" : "l1+l2",
+      source: result.sectionBySlug.has(sel.slug) ? "needle" : "edge",
       pinned: sel.pinned ? 1 : 0,
     });
   }
@@ -312,15 +330,15 @@ export async function observeTurn(
     const cfg = getConfig();
     const lanes = await getLanes(cfg);
     const result = await orchestrate(turn, {
-      tree: lanes.tree,
-      core: lanes.core,
+      sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
+      denseConfig: lanes.denseConfig,
+      edgeGraph: lanes.edgeGraph,
       workingSet: lanes.workingSet,
-      pageSummary,
-      l2Concurrency: cfg.memory.v3.l2Concurrency,
+      capabilitySlugs: lanes.capabilitySlugs,
     });
 
-    const rows = attributeSelections(lanes.tree, lanes.core, result);
+    const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);
     return result;
   } catch (err) {
