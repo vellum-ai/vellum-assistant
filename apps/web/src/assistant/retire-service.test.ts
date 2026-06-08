@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // --- mutable mock state (set per test) --- //
 
 let isLocalModeValue = false;
-let isNativeValue = false;
 let lockfileAssistants: Array<{ assistantId: string; cloud?: string }> = [];
 let retireByIdResult: { ok: true } | { ok: false; status: number; error: Record<string, unknown> } = { ok: true };
 let retireLocalResult: { ok: true } | { ok: false; error?: string } = { ok: true };
@@ -36,15 +35,20 @@ mock.module("@/lib/local-mode", () => ({
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
-  // "allow" → assistant route still reachable → service falls back to privacy.
-  resolveNavigation: () => ({ action: "allow" }),
+  resolveNavigation: (state: any, query: any) => {
+    if (query.kind !== "post-retire") return { action: "allow" };
+    if (state.hasAssistants) return { action: "redirect", to: "/assistant/onboarding/select-assistant" };
+    if (state.isAuthenticated || state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
+    return { action: "redirect", to: "/assistant/onboarding/welcome" };
+  },
 }));
 mock.module("@/lib/navigation/build-state", () => ({
-  buildNavigationState: () => ({}),
-}));
-
-mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: () => isNativeValue,
+  buildNavigationState: (overrides?: any) => ({
+    isLocalMode: isLocalModeValue,
+    isAuthenticated: false,
+    platformSession: "absent",
+    ...overrides,
+  }),
 }));
 
 const clearOnboardingFlagsMock = mock(() => {});
@@ -56,6 +60,9 @@ mock.module("@/utils/routes", () => ({
   routes: {
     assistant: "/assistant",
     onboarding: {
+      welcome: "/assistant/onboarding/welcome",
+      selectAssistant: "/assistant/onboarding/select-assistant",
+      hosting: "/assistant/onboarding/hosting",
       prechat: "/assistant/onboarding/prechat",
       privacy: "/assistant/onboarding/privacy",
     },
@@ -66,7 +73,6 @@ const { retireAssistant } = await import("./retire-service");
 
 beforeEach(() => {
   isLocalModeValue = false;
-  isNativeValue = false;
   lockfileAssistants = [];
   retireByIdResult = { ok: true };
   retireLocalResult = { ok: true };
@@ -94,7 +100,7 @@ describe("retireAssistant", () => {
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");
+      expect(outcome.nextRoute).toBe("/assistant/onboarding/welcome");
     }
     expect(clearOnboardingFlagsMock).toHaveBeenCalled();
   });
@@ -151,15 +157,30 @@ describe("retireAssistant", () => {
     expect(clearOnboardingFlagsMock).not.toHaveBeenCalled();
   });
 
-  test("native post-retire route is the pre-chat onboarding entry", async () => {
-    isNativeValue = true;
-    lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+  test("post-retire redirects to select-assistant when other assistants remain", async () => {
+    isLocalModeValue = true;
+    lockfileAssistants = [
+      { assistantId: "l1", cloud: "local" },
+      { assistantId: "p1", cloud: "vellum" },
+    ];
 
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant("l1");
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      expect(outcome.nextRoute).toBe("/assistant/onboarding/prechat");
+      expect(outcome.nextRoute).toBe("/assistant/onboarding/select-assistant");
+    }
+  });
+
+  test("post-retire redirects to welcome when no assistants and not logged in", async () => {
+    isLocalModeValue = true;
+    lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
+
+    const outcome = await retireAssistant("l1");
+
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.nextRoute).toBe("/assistant/onboarding/welcome");
     }
   });
 });

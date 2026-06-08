@@ -328,6 +328,46 @@ describe("resolveNavigation", () => {
   });
 
   // -----------------------------------------------------------------------
+  // post-retire
+  // -----------------------------------------------------------------------
+  describe("post-retire", () => {
+    const postRetire = (state: NavigationState) =>
+      resolveNavigation(state, { kind: "post-retire" });
+
+    test("redirects to select-assistant when other assistants remain", () => {
+      expect(postRetire(s({ hasAssistants: true }))).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/select-assistant",
+      });
+    });
+
+    test("redirects to hosting when no assistants and authenticated", () => {
+      expect(postRetire(s({ hasAssistants: false, isAuthenticated: true }))).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hosting",
+      });
+    });
+
+    test("redirects to hosting when no assistants and platform session present", () => {
+      expect(
+        postRetire(s({ hasAssistants: false, isAuthenticated: false, platformSession: "present" })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hosting",
+      });
+    });
+
+    test("redirects to welcome when no assistants and not logged in", () => {
+      expect(
+        postRetire(s({ hasAssistants: false, isAuthenticated: false, platformSession: "absent" })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/welcome",
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // post-auth
   // -----------------------------------------------------------------------
   describe("post-auth", () => {

@@ -30,7 +30,8 @@ export type NavigationQuery =
       authIntent: "login" | "signup";
       returnTo: string | null;
       fallback: string;
-    };
+    }
+  | { kind: "post-retire" };
 
 // ---------------------------------------------------------------------------
 // Decision — what the caller should do
@@ -94,6 +95,8 @@ export function resolveNavigation(
       return resolveHatchGate(state);
     case "post-auth":
       return resolvePostAuth(query.authIntent, query.returnTo, query.fallback);
+    case "post-retire":
+      return resolvePostRetire(state);
   }
 }
 
@@ -212,5 +215,19 @@ function resolvePostAuth(
     return { action: "redirect", to: routes.onboarding.privacy };
   }
   return { action: "redirect", to: sanitizeReturnTo(returnTo, fallback) };
+}
+
+// ---------------------------------------------------------------------------
+// post-retire
+// ---------------------------------------------------------------------------
+
+function resolvePostRetire(state: NavigationState): NavigationDecision {
+  if (state.hasAssistants) {
+    return { action: "redirect", to: routes.onboarding.selectAssistant };
+  }
+  if (state.isAuthenticated || state.platformSession === "present") {
+    return { action: "redirect", to: routes.onboarding.hosting };
+  }
+  return { action: "redirect", to: routes.onboarding.welcome };
 }
 
