@@ -2598,7 +2598,8 @@ jobs:
           ZIP=$(find electron-artifacts -name "*.zip" -type f | grep -v blockmap | grep -m1 .)
           BLOCKMAP=$(find electron-artifacts -name "*.zip.blockmap" -type f | grep -m1 .)
 
-          gcloud storage cp "$LATEST_YML" "gs://${BUCKET}/${PREFIX}/latest-mac.yml"
+          MANIFEST_NAME="${CHANNEL}-mac.yml"
+          gcloud storage cp "$LATEST_YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
           gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
           [ -n "$BLOCKMAP" ] && gcloud storage cp "$BLOCKMAP" "gs://${BUCKET}/${PREFIX}/$(basename "$BLOCKMAP")"
 
