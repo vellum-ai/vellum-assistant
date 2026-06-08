@@ -22,7 +22,7 @@ cd "$APP_DIR"
 
 bash scripts/fetch-bun.sh --arch "$BUN_ARCH"
 bash scripts/generate-icon.sh
-bash scripts/build-hotkey-helper.sh
+bash scripts/build-mac-helper.sh
 bun run build:web
 bash scripts/generate-cli-lockfile.sh
 electron-vite build

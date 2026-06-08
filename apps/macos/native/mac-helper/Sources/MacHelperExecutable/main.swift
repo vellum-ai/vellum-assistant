@@ -2,7 +2,7 @@ import AppKit
 import Carbon
 import Darwin
 import Foundation
-import HotkeyHelperCore
+import MacHelperCore
 
 private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
 private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
@@ -16,7 +16,7 @@ private func hotkeyEventHandler(
         return OSStatus(eventNotHandledErr)
     }
 
-    let helper = Unmanaged<HotkeyHelper>.fromOpaque(userData).takeUnretainedValue()
+    let helper = Unmanaged<MacHelper>.fromOpaque(userData).takeUnretainedValue()
     switch GetEventKind(event) {
     case UInt32(kEventRawKeyModifiersChanged):
         helper.handleRawKeyModifiersChanged(event)
@@ -53,7 +53,7 @@ private func isFnHotkeyEvent(_ event: EventRef) -> Bool {
         hotkeyId.id == fnHotkeyId.id
 }
 
-final class HotkeyHelper: @unchecked Sendable {
+final class MacHelper: @unchecked Sendable {
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
@@ -303,7 +303,7 @@ private enum HelperError: LocalizedError {
     }
 }
 
-let helper = HotkeyHelper()
+let helper = MacHelper()
 MainActor.assumeIsolated {
     helper.run()
 }

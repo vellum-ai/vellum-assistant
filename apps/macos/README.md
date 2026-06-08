@@ -195,8 +195,8 @@ The preload script exposes a typed `window.vellum` API to the renderer:
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.
 
-The native helper lives in `native/hotkey-helper/` as a small Swift package.
-`HotkeyHelperCore` owns JSON-RPC 2.0 NDJSON framing, standard error codes, and
+The native helper lives in `native/mac-helper/` as a small Swift package.
+`MacHelperCore` owns JSON-RPC 2.0 NDJSON framing, standard error codes, and
 method routing so protocol behavior is unit-testable without spawning a
 process. The `vellum-mac-helper` executable is the thin AppKit/Carbon entrypoint;
 it logs to stderr and keeps stdout reserved for RPC frames and notifications.

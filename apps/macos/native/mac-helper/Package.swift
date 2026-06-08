@@ -2,26 +2,26 @@
 import PackageDescription
 
 let package = Package(
-    name: "HotkeyHelper",
+    name: "MacHelper",
     platforms: [
         .macOS(.v15),
     ],
     products: [
-        .executable(name: "vellum-mac-helper", targets: ["HotkeyHelperExecutable"]),
+        .executable(name: "vellum-mac-helper", targets: ["MacHelperExecutable"]),
     ],
     targets: [
-        .target(name: "HotkeyHelperCore"),
+        .target(name: "MacHelperCore"),
         .executableTarget(
-            name: "HotkeyHelperExecutable",
-            dependencies: ["HotkeyHelperCore"],
+            name: "MacHelperExecutable",
+            dependencies: ["MacHelperCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
             ]
         ),
         .testTarget(
-            name: "HotkeyHelperCoreTests",
-            dependencies: ["HotkeyHelperCore"]
+            name: "MacHelperCoreTests",
+            dependencies: ["MacHelperCore"]
         ),
     ]
 )

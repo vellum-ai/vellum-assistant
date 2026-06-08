@@ -7,4 +7,5 @@ resources/hotkey-helper
 resources/vellum-mac-helper
 resources/web-dist
 native/hotkey-helper/.build/
+native/mac-helper/.build/
 resources/cli-lockfile
