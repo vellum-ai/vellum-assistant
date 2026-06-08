@@ -260,19 +260,15 @@ interface SelectionRow {
 }
 
 /**
- * Map an orchestrate result onto telemetry rows with best-effort lane
+ * Map an orchestrate result onto telemetry rows with precise per-lane source
  * attribution.
  *
- * - A current selection whose page matched a section this turn → `"needle"` or
- *   `"dense"`; an edge-only candidate that survived selection → `"edge"`. The
- *   pool is a union of lanes that only ever adds candidates, so a page can be
- *   surfaced by more than one lane; this coarse mapping records the lane that
- *   provided the matched section (needle/dense) and falls back to `"edge"` for
- *   candidates with no matched section.
+ * - A current selection is tagged with the candgen lane that FIRST surfaced its
+ *   page this turn — `result.laneBySlug` (`"needle"` / `"dense"` / `"edge"`),
+ *   recorded at pool-build time. (`"needle"` is the fallback if a selected slug
+ *   is somehow absent from the lane map, which should not happen since every
+ *   pooled candidate is recorded there.)
  * - A slug in `finalInjection` but NOT re-selected this turn → `"carry-forward"`.
- *
- * Precise per-lane attribution (which lane FIRST surfaced a page) is a
- * documented follow-up; this is acceptable for v0 shadow telemetry.
  */
 function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const rows: SelectionRow[] = [];
@@ -281,7 +277,7 @@ function attributeSelections(result: OrchestrateResult): SelectionRow[] {
     seen.add(sel.slug);
     rows.push({
       slug: sel.slug,
-      source: result.sectionBySlug.has(sel.slug) ? "needle" : "edge",
+      source: result.laneBySlug.get(sel.slug) ?? "needle",
       pinned: sel.pinned ? 1 : 0,
     });
   }

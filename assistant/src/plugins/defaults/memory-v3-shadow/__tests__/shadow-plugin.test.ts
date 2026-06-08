@@ -29,7 +29,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import * as schema from "../../../../memory/schema.js";
-import type { SectionIndex, SelectionSource } from "../types.js";
+import type { CandidateLane, SectionIndex, SelectionSource } from "../types.js";
 
 // `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
 // re-mock in `afterAll` reverts it for files that load LATER in the same
@@ -77,9 +77,12 @@ let messages: Array<{ role: string; content: string }> = [];
 const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
-// The orchestrate result the spy returns. page-1 + page-2 matched a section
-// this turn (→ "needle"); page-3 is an edge-only candidate (no matched section
-// → "edge"); carried is a carry-forward slug not re-selected this turn.
+// The orchestrate result the spy returns. `laneBySlug` records the lane that
+// surfaced each pooled slug: page-1 → "needle", page-2 → "dense", page-3 →
+// "edge"; `attributeSelections` reads it directly. `carried` is a carry-forward
+// slug not re-selected this turn. `sectionBySlug` carries the matched section
+// for the slugs that had one (page-1/page-2) — consumed by the live injector's
+// progressive disclosure, independent of source attribution.
 const orchestrateSpy = mock(async () => ({
   currentSelections: [
     { slug: "page-1", pinned: true },
@@ -91,6 +94,11 @@ const orchestrateSpy = mock(async () => ({
   sectionBySlug: new Map([
     ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
     ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
+  ]),
+  laneBySlug: new Map<string, CandidateLane>([
+    ["page-1", "needle"],
+    ["page-2", "dense"],
+    ["page-3", "edge"],
   ]),
 }));
 
@@ -350,19 +358,22 @@ describe("memory-v3 shadow plugin", () => {
     expect(readRows()).toHaveLength(0);
   });
 
-  test("shadow flag ON → orchestrate runs and rows are written with lane sources", async () => {
+  test("shadow flag ON → orchestrate runs and rows are written with per-lane sources", async () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 2);
 
     expect(orchestrateSpy).toHaveBeenCalledTimes(1);
     const rows = readRows();
+    // Each selection is attributed to the lane that surfaced it
+    // (`result.laneBySlug`), not re-derived from section presence — so the
+    // dense-only page-2 logs "dense", not "needle".
     expect(rows).toEqual([
       { slug: "carried", source: "carry-forward", pinned: 0 },
-      // page-1 matched a section this turn → "needle", pinned.
+      // page-1 was surfaced by the needle lane → "needle", pinned.
       { slug: "page-1", source: "needle", pinned: 1 },
-      // page-2 matched a section this turn → "needle".
-      { slug: "page-2", source: "needle", pinned: 0 },
-      // page-3 had no matched section (edge-only) → "edge".
+      // page-2 was surfaced by the dense lane → "dense".
+      { slug: "page-2", source: "dense", pinned: 0 },
+      // page-3 was surfaced by the edge lane → "edge".
       { slug: "page-3", source: "edge", pinned: 0 },
     ]);
   });
@@ -443,6 +454,7 @@ describe("memory-v3 shadow plugin", () => {
       workingSetUnion: new Set<string>(),
       finalInjection: [],
       sectionBySlug: new Map(),
+      laneBySlug: new Map(),
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();
