@@ -9,6 +9,11 @@
  *      fetched with a shallow `git` clone at that ref — one network operation
  *      regardless of repo size, immune to GitHub's unauthenticated API
  *      rate-limit, and recording the exact resolved commit for provenance.
+ *      When we curate an adapter stub for the plugin (an
+ *      `experimental/plugins/<name>/` directory in this repo with a
+ *      `scripts.postinstall` command), the stub is overlaid onto the clone and
+ *      its postinstall runs to translate a foreign-ecosystem layout into the
+ *      shape Vellum's loader runs (see {@link applyAdapterStub}).
  *   2. Otherwise the first-party convention
  *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
  *      configured ref, fetched via the GitHub Contents API (a small handful of
@@ -29,12 +34,13 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -82,6 +88,18 @@ export type GitRunner = (
   opts: { readonly cwd: string },
 ) => Promise<{ readonly stdout: string }>;
 
+/**
+ * Runs a plugin's postinstall adapter script in `cwd`. Injected so tests can
+ * assert the adapter is invoked (and simulate its effects) without spawning a
+ * real subprocess; production callers fall back to {@link defaultPostinstallRunner}.
+ */
+export type PostinstallRunner = (opts: {
+  /** The staged install directory the adapter transforms in place. */
+  readonly cwd: string;
+  /** Absolute path to the adapter script to execute. */
+  readonly script: string;
+}) => Promise<void>;
+
 /** Options that control which plugin to install and how. */
 export interface InstallPluginOptions {
   readonly name: string;
@@ -100,6 +118,8 @@ export interface InstallPluginDeps {
   readonly workspacePluginsDir?: string;
   /** Override the git runner used to clone external plugin sources. Falls back to {@link defaultGitRunner}. */
   readonly runGit?: GitRunner;
+  /** Override the runner used to execute a plugin's postinstall adapter. Falls back to {@link defaultPostinstallRunner}. */
+  readonly runPostinstall?: PostinstallRunner;
 }
 
 /** Successful install result. */
@@ -120,6 +140,22 @@ export class InvalidPluginNameError extends Error {
       `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
     );
     this.name = "InvalidPluginNameError";
+  }
+}
+
+/**
+ * A plugin's curated postinstall adapter failed — its `scripts.postinstall`
+ * command was malformed/unsupported, its script was missing, or the script
+ * exited non-zero. The install is aborted and rolled back rather than
+ * materializing a half-transformed, non-functional plugin.
+ */
+export class PluginPostinstallError extends Error {
+  constructor(
+    readonly pluginName: string,
+    detail: string,
+  ) {
+    super(`Postinstall adapter for "${pluginName}" failed: ${detail}`);
+    this.name = "PluginPostinstallError";
   }
 }
 
@@ -205,39 +241,17 @@ function firstPartySource(name: string, ref: string): PluginFetchSource {
 }
 
 /**
- * Probe whether a first-party plugin directory exists at the given source.
- *
- * A transient listing failure resolves to `false` so a marketplace-claimed
- * name still reaches its external source — the rare collision guarantee gives
- * way to keeping the common external-only install path working under flaky
- * network conditions.
- */
-async function firstPartyPluginExists(
-  source: PluginFetchSource,
-  fetchFn: FetchLike,
-): Promise<boolean> {
-  try {
-    const entries = await listDir(
-      source.owner,
-      source.repo,
-      source.rootPath,
-      source.ref,
-      fetchFn,
-    );
-    return entries !== null && entries.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Resolve a plugin name to concrete GitHub coordinates.
  *
- * First-party plugins win a name collision: a name claimed by the curated
- * marketplace is fetched from its pinned external repo only when no
- * `experimental/plugins/<name>` directory exists in-repo. This mirrors the
- * search catalog, where an in-repo plugin suppresses a same-named marketplace
- * entry — install must advertise and install the same source.
+ * A name claimed by the curated marketplace resolves to its pinned external
+ * repo; any other name resolves to the first-party `experimental/plugins/<name>`
+ * convention. The marketplace is external-only by construction — a same-named
+ * `experimental/plugins/<name>` directory is the plugin's optional *adapter
+ * stub* (a curated `package.json` + postinstall script overlaid onto the clone
+ * to translate it into Vellum's shape; see {@link applyAdapterStub}), not a
+ * standalone first-party plugin. So letting the marketplace win the name is
+ * what makes the stub apply to the external clone, and the search catalog
+ * surfaces the same name as external — install and search stay in agreement.
  *
  * A missing or malformed manifest degrades to first-party resolution — the
  * whitelist is supplementary and must never block installing a first-party
@@ -259,12 +273,7 @@ async function resolvePluginSource(
     // Degrade to first-party resolution below.
   }
 
-  const firstParty = firstPartySource(name, marketplaceRef);
-  if (!resolved) return firstParty;
-
-  if (await firstPartyPluginExists(firstParty, fetchFn)) {
-    return firstParty;
-  }
+  if (!resolved) return firstPartySource(name, marketplaceRef);
 
   return {
     kind: "external",
@@ -363,6 +372,14 @@ export async function installPlugin(
       );
       fileCount = cloned.fileCount;
       commit = cloned.commit;
+      // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
+      // Code plugin) that the Vellum loader can't run as-is. When we curate an
+      // adapter stub for it, overlay the stub and run its transform so the
+      // materialized tree is a valid Vellum plugin. Raw clones (no stub) are
+      // left untouched.
+      if (fileCount > 0) {
+        await applyAdapterStub(name, marketplaceRef, stagingDir, deps);
+      }
     } else {
       fileCount = await copyDir(
         source.owner,
@@ -446,7 +463,7 @@ async function copyExternalViaGit(
       // transient GitHub outage — is retryable, so map it to a 503.
       if (isGitRefNotFound(err)) return { fileCount: 0, commit: null };
       throw new PluginSourceUnavailableError(
-        `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${gitErrorText(err)}`,
+        `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${subprocessErrorText(err)}`,
         503,
       );
     }
@@ -488,6 +505,166 @@ async function copyExternalViaGit(
   }
 }
 
+/** Cap on a postinstall adapter; the curated transforms are fast and file-only. */
+const POSTINSTALL_TIMEOUT_MS = 60_000;
+
+/**
+ * Overlay our curated adapter stub onto a freshly cloned external plugin and
+ * run its postinstall transform, returning whether a transform ran.
+ *
+ * The stub lives at `experimental/plugins/<name>/` in our own repo and carries
+ * a `package.json` (with a `scripts.postinstall` adapter command) plus the
+ * adapter script it names. We fetch it via the Contents API — a couple of
+ * small files, well within the rate limit — and copy it over the clone, which
+ * deliberately overwrites the clone's `package.json` so the postinstall we run
+ * is ours, never the upstream repo's lifecycle script. Absent a stub (the
+ * common case for a plugin already in Vellum shape), nothing is overlaid and
+ * the clone is installed as-is.
+ *
+ * On any adapter failure the error propagates so {@link installPlugin} rolls
+ * back staging — better to fail loudly than ship a half-transformed plugin.
+ */
+async function applyAdapterStub(
+  name: string,
+  ref: string,
+  stagingDir: string,
+  deps: InstallPluginDeps,
+): Promise<boolean> {
+  const stubFileCount = await copyDir(
+    PLUGIN_SOURCE_OWNER,
+    PLUGIN_SOURCE_REPO,
+    `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
+    ref,
+    stagingDir,
+    deps.fetch,
+  );
+  if (stubFileCount === 0) return false;
+
+  const script = resolvePostinstallScript(name, stagingDir);
+  if (script === null) return false;
+
+  const run = deps.runPostinstall ?? defaultPostinstallRunner;
+  try {
+    await run({ cwd: stagingDir, script });
+  } catch (err) {
+    throw new PluginPostinstallError(name, subprocessErrorText(err));
+  }
+  return true;
+}
+
+/**
+ * Resolve the absolute path of the adapter script named by the (overlaid stub)
+ * `package.json`'s `scripts.postinstall`, or `null` when there is no stub
+ * package.json / postinstall script.
+ *
+ * Curated adapters declare a single `node <script>` invocation; the runtime is
+ * substituted at execution time (see {@link defaultPostinstallRunner}), so the
+ * `node` token is required only to mark the convention, not to pick the binary.
+ * Anything else — extra args, a shell pipeline, a non-JS script — is rejected
+ * rather than executed, and the script path is constrained to a file inside the
+ * staging dir so a stub can never escape it.
+ */
+function resolvePostinstallScript(
+  name: string,
+  stagingDir: string,
+): string | null {
+  const pkgPath = join(stagingDir, "package.json");
+  if (!existsSync(pkgPath)) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch {
+    return null;
+  }
+
+  const scripts =
+    typeof parsed === "object" && parsed !== null && "scripts" in parsed
+      ? (parsed as { scripts?: unknown }).scripts
+      : undefined;
+  const command =
+    typeof scripts === "object" && scripts !== null && "postinstall" in scripts
+      ? (scripts as { postinstall?: unknown }).postinstall
+      : undefined;
+  if (typeof command !== "string" || command.trim() === "") return null;
+
+  const match = /^node\s+(\S+)$/.exec(command.trim());
+  if (!match) {
+    throw new PluginPostinstallError(
+      name,
+      `unsupported postinstall command ${JSON.stringify(command)} — ` +
+        "curated adapters must be a single `node <script>` invocation",
+    );
+  }
+
+  let rel = match[1]!;
+  if (rel.startsWith("./")) rel = rel.slice(2);
+  if (!/\.(?:mjs|cjs|js)$/.test(rel)) {
+    throw new PluginPostinstallError(
+      name,
+      `postinstall script ${JSON.stringify(rel)} must be a .mjs/.cjs/.js file`,
+    );
+  }
+  for (const segment of rel.split("/")) {
+    assertSafeFilename("postinstall script segment", segment);
+  }
+
+  const abs = resolve(stagingDir, rel);
+  if (
+    abs !== resolve(stagingDir) &&
+    !abs.startsWith(`${resolve(stagingDir)}${sep}`)
+  ) {
+    throw new PluginPostinstallError(
+      name,
+      `postinstall script ${JSON.stringify(rel)} escapes the plugin directory`,
+    );
+  }
+  if (!existsSync(abs)) {
+    throw new PluginPostinstallError(
+      name,
+      `postinstall script ${JSON.stringify(rel)} was not found in the plugin`,
+    );
+  }
+  return abs;
+}
+
+/**
+ * Production postinstall runner: executes the adapter with the host runtime
+ * (`process.execPath`, i.e. the daemon's own Bun/Node) rather than whatever a
+ * bare `node` on `PATH` resolves to, under a stripped environment and a
+ * timeout. The minimal env (runtime dir + standard bins, `HOME` only) keeps the
+ * adapter from inheriting surprising config while still finding the runtime.
+ */
+export const defaultPostinstallRunner: PostinstallRunner = async ({
+  cwd,
+  script,
+}) => {
+  await execFileAsync(process.execPath, [script], {
+    cwd,
+    encoding: "utf8",
+    timeout: POSTINSTALL_TIMEOUT_MS,
+    maxBuffer: 16 * 1024 * 1024,
+    env: pluginPostinstallEnv(),
+  });
+};
+
+function pluginPostinstallEnv(): NodeJS.ProcessEnv {
+  const runtimeDir = dirname(process.execPath);
+  const env: NodeJS.ProcessEnv = {
+    PATH: [
+      runtimeDir,
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+    ]
+      .filter(Boolean)
+      .join(":"),
+  };
+  if (process.env.HOME) env.HOME = process.env.HOME;
+  return env;
+}
+
 /**
  * Recursively copy regular files from `srcRoot` into `destDir`, skipping the
  * top-level `.git` directory and any symlinks. Returns the file count.
@@ -521,7 +698,7 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
 
 /** True when a git fetch failed because the repo or ref is unreachable. */
 function isGitRefNotFound(err: unknown): boolean {
-  const text = gitErrorText(err).toLowerCase();
+  const text = subprocessErrorText(err).toLowerCase();
   return [
     "could not find remote ref",
     "couldn't find remote ref",
@@ -535,7 +712,7 @@ function isGitRefNotFound(err: unknown): boolean {
 }
 
 /** Extract a stderr/message blob from a spawn error for classification/logging. */
-function gitErrorText(err: unknown): string {
+function subprocessErrorText(err: unknown): string {
   if (err instanceof Error) {
     const withStreams = err as Error & { stderr?: unknown };
     const stderr =

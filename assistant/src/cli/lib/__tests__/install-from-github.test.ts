@@ -31,7 +31,9 @@ import {
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
+  PluginPostinstallError,
   PluginSourceUnavailableError,
+  type PostinstallRunner,
   sanitizePluginName,
 } from "../install-from-github.js";
 
@@ -181,6 +183,23 @@ const unusedGitRunner: GitRunner = async (args) => {
     `git should not run for a first-party install: ${args.join(" ")}`,
   );
 };
+
+/**
+ * Read the real, committed caveman adapter stub from the repo so the
+ * integration test exercises the adapter that ships rather than a fixture
+ * copy that could drift from it. Resolves `experimental/plugins/caveman/`
+ * relative to this test file.
+ */
+function readRealCavemanStub(): { packageJson: string; adapter: string } {
+  const stubDir = join(
+    import.meta.dir,
+    "../../../../../experimental/plugins/caveman",
+  );
+  return {
+    packageJson: readFileSync(join(stubDir, "package.json"), "utf-8"),
+    adapter: readFileSync(join(stubDir, "vellum-adapt.mjs"), "utf-8"),
+  };
+}
 
 describe("installPlugin — first-party", () => {
   let ws: string;
@@ -642,38 +661,150 @@ describe("installPlugin — marketplace resolution", () => {
     });
   });
 
-  test("first-party plugin wins a name collision with the marketplace", async () => {
-    // GIVEN a manifest whitelisting "caveman" externally
-    // AND an in-repo first-party plugin that also claims the name "caveman"
+  test("overlays a curated adapter stub and runs its postinstall transform", async () => {
+    // GIVEN caveman is whitelisted externally
+    // AND we curate an adapter stub for it at experimental/plugins/caveman —
+    // the real, committed stub (package.json + vellum-adapt.mjs), so this test
+    // exercises the adapter that ships, not a fixture copy of it
+    const stub = readRealCavemanStub();
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json":
-          '{"name":"@vellumai/caveman"}',
-        "experimental/plugins/caveman/hooks": null,
-        "experimental/plugins/caveman/hooks/init.ts": "// first-party",
+        "experimental/plugins/caveman/package.json": stub.packageJson,
+        "experimental/plugins/caveman/vellum-adapt.mjs": stub.adapter,
       },
       manifest: CAVEMAN_MANIFEST,
     });
+    // AND the upstream clone is a Claude Code plugin: a name-mismatched
+    // package.json, the `.claude-plugin/plugin.json` manifest, and the
+    // terse-mode ruleset in skills/caveman/SKILL.md
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"caveman-installer"}',
+        ".claude-plugin/plugin.json": JSON.stringify({
+          name: "caveman",
+          description: "Ultra-compressed communication mode.",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\ndescription: terse mode\n---\n\nCAVEMAN MODE. Drop filler words. Keep technical substance.",
+      },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
 
-    // WHEN we install by the colliding name (git must NOT run — the in-repo
-    // plugin is served entirely from the Contents API)
+    // WHEN we install (real postinstall runner — no injected stub)
     const result = await installPlugin(
       { name: "caveman", ref: "main" },
-      { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
     );
 
-    // THEN the in-repo plugin is installed (matching what the search catalog
-    // advertises for the name), not the external repo — the marketplace is
-    // additive and never overrides a first-party plugin
+    // THEN the materialized tree is a valid Vellum plugin: package.json `name`
+    // matches the directory and declares the @vellumai/plugin-api peer dep
+    // (fixing both loader warnings), and the upstream installer name is gone
     const target = join(pluginsDir, "caveman");
-    expect(result.ref).toBe("main");
-    expect(result.commit).toBeNull();
+    expect(result.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
+
+    // AND a pre-model-call hook is synthesized carrying the upstream ruleset,
+    // so caveman actually runs (terse mode injected on the user-facing call)
+    const hook = readFileSync(
+      join(target, "hooks", "pre-model-call.ts"),
+      "utf-8",
+    );
+    expect(hook).toContain("PreModelCallContext");
+    expect(hook).toContain('ctx.callSite !== "mainAgent"');
+    expect(hook).toContain("CAVEMAN MODE. Drop filler words.");
+    // AND the ruleset is sourced verbatim — the YAML frontmatter is stripped
+    expect(hook).not.toContain("description: terse mode");
+  });
+
+  test("does not run a postinstall for a raw clone without an adapter stub", async () => {
+    // GIVEN caveman is whitelisted but we curate NO adapter stub for it
+    // (the Contents API has no experimental/plugins/caveman directory)
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}', "hooks/init.ts": "//" },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+    // AND a postinstall runner that fails the test if it is ever invoked
+    const runPostinstall: PostinstallRunner = async () => {
+      throw new Error("postinstall must not run for a stubless raw clone");
+    };
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, runPostinstall, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the clone is installed verbatim — no transform ran
+    const target = join(pluginsDir, "caveman");
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
-      '{"name":"@vellumai/caveman"}',
+      '{"name":"caveman"}',
     );
-    expect(readFileSync(join(target, "hooks", "init.ts"), "utf-8")).toBe(
-      "// first-party",
-    );
+  });
+
+  test("aborts and rolls back when the adapter's postinstall fails", async () => {
+    // GIVEN a whitelisted plugin with a curated stub declaring a postinstall
+    const fetch = makeContentsFetch({
+      tree: {
+        "experimental/plugins/caveman/package.json": JSON.stringify({
+          name: "caveman",
+          scripts: { postinstall: "node ./vellum-adapt.mjs" },
+        }),
+        "experimental/plugins/caveman/vellum-adapt.mjs": "// adapter",
+      },
+      manifest: CAVEMAN_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman-installer"}' },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+    // AND its adapter exits non-zero
+    const runPostinstall: PostinstallRunner = async () => {
+      throw new Error("adapter blew up");
+    };
+
+    // WHEN we install
+    // THEN it surfaces a PluginPostinstallError and nothing is materialized —
+    // better to fail loudly than ship a half-transformed plugin
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit, runPostinstall, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginPostinstallError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("rejects a stub whose postinstall is not a single node invocation", async () => {
+    // GIVEN a curated stub whose postinstall is an arbitrary shell command
+    // rather than the supported `node <script>` adapter convention
+    const fetch = makeContentsFetch({
+      tree: {
+        "experimental/plugins/caveman/package.json": JSON.stringify({
+          name: "caveman",
+          scripts: { postinstall: "rm -rf /" },
+        }),
+      },
+      manifest: CAVEMAN_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman-installer"}' },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+
+    // WHEN we install (the default runner is never reached — resolution rejects
+    // the command before anything executes)
+    // THEN it surfaces a PluginPostinstallError and nothing is materialized
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginPostinstallError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
   });
 });
 

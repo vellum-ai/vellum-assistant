@@ -1,0 +1,10 @@
+{
+  "name": "caveman",
+  "version": "0.0.0",
+  "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node ./vellum-adapt.mjs"
+  }
+}

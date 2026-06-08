@@ -472,16 +472,57 @@ Resolution rules:
 
 - **Curation is the whitelist.** Only repos listed here appear in the catalog;
   there is no open registry.
-- **First-party wins name collisions.** If a directory in this folder and a
-  marketplace entry share a name, the in-repo plugin takes precedence.
+- **A marketplace entry owns its name.** If an entry and a directory in this
+  folder share a name, the entry wins and the same-named directory is treated
+  as that plugin's [postinstall adapter stub](#postinstall-adapters) (below),
+  not a standalone first-party plugin. A directory whose name *no* entry claims
+  is a first-party plugin, as before.
 - **The manifest is supplementary.** A missing or malformed `marketplace.json`
   degrades to the first-party listing — it never blocks core plugin discovery
   or installation.
 
 Whitelisting makes an external plugin **appear in the catalog and install by
-name**. It does not guarantee the plugin's hooks/tools match this loader's
-conventions — a plugin authored for another ecosystem may install yet
-contribute nothing on boot until a compatibility adapter exists.
+name**. It does not by itself guarantee the plugin's hooks/tools match this
+loader's conventions — a plugin authored for another ecosystem may install yet
+contribute nothing on boot. A **postinstall adapter** bridges that gap.
+
+### Postinstall adapters
+
+External ecosystem plugins are often shaped for a different host (e.g. a Claude
+Code plugin keyed on a `.claude-plugin/plugin.json`), so installed verbatim
+they fail this loader's contract — a name that doesn't match the directory, no
+`@vellumai/plugin-api` peer dependency, no `hooks/`/`tools/`. A postinstall
+adapter is a small, curated transform we commit *here* to translate such a
+clone into Vellum's shape.
+
+To adapt an external plugin, add a directory next to this README named for the
+marketplace entry, holding two files:
+
+```
+experimental/plugins/<name>/
+├── package.json        # { "scripts": { "postinstall": "node ./vellum-adapt.mjs" } }
+└── vellum-adapt.mjs    # the adapter — runs with the staged clone as its cwd
+```
+
+Install flow for an entry that has a stub:
+
+1. The marketplace entry's pinned repo is shallow-cloned at its commit.
+2. This stub's files are **overlaid** onto the clone (its `package.json`
+   deliberately overwrites the upstream one).
+3. The stub's `scripts.postinstall` is run against the staged tree to rewrite
+   it into a valid Vellum plugin (correct `package.json` `name` + peer dep,
+   synthesized `hooks/<name>.ts`). A failure aborts and rolls back the install.
+
+See [`caveman/`](./caveman/) for a worked example: it reads the upstream
+`.claude-plugin/plugin.json` and `skills/caveman/SKILL.md`, writes a Vellum
+`package.json`, and synthesizes a `hooks/pre-model-call.ts` that injects the
+plugin's ruleset on the user-facing model call.
+
+Trust boundary: only `scripts.postinstall` from a **curated stub in this repo**
+ever runs — it is reviewed Vellum code, version-pinned to the marketplace ref.
+The upstream repo's own lifecycle scripts are never executed. The adapter is
+restricted to a single `node <script>` invocation pointing at a `.mjs`/`.cjs`/
+`.js` file inside the stub, run under a stripped environment and a timeout.
 
 ---
 
