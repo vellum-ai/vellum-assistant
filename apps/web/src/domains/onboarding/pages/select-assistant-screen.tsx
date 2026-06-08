@@ -1,6 +1,6 @@
 import { Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -26,6 +26,8 @@ function assistantSubtitle(a: ResolvedAssistant): string {
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromLogin = searchParams.get("fromLogin") === "1";
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
   const {
@@ -72,8 +74,9 @@ export function SelectAssistantScreen() {
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
-  // Don't skip when inaccessible assistants exist — the user may want to log in.
+  // Don't skip when the user just logged in — let them see the now-enabled option.
   useEffect(() => {
+    if (fromLogin) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);

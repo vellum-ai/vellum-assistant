@@ -91,6 +91,9 @@ export function resolveLoginReturnTo(
       ? routes.onboarding.selectAssistant
       : routes.onboarding.hosting;
   }
+  if (fromPath === routes.onboarding.selectAssistant) {
+    return `${fromPath}?fromLogin=1`;
+  }
   return fromPath;
 }
 
