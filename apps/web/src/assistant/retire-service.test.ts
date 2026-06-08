@@ -35,7 +35,10 @@ mock.module("@/lib/local-mode", () => ({
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
-  resolveNavigation: (state: any, query: any) => {
+  resolveNavigation: (
+    state: Record<string, unknown>,
+    query: { kind: string },
+  ) => {
     if (query.kind !== "post-retire") return { action: "allow" };
     if (state.hasAssistants) return { action: "redirect", to: "/assistant/onboarding/select-assistant" };
     if (state.isAuthenticated || state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
@@ -43,7 +46,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
   },
 }));
 mock.module("@/lib/navigation/build-state", () => ({
-  buildNavigationState: (overrides?: any) => ({
+  buildNavigationState: (overrides?: Record<string, unknown>) => ({
     isLocalMode: isLocalModeValue,
     isAuthenticated: false,
     platformSession: "absent",
