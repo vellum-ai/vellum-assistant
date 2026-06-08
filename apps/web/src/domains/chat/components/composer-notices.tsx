@@ -4,8 +4,9 @@ import { CompactionCircuitOpenBanner } from "@/domains/chat/components/compactio
 import { MaintenanceModeBanner } from "@/domains/chat/components/maintenance-mode-banner";
 import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-banner";
 import {
-    formatVoiceError,
-    isMicPermissionError,
+  formatVoiceError,
+  isMicPermissionError,
+  isTextInsertionPermissionError,
 } from "@/domains/chat/utils/chat";
 import { Button, Notice } from "@vellumai/design-library";
 
@@ -48,6 +49,8 @@ export interface ComposerNoticesProps {
   onClearVoiceError?: () => void;
   /** Mic-permission retry handler. Only shown when {@link voiceError} is a permission error. */
   onRetryMicPermission?: () => void;
+  /** Opens macOS Automation settings for external-app dictation paste. */
+  onOpenTextInsertionSettings?: () => void | Promise<void>;
 
   /**
    * Pre-rendered disk-pressure banner from the chat page, or `null` when
@@ -93,6 +96,7 @@ export function ComposerNotices({
   voiceError,
   onClearVoiceError,
   onRetryMicPermission,
+  onOpenTextInsertionSettings,
   diskPressureBanner,
   billingBannerSlot,
   showMissingApiKeyBanner,
@@ -127,6 +131,17 @@ export function ComposerNotices({
                   onClick={onRetryMicPermission}
                 >
                   Allow Microphone
+                </Button>
+              ) : isTextInsertionPermissionError(voiceError) &&
+                onOpenTextInsertionSettings ? (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    void onOpenTextInsertionSettings();
+                  }}
+                >
+                  Open Settings
                 </Button>
               ) : undefined
             }

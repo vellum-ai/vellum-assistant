@@ -143,6 +143,12 @@ export interface ElectronShowNotificationPayload {
   deepLinkMetadata?: Record<string, unknown>;
 }
 
+export type ElectronTextInsertionResult =
+  | { status: "inserted" }
+  | { status: "vellum-focused" }
+  | { status: "automation-denied" }
+  | { status: "blocked" };
+
 /**
  * Main → renderer event when the user interacts with a native
  * notification. Mirror of `NotificationActionEvent` in
@@ -204,6 +210,12 @@ declare global {
           website: string;
         }>;
         openWebsite(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the external text-insertion
+      // bridge. Callers must guard on presence.
+      text?: {
+        insertIntoFrontApp(text: string): Promise<ElectronTextInsertionResult>;
+        openAutomationSettings(): Promise<void>;
       };
       csrf?: {
         getToken(): string | null;

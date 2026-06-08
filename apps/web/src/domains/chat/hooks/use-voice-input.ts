@@ -12,6 +12,10 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import {
+  insertTextIntoFrontApp,
+  openTextInsertionSettings,
+} from "@/runtime/text-insertion";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +41,8 @@ export interface UseVoiceInputReturn {
   clearVoiceError: () => void;
   /** Set a specific voice error code (or null to clear). */
   setVoiceError: (code: string | null) => void;
+  /** Open macOS Automation settings for external-app dictation paste. */
+  handleOpenTextInsertionSettings: () => Promise<void>;
   /** Whether the mic-permission primer dialog is open. */
   showPrimer: boolean;
   /**
@@ -47,9 +53,9 @@ export interface UseVoiceInputReturn {
   handleVoiceBeforeStart: () => boolean | Promise<boolean>;
   /**
    * Called when `VoiceInputButton` delivers a final transcript.
-   * Runs dictation cleanup via the daemon, then splices the cleaned
-   * text into the composer at the cursor position captured at recording
-   * start.
+   * Runs dictation cleanup via the assistant, then inserts into the
+   * focused front app when Vellum is backgrounded, or the composer when
+   * Vellum is focused.
    */
   handleVoiceTranscript: (rawText: string) => Promise<void>;
 
@@ -106,6 +112,11 @@ export function useVoiceInput({
     setVoiceError(null);
   }, []);
 
+  const handleOpenTextInsertionSettings = useCallback(
+    () => openTextInsertionSettings(),
+    [],
+  );
+
   const handleVoiceBeforeStart = useCallback((): boolean | Promise<boolean> => {
     // On Capacitor iOS the OS mic alert (backed by NSMicrophoneUsageDescription)
     // must fire directly — any pre-prompt UI with a dismiss affordance violates
@@ -138,6 +149,19 @@ export function useVoiceInput({
         : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
+      }
+
+      const frontAppInsertion = await insertTextIntoFrontApp(insertText);
+      if (frontAppInsertion.status === "inserted") {
+        return;
+      }
+      if (frontAppInsertion.status === "automation-denied") {
+        setVoiceError("dictation-automation-denied");
+        return;
+      }
+      if (frontAppInsertion.status === "blocked") {
+        setVoiceError("dictation-paste-blocked");
+        return;
       }
 
       setInput((current: string) => {
@@ -222,6 +246,7 @@ export function useVoiceInput({
     voiceError,
     clearVoiceError,
     setVoiceError,
+    handleOpenTextInsertionSettings,
     showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,

@@ -156,6 +156,12 @@ export interface ShowNotificationPayload {
   deepLinkMetadata?: Record<string, unknown>;
 }
 
+export type TextInsertionResult =
+  | { status: "inserted" }
+  | { status: "vellum-focused" }
+  | { status: "automation-denied" }
+  | { status: "blocked" };
+
 /**
  * Event main broadcasts to the renderer when the user clicks a
  * notification body or an action button. Mirror of
@@ -220,6 +226,10 @@ export interface VellumBridge {
      * itself; this routes through main.
      */
     openWebsite(): Promise<void>;
+  };
+  text: {
+    insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+    openAutomationSettings(): Promise<void>;
   };
   csrf: {
     getToken(): string | null;
@@ -520,6 +530,17 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
     openWebsite: (): Promise<void> =>
       ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
+  text: {
+    insertIntoFrontApp: (text: string): Promise<TextInsertionResult> =>
+      ipcRenderer.invoke(
+        "vellum:text:insertIntoFrontApp",
+        text,
+      ) as Promise<TextInsertionResult>,
+    openAutomationSettings: (): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:text:openAutomationSettings",
+      ) as Promise<void>,
   },
   csrf: {
     getToken: (): string | null =>

@@ -151,6 +151,10 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "stt-unavailable":
     "Speech-to-text is temporarily unavailable. Try again in a moment.",
   "stt-timeout": "Transcription took too long. Try a shorter recording.",
+  "dictation-automation-denied":
+    "Dictation needs Automation permission to paste into other apps.",
+  "dictation-paste-blocked":
+    "This app doesn't accept dictation; copy and paste manually.",
 };
 
 export function formatVoiceError(code: string): string {
@@ -167,6 +171,10 @@ const MIC_PERMISSION_ERROR_CODES: ReadonlySet<string> = new Set([
 
 export function isMicPermissionError(code: string | null): boolean {
   return code !== null && MIC_PERMISSION_ERROR_CODES.has(code);
+}
+
+export function isTextInsertionPermissionError(code: string | null): boolean {
+  return code === "dictation-automation-denied";
 }
 
 const BACKGROUND_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([

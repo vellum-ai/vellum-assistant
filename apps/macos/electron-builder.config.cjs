@@ -54,6 +54,8 @@ module.exports = {
     extendInfo: {
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
+      NSAppleEventsUsageDescription:
+        "Vellum uses Automation to paste dictated voice input into the app you are using.",
       NSUserNotificationAlertStyle: "alert",
       // Register the .vellum UTI so Quick Look extensions can provide
       // thumbnails and previews for .vellum bundle files in Finder.

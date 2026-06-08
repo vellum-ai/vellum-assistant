@@ -20,6 +20,7 @@ mock.module("electron", () => ({
     setAppUserModelId: () => undefined,
     setActivationPolicy: () => undefined,
     getPath: () => "/tmp",
+    hide: () => undefined,
     quit: () => undefined,
     dock: undefined,
   },
@@ -94,5 +95,9 @@ mock.module("electron", () => ({
   },
   shell: {
     openExternal: () => Promise.resolve(),
+  },
+  clipboard: {
+    readText: () => "",
+    writeText: () => undefined,
   },
 }));

@@ -51,6 +51,7 @@ import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
+import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
 import { hardenedWebPreferences } from "./windows";
 
@@ -338,6 +339,7 @@ app
     installHotkeyHelper();
     installAbout();
     installFeedbackIpc();
+    installTextInsertionIpc();
     installApplicationMenu();
     installQuickInput();
     installPopoutWindows();
