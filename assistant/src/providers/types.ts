@@ -208,6 +208,12 @@ export interface SendMessageConfig {
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";
   /**
+   * Wire-format `logit_bias` map (`{ "<tokenId>": bias }`). Set by
+   * `RetryProvider` from a profile's `logitBias` preset and forwarded only on
+   * the OpenAI-compatible (Fireworks) path; other providers ignore it.
+   */
+  logit_bias?: Record<string, number>;
+  /**
    * When true, the most recent user message's content varies across
    * otherwise-identical turns (e.g. a per-turn memory block was injected into
    * it). The provider places the primary long-TTL cache breakpoint on the most

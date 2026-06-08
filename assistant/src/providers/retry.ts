@@ -13,6 +13,7 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
+import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import {
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
@@ -276,6 +277,20 @@ function normalizeSendMessageOptions(
       resolved.openrouter.only.length > 0
     ) {
       nextConfig.openrouter = { only: resolved.openrouter.only };
+    }
+    // Forward a profile's opted-in `logit_bias` preset only on the Fireworks
+    // (OpenAI-compatible) path. The preset's token IDs are tokenizer-specific
+    // (Kimi), and strict-schema clients like Anthropic reject unknown body
+    // fields, so this must never leak onto other providers.
+    if (
+      providerName === "fireworks" &&
+      nextConfig.logit_bias === undefined &&
+      resolved.logitBias !== undefined
+    ) {
+      const biasMap = resolveLogitBiasPreset(resolved.logitBias);
+      if (biasMap !== undefined) {
+        nextConfig.logit_bias = biasMap;
+      }
     }
     // `contextWindow` and `provider` are server-side concerns, not provider
     // request parameters: effective context is resolved per call site/profile

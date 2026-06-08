@@ -309,6 +309,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
+    const logitBias = configObj?.logit_bias as
+      | Record<string, number>
+      | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
@@ -327,6 +330,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       if (maxTokens) {
         params.max_completion_tokens = maxTokens;
+      }
+
+      // Profile-scoped token biasing (e.g. the `suppress-cjk` preset). Resolved
+      // and gated to this provider family upstream in `RetryProvider`.
+      if (logitBias) {
+        params.logit_bias = logitBias;
       }
 
       // Subclasses (OpenRouter) may already have nested effort under
