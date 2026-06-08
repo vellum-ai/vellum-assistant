@@ -63,6 +63,12 @@ interface ModalContentProps extends ComponentProps<typeof Dialog.Content> {
   size?: ModalSize;
   hideCloseButton?: boolean;
   overlayClassName?: string;
+  /**
+   * When `false`, clicking the overlay backdrop no longer dismisses the modal.
+   * Pair with Radix's `onInteractOutside`/`onEscapeKeyDown` (passed through to
+   * `Dialog.Content`) to make a modal fully non-dismissible. Defaults to `true`.
+   */
+  dismissOnOverlayClick?: boolean;
   children?: ReactNode;
 }
 
@@ -70,6 +76,7 @@ function Content({
   size = "md",
   hideCloseButton = false,
   overlayClassName,
+  dismissOnOverlayClick = true,
   className,
   children,
   ref,
@@ -86,6 +93,7 @@ function Content({
           overlayClassName,
         )}
         onClick={(e) => {
+          if (!dismissOnOverlayClick) return;
           if (e.target === e.currentTarget) onOpenChange?.(false);
         }}
       >

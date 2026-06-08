@@ -80,6 +80,14 @@ export function WelcomeState({
           Get started
         </Button>
       </div>
+
+      <p
+        className="relative mt-6 max-w-[320px] text-body-small-default text-[var(--content-tertiary)]"
+        style={{ animation: "welcome-reveal 600ms ease-out 600ms both" }}
+      >
+        This quick setup gets your Pro features ready to go. You can close it
+        anytime and turn these features on later from Settings.
+      </p>
     </div>
   );
 }
