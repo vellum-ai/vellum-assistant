@@ -30,10 +30,11 @@ import {
   completeSubmittedSurface,
 } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
+import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, PendingConfirmationState, ScopeOption } from "@/types/interaction-ui-types";
-import type { TrustRuleItem } from "@/types/trust-rules";
+import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
 import type { ChatMessageToolCall, QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
@@ -111,7 +112,7 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
 export interface TrustRulePayload {
   toolName: string;
   pattern: string;
-  riskLevel: string;
+  riskLevel: TrustRuleRisk;
   scope: string;
 }
 
@@ -189,13 +190,13 @@ async function executeSaveRule(
   try {
     if (strategy === "update-or-create" && context.existingRule) {
       await updateTrustRule(ctx.assistantId, context.existingRule.id, {
-        risk: rule.riskLevel as "low" | "medium" | "high",
+        risk: rule.riskLevel,
       });
     } else {
       await addTrustRule(ctx.assistantId, {
         tool: rule.toolName,
         pattern: rule.pattern,
-        risk: rule.riskLevel as "low" | "medium" | "high",
+        risk: rule.riskLevel,
         description: `${rule.toolName} — ${rule.pattern}`,
         scope: rule.scope,
       });
@@ -712,7 +713,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,
       toolName: snapshot.toolName ?? "",
-      riskLevel: snapshot.riskLevel ?? "medium",
+      riskLevel: toRiskLevel(snapshot.riskLevel),
       allowlistOptions: snapshot.allowlistOptions ?? [],
       scopeOptions: snapshot.scopeOptions ?? [],
       directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
@@ -789,7 +790,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       const baseContext: RuleEditorContext = {
         requestId: "",
         toolName: context.toolName,
-        riskLevel: context.riskLevel ?? "medium",
+        riskLevel: toRiskLevel(context.riskLevel),
         allowlistOptions: resolvedAllowlistOptions,
         scopeOptions: context.scopeOptions,
         directoryScopeOptions: context.directoryScopeOptions,

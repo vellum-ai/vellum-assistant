@@ -18,9 +18,11 @@ import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import type { TrustRulePayload } from "@/domains/chat/hooks/use-interaction-actions";
+import { toRiskLevel } from "@/domains/chat/utils/risk";
 
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
+import type { TrustRuleRisk } from "@/types/trust-rules";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,8 +210,8 @@ export function ChatRuleEditorModal({
     return generalizationOffset;
   });
 
-  const [selectedRiskLevel, setSelectedRiskLevel] = useState(
-    context.riskLevel || "medium",
+  const [selectedRiskLevel, setSelectedRiskLevel] = useState<TrustRuleRisk>(
+    context.riskLevel,
   );
 
   const directoryScopeFiltered = context.directoryScopeOptions.filter(
@@ -239,7 +241,7 @@ export function ChatRuleEditorModal({
 
     if (existingRule) {
       // Edit mode: pre-fill risk from existing rule.
-      setSelectedRiskLevel(existingRule.risk || "medium");
+      setSelectedRiskLevel(existingRule.risk);
 
       // Default to first narrower option.
       if (narrowerOptions.length > 0) {
@@ -269,7 +271,7 @@ export function ChatRuleEditorModal({
     } else if (suggestion) {
       // Create mode with suggestion.
       if (suggestion.risk) {
-        setSelectedRiskLevel(suggestion.risk);
+        setSelectedRiskLevel(toRiskLevel(suggestion.risk));
       }
       if (suggestion.pattern) {
         const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
@@ -285,7 +287,7 @@ export function ChatRuleEditorModal({
       }
     } else {
       // Create mode without suggestion — use risk from context.
-      setSelectedRiskLevel(context.riskLevel || "medium");
+      setSelectedRiskLevel(context.riskLevel);
       if (isSingleOption) {
         setSelectedPatternIndex(0);
       }
