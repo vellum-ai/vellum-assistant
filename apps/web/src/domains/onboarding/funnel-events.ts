@@ -13,10 +13,10 @@ export const ONBOARDING_FUNNEL_VARIANTS = {
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
 
-export function onboardingFunnelVariantFromCondensedFlag(
-  condensedFlowEnabled: boolean,
+export function onboardingFunnelVariantFromExperiment(
+  experimentArm: string,
 ): OnboardingFunnelVariant {
-  return condensedFlowEnabled
+  return experimentArm === "variant-a"
     ? ONBOARDING_FUNNEL_VARIANTS.paredDown
     : ONBOARDING_FUNNEL_VARIANTS.control;
 }

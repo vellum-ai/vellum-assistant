@@ -6,7 +6,7 @@
  *   - `X-CSRFToken` (mutations only) — required by Django's
  *     SessionAuthentication.
  *   - `X-Vellum-Client-Id` + `X-Vellum-Interface-Id` — identify the
- *     originating tab/interface to the daemon. Required by ATL-703 self-echo
+ *     originating tab/interface to the daemon. Required by self-echo
  *     suppression: the daemon echoes the client id back on the resulting
  *     `sync_changed` so the originator's SSE subscriber can be skipped.
  *
@@ -41,22 +41,19 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
- * Narrow allowlist of `/v1/assistants/{id}/<segment>/...` first segments
- * that the platform proxies to the assistant's pod (and that we therefore
- * have to redirect to the user's gateway when self-hosted).
+ * Allowlist of `/v1/assistants/{id}/<segment>/...` first segments that
+ * the **platform client** rewrites to the self-hosted gateway.
  *
- * Kept intentionally narrow rather than mirroring Django's whole proxy
- * routing table: the platform owns the source of truth
- * (`config/api_router.py` registers `RuntimeProxyWildcardView` AFTER all
- * the ViewSet actions + `assistant/urls.py` entries, so anything not
- * already claimed there falls through to the wildcard), and copying that
- * deny-list into the SPA risks regressing platform-owned routes like
- * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` when a
- * new one is added on the backend.
+ * Only applies to requests made through the platform HeyAPI client.
+ * The daemon client bypasses this list entirely — all daemon SDK
+ * requests are forwarded to the gateway unconditionally (see
+ * {@link daemonRequestInterceptor}).
  *
- * Today's only consumer is the chat-page bootstrap — `conversations/`
- * has to land on the gateway so the chat surface can fail-and-render the
- * error state. Add segments here as additional self-hosted flows light up.
+ * Kept narrow for the platform client: the platform owns routes like
+ * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` under
+ * the same namespace, and forwarding those to the gateway would 404.
+ * Once all daemon endpoints are migrated to the daemon SDK, this list
+ * becomes dead code and can be removed.
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
@@ -69,14 +66,22 @@ const ASSISTANT_PATH_RE =
  * auth for `Authorization: Bearer <jwt>`.
  *
  * Returns `null` when no self-hosted ingress is currently set or when
- * the path isn't an allowlisted runtime segment — callers should fall
- * through to the default platform-dressing path in that case.
+ * the path doesn't match an assistant sub-resource.
+ *
+ * @param request — the outbound request to inspect.
+ * @param options.skipSegmentAllowlist — when `true`, all assistant
+ *   sub-resource paths are forwarded regardless of
+ *   {@link RUNTIME_PROXIED_FIRST_SEGMENTS}. The daemon client sets this
+ *   because every daemon SDK endpoint is a daemon route by definition.
+ *   The platform client leaves it `false` to avoid forwarding
+ *   platform-owned routes (maintenance-mode, system-events, etc.).
  *
  * Exported for direct unit testing — production code paths invoke this
- * via {@link requestInterceptor}.
+ * via {@link requestInterceptor} / {@link daemonRequestInterceptor}.
  */
 export async function rewriteForSelfHostedIngress(
   request: Request,
+  { skipSegmentAllowlist = false } = {},
 ): Promise<Request | null> {
   const ingressUrl = getSelfHostedIngressUrl();
   if (!ingressUrl) return null;
@@ -88,7 +93,9 @@ export async function rewriteForSelfHostedIngress(
   const firstSegment = match[1];
   if (
     !firstSegment ||
-    (!isLocalMode() && !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
+    (!skipSegmentAllowlist &&
+      !isLocalMode() &&
+      !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
   ) {
     return null;
   }
@@ -146,47 +153,69 @@ export async function rewriteForSelfHostedIngress(
 }
 
 /**
- * Exported for direct unit testing — production code paths invoke this
- * via the registrations at the bottom of the module. Keeping the function
- * named + exported lets tests assert the per-header contract without
- * reaching into the HeyAPI client's private interceptor list.
+ * Builds a request interceptor for a HeyAPI client.
+ *
+ * @param skipSegmentAllowlist — `true` for the daemon client (every
+ *   daemon SDK endpoint is a daemon route by definition, so all
+ *   assistant sub-resource paths are forwarded to the self-hosted
+ *   gateway unconditionally). `false` for the platform and auth
+ *   clients (only allowlisted segments are forwarded; platform-owned
+ *   routes like maintenance-mode, system-events, etc. fall through
+ *   to Django).
  */
-export async function requestInterceptor(request: Request): Promise<Request> {
-  const newRequest = new Request(request);
+function createInterceptor({ skipSegmentAllowlist = false } = {}) {
+  return async (request: Request): Promise<Request> => {
+    const newRequest = new Request(request);
 
-  // Per-tab client identity — sent on *every* request (GET included) so
-  // SSE-via-fetch readers and short-lived mutations carry the same id.
-  // Stamped first so it rides on both the platform and self-hosted paths.
-  for (const [name, value] of Object.entries(getClientRegistrationHeaders())) {
-    newRequest.headers.set(name, value);
-  }
-
-  // Self-hosted assistant + runtime-proxied path → talk to the user's
-  // gateway directly instead of stamping the platform's session/CSRF
-  // headers and hitting the runtime proxy view that filters us out.
-  const selfHosted = await rewriteForSelfHostedIngress(newRequest);
-  if (selfHosted) {
-    return selfHosted;
-  }
-
-  // Platform path — Django session auth.
-  const organizationId = getActiveOrganizationIdForRequests();
-  if (organizationId) {
-    newRequest.headers.set("Vellum-Organization-Id", organizationId);
-  }
-
-  if (MUTATING_METHODS.has(request.method)) {
-    await ensureCsrfCookie();
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      newRequest.headers.set("X-CSRFToken", csrfToken);
+    // Per-tab client identity — sent on *every* request (GET included)
+    // so SSE-via-fetch readers and short-lived mutations carry the same
+    // id. Stamped first so it rides on both the platform and
+    // self-hosted paths.
+    for (const [name, value] of Object.entries(
+      getClientRegistrationHeaders(),
+    )) {
+      newRequest.headers.set(name, value);
     }
-  }
 
-  return newRequest;
+    // Self-hosted assistant + runtime-proxied path → talk to the user's
+    // gateway directly instead of stamping the platform's session/CSRF
+    // headers.
+    const selfHosted = await rewriteForSelfHostedIngress(newRequest, {
+      skipSegmentAllowlist,
+    });
+    if (selfHosted) {
+      return selfHosted;
+    }
+
+    // Platform path — Django session auth.
+    const organizationId = getActiveOrganizationIdForRequests();
+    if (organizationId) {
+      newRequest.headers.set("Vellum-Organization-Id", organizationId);
+    }
+
+    if (MUTATING_METHODS.has(request.method)) {
+      await ensureCsrfCookie();
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        newRequest.headers.set("X-CSRFToken", csrfToken);
+      }
+    }
+
+    return newRequest;
+  };
 }
 
-for (const apiClient of [authClient, daemonClient, platformClient]) {
+/** Platform + auth clients: uses the segment allowlist. */
+export const requestInterceptor = createInterceptor();
+
+/** Daemon client: bypasses the segment allowlist. */
+export const daemonRequestInterceptor = createInterceptor({
+  skipSegmentAllowlist: true,
+});
+
+daemonClient.interceptors.request.use(daemonRequestInterceptor);
+
+for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
 
@@ -197,9 +226,26 @@ function arePlatformFeaturesEnabled(): boolean {
   );
 }
 
-platformClient.interceptors.request.use((request: Request) => {
+/**
+ * In local mode with platform features disabled, abort platform client
+ * requests that still target the platform — but let through requests
+ * already rewritten to the self-hosted gateway by the preceding
+ * {@link requestInterceptor}. Without this check, daemon endpoints
+ * (skills, memories, etc.) that route through the platform client would
+ * be silently killed even though they target the local daemon.
+ *
+ * Exported for direct unit testing.
+ */
+export function platformFeaturesGate(request: Request): Request {
   if (!isLocalMode()) return request;
   if (arePlatformFeaturesEnabled()) return request;
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl) {
+    const requestOrigin = new URL(request.url).origin;
+    const gatewayOrigin = new URL(ingressUrl).origin;
+    if (requestOrigin === gatewayOrigin) return request;
+  }
 
   console.debug(
     "platform-features-in-local-mode is disabled — no-op platform request:",
@@ -210,4 +256,6 @@ platformClient.interceptors.request.use((request: Request) => {
     new DOMException("Platform features disabled in local mode", "AbortError"),
   );
   return new Request(request.url, { signal: aborted.signal });
-});
+}
+
+platformClient.interceptors.request.use(platformFeaturesGate);

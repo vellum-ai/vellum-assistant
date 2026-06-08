@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { PanelItem, SideMenu } from "@vellum/design-library";
-import type { Conversation } from "@/types/conversation-types";
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
+import type { Conversation } from "@/types/conversation-types";
+import { PanelItem, SideMenu } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // SubGroupAccordion — shared sub-accordion for Background + Scheduled
@@ -11,6 +11,8 @@ import type { SubGroup } from "@/domains/chat/utils/sub-group";
 
 interface SubGroupAccordionProps {
   subGroups: SubGroup[];
+  /** True while the lazy background fetch is in flight with no rows yet. */
+  loading?: boolean;
   isSingleRow: (group: SubGroup) => boolean;
   activeConversationId?: string;
   attentionConversationIds?: Set<string>;
@@ -22,6 +24,7 @@ interface SubGroupAccordionProps {
 
 export function SubGroupAccordion({
   subGroups,
+  loading = false,
   isSingleRow,
   activeConversationId,
   attentionConversationIds,
@@ -30,6 +33,13 @@ export function SubGroupAccordion({
   renderPinToggle,
   renderRow,
 }: SubGroupAccordionProps) {
+  if (loading && subGroups.length === 0) {
+    return (
+      <div className="px-2 py-1.5 text-body-small-default text-[var(--content-tertiary)]">
+        Loading…
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       {subGroups.map((group) => {
@@ -91,6 +101,7 @@ export function SubGroupAccordion({
 
 interface CategorySubGroupsProps {
   subGroups: SubGroup[];
+  loading?: boolean;
   activeConversationId?: string;
   attentionConversationIds?: Set<string>;
   onSelectConversation: (key: string) => void;
@@ -103,6 +114,7 @@ export function BackgroundSubGroups(props: CategorySubGroupsProps) {
   return (
     <SubGroupAccordion
       subGroups={props.subGroups}
+      loading={props.loading}
       isSingleRow={(g) => g.key.startsWith("__single__:")}
       activeConversationId={props.activeConversationId}
       attentionConversationIds={props.attentionConversationIds}
@@ -118,6 +130,7 @@ export function ScheduledSubGroups(props: CategorySubGroupsProps) {
   return (
     <SubGroupAccordion
       subGroups={props.subGroups}
+      loading={props.loading}
       isSingleRow={(g) => g.conversations.length === 1}
       activeConversationId={props.activeConversationId}
       attentionConversationIds={props.attentionConversationIds}

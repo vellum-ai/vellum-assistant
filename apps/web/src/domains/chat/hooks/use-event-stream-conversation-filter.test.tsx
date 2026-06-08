@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import { useRef, type MutableRefObject } from "react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-
-type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(
   activeConversationId: string,
@@ -19,23 +16,12 @@ function renderEventStream(
 ) {
   return renderHook(
     ({ key }: { key: string }) => {
-      const streamRef = useRef<ChatEventStream | null>(null);
-      const streamEpochRef = useRef(0);
-      const reconcileAfterNextStreamOpenRef = useRef(false);
-      const streamContextRef = useRef<StreamContext | null>(null);
-      const syncRouterRef = useRef(null) as MutableRefObject<
-        null
-      > as never;
-      const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
         activeConversationId: key,
         conversationExistsOnServer: true,
-        streamRef,
-        streamEpochRef,
-        reconcileAfterNextStreamOpenRef,
-        streamContextRef,
         handleStreamEvent,
         reconcileActiveConversation: async () =>
           ({
@@ -48,10 +34,8 @@ function renderEventStream(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setMessages: () => {},
-        setError: () => {},
-        syncRouterRef,
-        conversationListInvalidatedTimerRef: timerRef,
+        dispatchReconnect: async () => undefined,
+        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: activeConversationId } },
@@ -59,20 +43,25 @@ function renderEventStream(
 }
 
 function publishDelta(conversationId: string): void {
-  useEventBusStore.getState().publish("sse.event", {
-    type: "assistant_text_delta",
+  publish("sse.event", {
+    id: "evt-1",
     conversationId,
-    delta: "hi",
-  } as unknown as AssistantEvent);
+    emittedAt: new Date().toISOString(),
+    message: {
+      type: "assistant_text_delta",
+      conversationId,
+      text: "hi",
+    },
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useEventStream — conversation-switch filtering", () => {
@@ -97,9 +86,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(1);
 
     // Conversation switch: re-render with the new active key. The
-    // effect cleanup + re-subscribe has not necessarily run yet on
-    // the bus side, but the latest-key ref must already gate further
-    // deliveries for the previous conversation.
+    // bus subscription is stable (never torn down / re-registered),
+    // but the `activeConversationIdLatestRef` is updated during the
+    // commit phase and gates further deliveries for the old key.
     rerender({ key: "conv-B" });
     publishDelta("conv-A");
     expect(handler).toHaveBeenCalledTimes(1);
@@ -112,10 +101,14 @@ describe("useEventStream — conversation-switch filtering", () => {
   test("forwards assistant-broadcast events that omit conversationId", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
-      type: "sync_changed",
-      tags: ["assistant:self:identity"],
-    } as unknown as AssistantEvent);
+    publish("sse.event", {
+      id: "evt-sync",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "sync_changed",
+        tags: ["assistant:self:identity"],
+      },
+    } as AssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -128,32 +121,46 @@ describe("useEventStream — conversation-switch filtering", () => {
     // "unknown conversation", not "broadcast".
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
-      type: "assistant_text_delta",
-      delta: "should be rejected",
-    } as unknown as AssistantEvent);
+    publish("sse.event", {
+      id: "evt-no-conv",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        text: "should be rejected",
+      },
+    } as AssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 
   test("forwards conversation-scoped events whose conversationId matches the active conversation", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
-      type: "message_complete",
+    publish("sse.event", {
+      id: "evt-msg",
       conversationId: "conv-A",
-      messageId: "m1",
-    } as unknown as AssistantEvent);
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "message_complete",
+        conversationId: "conv-A",
+        messageId: "m1",
+      },
+    } as AssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("a tool_call event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
+  test("a conversation-scoped event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
-      type: "tool_call",
+    publish("sse.event", {
+      id: "evt-tool",
       conversationId: "conv-B",
-      toolName: "bash",
-    } as unknown as AssistantEvent);
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        conversationId: "conv-B",
+        text: "should be dropped",
+      },
+    } as AssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 });

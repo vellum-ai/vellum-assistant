@@ -1,7 +1,7 @@
 /**
  * Integration tests for the agent loop's `provider_error` recording path.
  *
- * When the `llmCall` pipeline throws (provider rejected the request before
+ * When the provider call throws (provider rejected the request before
  * returning a usable response), the loop must emit a `provider_error` event
  * carrying the loop-level raw request and the thrown error so downstream
  * consumers can persist an `llm_request_logs` row. Without this, rejected
@@ -83,14 +83,19 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider, calls } = makeThrowingProvider("anthropic", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "you are a helpful assistant");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "you are a helpful assistant",
+      conversationId: "test-conversation",
+    });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => {
+    await loop.run({
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      onEvent: (e) => {
         events.push(e);
       },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls).toHaveLength(1);
 
@@ -122,14 +127,19 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider } = makeThrowingProvider("gemini", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => {
+    await loop.run({
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      onEvent: (e) => {
         events.push(e);
       },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const providerErrorIdx = events.findIndex(
       (e) => e.type === "provider_error",
@@ -148,14 +158,19 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider } = makeThrowingProvider("openai", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => {
+    await loop.run({
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      onEvent: (e) => {
         events.push(e);
       },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");
     expect(providerErrorEvent).toBeDefined();
@@ -179,15 +194,20 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => {
+    await loop.run({
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      onEvent: (e) => {
         events.push(e);
       },
-      { signal: controller.signal },
-    );
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      signal: controller.signal,
+    });
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");
     // Cancellation should never produce a recording row — there's no

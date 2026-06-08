@@ -51,6 +51,7 @@ interface TerminalState {
 export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
+  private suppressForwarding = false;
   /** Tracks pending ACP permission requestIds for cleanup on session close. */
   readonly pendingRequestIds = new Set<string>();
 
@@ -65,8 +66,38 @@ export class VellumAcpClientHandler implements Client {
     private readonly parentConversationId: string,
   ) {}
 
+  /**
+   * Begins suppressing session updates from being forwarded to Vellum.
+   *
+   * Per the ACP spec, `session/load` replays the entire conversation history
+   * as `session/update` notifications before the load response resolves. The
+   * parent conversation already received those events during the original
+   * run, so re-forwarding them would duplicate them into the conversation and
+   * the ring buffer. Callers wrap `loadSession` in
+   * beginReplaySuppression()/endReplaySuppression() to drop the replay.
+   * `session/resume` performs no replay, which is why it is preferred when
+   * the agent supports it.
+   */
+  beginReplaySuppression(): void {
+    this.suppressForwarding = true;
+  }
+
+  /** Ends replay suppression; subsequent updates flow normally. */
+  endReplaySuppression(): void {
+    this.suppressForwarding = false;
+  }
+
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
+
+    if (this.suppressForwarding) {
+      log.debug(
+        { acpSessionId: this.acpSessionId, updateType: update.sessionUpdate },
+        "Dropping replayed session update during suppression",
+      );
+      return;
+    }
+
     log.debug(
       { acpSessionId: this.acpSessionId, updateType: update.sessionUpdate },
       "ACP session update received",

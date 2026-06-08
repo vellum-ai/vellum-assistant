@@ -5,7 +5,7 @@ import {
   conversationMessagesSyncTag,
   type ServerMessage,
   SYNC_TAGS,
-  SyncChangedMessageSchema,
+  SyncChangedEventSchema,
 } from "../daemon/message-protocol.js";
 
 describe("sync message contract", () => {
@@ -39,26 +39,32 @@ describe("sync message contract", () => {
 
   test("schema rejects malformed sync_changed payloads", () => {
     expect(() =>
-      SyncChangedMessageSchema.parse({
+      SyncChangedEventSchema.parse({
         type: "sync_changed",
         tags: [],
       }),
     ).toThrow();
 
     expect(() =>
-      SyncChangedMessageSchema.parse({
+      SyncChangedEventSchema.parse({
         type: "sync_changed",
         tags: [""],
       }),
     ).toThrow();
+  });
 
-    expect(() =>
-      SyncChangedMessageSchema.parse({
-        type: "sync_changed",
-        tags: [SYNC_TAGS.assistantAvatar],
-        cursor: 1,
-      }),
-    ).toThrow();
+  test("schema strips unknown server-stamped fields", () => {
+    const parsed = SyncChangedEventSchema.parse({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      cursor: 1,
+    });
+
+    expect(parsed).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+    });
+    expect("cursor" in parsed).toBe(false);
   });
 
   test("buildSyncChangedMessage includes originClientId when provided", () => {
@@ -85,10 +91,7 @@ describe("sync message contract", () => {
   });
 
   test("buildSyncChangedMessage trims and drops blank originClientId", () => {
-    const blank = buildSyncChangedMessage(
-      [SYNC_TAGS.assistantAvatar],
-      "   ",
-    );
+    const blank = buildSyncChangedMessage([SYNC_TAGS.assistantAvatar], "   ");
     expect("originClientId" in blank).toBe(false);
 
     const trimmed = buildSyncChangedMessage(
@@ -104,7 +107,7 @@ describe("sync message contract", () => {
 
   test("schema accepts a string originClientId and rejects non-string types", () => {
     expect(() =>
-      SyncChangedMessageSchema.parse({
+      SyncChangedEventSchema.parse({
         type: "sync_changed",
         tags: [SYNC_TAGS.assistantAvatar],
         originClientId: "client-abc",
@@ -112,7 +115,7 @@ describe("sync message contract", () => {
     ).not.toThrow();
 
     expect(() =>
-      SyncChangedMessageSchema.parse({
+      SyncChangedEventSchema.parse({
         type: "sync_changed",
         tags: [SYNC_TAGS.assistantAvatar],
         originClientId: 42,

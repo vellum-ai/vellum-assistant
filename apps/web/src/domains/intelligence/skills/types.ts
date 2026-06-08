@@ -1,27 +1,26 @@
+import type {
+  SkillsByIdFilesGetResponse,
+  SkillsGetResponses,
+} from "@/generated/daemon/types.gen";
+
 export type SkillOrigin = "vellum" | "clawhub" | "skillssh" | "custom";
 
 export type SkillKind = "bundled" | "installed" | "catalog";
 
 export type SkillStatus = "enabled" | "disabled" | "available";
 
-export type SkillCategory =
-  | "communication"
-  | "productivity"
-  | "development"
-  | "media"
-  | "automation"
-  | "webSocial"
-  | "knowledge"
-  | "integration";
+export type SkillCategory = string;
 
 export interface SkillInfo {
   id: string;
   name: string;
   description: string;
+  icon?: string;
   emoji?: string;
   kind: SkillKind;
   status: SkillStatus;
   origin: SkillOrigin;
+  category: SkillCategory;
   slug?: string;
   author?: string;
   stars?: number;
@@ -32,36 +31,25 @@ export interface SkillInfo {
   sourceRepo?: string;
 }
 
-export interface SkillsListResponse {
-  skills: SkillInfo[];
-  categoryCounts?: Record<string, number>;
-  totalCount?: number;
-}
+/**
+ * The skill type as generated from the daemon OpenAPI spec — a discriminated
+ * union by `origin`. Each variant carries origin-specific fields (e.g.
+ * clawhub has `author`, skillssh has `sourceRepo`).
+ */
+type GeneratedSkill = SkillsGetResponses[200]["skills"][number];
 
-export interface SkillFileEntry {
-  name: string;
-  path: string;
-  size?: number;
-  mimeType?: string;
-  isBinary?: boolean;
-  content?: string | null;
-}
+/**
+ * Compile-time guard: every variant of the generated discriminated union
+ * must be assignable to `SkillInfo`. If the daemon OpenAPI spec renames a
+ * field or adds a variant that breaks the shape, this line produces a type
+ * error — surfacing the drift immediately instead of silently at runtime.
+ *
+ * @see https://www.typescriptlang.org/docs/handbook/2/generics.html#generic-constraints
+ */
+type AssertAssignable<_Target, _Source extends _Target> = true;
+type _SkillInfoCompat = AssertAssignable<SkillInfo, GeneratedSkill>;
 
-export interface SkillFilesResponse {
-  id: string;
-  name: string;
-  description?: string;
-  files: SkillFileEntry[];
-}
-
-export interface SkillFileContentResponse {
-  path: string;
-  name: string;
-  size: number;
-  mimeType: string;
-  isBinary: boolean;
-  content: string | null;
-}
+export type SkillFileEntry = SkillsByIdFilesGetResponse["files"][number];
 
 export type SkillFilter = "all" | "installed" | "available" | SkillOrigin;
 

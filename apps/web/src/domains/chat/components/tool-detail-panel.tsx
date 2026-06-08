@@ -10,6 +10,7 @@
 
 import {
   Bolt,
+  Brain,
   Check,
   Code,
   Copy,
@@ -22,16 +23,17 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import {
-  type IconName,
-  deriveStepLabelFromName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import {
+    deriveStepLabelFromName,
+    type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -48,6 +50,7 @@ const ICON_MAP: Record<IconName, LucideIcon> = {
   sparkle: Sparkles,
   "user-plus": UserPlus,
   bolt: Bolt,
+  brain: Brain,
 };
 
 const COPIED_RESET_MS = 1500;
@@ -111,21 +114,25 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-export function ToolDetailPanel({
-  detail,
+/**
+ * Shared outer container + header shell for both the tool and thinking detail
+ * variants: rounded lift surface, header row with a leading glyph, truncating
+ * title, an optional trailing slot (risk badge for tools), and the close
+ * button. The scrollable body is supplied by the caller as `children`.
+ */
+function DetailShell({
+  Glyph,
+  title,
+  headerTrailing,
   onClose,
+  children,
 }: {
-  detail: ToolDetailPayload;
+  Glyph: LucideIcon;
+  title: string;
+  headerTrailing?: ReactNode;
   onClose: () => void;
+  children: ReactNode;
 }) {
-  const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
-  const Glyph = ICON_MAP[iconName] ?? Bolt;
-
-  const title = detail.activity || detail.title;
-  const hasResult = detail.result !== undefined && detail.result !== "";
-  const isRunning = detail.status === "running";
-  const inputJson = JSON.stringify(detail.input, null, 2);
-
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
@@ -136,11 +143,14 @@ export function ToolDetailPanel({
         />
         <Typography
           variant="title-medium"
-          className="min-w-0 shrink truncate text-[var(--content-default)]"
+          // `title-medium` ships a tight line-height; combined with `truncate`
+          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
+          // Bump leading + small vertical padding so glyphs get breathing room.
+          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
         >
           {title}
         </Typography>
-        <RiskBadge level={detail.riskLevel} />
+        {headerTrailing}
         <span className="flex-1" />
         <Button
           variant="ghost"
@@ -153,7 +163,48 @@ export function ToolDetailPanel({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+    </div>
+  );
+}
+
+export function ToolDetailPanel({
+  detail,
+  onClose,
+  onRiskBadgeClick,
+}: {
+  detail: ToolDetailPayload;
+  onClose: () => void;
+  onRiskBadgeClick?: () => void;
+}) {
+  // Thinking variant — reuse the same shell/header but render the full
+  // reasoning markdown with no input/output sections and no risk badge.
+  if (detail.kind === "thinking") {
+    return (
+      <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
+        <ChatMarkdownMessage content={detail.thinkingText ?? ""} hardLineBreaks />
+      </DetailShell>
+    );
+  }
+
+  const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
+  const Glyph = ICON_MAP[iconName] ?? Bolt;
+
+  const title = detail.activity || detail.title;
+  const hasResult = detail.result !== undefined && detail.result !== "";
+  const isRunning = detail.status === "running";
+  const inputJson = JSON.stringify(detail.input, null, 2);
+
+  return (
+    <DetailShell
+      Glyph={Glyph}
+      title={title}
+      onClose={onClose}
+      headerTrailing={
+        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
+      }
+    >
+      <>
         {detail.riskReason && (
           <Typography
             variant="body-small-default"
@@ -205,7 +256,7 @@ export function ToolDetailPanel({
             )}
           </div>
         )}
-      </div>
-    </div>
+      </>
+    </DetailShell>
   );
 }

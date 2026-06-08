@@ -1,9 +1,16 @@
 import { v4 as uuid } from "uuid";
 
+import type {
+  ConversationContentBlock,
+  ConversationMessageAttachment,
+  ConversationMessageSurface,
+  ConversationMessageToolCall,
+} from "../../api/responses/conversation-message.js";
+import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
-import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
+import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
@@ -30,72 +37,18 @@ const pendingStandaloneSecrets = new Map<
   }
 >();
 
-export interface HistoryToolCall {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). @deprecated Use imageDataList. */
-  imageData?: string;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
-  imageDataList?: string[];
-  /** Unix ms when the tool started executing. */
-  startedAt?: number;
-  /** Unix ms when the tool completed. */
-  completedAt?: number;
-  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
-  confirmationDecision?: string;
-  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
-  confirmationLabel?: string;
-  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
-  riskLevel?: string;
-  /** Human-readable reason for the risk classification. */
-  riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /**
-   * @deprecated Use `approvalMode` and `approvalReason` instead.
-   * Kept for backward compatibility during the migration window.
-   */
-  autoApproved?: boolean;
-  /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum for client display). */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  /**
-   * Display-only regex ladder for the rule editor (narrowest → broadest).
-   * Persisted on tool_use blocks by `annotatePersistedAssistantMessage` so
-   * historical chips render the same ladder as live tool_result events.
-   */
-  riskScopeOptions?: Array<{ pattern: string; label: string }>;
-  /** Minimatch save patterns for the rule editor (narrowest → broadest). */
-  riskAllowlistOptions?: Array<{
-    label: string;
-    description: string;
-    pattern: string;
-  }>;
-  /** Directory scope ladder for the rule editor. */
-  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-}
+/**
+ * A single tool call rendered into a history row. Alias of the canonical
+ * wire-contract type so `renderHistoryContent` (the producer) cannot drift
+ * from what the messages endpoint serializes.
+ */
+export type HistoryToolCall = ConversationMessageToolCall;
 
-export interface HistorySurface {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string;
-  data: Record<string, unknown>;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
-  display?: string;
-  persistent?: boolean;
-  completed?: boolean;
-  completionSummary?: string;
-}
+/**
+ * A UI surface (widget) embedded in a history row. Alias of the canonical
+ * wire-contract type so the producer matches the serialized shape.
+ */
+export type HistorySurface = ConversationMessageSurface;
 
 /**
  * Positional reference to a file attachment captured while walking the
@@ -129,6 +82,16 @@ export interface RenderedHistoryContent {
    * attachment metadata to this ordering for inline placement.
    */
   attachments: HistoryAttachmentRef[];
+  /**
+   * Unified ordered content blocks built directly from the model-native
+   * content during the single walk — the wire `contentBlocks` projection.
+   * `attachment` blocks are inlined for file blocks whose DB-hydrated metadata
+   * the caller supplies via the `attachmentBlocks` argument (matched by
+   * attachment-ref order); a file block with no supplied metadata produces no
+   * block. Every other block type is always complete, so the serializer ships
+   * this array as-is with no post-processing.
+   */
+  contentBlocks: ConversationContentBlock[];
 }
 
 /**
@@ -254,6 +217,44 @@ function extractFileBlockMetadata(
   };
 }
 
+/**
+ * Build the positional attachment reference for a `file` content block:
+ * filename/mime/size from the block's source plus the persisted
+ * `_attachmentId` when present (user-uploaded files).
+ */
+function fileBlockToAttachmentRef(
+  block: Record<string, unknown>,
+  meta: FileBlockMetadata,
+): HistoryAttachmentRef {
+  const ref: HistoryAttachmentRef = {
+    filename: meta.filename,
+    mimeType: meta.mediaType,
+    sizeBytes: meta.sizeBytes,
+  };
+  if (typeof block._attachmentId === "string" && block._attachmentId) {
+    ref.attachmentId = block._attachmentId;
+  }
+  return ref;
+}
+
+/**
+ * Collect file-block attachment references in content-walk order without
+ * building the full history projection. The serializer aligns its DB-hydrated
+ * attachment rows against this ordering, then feeds the resolved metadata back
+ * into `renderHistoryContent` so it inlines `attachment` blocks during the walk.
+ */
+export function collectAttachmentRefs(
+  content: unknown,
+): HistoryAttachmentRef[] {
+  if (!Array.isArray(content)) return [];
+  const refs: HistoryAttachmentRef[] = [];
+  for (const block of content) {
+    if (!isRecord(block) || block.type !== "file") continue;
+    refs.push(fileBlockToAttachmentRef(block, extractFileBlockMetadata(block)));
+  }
+  return refs;
+}
+
 function renderFileBlockForHistory(
   block: Record<string, unknown>,
   meta: FileBlockMetadata,
@@ -275,7 +276,13 @@ function renderFileBlockForHistory(
   )}`;
 }
 
-export function renderHistoryContent(content: unknown): RenderedHistoryContent {
+export function renderHistoryContent(
+  content: unknown,
+  attachmentBlocks?: ReadonlyArray<
+    ConversationMessageAttachment | null | undefined
+  >,
+  messageId?: string,
+): RenderedHistoryContent {
   if (!Array.isArray(content)) {
     let text: string;
     if (content == null) {
@@ -294,6 +301,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       surfaces: [],
       thinkingSegments: [],
       attachments: [],
+      contentBlocks: text ? [{ type: "text", text }] : [],
     };
   }
 
@@ -313,6 +321,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   const contentOrder: string[] = [];
   let currentSegmentParts: string[] = [];
   let hasOpenSegment = false;
+
+  // Unified content blocks built in lockstep with the positional arrays as we
+  // walk the model-native content. `attachment` blocks are inlined here when
+  // the caller supplied DB-hydrated metadata in `attachmentBlocks`, matched by
+  // attachment-ref order; otherwise the file block contributes no block.
+  const contentBlocks: ConversationContentBlock[] = [];
+  let currentTextBlock: { type: "text"; text: string } | null = null;
 
   function joinWithSpacing(parts: string[]): string {
     let result = parts[0] ?? "";
@@ -339,18 +354,42 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
-      textSegments[textSegments.length - 1] =
-        joinWithSpacing(currentSegmentParts);
+      const joined = joinWithSpacing(currentSegmentParts);
+      textSegments[textSegments.length - 1] = joined;
+      if (currentTextBlock) {
+        currentTextBlock.text = joined;
+        currentTextBlock = null;
+      }
       currentSegmentParts = [];
       hasOpenSegment = false;
     }
   }
 
-  function ensureSegment(): void {
+  // Flush the open text segment into its tracked block and stop tracking it,
+  // without closing the segment. Used before folding the synthetic attachment
+  // description into the trailing segment: it stays in the legacy
+  // `textSegments`/`text` body but must not pollute the clean contentBlocks,
+  // since `attachment` blocks already carry that metadata.
+  function detachTextBlock(): void {
+    if (currentTextBlock) {
+      currentTextBlock.text = joinWithSpacing(currentSegmentParts);
+      currentTextBlock = null;
+    }
+  }
+
+  // `trackBlock` mirrors the segment into `contentBlocks`. The trailing
+  // attachment-description segment (legacy `message.text` for clients without
+  // attachment UI) sets it false so it isn't duplicated as a text block —
+  // attachments surface as `attachment` blocks instead.
+  function ensureSegment(trackBlock = true): void {
     if (!hasOpenSegment) {
       textSegments.push("");
       contentOrder.push(`text:${textSegments.length - 1}`);
       hasOpenSegment = true;
+      if (trackBlock) {
+        currentTextBlock = { type: "text", text: "" };
+        contentBlocks.push(currentTextBlock);
+      }
     }
   }
 
@@ -376,9 +415,12 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
           typeof block.completionSummary === "string"
             ? block.completionSummary
             : undefined,
+        toolCallId:
+          typeof block.toolCallId === "string" ? block.toolCallId : undefined,
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);
+      contentBlocks.push({ type: "surface", surface });
       continue;
     }
 
@@ -386,6 +428,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       finalizeSegment();
       thinkingSegments.push(block.thinking);
       contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
+      contentBlocks.push({ type: "thinking", thinking: block.thinking });
       continue;
     }
 
@@ -412,16 +455,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const meta = extractFileBlockMetadata(block);
       attachmentParts.push(renderFileBlockForHistory(block, meta));
       finalizeSegment();
-      const ref: HistoryAttachmentRef = {
-        filename: meta.filename,
-        mimeType: meta.mediaType,
-        sizeBytes: meta.sizeBytes,
-      };
-      if (typeof block._attachmentId === "string" && block._attachmentId) {
-        ref.attachmentId = block._attachmentId;
+      attachments.push(fileBlockToAttachmentRef(block, meta));
+      const refIndex = attachments.length - 1;
+      contentOrder.push(`attachment:${refIndex}`);
+      const hydrated = attachmentBlocks?.[refIndex];
+      if (hydrated) {
+        contentBlocks.push({ type: "attachment", attachment: hydrated });
       }
-      attachments.push(ref);
-      contentOrder.push(`attachment:${attachments.length - 1}`);
       continue;
     }
     if (block.type === "image") {
@@ -438,13 +478,18 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
       // Extract persisted timing/confirmation metadata
       if (typeof block._startedAt === "number")
         entry.startedAt = block._startedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
-      if (typeof block._confirmationDecision === "string")
-        entry.confirmationDecision = block._confirmationDecision;
+      const confirmationDecision = ConfirmationDecisionSchema.safeParse(
+        block._confirmationDecision,
+      );
+      if (confirmationDecision.success) {
+        entry.confirmationDecision = confirmationDecision.data;
+      }
       if (typeof block._confirmationLabel === "string")
         entry.confirmationLabel = block._confirmationLabel;
       if (typeof block._riskLevel === "string")
@@ -473,9 +518,18 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       if (Array.isArray(block._riskDirectoryScopeOptions))
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
+      // Read back tool activity (web_search / web_fetch) persisted by
+      // `annotatePersistedAssistantMessage` so the activity card survives a
+      // history reopen instead of degrading to the plain result text.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
+      // Same `entry` reference the block carries: a later tool_result pairs its
+      // output onto `entry`, so the content block reflects it automatically.
+      contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
         if (!seenText) toolCallsBeforeText = true;
@@ -490,9 +544,16 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      if (id) entry.id = id;
+      // Native server tools (Anthropic web_search) persist their activity on
+      // the server_tool_use block, so read it back here too.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
+      contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
         if (!seenText) toolCallsBeforeText = true;
@@ -582,13 +643,27 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   // The macOS client handles this by selecting the *first* non-empty text
   // segment in interleaved content, so trailing attachment segments are safe.
   if (attachmentParts.length > 0) {
+    detachTextBlock();
     const attachmentText = attachmentParts.join("\n");
     const prefix = textParts.length > 0 ? "\n" : "";
-    ensureSegment();
+    ensureSegment(false);
     currentSegmentParts.push(prefix + attachmentText);
   }
 
   finalizeSegment();
+
+  // Default any tool call the provider left without an `id` to the same
+  // positional id the web client historically synthesized, so every wire tool
+  // call is self-identifying and snapshot/stream ids line up. `idx` indexes the
+  // final `toolCalls` array (the client keys off the same positions); the
+  // shared `entry` references mean `contentBlocks` reflect this for free.
+  if (messageId !== undefined) {
+    toolCalls.forEach((toolCall, idx) => {
+      if (toolCall.id === undefined) {
+        toolCall.id = `tool-history-${messageId}-${idx}`;
+      }
+    });
+  }
 
   const text = joinWithSpacing(textParts);
   let rendered: string;
@@ -609,6 +684,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     surfaces,
     thinkingSegments,
     attachments,
+    contentBlocks,
   };
 }
 

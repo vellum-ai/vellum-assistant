@@ -140,52 +140,18 @@ describe("resolveSlash command contract", () => {
   });
 });
 
-describe("resolveSlash /compact target override", () => {
-  test("plain /compact returns no override", async () => {
+describe("resolveSlash /compact", () => {
+  test("plain /compact resolves to kind=compact", async () => {
     const result = await resolveSlash("/compact");
     expect(result).toEqual({ kind: "compact" });
   });
 
-  test("/compact <integer> sets explicit token target", async () => {
+  test("/compact rejects arguments with usage hint", async () => {
     const result = await resolveSlash("/compact 30000");
-    expect(result).toEqual({
-      kind: "compact",
-      targetInputTokensOverride: 30000,
-    });
-  });
-
-  test("/compact <n>k expands to thousands", async () => {
-    const result = await resolveSlash("/compact 30k");
-    expect(result).toEqual({
-      kind: "compact",
-      targetInputTokensOverride: 30_000,
-    });
-  });
-
-  test("/compact <n>m expands to millions", async () => {
-    const result = await resolveSlash("/compact 1.5M");
-    expect(result).toEqual({
-      kind: "compact",
-      targetInputTokensOverride: 1_500_000,
-    });
-  });
-
-  test("/compact rejects malformed args with usage hint", async () => {
-    const result = await resolveSlash("/compact bogus");
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("expected unknown");
-    expect(result.message).toContain("`bogus`");
+    expect(result.message).toContain("does not take arguments");
     expect(result.message).toContain("/compact");
-  });
-
-  test("/compact rejects zero", async () => {
-    const result = await resolveSlash("/compact 0");
-    expect(result.kind).toBe("unknown");
-  });
-
-  test("/compact rejects negative numbers", async () => {
-    const result = await resolveSlash("/compact -50");
-    expect(result.kind).toBe("unknown");
   });
 });
 
@@ -227,9 +193,9 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
     { input: "/status", kind: "unknown" },
     { input: "/commands", kind: "unknown" },
     { input: "/compact", kind: "compact" },
-    { input: "/compact 30000", kind: "compact" },
-    { input: "/compact 30k", kind: "compact" },
-    { input: "/compact 1.5M", kind: "compact" },
+    { input: "/compact 30000", kind: "unknown" },
+    { input: "/compact 30k", kind: "unknown" },
+    { input: "/compact 1.5M", kind: "unknown" },
     { input: "/compact bogus", kind: "unknown" },
     { input: "/clean", kind: "clean" },
     { input: "  /clean  ", kind: "clean" },
@@ -239,7 +205,7 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
     { input: "/opus", kind: "unknown" },
     { input: "hello", kind: "passthrough" },
     { input: "  /compact  ", kind: "compact" },
-    { input: "  /compact 50k  ", kind: "compact" },
+    { input: "  /compact 50k  ", kind: "unknown" },
     { input: "/models foo", kind: "passthrough" },
   ];
 

@@ -1,35 +1,34 @@
 
+import {
+    Maximize2,
+    Minimize2,
+    Scan,
+    ZoomIn,
+    ZoomOut,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Maximize2,
-  Minimize2,
-  Scan,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
-import {
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
+    type MouseEvent as ReactMouseEvent,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 
-import { Button } from "@vellum/design-library";
-import { inferCategory } from "@/domains/intelligence/skills/category";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { Button } from "@vellumai/design-library";
 
 import {
-  buildGroups,
-  buildTree,
-  CATEGORY_CONFIGS,
-  CENTER_AVATAR_SIZE,
-  type OrbitItem,
-  type TreeNode,
+    buildGroups,
+    buildTree,
+    CENTER_AVATAR_SIZE,
+    getCategoryConfig,
+    type OrbitItem,
+    type TreeNode,
 } from "@/domains/intelligence/components/constellation-layout";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
@@ -72,8 +71,9 @@ export function ConstellationView({
     const items: OrbitItem[] = skills.map((skill) => ({
       id: skill.id,
       label: skill.name,
+      icon: skill.icon,
       emoji: skill.emoji,
-      category: inferCategory(skill),
+      category: skill.category ?? "system",
       description: skill.description,
       kind: "skill" as const,
     }));
@@ -291,7 +291,7 @@ export function ConstellationView({
           >
             <NodePopover
               item={popoverItem}
-              color={CATEGORY_CONFIGS[popoverItem.category].color}
+              color={getCategoryConfig(popoverItem.category).color}
               onViewDetails={
                 onSelectSkill && popoverItem.kind === "skill"
                   ? handleViewDetails

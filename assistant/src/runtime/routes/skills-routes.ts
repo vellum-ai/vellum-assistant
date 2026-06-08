@@ -26,10 +26,10 @@ import {
   uninstallSkill,
   updateSkill,
 } from "../../daemon/handlers/skills.js";
+import { getCategories } from "../../skills/categories-cache.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
 
 const partnerAuditSchema = z.object({
   risk: z.enum(["safe", "low", "medium", "high", "critical", "unknown"]),
@@ -42,9 +42,11 @@ const slimSkillBase = {
   id: z.string(),
   name: z.string(),
   description: z.string(),
+  icon: z.string().optional(),
   emoji: z.string().optional(),
   kind: z.enum(["bundled", "installed", "catalog"]),
   status: z.enum(["enabled", "disabled", "available"]),
+  category: z.string(),
 };
 
 const slimSkillSchema = z.discriminatedUnion("origin", [
@@ -193,15 +195,13 @@ export const ROUTES: RouteDefinition[] = [
       const hasFilter = !!(origin || kind || q || category);
 
       if (hasFilter || include === "catalog") {
-        const result = await listSkillsFiltered(
-          {
-            ...(origin ? { origin } : {}),
-            ...(kind ? { kind } : {}),
-            ...(q ? { q } : {}),
-            ...(category ? { category } : {}),
-            includeCatalog: include === "catalog",
-          },
-        );
+        const result = await listSkillsFiltered({
+          ...(origin ? { origin } : {}),
+          ...(kind ? { kind } : {}),
+          ...(q ? { q } : {}),
+          ...(category ? { category } : {}),
+          includeCatalog: include === "catalog",
+        });
         return {
           skills: result.skills,
           categoryCounts: result.categoryCounts,
@@ -211,6 +211,33 @@ export const ROUTES: RouteDefinition[] = [
 
       const skills = listSkills();
       return { skills };
+    },
+  },
+  {
+    operationId: "listSkillCategories",
+    endpoint: "skills/categories",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List skill categories",
+    description:
+      "Return all skill category definitions with labels, icons, and descriptions.",
+    tags: ["skills"],
+    responseBody: z.object({
+      categories: z.array(
+        z.object({
+          slug: z.string(),
+          label: z.string(),
+          description: z.string(),
+          icon: z.string(),
+        }),
+      ),
+    }),
+    handler: async () => {
+      const categories = await getCategories();
+      return { categories };
     },
   },
   {
@@ -266,6 +293,21 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get skill files",
     description: "Return skill metadata and directory contents.",
     tags: ["skills"],
+    responseBody: z.object({
+      skill: slimSkillSchema.describe("Skill metadata"),
+      files: z
+        .array(
+          z.object({
+            path: z.string(),
+            name: z.string(),
+            size: z.number().int(),
+            mimeType: z.string(),
+            isBinary: z.boolean(),
+            content: z.string().nullable(),
+          }),
+        )
+        .describe("Directory contents"),
+    }),
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await getSkillFiles(pathParams!.id);
       if ("error" in result) {
@@ -329,14 +371,11 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams, body = {} }: RouteHandlerArgs) => {
-      const result = configureSkill(
-        pathParams!.id,
-        {
-          env: body.env as Record<string, string> | undefined,
-          apiKey: body.apiKey as string | undefined,
-          config: body.config as Record<string, unknown> | undefined,
-        },
-      );
+      const result = configureSkill(pathParams!.id, {
+        env: body.env as Record<string, string> | undefined,
+        apiKey: body.apiKey as string | undefined,
+        config: body.config as Record<string, unknown> | undefined,
+      });
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -393,7 +432,9 @@ export const ROUTES: RouteDefinition[] = [
       const query = queryParams.q ?? "";
       if (!query) throw new BadRequestError("q query parameter is required");
       const limitRaw = queryParams.limit;
-      const limit = limitRaw ? Math.max(1, Number.parseInt(limitRaw, 10) || 25) : 25;
+      const limit = limitRaw
+        ? Math.max(1, Number.parseInt(limitRaw, 10) || 25)
+        : 25;
       const result = await searchSkills(query, limit);
       if (!result.success) throw new InternalError(result.error);
       return { skills: result.skills };
@@ -525,18 +566,37 @@ export const ROUTES: RouteDefinition[] = [
     description: "Install a skill by slug, URL, or spec.",
     tags: ["skills"],
     requestBody: z.object({
-      slug: z.string().describe("Skill slug"),
-      url: z.string().describe("Skill URL"),
-      spec: z.string().describe("Skill spec"),
-      version: z.string(),
+      slug: z
+        .string()
+        .optional()
+        .describe("Skill slug. One of slug, url, or spec is required."),
+      url: z
+        .string()
+        .optional()
+        .describe("Skill URL. One of slug, url, or spec is required."),
+      spec: z
+        .string()
+        .optional()
+        .describe("Skill spec. One of slug, url, or spec is required."),
+      version: z.string().optional().describe("Specific version to install"),
       origin: z
         .enum(["clawhub", "skillssh"])
         .optional()
         .describe(
           "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
         ),
-      overwrite: z.boolean().optional().describe("Replace an existing install. Defaults to true for back-compat with the legacy in-process API."),
-      catalogOnly: z.boolean().optional().describe("When true, restrict to bundled and Vellum catalog skills only — do not fall through to community registries."),
+      overwrite: z
+        .boolean()
+        .optional()
+        .describe(
+          "Replace an existing install. Defaults to true for back-compat with the legacy in-process API.",
+        ),
+      catalogOnly: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, restrict to bundled and Vellum catalog skills only — do not fall through to community registries.",
+        ),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -544,21 +604,17 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async ({ body = {} }: RouteHandlerArgs) => {
       const slug =
-        (body.slug as string) ??
-        (body.url as string) ??
-        (body.spec as string);
+        (body.slug as string) ?? (body.url as string) ?? (body.spec as string);
       if (!slug || typeof slug !== "string") {
         throw new BadRequestError("slug, url, or spec is required");
       }
-      const result = await installSkill(
-        {
-          slug,
-          version: body.version as string | undefined,
-          origin: body.origin as "clawhub" | "skillssh" | undefined,
-          catalogOnly: body.catalogOnly as boolean | undefined,
-          overwrite: body.overwrite as boolean | undefined,
-        },
-      );
+      const result = await installSkill({
+        slug,
+        version: body.version as string | undefined,
+        origin: body.origin as "clawhub" | "skillssh" | undefined,
+        catalogOnly: body.catalogOnly as boolean | undefined,
+        overwrite: body.overwrite as boolean | undefined,
+      });
       if (!result.success) throw new InternalError(result.error);
       return { ok: true, skillId: result.skillId };
     },
@@ -592,9 +648,12 @@ export const ROUTES: RouteDefinition[] = [
           "skillId, name, description, and bodyMarkdown are required",
         );
       }
-      const result = await createSkill(
-        { skillId, name, description, bodyMarkdown },
-      );
+      const result = await createSkill({
+        skillId,
+        name,
+        description,
+        bodyMarkdown,
+      });
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -608,7 +667,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Local skill inspect",
-    description: "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
+    description:
+      "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
     tags: ["skills"],
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = getSkillLocalDetail(pathParams!.id);

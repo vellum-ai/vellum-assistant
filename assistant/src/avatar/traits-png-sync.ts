@@ -11,6 +11,12 @@ import { isResvgAvailable } from "./resvg-lazy.js";
 
 const log = getLogger("traits-png-sync");
 
+/** Sidecar filename for the persisted character traits JSON. */
+export const TRAITS_FILENAME = "character-traits.json";
+
+/** Sidecar filename for the rendered ASCII art. */
+export const ASCII_FILENAME = "character-ascii.txt";
+
 export interface CharacterTraits {
   bodyShape: string;
   eyeStyle: string;
@@ -75,7 +81,7 @@ function writeAvatarFiles(
   }
 
   try {
-    const asciiPath = join(avatarDir, "character-ascii.txt");
+    const asciiPath = join(avatarDir, ASCII_FILENAME);
     const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
     writeFileSync(asciiTmp, asciiArt);
     renameSync(asciiTmp, asciiPath);
@@ -165,7 +171,7 @@ export function writeTraitsAndRenderAvatar(
   }
 
   const avatarDir = getAvatarDir();
-  const traitsPath = join(avatarDir, "character-traits.json");
+  const traitsPath = join(avatarDir, TRAITS_FILENAME);
 
   try {
     mkdirSync(avatarDir, { recursive: true });

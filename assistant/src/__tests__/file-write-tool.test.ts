@@ -260,3 +260,66 @@ describe("file_write tool PKB re-index hook", () => {
     expect(existsSync(join(workingDir, "pkb", "oops.md"))).toBe(true);
   });
 });
+
+describe("file_write artifact-HTML guard", () => {
+  test("rejects a self-contained interactive HTML visualization", async () => {
+    const dir = makeTempDir();
+    const html =
+      "<!doctype html><html><head><title>Food Market</title></head>" +
+      "<body><canvas id='c'></canvas><script>" +
+      ("const data=[{x:1,y:2}];").padEnd(4000, "/") +
+      "new Chart(document.getElementById('c'), {data});</script></body></html>";
+
+    const result = await fileWriteTool.execute(
+      { path: "food-market-stats.html", content: html },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('skill: "app-builder"');
+    expect(existsSync(join(dir, "food-market-stats.html"))).toBe(false);
+  });
+
+  test("allows app-builder's thin shell index.html (external module script)", async () => {
+    const dir = makeTempDir();
+    const shell =
+      "<!doctype html><html><head>" +
+      "<link rel='stylesheet' href='/src/styles.css'>".padEnd(3200, " ") +
+      "</head><body><div id='app'></div>" +
+      "<script type='module' src='/src/main.tsx'></script></body></html>";
+
+    const result = await fileWriteTool.execute(
+      { path: "src/index.html", content: shell },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(existsSync(join(dir, "src", "index.html"))).toBe(true);
+  });
+
+  test("allows a small/static HTML snippet", async () => {
+    const dir = makeTempDir();
+    const result = await fileWriteTool.execute(
+      { path: "note.html", content: "<html><body><h1>Hi</h1></body></html>" },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(existsSync(join(dir, "note.html"))).toBe(true);
+  });
+
+  test("allows a non-HTML file even with inline script-like content", async () => {
+    const dir = makeTempDir();
+    const result = await fileWriteTool.execute(
+      {
+        path: "notes.md",
+        content:
+          "<script>" + "x".padEnd(2000, "x") + "</script>" + "\n# notes\n",
+      },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(existsSync(join(dir, "notes.md"))).toBe(true);
+  });
+});

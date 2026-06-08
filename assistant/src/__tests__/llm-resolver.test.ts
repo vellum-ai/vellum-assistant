@@ -556,6 +556,29 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("low");
   });
 
+  test("empty-state greeting defaults to the balanced profile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: {
+          model: "claude-sonnet-4-7",
+          effort: "medium",
+        },
+        "cost-optimized": {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+        },
+      },
+    });
+
+    expect(resolveDefaultProfileKey("emptyStateGreeting", llm)).toBe(
+      "balanced",
+    );
+    const resolved = resolveCallSiteConfig("emptyStateGreeting", llm);
+    expect(resolved.model).toBe("claude-sonnet-4-7");
+    expect(resolved.effort).toBe("medium");
+  });
+
   test("explicit callSites config overrides CALL_SITE_DEFAULTS", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,

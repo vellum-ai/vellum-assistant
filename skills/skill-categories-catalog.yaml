@@ -1,0 +1,96 @@
+# Skill category definitions for the Vellum skills catalog.
+# Fetched from GitHub at runtime by the platform.
+
+categories:
+  - slug: email
+    label: Email
+    description: >-
+      Send, read, and manage emails across providers.
+      Your assistant handles inbox triage, drafting replies,
+      and email automation.
+    icon: mail
+
+  - slug: calendar
+    label: Calendar
+    description: >-
+      Schedule meetings, check availability, and manage
+      calendar events. Integrates with Google Calendar
+      and Outlook.
+    icon: calendar
+
+  - slug: messaging
+    label: Messaging
+    description: >-
+      Connect to Slack, Discord, Telegram, and more.
+      Your assistant can send messages, monitor channels,
+      and respond to conversations.
+    icon: message-circle
+
+  - slug: browsing
+    label: Browsing
+    description: >-
+      Browse the web, extract content, and interact with
+      pages. Give your assistant eyes on the internet.
+    icon: globe
+
+  - slug: productivity
+    label: Productivity
+    description: >-
+      Task management, note-taking, and workflow automation.
+      Streamline your daily workflows with AI-powered
+      productivity tools.
+    icon: zap
+
+  - slug: development
+    label: Development
+    description: >-
+      Code evaluation, deployment, API mapping, and developer
+      tooling. Supercharge your development workflow.
+    icon: code
+
+  - slug: voice
+    label: Voice
+    description: >-
+      Text-to-speech, voice synthesis, and audio capabilities.
+      Give your assistant a voice with ElevenLabs, Fish Audio,
+      and more.
+    icon: mic
+
+  - slug: commerce
+    label: Commerce
+    description: >-
+      E-commerce integrations for Amazon, DoorDash, Stripe,
+      and more. Automate shopping, payments, and order
+      management.
+    icon: shopping-cart
+
+  - slug: content
+    label: Content
+    description: >-
+      Content creation, social media, meme generation, and
+      screen recording. Create and publish content with AI
+      assistance.
+    icon: palette
+
+  - slug: health
+    label: Health
+    description: >-
+      Health tracking and wellness integrations. Connect Oura
+      Ring and other health devices to your assistant.
+    icon: heart
+
+  - slug: system
+    label: System
+    description: >-
+      Core assistant capabilities — self-upgrade, memory
+      management, terminal sessions, heartbeat monitoring,
+      and more.
+    icon: settings
+
+  - slug: integrations
+    label: Integrations
+    description: >-
+      Connect to third-party services like Linear, Sentry,
+      GitHub, and Notion. Extend your assistant with powerful
+      integrations.
+    icon: link-2

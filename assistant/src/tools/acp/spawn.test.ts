@@ -1,7 +1,7 @@
-import * as realChildProcess from "node:child_process";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
+import { installExecFileStub } from "../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { ToolContext } from "../types.js";
 
@@ -9,55 +9,11 @@ import type { ToolContext } from "../types.js";
 // Mock infrastructure
 // ---------------------------------------------------------------------------
 
-type ExecCallback = (
-  err: Error | null,
-  stdout: string | Buffer,
-  stderr: string | Buffer,
-) => void;
-
-interface ExecScript {
-  /** When set, the call rejects with this error. */
-  error?: Error;
-  /** When set, the call resolves with this stdout. */
-  stdout?: string;
-}
-
-/**
- * Per-call scripted responses for `execFile`. Keyed by `${command} ${args[0]}`
- * so tests can target `npm ls` and `npm view` independently.
- */
-const execScripts: Map<string, ExecScript> = new Map();
-
-const execFileMock = mock(
-  (
-    command: string,
-    args: string[],
-    _options: unknown,
-    callback?: ExecCallback,
-  ) => {
-    const key = `${command} ${args[0]}`;
-    const script = execScripts.get(key);
-    queueMicrotask(() => {
-      if (!callback) return;
-      if (!script) {
-        callback(new Error(`No script for ${key}`), "", "");
-        return;
-      }
-      if (script.error) {
-        callback(script.error, "", "");
-        return;
-      }
-      callback(null, script.stdout ?? "", "");
-    });
-    // Return value is not used by execFileWithTimeout.
-    return {} as ReturnType<typeof realChildProcess.execFile>;
-  },
-);
-
-mock.module("node:child_process", () => ({
-  ...realChildProcess,
-  execFile: execFileMock,
-}));
+const {
+  execScripts,
+  execFileMock,
+  reset: resetExecFileStub,
+} = installExecFileStub();
 
 // Default ACP config used by these tests: the `unknown-agent` entry is here
 // to give the "no version check" test a configured agent whose binary isn't
@@ -82,23 +38,83 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Stub secure-keys so the `prepareAgentEnv` preflight finds a token without
-// the test having to populate the real OS keyring. Driven via `secureKeyStore`
-// per test in beforeEach; the default seeds a vault token so existing tests
-// (which assume claude spawns succeed) keep passing.
-//
-// The real module's other exports are spread in so transitive importers
-// (e.g. session-manager → pending-interactions → credential-routes, which
-// imports `getSecureKeyResultAsync`) still resolve at parse time. Bun's
-// `mock.module` is process-global and returns *exactly* the keys the factory
-// returns — without the spread, any consumer pulling a non-`getSecureKeyAsync`
-// export errors with "Export named '<X>' not found".
-const secureKeyStore = new Map<string, string>();
-const realSecureKeys = await import("../../security/secure-keys.js");
+// Stub credential broker + metadata store so `prepareAgentEnv` can resolve
+// tokens without the real OS keyring. Driven via `vaultStore` per test in
+// beforeEach; the default seeds a vault token so existing tests (which assume
+// claude spawns succeed) keep passing.
+const vaultStore = new Map<string, string>();
+const metadataStore = new Map<
+  string,
+  { allowedTools: string[]; usageDescription?: string }
+>();
 
-mock.module("../../security/secure-keys.js", () => ({
-  ...realSecureKeys,
-  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
+mock.module("../../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadata: (service: string, field: string) => {
+    const key = `${service}/${field}`;
+    const entry = metadataStore.get(key);
+    if (!entry) return undefined;
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: entry.allowedTools,
+      allowedDomains: [],
+      usageDescription: entry.usageDescription,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+  upsertCredentialMetadata: (
+    service: string,
+    field: string,
+    policy?: { allowedTools?: string[]; usageDescription?: string },
+  ) => {
+    const key = `${service}/${field}`;
+    const existing = metadataStore.get(key);
+    metadataStore.set(key, {
+      allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
+      usageDescription:
+        policy?.usageDescription ?? existing?.usageDescription,
+    });
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: metadataStore.get(key)!.allowedTools,
+      allowedDomains: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+}));
+
+mock.module("../../tools/credentials/broker.js", () => ({
+  credentialBroker: {
+    serverUse: async <T>(request: {
+      service: string;
+      field: string;
+      toolName: string;
+      execute: (value: string) => Promise<T>;
+    }) => {
+      const key = `${request.service}/${request.field}`;
+      const meta = metadataStore.get(key);
+      if (!meta) {
+        return { success: false, reason: `No credential found for ${key}` };
+      }
+      if (!meta.allowedTools.includes(request.toolName)) {
+        return {
+          success: false,
+          reason: `Tool "${request.toolName}" not allowed`,
+        };
+      }
+      const value = vaultStore.get(key);
+      if (!value) {
+        return { success: false, reason: `No stored value for ${key}` };
+      }
+      const result = await request.execute(value);
+      return { success: true, result };
+    },
+  },
 }));
 
 // Stub session manager so we don't actually spawn child processes.
@@ -129,6 +145,9 @@ mock.module("../../acp/index.js", () => ({
 
 const { executeAcpSpawn, _resetAdapterVersionCacheForTests } =
   await import("./spawn.js");
+const { _resetAdapterInstallCacheForTests } = await import(
+  "../../acp/auto-install.js"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,20 +163,18 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  execScripts.clear();
-  execFileMock.mockClear();
+  resetExecFileStub();
   spawnMock.mockClear();
   _resetAdapterVersionCacheForTests();
+  _resetAdapterInstallCacheForTests();
   config.setConfig({ agents: DEFAULT_TEST_AGENTS });
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   // Default: vault has a claude token so the preflight in `prepareAgentEnv`
   // succeeds for tests that don't care about env injection. Env-injection
   // tests below clear/override this explicitly.
-  secureKeyStore.clear();
-  secureKeyStore.set(
-    "credential/acp/claude_oauth_token",
-    "default-test-token",
-  );
+  vaultStore.clear();
+  metadataStore.clear();
+  vaultStore.set("acp/claude_oauth_token", "default-test-token");
 });
 
 // ---------------------------------------------------------------------------
@@ -333,8 +350,9 @@ describe("executeAcpSpawn — input validation", () => {
     expect(result.content).toContain("acp.enabled");
   });
 
-  test("missing binary returns install hint", async () => {
+  test("missing binary returns install hint when auto-install fails", async () => {
     which.setWhich({});
+    execScripts.set("npm i", { error: new Error("npm not installed") });
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
       makeContext(),
@@ -368,6 +386,149 @@ describe("executeAcpSpawn — input validation", () => {
   });
 });
 
+describe("executeAcpSpawn: auto-install on missing binary", () => {
+  test("known command: installs the mapped package and spawn proceeds with a note", async () => {
+    // Binary appears on PATH only after `npm i -g` runs, simulating a
+    // successful global install.
+    let binaryOnPath = false;
+    which.setWhich((cmd) => (binaryOnPath ? `/usr/local/bin/${cmd}` : null));
+    execScripts.set("npm i", {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
+    // Version probes after the install: best-effort, scripted to skip.
+    execScripts.set("npm ls", { error: new Error("skip") });
+    execScripts.set("npm view", { error: new Error("skip") });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [payloadJson] = result.content.split("\n\n");
+    const payload = JSON.parse(payloadJson);
+    expect(payload.message).toContain(
+      "Installed @agentclientprotocol/claude-agent-acp automatically.",
+    );
+    const installCalls = execFileMock.mock.calls.filter(
+      (call) => (call[1] as string[])[0] === "i",
+    );
+    expect(installCalls).toHaveLength(1);
+    expect(installCalls[0][1]).toEqual([
+      "i",
+      "-g",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+  });
+
+  test("unknown command: no install attempted, plain hint returned", async () => {
+    which.setWhich({});
+
+    const result = await executeAcpSpawn(
+      { agent: "unknown-agent", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("some-other-binary is not on PATH");
+    expect(result.content).toContain("Install 'some-other-binary'");
+    expect(result.content).not.toContain("auto-install failed");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("no client connected: no install attempted even when the binary is missing", async () => {
+    // The no-client guard is a pure precondition and must run BEFORE the
+    // auto-install side effect: without a client the spawn fails anyway, so
+    // the host must not be mutated by `npm i -g` (which can also block for
+    // up to the install timeout).
+    which.setWhich({});
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      { ...makeContext(), sendToClient: undefined },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No client connected");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("npm failure: hint and install failure both surface", async () => {
+    which.setWhich({});
+    execScripts.set("npm i", {
+      error: new Error("EACCES: permission denied"),
+    });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("claude-agent-acp is not on PATH");
+    expect(result.content).toContain(
+      "npm i -g @agentclientprotocol/claude-agent-acp",
+    );
+    expect(result.content).toContain("auto-install failed");
+    expect(result.content).toContain("EACCES");
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("executeAcpSpawn - bunx fallback when binary missing", () => {
+  test("binary missing + bun present: spawns via `bun x` with env injection and resume hint, no npm calls", async () => {
+    // Only bun is on PATH - the platform-hosted image (bun, no node/npm).
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // No npm install AND no npm version probe: bunx fetches the package on
+    // first use and there is no global install to compare.
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(result.content).not.toContain("outdated");
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const agentConfigArg = spawnMock.mock.calls[0][1] as {
+      command: string;
+      args: string[];
+      adapterCommand?: string;
+      env?: Record<string, string>;
+    };
+    expect(agentConfigArg.command).toBe("bun");
+    expect(agentConfigArg.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(agentConfigArg.adapterCommand).toBe("claude-agent-acp");
+    // CLAUDE_CODE_OAUTH_TOKEN injection still applies to the bunx-resolved
+    // claude adapter (gated on adapterCommand, not the spawn command).
+    expect(agentConfigArg.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "default-test-token",
+    );
+
+    const [payloadJson] = result.content.split("\n\n");
+    const payload = JSON.parse(payloadJson);
+    // No auto-install happened; the claude resume hint still fires.
+    expect(payload.message).not.toContain("Installed");
+    expect(payload.message).toContain("claude --resume");
+  });
+
+  // The bun-absent npm fallback is covered by the existing auto-install
+  // suite below ("known command: installs the mapped package..."), whose
+  // which-stub leaves bun off PATH until the install completes.
+});
+
 describe("executeAcpSpawn — per-agent resume hint", () => {
   test("claude payload includes the `claude --resume` hint", async () => {
     execScripts.set("npm ls", { error: new Error("npm not installed") });
@@ -382,7 +543,7 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const [payloadJson] = result.content.split("\n\n");
     const payload = JSON.parse(payloadJson);
     expect(payload.message).toContain("claude --resume");
-    expect(payload.message).toContain("To resume this session later");
+    expect(payload.message).toContain("To resume:");
   });
 
   test("non-claude payload omits the `claude --resume` hint", async () => {
@@ -400,7 +561,7 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const [payloadJson] = result.content.split("\n\n");
     const payload = JSON.parse(payloadJson);
     expect(payload.message).not.toContain("claude --resume");
-    expect(payload.message).not.toContain("To resume this session later");
+    expect(payload.message).not.toContain("To resume:");
   });
 });
 
@@ -420,12 +581,10 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
 // ---------------------------------------------------------------------------
 
 describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
-  test("injects CLAUDE_CODE_OAUTH_TOKEN from the secure store for the claude agent", async () => {
-    secureKeyStore.clear();
-    secureKeyStore.set(
-      "credential/acp/claude_oauth_token",
-      "tool-vault-token-abc",
-    );
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from the vault via the broker for the claude agent", async () => {
+    vaultStore.clear();
+    metadataStore.clear();
+    vaultStore.set("acp/claude_oauth_token", "tool-vault-token-abc");
     execScripts.set("npm ls", { error: new Error("npm not installed") });
     execScripts.set("npm view", { error: new Error("npm not installed") });
 
@@ -445,10 +604,8 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
   });
 
   test("accepts CLAUDE_CODE_OAUTH_TOKEN from config.json agent.env without a vault entry", async () => {
-    // Mirrors the route-level precedence test: a config.json env override
-    // is the first-priority provisioning route. The resolver surfaces it
-    // on `resolved.agent.env`, which the helper preserves.
-    secureKeyStore.clear();
+    vaultStore.clear();
+    metadataStore.clear();
     config.setConfig({
       agents: {
         claude: {
@@ -478,11 +635,8 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
   });
 
   test("returns isError when no token is available from either route (preflight throw mapped to tool result)", async () => {
-    // Both routes empty. The helper throws `FailedDependencyError`; the
-    // tool catches it and returns `{ isError: true, content: <msg> }`
-    // rather than letting it propagate (the tool boundary is a sync
-    // ToolExecutionResult, not an HTTP response).
-    secureKeyStore.clear();
+    vaultStore.clear();
+    metadataStore.clear();
 
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
@@ -491,7 +645,6 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("CLAUDE_CODE_OAUTH_TOKEN");
-    // Spawn was NEVER called — preflight fired before the subprocess started.
     expect(spawnMock).not.toHaveBeenCalled();
   });
 });

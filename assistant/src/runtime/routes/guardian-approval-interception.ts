@@ -494,37 +494,6 @@ export async function handleApprovalInterception(
     }
   }
 
-  // ── Slack reaction path ──
-  // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
-  // Only guardians can approve via reaction — non-guardian reactions are
-  // silently ignored to prevent self-approval. `reaction_removed:` never
-  // expresses an approval intent.
-  if (
-    callbackData?.startsWith("reaction:") &&
-    !callbackData.startsWith("reaction_removed:")
-  ) {
-    if (trustCtx.trustClass !== "guardian") {
-      return { handled: true, type: "stale_ignored" };
-    }
-    const reactionDecision = parseReactionCallbackData(callbackData);
-    if (!reactionDecision) {
-      // Unknown emoji — ignore silently
-      return { handled: true, type: "stale_ignored" };
-    }
-    const pending = getApprovalInfoByConversation(conversationId);
-    if (pending.length === 0) {
-      return { handled: true, type: "stale_ignored" };
-    }
-    const result = await handleChannelDecision(
-      conversationId,
-      reactionDecision,
-    );
-    if (result.applied) {
-      return { handled: true, type: "decision_applied" };
-    }
-    return { handled: true, type: "stale_ignored" };
-  }
-
   // Try to extract a decision from callback data (button press) first.
   // Callback/button path remains deterministic and takes priority.
   if (callbackData) {

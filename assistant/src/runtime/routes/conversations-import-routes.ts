@@ -46,7 +46,10 @@ interface ImportPayload {
 
 // -- Helpers (ported from CLI) --
 
-function resolveTimestamps(conv: ImportConversation): {
+function resolveTimestamps(
+  conv: ImportConversation,
+  messages: ImportMessage[],
+): {
   convCreatedAt: number;
   convUpdatedAt: number;
   messageTimestamps: number[];
@@ -54,11 +57,21 @@ function resolveTimestamps(conv: ImportConversation): {
   const now = Date.now();
   const convCreatedAt = conv.createdAt ?? now;
   const convUpdatedAt = conv.updatedAt ?? conv.createdAt ?? now;
-  const messageTimestamps = conv.messages.map((msg, i) => {
+  const messageTimestamps = messages.map((msg, i) => {
     if (msg.createdAt != null) return msg.createdAt;
     return convCreatedAt + i;
   });
   return { convCreatedAt, convUpdatedAt, messageTimestamps };
+}
+
+/**
+ * The messages store is UI-facing (`ConversationMessage`), so only renderable
+ * turns are persisted. Non-renderable roles (e.g. agent-context `system`
+ * rows an export might carry) are dropped here rather than imported — the
+ * import still succeeds with the displayable turns.
+ */
+function isRenderableRole(role: string): role is "user" | "assistant" {
+  return role === "user" || role === "assistant";
 }
 
 // -- Handler --
@@ -99,12 +112,16 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
         }
       }
 
+      const messages = conv.messages.filter((msg) =>
+        isRenderableRole(msg.role),
+      );
+
       const { convCreatedAt, convUpdatedAt, messageTimestamps } =
-        resolveTimestamps(conv);
+        resolveTimestamps(conv, messages);
 
       const conversation = createConversation(conv.title);
 
-      for (const msg of conv.messages) {
+      for (const msg of messages) {
         const contentStr =
           typeof msg.content === "string"
             ? msg.content
@@ -144,8 +161,8 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       }
 
       // Index messages
-      for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
-        const msg = conv.messages[i];
+      for (let i = 0; i < dbMessages.length && i < messages.length; i++) {
+        const msg = messages[i];
         const contentStr =
           typeof msg.content === "string"
             ? msg.content
@@ -176,7 +193,7 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       }
 
       imported++;
-      totalMessages += conv.messages.length;
+      totalMessages += messages.length;
     } catch (err) {
       errors.push({
         index: idx,

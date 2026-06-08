@@ -929,7 +929,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if AvatarAppearanceManager.shared.customAvatarImage == nil,
            AvatarAppearanceManager.shared.characterBodyShape == nil {
             let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
-            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color)
+            // skipWorkspaceSync: the explicit syncTraitsToDaemon below is the
+            // authoritative daemon write; saveAvatar here only applies local
+            // state / cache so the UI renders immediately. Without this flag
+            // the character path would post render-from-traits twice.
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color, skipWorkspaceSync: true)
             log.info("[avatarSync] saved avatar locally")
         } else {
             log.info("[avatarSync] skipping local save — customAvatarImage=\(AvatarAppearanceManager.shared.customAvatarImage != nil) characterBodyShape=\(AvatarAppearanceManager.shared.characterBodyShape?.rawValue ?? "nil")")

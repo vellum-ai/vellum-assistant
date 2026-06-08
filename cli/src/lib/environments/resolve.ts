@@ -1,49 +1,27 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "fs";
-import { homedir } from "os";
-import { dirname, join } from "path";
+import { mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { dirname } from "path";
 
-import { SEEDS } from "./seeds.js";
-import type { EnvironmentDefinition } from "./types.js";
+import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
+import {
+  defaultEnvironmentFilePath,
+  readDefaultEnvironment as readPersistedDefaultEnvironment,
+} from "@vellumai/local-mode";
 
 const DEFAULT_ENVIRONMENT_NAME = "production";
-
-/**
- * Path to the user's persisted default environment file.
- * Lives at `~/.config/vellum/environment` — a fixed, environment-agnostic
- * location so it can be read before the environment is resolved.
- */
-function getDefaultEnvironmentPath(): string {
-  const xdgConfig =
-    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  return join(xdgConfig, "vellum", "environment");
-}
 
 /**
  * Read the persisted default environment name, if any.
  * Returns `undefined` if no file exists or the file is empty.
  */
 export function readDefaultEnvironment(): string | undefined {
-  const filePath = getDefaultEnvironmentPath();
-  try {
-    if (!existsSync(filePath)) return undefined;
-    const content = readFileSync(filePath, "utf-8").trim();
-    return content.length > 0 ? content : undefined;
-  } catch {
-    return undefined;
-  }
+  return readPersistedDefaultEnvironment(process.env);
 }
 
 /**
  * Persist a default environment name to the user config file.
  */
 export function writeDefaultEnvironment(name: string): void {
-  const filePath = getDefaultEnvironmentPath();
+  const filePath = defaultEnvironmentFilePath(process.env);
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, name + "\n", "utf-8");
 }
@@ -52,7 +30,7 @@ export function writeDefaultEnvironment(name: string): void {
  * Remove the persisted default environment file, falling back to production.
  */
 export function clearDefaultEnvironment(): void {
-  const filePath = getDefaultEnvironmentPath();
+  const filePath = defaultEnvironmentFilePath(process.env);
   try {
     unlinkSync(filePath);
   } catch {
@@ -115,7 +93,7 @@ export function getCurrentEnvironment(
       // writers don't end up in disjoint states on a typo.
       process.stderr.write(
         `warning: unknown environment "${name}"; falling back to "${DEFAULT_ENVIRONMENT_NAME}". ` +
-          `Add it to cli/src/lib/environments/seeds.ts and rebuild if this was intentional.\n`,
+          `Add it to packages/environments/src/seeds.ts and rebuild if this was intentional.\n`,
       );
     }
     const fallback = SEEDS[DEFAULT_ENVIRONMENT_NAME];
@@ -174,5 +152,3 @@ export function resolveEnvironmentSource(override?: string): {
   }
   return { name: DEFAULT_ENVIRONMENT_NAME, source: "default" };
 }
-
-

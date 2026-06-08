@@ -10,26 +10,28 @@
  * transforms from `send-message-utils`.
  */
 
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NavigateFunction } from "react-router";
+import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
 import {
   type DisplayAttachment,
   type DisplayMessage,
-  reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
+import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
-import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -37,11 +39,11 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  findConversation,
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/utils/conversation-cache-mutations";
+import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
@@ -49,6 +51,7 @@ import {
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
@@ -59,25 +62,19 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-  stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import {
+  fetchConversationMessages,
+  postChatMessage,
+  pollForResponse,
+} from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
-
-// Re-export pure utilities so existing consumers don't break.
-export {
-  clearPendingConfirmationsFromMessages,
-  dismissInteractiveSurfaces,
-  resolvePostError,
-  stopStreamingAndClearConfirmations,
-  parsePendingSecretState,
-  parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Stream send result
@@ -118,38 +115,15 @@ interface UseSendMessageParams {
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
   messages: DisplayMessage[];
 
-  // Refs
-  assistantIdRef: MutableRefObject<string | null>;
-
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamContextRef: MutableRefObject<{
-    assistantId: string;
-    conversationId: string;
-  } | null>;
-  streamEpochRef: MutableRefObject<number>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
+  // Onboarding refs (ChatPage-local, not per-conversation)
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
-  previousConversationIdRef: MutableRefObject<string | null>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
-  // State setters
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-  setInput: Dispatch<SetStateAction<string>>;
 
   // Callbacks
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
 
-  // Routing adapter
-  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,29 +135,16 @@ export function useSendMessage({
   activeConversationId,
   diskPressureChatBlockReason,
   messages,
-  assistantIdRef,
-  messagesRef,
-  streamRef,
-  streamContextRef,
-  streamEpochRef,
-  dismissedSurfaceIdsRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
-  draftConversationIdResolutionRef,
-  previousConversationIdRef,
-  pendingQueuedMessageIdsRef,
-  requestIdToMessageIdRef,
-  pendingLocalDeletionsRef,
-  confirmationToolCallMapRef,
-  setMessages,
-  setError,
-  setInput,
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
-  navigate,
 }: UseSendMessageParams) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
   // Server-mint in-flight gate
@@ -217,11 +178,6 @@ export function useSendMessage({
     assistantId,
     activeConversationId,
     messages,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    setMessages,
-    setInput,
   });
 
   // -------------------------------------------------------------------------
@@ -234,15 +190,16 @@ export function useSendMessage({
    */
   const persistDismissedSurfaces = useCallback(
     (dismissedIds: Set<string>) => {
+      const store = useChatSessionStore.getState();
       for (const id of dismissedIds) {
-        dismissedSurfaceIdsRef.current.add(id);
+        store.dismissedSurfaceIds.add(id);
       }
-      const streamCtx = streamContextRef.current;
+      const streamCtx = useStreamStore.getState().streamContext;
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
           streamCtx.conversationId,
-          dismissedSurfaceIdsRef.current,
+          store.dismissedSurfaceIds,
         );
       }
     },
@@ -264,7 +221,7 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: assistantIdRef.current,
+          currentAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
@@ -312,7 +269,7 @@ export function useSendMessage({
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: assistantIdRef.current,
+            activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
             activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
@@ -355,7 +312,7 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: assistantIdRef.current,
+          activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
@@ -364,16 +321,17 @@ export function useSendMessage({
         };
       }
 
-      const existingStreamContext = streamContextRef.current;
+      const streamState = useStreamStore.getState();
+      const existingStreamContext = streamState.streamContext;
       const hasMatchingActiveStream =
-        !!streamRef.current &&
+        !!streamState.stream &&
         existingStreamContext?.assistantId === postResult.assistantId &&
         existingStreamContext.conversationId === effectiveConversationId;
 
-      streamContextRef.current = {
+      streamState.setStreamContext({
         assistantId: postResult.assistantId,
         conversationId: effectiveConversationId,
-      };
+      });
 
       if (postResult.queued) {
         return {
@@ -396,7 +354,7 @@ export function useSendMessage({
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
-              activeAssistantId: assistantIdRef.current,
+              activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
               activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;
@@ -426,41 +384,45 @@ export function useSendMessage({
             setError({ message: "Assistant did not respond in time." });
             return;
           }
-          let serverMessages: RuntimeMessage[] = [];
+          let serverMessages: ConversationMessage[] = [];
+          let serverSeq: number | null = null;
           try {
-            serverMessages = await fetchConversationMessages(
+            const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
             );
+            serverMessages = snapshot?.messages ?? [];
+            serverSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort
           }
           if (!isCurrentSendScope(effectiveConversationId)) return;
+          // Capture the local seq `L` before advancing it so the merge
+          // can tell whether this snapshot moved the frontier (`S > L`).
+          const localSeq = getLocalSeq(effectiveConversationId);
+          recordLocalSeq(effectiveConversationId, serverSeq);
           setMessages((prev) => {
             if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
-              return reconcileMessages(prev, serverMessages);
+              return reconcileSnapshot(prev, serverMessages, {
+                serverSeq,
+                localSeq,
+              });
             }
+            const mapped = mapRuntimeToDisplayMessage(reply);
             const existingIdx = prev.findIndex((m) => m.id === reply.id);
             if (existingIdx >= 0) {
               const existing = prev[existingIdx];
               const updated = [...prev];
               updated[existingIdx] = {
-                id: reply.id,
-                role: "assistant",
-                content: reply.content,
-                timestamp: existing?.timestamp ?? Date.now(),
+                ...mapped,
+                timestamp: existing?.timestamp ?? mapped.timestamp ?? Date.now(),
               };
               return updated;
             }
             return [
               ...prev,
-              {
-                id: reply.id,
-                role: "assistant",
-                content: reply.content,
-                timestamp: Date.now(),
-              },
+              { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
             ];
           });
           if (restoredConfData) {
@@ -470,7 +432,7 @@ export function useSendMessage({
               const result = attachConfirmationToToolCall(prev, capturedConfData);
               if (result.attachedToolCallId) {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-                confirmationToolCallMapRef.current.set(capturedConfData.requestId, result.attachedToolCallId);
+                useChatSessionStore.getState().confirmationToolCallMap.set(capturedConfData.requestId, result.attachedToolCallId);
               } else {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(null);
               }
@@ -479,8 +441,9 @@ export function useSendMessage({
           }
           startReconciliationLoop(epoch);
         })
-        .catch(() => {
+        .catch((err) => {
           if (!isCurrentSendScope(effectiveConversationId)) return;
+          captureError(err, { context: "send_message_stream" });
           setError({ message: "Connection lost. Please try again." });
         })
         .finally(() => {
@@ -533,12 +496,12 @@ export function useSendMessage({
       }
       setError(null);
       useInteractionStore.getState().resetSecretAndConfirmation();
-      confirmationToolCallMapRef.current.clear();
+      useChatSessionStore.getState().confirmationToolCallMap.clear();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
       // localStorage persist) are kept outside the updater to stay pure.
-      const messagesForScan = messagesRef.current;
+      const messagesForScan = useChatSessionStore.getState().messages;
       setMessages((prev) => {
         const cleared = clearPendingConfirmationsFromMessages(prev);
         const { updatedMessages, dismissedIds } =
@@ -548,7 +511,7 @@ export function useSendMessage({
 
       // Persist dismissed surfaces outside the updater (side effect).
       const { dismissedIds } = dismissInteractiveSurfaces(
-        messagesRef.current,
+        useChatSessionStore.getState().messages,
         messagesForScan,
       );
       if (dismissedIds.size > 0) {
@@ -556,13 +519,14 @@ export function useSendMessage({
         useTurnStore.getState().dismissSurface();
       }
 
-      const willQueue = isSending(useTurnStore.getState());
+      const willQueue = isSending(useTurnStore.getState().phase);
       const optimisticUserId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
-        content,
+        textSegments: [content],
+        contentOrder: [{ type: "text", id: "0" }],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
@@ -572,7 +536,7 @@ export function useSendMessage({
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        pendingQueuedMessageIdsRef.current.push(userMessage.id);
+        useChatSessionStore.getState().pendingQueuedMessageIds.push(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
@@ -596,10 +560,9 @@ export function useSendMessage({
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            pendingQueuedMessageIdsRef.current =
-              pendingQueuedMessageIdsRef.current.filter(
-                (id) => id !== userMessage.id,
-              );
+            const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
+            const idx = queueIds.indexOf(userMessage.id);
+            if (idx !== -1) queueIds.splice(idx, 1);
             setMessages((prev) =>
               clearQueueStatus(prev, userMessage.id),
             );
@@ -622,9 +585,10 @@ export function useSendMessage({
             return;
           }
           if (postResult.requestId) {
-            requestIdToMessageIdRef.current.set(postResult.requestId, userMessage.id);
+            useChatSessionStore.getState().requestIdToMessageId.set(postResult.requestId, userMessage.id);
           }
-        } catch {
+        } catch (err) {
+          captureError(err, { context: "send_message_queue" });
           revertQueuedMessage(userMessage.id);
           setError({ message: "Failed to queue message. Please try again." });
         }
@@ -660,7 +624,7 @@ export function useSendMessage({
       try {
         const result = await sendMessageViaStream(
           content,
-          streamEpochRef.current,
+          useStreamStore.getState().streamEpoch,
           turnId,
           attachments.map((att) => att.id),
           isDraft,
@@ -686,7 +650,7 @@ export function useSendMessage({
               restoreContent: content,
             });
           } else {
-            setInput(content);
+            useComposerStore.getState().setInput(content);
             setError(result.error);
           }
           return;
@@ -726,8 +690,8 @@ export function useSendMessage({
 
           // Only update active view state if the user is still on this conversation.
           if (useConversationStore.getState().activeConversationId === activeConversationId) {
-            draftConversationIdResolutionRef.current = true;
-            previousConversationIdRef.current = newConversationId;
+            useChatSessionStore.getState().markDraftResolution();
+            useChatSessionStore.setState({ previousConversationId: newConversationId });
             useConversationStore.getState().setActiveConversationId(newConversationId);
             void navigate(routes.conversation(newConversationId), { replace: true });
           }
@@ -735,9 +699,7 @@ export function useSendMessage({
 
         void refreshConversations();
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "send_chat_message" },
-        });
+        captureError(err, { context: "send_chat_message" });
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
@@ -771,12 +733,15 @@ export function useSendMessage({
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
-    streamEpochRef.current++;
+    useStreamStore.getState().bumpEpoch();
+    patchConversation(queryClient, assistantId, activeConversationId, {
+      isProcessing: false,
+    });
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
-    setMessages(stopStreamingAndClearConfirmations);
+    setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
-    confirmationToolCallMapRef.current.clear();
+    useChatSessionStore.getState().confirmationToolCallMap.clear();
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },
@@ -785,7 +750,7 @@ export function useSendMessage({
     } catch {
       // Best-effort — the daemon may have already finished
     }
-  }, [assistantId, activeConversationId]);
+  }, [assistantId, activeConversationId, queryClient]);
 
   return {
     sendMessage,

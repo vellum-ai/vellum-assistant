@@ -1,27 +1,56 @@
-import { app, ipcMain, net, protocol, session, shell } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
+import "./env-seed";
+
+import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import {
+  readAllowedGatewayPorts,
+  resolveLocalConfigFromEnv,
+  resolveLockfilePaths,
+} from "@vellumai/local-mode";
+
 import { installAbout, openAboutWindow } from "./about";
-import { APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import { installCsp } from "./csp";
+import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
+import { registerVellumAppProtocol } from "./vellumapp-protocol";
+import { planGatewayForward } from "./gateway-forward";
+import { planPlatformForward } from "./platform-forward";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
+import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeatureFlagsIpc } from "./feature-flags";
+import { installFeedbackIpc } from "./feedback";
+import { installGlobalShortcuts } from "./global-shortcuts";
+import { installHotkeysIpc } from "./hotkeys";
+import { installPopoutWindows } from "./popout-window";
+import { installQuickInput } from "./quick-input-window";
+import { installLocalMode } from "./local-mode";
+import { installLockfileWatcher } from "./lockfile-watcher";
+import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installNativeAuth } from "./native-auth";
+import { installConnectivityProbe } from "./connectivity-probe";
+import { installNotifications } from "./notifications";
+import { installPermissionHandler } from "./permissions";
 import { installPowerEvents } from "./power-events";
-import { readSetting, writeSetting } from "./settings";
+import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
+import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -72,6 +101,16 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
 ]);
 
 // Deep-link plumbing — register at module top-level so the
@@ -80,6 +119,7 @@ protocol.registerSchemesAsPrivileged([
 // can fire before `whenReady`). Registering in `whenReady` misses
 // the launching URL — the #1 deep-link bug in Electron apps.
 installDeepLinks();
+installFileOpen();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -94,14 +134,38 @@ installDeepLinks();
 // parameter so the protocol handler strips it before path resolution.
 const RENDERER_MOUNT = "/assistant";
 
+const resolveRendererRoot = (): string => {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "web-dist");
+  }
+  // Dev source tree: apps/web/dist — requires `bun run build` in apps/web/.
+  const repoRoot = path.resolve(app.getAppPath(), "..", "..");
+  return path.join(repoRoot, "apps", "web", "dist");
+};
+
 const registerAppProtocol = (): void => {
-  // The packaged renderer bundle lives next to the main bundle. When this app
-  // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
-  // ../renderer relative to the main process bundle.
-  const rendererRoot = path.join(__dirname, "../renderer");
+  const rendererRoot = resolveRendererRoot();
   const indexHtml = path.join(rendererRoot, "index.html");
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const getAllowedGatewayPorts = (): Set<number> =>
+    readAllowedGatewayPorts(lockfilePaths);
+  const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
+    // The renderer addresses local gateways at the same `app://` origin via
+    // `/assistant/__gateway/{port}/*`. Forward those to loopback here so the
+    // secure renderer never touches an insecure `http://127.0.0.1` origin
+    // directly; the lockfile allowlist is the security boundary. Mirrors the
+    // Vite dev-server proxy (`apps/web/vite-plugin-local-mode.ts`).
+    const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
+    if (proxied) return proxied;
+
+    // Platform API routes (`/v1/*`, `/_allauth/*`, `/accounts/*`) forward to
+    // the cloud platform so managed mode works in packaged builds. Mirrors the
+    // Vite dev-server proxy (`apps/web/vite.config.ts` server.proxy entries).
+    const platformProxied = await forwardPlatformRequest(request, platformUrl);
+    if (platformProxied) return platformProxied;
+
     const result = resolveAppProtocolPath(
       rendererRoot,
       request.url,
@@ -131,145 +195,147 @@ const fileExists = async (candidate: string): Promise<boolean> => {
   }
 };
 
-// Deny renderer permission requests by default. Specific permissions
-// (microphone for voice input, notifications, etc.) are allowlisted in the
-// follow-up tickets that wire each feature, so the bridge surface stays
-// honest about what the app can actually do at any given commit.
-const installPermissionHandler = (): void => {
-  session.defaultSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
-      callback(false);
-    },
-  );
-};
-
-// IPC bridge for the `window.vellum.settings.*` API exposed by preload.
-// Errors from electron-store's schema validator (thrown as SyntaxError from
-// `set`) propagate as rejected Promises to the renderer.
-const installSettingsIpc = (): void => {
-  ipcMain.handle("vellum:settings:get", (_event, key: string) => readSetting(key));
-  ipcMain.handle("vellum:settings:set", (_event, key: string, value: unknown) => {
-    writeSetting(key, value);
-  });
-};
-
-// ---------------------------------------------------------------------------
-// Daemon supervisor
-// ---------------------------------------------------------------------------
-//
-// Spawns the bundled Bun daemon binary from Resources/bun. On exit, restarts
-// with exponential backoff (1s → 2s → 4s → … capped at 30s), with the backoff
-// reset to its initial value after any run that stayed up for at least
-// DAEMON_STABLE_RUN_MS so a one-off crash after long uptime doesn't inherit a
-// 30s wait. ENOENT during development (binary not yet bundled) is logged but
-// does not retry — there is nothing to retry to.
-
-const DAEMON_BACKOFF_INITIAL_MS = 1_000;
-const DAEMON_BACKOFF_MAX_MS = 30_000;
-// If the daemon ran successfully for at least this long before crashing, treat
-// the crash as transient and reset the backoff to its initial value.
-const DAEMON_STABLE_RUN_MS = 60_000;
-
-let daemonProcess: ChildProcess | null = null;
-let daemonBackoffMs = DAEMON_BACKOFF_INITIAL_MS;
-let daemonStartedAt = 0;
-let daemonRestartTimer: NodeJS.Timeout | null = null;
-let daemonShuttingDown = false;
-let daemonMissing = false;
-
-const spawnDaemon = (): void => {
-  if (daemonShuttingDown || daemonMissing) return;
-
-  const binaryPath = path.join(process.resourcesPath, "bun");
-  const child = spawn(binaryPath, ["daemon"], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  daemonProcess = child;
-  daemonStartedAt = Date.now();
-
-  console.log(`[daemon] spawned: ${binaryPath} (pid=${child.pid ?? "?"})`);
-
-  child.stdout?.on("data", (chunk: Buffer) => {
-    process.stdout.write(`[daemon] ${chunk.toString()}`);
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    process.stderr.write(`[daemon] ${chunk.toString()}`);
-  });
-
-  child.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "ENOENT") {
-      console.warn(
-        `[daemon] binary not found at ${binaryPath} — skipping spawn (this is expected in development).`,
-      );
-      daemonMissing = true;
-      daemonProcess = null;
-      return;
-    }
-    console.error("[daemon] spawn error:", err);
-  });
-
-  child.on("exit", (code, signal) => {
-    const ranFor = Date.now() - daemonStartedAt;
-    daemonProcess = null;
-    console.warn(
-      `[daemon] exited code=${code ?? "null"} signal=${signal ?? "null"} after ${ranFor}ms`,
-    );
-    if (daemonShuttingDown || daemonMissing) return;
-    if (ranFor >= DAEMON_STABLE_RUN_MS) {
-      daemonBackoffMs = DAEMON_BACKOFF_INITIAL_MS;
-    }
-    scheduleDaemonRestart();
-  });
-};
-
-const scheduleDaemonRestart = (): void => {
-  if (daemonRestartTimer) return;
-  const delay = daemonBackoffMs;
-  console.log(`[daemon] restarting in ${delay}ms`);
-  daemonRestartTimer = setTimeout(() => {
-    daemonRestartTimer = null;
-    daemonBackoffMs = Math.min(daemonBackoffMs * 2, DAEMON_BACKOFF_MAX_MS);
-    spawnDaemon();
-  }, delay);
-};
-
-const stopDaemon = (): void => {
-  daemonShuttingDown = true;
-  if (daemonRestartTimer) {
-    clearTimeout(daemonRestartTimer);
-    daemonRestartTimer = null;
+/**
+ * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
+ * local gateway on loopback, or return `null` when the URL is not a gateway
+ * request so the caller serves it as a static asset. `net.fetch` runs in the
+ * main process, so the renderer only ever talks to its own secure `app://`
+ * origin — main does the `http://127.0.0.1` hop. The streaming `Response` is
+ * returned verbatim, preserving SSE and chunked transfers (Electron's
+ * `stream: true` scheme privilege). `planGatewayForward` owns the allowlist and
+ * header decisions; this wrapper is just the effect.
+ */
+const forwardGatewayRequest = async (
+  request: GlobalRequest,
+  getAllowedPorts: () => Set<number>,
+): Promise<Response | null> => {
+  const plan = planGatewayForward(request, getAllowedPorts);
+  switch (plan.kind) {
+    case "pass":
+      return null;
+    case "reject":
+      return new Response(plan.message, { status: plan.status });
+    case "forward":
+      return net.fetch(plan.url, {
+        method: plan.method,
+        headers: plan.headers,
+        body: plan.hasBody ? request.body : undefined,
+        // Stream the request body instead of buffering it; required by the
+        // fetch spec whenever a `ReadableStream` body is supplied.
+        ...(plan.hasBody ? { duplex: "half" } : {}),
+        redirect: "manual",
+      });
   }
-  if (daemonProcess && !daemonProcess.killed) {
-    daemonProcess.kill();
+};
+
+const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
+
+// `app://` is not a cookieable scheme, so the renderer can't read the CSRF
+// token via `document.cookie`. Main caches it here and injects it into
+// forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
+let cachedCsrfToken: string | null = null;
+handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
+
+const resolvedConfig = resolveLocalConfigFromEnv(process.env);
+handleSync("vellum:config:get", () => ({
+  webUrl: resolvedConfig.webUrl,
+  platformUrl: resolvedConfig.platformUrl,
+}));
+
+const captureCsrfToken = (response: Response): void => {
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  for (const raw of setCookies) {
+    const match = CSRF_COOKIE_RE.exec(raw);
+    if (match?.[1]) {
+      cachedCsrfToken = match[1];
+    }
   }
+};
+
+/**
+ * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
+ * the cloud platform, or return `null` for non-platform paths. Mirrors the
+ * gateway forward: `net.fetch` runs in main so the renderer stays same-origin.
+ */
+const forwardPlatformRequest = async (
+  request: GlobalRequest,
+  platformUrl: string,
+): Promise<Response | null> => {
+  const plan = planPlatformForward(request, platformUrl);
+  if (plan.kind === "pass") return null;
+
+  if (cachedCsrfToken && !plan.headers.has("X-CSRFToken")) {
+    plan.headers.set("X-CSRFToken", cachedCsrfToken);
+  }
+
+  let response: Response;
+  try {
+    response = await net.fetch(plan.url, {
+      method: plan.method,
+      headers: plan.headers,
+      body: plan.hasBody ? request.body : undefined,
+      ...(plan.hasBody ? { duplex: "half" } : {}),
+      redirect: "manual",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Platform unreachable";
+    return new Response(message, { status: 502 });
+  }
+
+  captureCsrfToken(response);
+  return response;
 };
 
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-// TODO(security): set a Content Security Policy via session.webRequest.
-// onHeadersReceived once the prod connect-src endpoints (api.vellum.ai,
-// websocket origins, telemetry) are settled in the auth + networking tickets.
-
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     if (!isDev) {
       registerAppProtocol();
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
+    installBundleFlow();
+    onFileOpen(handleBundleFile);
     installPermissionHandler();
-    installSettingsIpc();
+    installCsp();
+    installHotkeysIpc();
+    installFeatureFlagsIpc();
+    installLocalMode();
     installAbout();
+    installFeedbackIpc();
     installApplicationMenu();
+    installQuickInput();
+    installPopoutWindows();
+    installGlobalShortcuts();
+    // Register the avatar channel before the Dock and Tray install so their
+    // initial render reflects any avatar the renderer publishes during
+    // bootstrap rather than briefly showing the bundled fallback mark.
+    installAvatarIpc();
     installDock();
     installPowerEvents();
+    installNotifications();
+    // Register the status channel before the tray installs so the tray's
+    // initial render reflects any status the renderer publishes during
+    // bootstrap rather than briefly showing the default idle dot.
+    installStatusIpc();
+    const lockfilePaths = resolveLockfilePaths(process.env);
+    const runProbe = installConnectivityProbe(lockfilePaths);
+    installConnectivityIpc(runProbe);
+    // Start watching the lockfile before the tray installs so the assistant
+    // switcher submenu has data on its first right-click.
+    const teardownLockfileWatcher = installLockfileWatcher();
+    app.on("before-quit", teardownLockfileWatcher);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
-    spawnDaemon();
+    installNativeAuth();
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
@@ -282,7 +348,7 @@ app
     });
   })
   .catch((err: unknown) => {
-    console.error("[app] whenReady setup failed:", err);
+    log.error("[app] whenReady setup failed:", err);
   });
 
 app.on("second-instance", (_event, argv) => {
@@ -298,9 +364,21 @@ app.on("second-instance", (_event, argv) => {
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
   if (deepLink) handleDeepLink(deepLink);
+  // Forward .vellum file paths from second-instance argv so the
+  // buffer/broadcast pipeline handles them identically to open-file.
+  for (const arg of argv) {
+    if (/\.vellum$/i.test(arg)) {
+      handleFileOpen(arg);
+    }
+  }
 });
 
 app.on("web-contents-created", (_event, contents) => {
+  // Electron internals + our own cleanup listeners (deep-links, power-events)
+  // exceed the default 10-listener cap per WebContents, triggering a spurious
+  // MaxListenersExceededWarning. Bump the limit to silence it.
+  contents.setMaxListeners(20);
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Only http(s) is ever opened — file:, javascript:, custom schemes are
     // denied with no fallback.
@@ -320,18 +398,14 @@ app.on("web-contents-created", (_event, contents) => {
     // callbacks, so allow these as in-app child windows that inherit the
     // hardened webPreferences from the parent.
     if (disposition === "new-window") {
+      // Child popups inherit the same hardened baseline as every window. The
+      // preload is intentionally omitted (these are OAuth/connect popups, not
+      // Vellum-bridge surfaces), which is why `hardenedWebPreferences()`
+      // leaves it out for the caller to add.
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webSecurity: true,
-            allowRunningInsecureContent: false,
-            experimentalFeatures: false,
-            devTools: isDev,
-          },
+          webPreferences: hardenedWebPreferences(),
         },
       };
     }
@@ -346,8 +420,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
-});
-
-app.on("before-quit", () => {
-  stopDaemon();
 });

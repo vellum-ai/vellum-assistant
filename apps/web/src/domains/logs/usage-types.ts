@@ -1,11 +1,17 @@
 /**
- * Type definitions for web-facing assistant usage data. These endpoints are
- * served by the daemon via RuntimeProxyWildcardView under
- * /v1/assistants/{id}/usage/* and are not part of the Django OpenAPI schema,
- * so we maintain types by hand here. UsageGroupBy values are picker-facing
- * labels; the API module translates `task` and `profile` to daemon wire
- * values at the boundary.
+ * Type definitions for web-facing assistant usage data. The wire response
+ * shapes are derived from the generated daemon SDK types so they cannot drift
+ * from the route's declared schema. The picker-facing enums below are
+ * client-only: `UsageGroupBy` values are display labels; the API module
+ * translates `task` and `profile` to daemon wire values at the boundary.
  */
+
+import type {
+  UsageBreakdownGetResponse,
+  UsageDailyGetResponse,
+  UsageSeriesGetResponse,
+  UsageTotalsGetResponse,
+} from "@/generated/daemon/types.gen";
 
 export type UsageTimeRange = "today" | "7d" | "30d" | "90d" | "all";
 
@@ -17,71 +23,20 @@ export type UsageGroupBy =
   | "model"
   | "conversation"
   | "task"
-  | "profile";
+  | "profile"
+  | "schedule";
 
 export type UsageSeriesGroupBy = Exclude<UsageGroupBy, "conversation">;
 
-export interface UsageTotals {
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCacheCreationTokens: number;
-  totalCacheReadTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-  pricedEventCount: number;
-  unpricedEventCount: number;
-}
+export type UsageTotals = UsageTotalsGetResponse;
 
-export interface UsageDayBucket {
-  bucketId: string;
-  date: string;
-  displayLabel?: string;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-}
+export type UsageDailyResponse = UsageDailyGetResponse;
+export type UsageDayBucket = UsageDailyGetResponse["buckets"][number];
 
-export interface UsageGroupBreakdown {
-  group: string;
-  groupId: string | null;
-  groupKey?: string | null;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCacheCreationTokens: number;
-  totalCacheReadTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-}
+export type UsageBreakdownResponse = UsageBreakdownGetResponse;
+export type UsageGroupBreakdown =
+  UsageBreakdownGetResponse["breakdown"][number];
 
-export interface UsageSeriesGroupValue {
-  group: string;
-  groupKey: string | null;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-}
-
-export interface UsageSeriesBucket {
-  bucketId: string;
-  date: string;
-  displayLabel?: string;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-  groups: Record<string, UsageSeriesGroupValue>;
-}
-
-export interface UsageDailyResponse {
-  buckets: UsageDayBucket[];
-}
-
-export interface UsageBreakdownResponse {
-  breakdown: UsageGroupBreakdown[];
-}
-
-export interface UsageSeriesResponse {
-  buckets: UsageSeriesBucket[];
-}
+export type UsageSeriesResponse = UsageSeriesGetResponse;
+export type UsageSeriesBucket = UsageSeriesGetResponse["buckets"][number];
+export type UsageSeriesGroupValue = UsageSeriesBucket["groups"][string];

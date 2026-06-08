@@ -1,21 +1,21 @@
 
 import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  DollarSign,
-  Square,
-  X,
+    ArrowDownToLine,
+    ArrowUpFromLine,
+    DollarSign,
+    Square,
+    X,
 } from "lucide-react";
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
-import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import { subagentTraits } from "@/utils/avatar-subagent";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 
@@ -142,17 +142,10 @@ export function SubagentDetailPanel({
   onRequestDetail,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
-  const requestedRef = useRef<string | null>(null);
   const components = useBundledAvatarComponents();
 
   useEffect(() => {
-    if (
-      onRequestDetail &&
-      entry.conversationId &&
-      entry.events.length === 0 &&
-      requestedRef.current !== entry.subagentId
-    ) {
-      requestedRef.current = entry.subagentId;
+    if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);

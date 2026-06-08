@@ -31,9 +31,9 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
+  "@/domains/chat/components/activity-run-card/activity-run-card",
   () => ({
-    ToolCallProgressCard: () => <div data-testid="tool-call-progress-card" />,
+    ActivityRunCard: () => <div data-testid="activity-run-card" />,
   }),
 );
 
@@ -55,6 +55,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
 
 beforeEach(() => {
@@ -72,7 +73,7 @@ function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -84,14 +85,14 @@ function assistantMessageWithSpawn(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: spawnedIds.map((_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
     })),
     toolCalls: spawnedIds.map((subagentId, i) => ({
       id: `tc-${i}`,
-      toolName: "subagent_spawn",
+      name: "subagent_spawn",
       input: { label: `agent-${i}`, objective: "do a thing" },
       status: "completed" as const,
       result: JSON.stringify({ subagentId, label: `agent-${i}` }),
@@ -112,14 +113,14 @@ function assistantMessageWithRunningSpawns(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: Array.from({ length: count }, (_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
     })),
     toolCalls: Array.from({ length: count }, (_, i) => ({
       id: `tc-${i}`,
-      toolName: "subagent_spawn",
+      name: "subagent_spawn",
       input: { label: `agent-${i}`, objective: "do a thing" },
       status: "running" as const,
       // No `result` — the daemon hasn't acked the spawn yet.
@@ -140,7 +141,7 @@ function assistantMessageWithMixedSpawns(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: entries.map((_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
@@ -148,7 +149,7 @@ function assistantMessageWithMixedSpawns(
     toolCalls: entries.map((entry, i) => {
       const base = {
         id: `tc-${i}`,
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         input: { label: `agent-${i}`, objective: "do a thing" },
       };
       if ("subagentId" in entry) {
@@ -178,10 +179,8 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -203,10 +202,8 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -223,10 +220,8 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -236,7 +231,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     // out of its body it would have no renderable steps, leaving just the
     // leading-thinking preamble (already shown as message text) — pure noise.
     const toolCard = container.querySelector(
-      '[data-testid="tool-call-progress-card"]',
+      '[data-testid="activity-run-card"]',
     );
     expect(toolCard).toBeNull();
   });
@@ -262,10 +257,8 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -298,10 +291,8 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -328,14 +319,13 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const msg: DisplayMessage = {
       id: "daemon-uuid-123",
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: "tc-0" }],
       toolCalls: [
         {
           id: "tc-0",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "" },
-          status: "running",
         },
       ],
     };
@@ -349,10 +339,8 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -371,10 +359,8 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -404,14 +390,13 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     const msg: DisplayMessage = {
       id: "a1",
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: "tool-use-abc" }],
       toolCalls: [
         {
           id: "tool-use-abc",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
-          status: "running",
           // No `result` — the daemon hasn't acked the spawn yet.
         },
       ],
@@ -426,10 +411,8 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -438,7 +421,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
     // The spawn-only group must not surface a generic progress card.
     expect(
-      container.querySelector('[data-testid="tool-call-progress-card"]'),
+      container.querySelector('[data-testid="activity-run-card"]'),
     ).toBeNull();
   });
 });
@@ -472,25 +455,22 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     const msg: DisplayMessage = {
       id: "a1",
       role: "assistant",
-      content: "spawning",
       contentOrder: [
         { type: "toolCall", id: "tc-0" },
         { type: "text", id: "0" },
         { type: "toolCall", id: "tc-1" },
       ],
-      textSegments: [{ type: "text", content: "between spawns" }],
+      textSegments: ["between spawns"],
       toolCalls: [
         {
           id: "tc-0",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-0", objective: "do a thing" },
-          status: "running",
         },
         {
           id: "tc-1",
-          toolName: "subagent_spawn",
+          name: "subagent_spawn",
           input: { label: "agent-1", objective: "do another thing" },
-          status: "running",
         },
       ],
     };
@@ -504,10 +484,8 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 
@@ -532,14 +510,13 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     const msg: DisplayMessage = {
       id,
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: toolUseId }],
       toolCalls: [
         {
           id: toolUseId,
-          toolName: "skill_execute",
+          name: "skill_execute",
           input: { tool: "subagent_spawn", label: "agent-0", objective: "do a thing" },
-          status: "running",
           // No `result` — daemon hasn't acked the spawn yet.
         },
       ],
@@ -552,10 +529,8 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />
     );
   }
@@ -585,7 +560,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
 
     // Server reconcile: the parent message id swaps to "server-1" while the
     // local tool-call id "tu-1" is preserved (keepLocalToolState). The
@@ -606,7 +581,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
   });
 
   test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", () => {
@@ -666,7 +641,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     );
 
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
-    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+    expect(queryByTestId("activity-run-card")).toBeNull();
   });
 });
 
@@ -681,10 +656,8 @@ describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () =
       <Transcript
         items={items}
         conversationId={null}
-        onSecretSubmit={noop}
-        onConfirmationDecision={noop}
         onSurfaceAction={noop}
-        onRetryError={noop}
+
       />,
     );
 

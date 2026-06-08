@@ -9,6 +9,22 @@ type MockSessionUser = {
 let sessionUser: MockSessionUser | null = null;
 let getSessionCallCount = 0;
 let getSessionFailFirstCall = false;
+// When set to an array, each `getSession` call blocks until its release fn
+// (pushed here in call order) is invoked, so a test can hold one or more
+// probes in flight and settle them in a chosen order.
+let getSessionGates: Array<() => void> | null = null;
+
+let mockIsGatewayAuth = false;
+let mockIsLocalMode = false;
+let mockPlatformAssistants: unknown[] = [];
+let mockPrimeError: Error | null = null;
+const setSelectedAssistantIdMock = mock((_id: string) => {});
+const primeLocalGatewayConnectionMock = mock(async () => {
+  if (mockPrimeError) throw mockPrimeError;
+});
+const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
+  if (mockPrimeError) throw mockPrimeError;
+});
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOnboardingFlagsMock = mock(() => {});
 const clearOrganizationMock = mock(() => {});
@@ -21,9 +37,22 @@ let mockBiometricToken: string | null = null;
 const installSessionCookiesMock = mock((_token: string) => {});
 const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
+// Controls the managed-assistant list returned to the lockfile-sync path and
+// spies on the sync itself. Default `listAssistants` to the legacy `[]` shape
+// (whose missing `.ok` short-circuits the sync) so existing tests are
+// unaffected; the reconciliation tests override it to a well-formed result.
+let mockListAssistantsResult: unknown = [];
+const listAssistantsMock = mock(async () => mockListAssistantsResult);
+const syncPlatformAssistantsToLockfileMock = mock(async (_list: unknown) => {});
+
 mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
     getSessionCallCount++;
+    if (getSessionGates) {
+      await new Promise<void>((resolve) => {
+        getSessionGates!.push(resolve);
+      });
+    }
     if (getSessionFailFirstCall && getSessionCallCount === 1) {
       return { ok: false, status: 401, error: { detail: "Unauthorized" } };
     }
@@ -33,6 +62,28 @@ mock.module("@/lib/auth/allauth-client", () => ({
     return { ok: true, data: { user: sessionUser } };
   },
   logout: logoutMock,
+}));
+
+mock.module("@/lib/auth/gateway-session", () => ({
+  isGatewayAuthEnabled: () => mockIsGatewayAuth,
+  isGatewayAuthMode: () => mockIsGatewayAuth,
+  ensureGatewayToken: async () => {},
+  clearGatewayToken: () => {},
+  getLocalTokenUrl: () => "http://localhost/token",
+}));
+
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => mockIsLocalMode,
+  isLocalAssistant: (a: { cloud?: string; resources?: { gatewayPort?: number } }) =>
+    a.cloud !== "vellum" && a.resources?.gatewayPort != null,
+  getPlatformAssistants: () => mockPlatformAssistants,
+  getLocalAssistants: () => [],
+  clearSelectedAssistant: () => {},
+  setSelectedAssistantId: setSelectedAssistantIdMock,
+  primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithRepair:
+    primeLocalGatewayConnectionWithRepairMock,
+  syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -62,21 +113,35 @@ mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
 }));
 
-mock.module("@/stores/event-bus-store", () => ({
-  useEventBusStore: {
-    getState: () => ({
-      subscribe: () => () => {},
-    }),
+// Don't mock `@/lib/event-bus` — bun's `mock.module` is process-
+// global, so any stub here shadows the real bus for every later
+// test file in the run. `auth-store` only subscribes to `app.resume`
+// at module load; the real bus's `subscribe` returns an unsubscribe
+// and the registered handler stays inert in tests that don't publish
+// `app.resume`.
+
+const lifecycleResetForLogoutMock = mock(() => {});
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    resetForLogout: lifecycleResetForLogoutMock,
   },
+}));
+
+// `@/assistant/api` transitively pulls in `@vellumai/assistant-api`
+// exports that are currently missing on main. Mock the call sites
+// `auth-store` actually uses; the real module load would crash
+// before any test runs.
+mock.module("@/assistant/api", () => ({
+  listAssistants: listAssistantsMock,
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
-    isLoggedIn: false,
-    isLoading: true,
+    sessionStatus: "initializing",
     user: null,
+    platformSession: "unknown",
   });
 }
 
@@ -84,9 +149,17 @@ beforeEach(() => {
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
+  getSessionGates = null;
+  mockIsGatewayAuth = false;
+  mockIsLocalMode = false;
+  mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
+  mockPrimeError = null;
+  setSelectedAssistantIdMock.mockClear();
+  primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithRepairMock.mockClear();
   syncOnboardingUserMock.mockClear();
   clearOnboardingFlagsMock.mockClear();
   clearOrganizationMock.mockClear();
@@ -95,6 +168,10 @@ beforeEach(() => {
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
+  lifecycleResetForLogoutMock.mockClear();
+  mockListAssistantsResult = [];
+  listAssistantsMock.mockClear();
+  syncPlatformAssistantsToLockfileMock.mockClear();
   resetAuthStore();
 });
 
@@ -105,8 +182,7 @@ describe("auth store onboarding flag reconciliation", () => {
     await useAuthStore.getState().initSession();
 
     expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-1");
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
-    expect(useAuthStore.getState().isLoading).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
   test("refreshSession reconciles onboarding flags for a changed user", async () => {
@@ -118,12 +194,48 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().user?.id).toBe("user-2");
   });
 
+  test("refreshSession reconciles the lockfile mirror in local mode", async () => {
+    // Regression: a session refresh (app resume, profile save, provider
+    // callback) must re-sync managed assistants into the lockfile — not only
+    // cold `initSession` — so the macOS tray and CLI don't keep a stale list
+    // until the next full boot.
+    mockIsLocalMode = true;
+    sessionUser = { id: "user-3", email: "user@example.com" };
+    mockListAssistantsResult = {
+      ok: true,
+      status: 200,
+      data: [{ id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" }],
+    };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(listAssistantsMock).toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith([
+      { id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" },
+    ]);
+  });
+
+  test("refreshSession skips lockfile sync outside local mode", async () => {
+    // Platform mode has no lockfile host — the sync must not run there.
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-4", email: "user@example.com" };
+    mockListAssistantsResult = {
+      ok: true,
+      status: 200,
+      data: [{ id: "assistant-4", is_local: false, created: "2026-06-05T00:00:00Z" }],
+    };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
   test("logout clears onboarding flags directly", async () => {
     await useAuthStore.getState().logout();
 
     expect(logoutMock).toHaveBeenCalled();
     expect(clearOnboardingFlagsMock).toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
 
@@ -145,6 +257,85 @@ describe("session cleanup on logout", () => {
 
     expect(clearUserScopedStorageMock).toHaveBeenCalled();
   });
+
+  test("logout clears assistant lifecycle synchronously, before leaving authenticated", async () => {
+    // The lifecycle reset must happen before the auth state flips,
+    // otherwise sync hooks like `useAssistantResourceSync` get one
+    // re-render with the previous user's assistant id and fire
+    // requests that 401. The order is verified by recording the
+    // session status seen at reset time vs the final transition.
+    let statusAtResetTime = useAuthStore.getState().sessionStatus;
+    lifecycleResetForLogoutMock.mockImplementationOnce(() => {
+      statusAtResetTime = useAuthStore.getState().sessionStatus;
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
+    expect(statusAtResetTime).toBe("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+});
+
+describe("platform session probe resolution", () => {
+  // A returning local-gateway user re-runs the platform probe on app resume.
+  // The probe must NOT reopen the "unknown" window: it leaves the last-known
+  // "present"/"absent" in place until the new result lands, so a cached
+  // platform assistant keeps standing in for the session and reactive
+  // consumers don't flicker mid-session.
+  test("a re-run gateway probe retains the last status until it settles", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    // Probe launched but not settled: the prior status is retained, not reset
+    // to "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  // Two probes can overlap — an app-resume refresh firing while the initial
+  // probe is still in flight. If a slower earlier probe settles after a newer
+  // one starts, its result must be discarded so it can't overwrite the newer
+  // probe's outcome.
+  test("a stale probe completing after a newer one does not change status", async () => {
+    mockIsGatewayAuth = true;
+    mockIsLocalMode = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "absent" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    // Launch two overlapping probes; neither has settled, so the prior status
+    // is still retained.
+    await useAuthStore.getState().refreshSession();
+    await useAuthStore.getState().refreshSession();
+    expect(gates.length).toBe(2);
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    // Settle the older probe first: it is stale, so it must not write status.
+    gates[0]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    // The newest probe settling is what moves status to "present".
+    gates[1]();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
 });
 
 describe("biometric session recovery", () => {
@@ -160,7 +351,7 @@ describe("biometric session recovery", () => {
     expect(installSessionCookiesMock).toHaveBeenCalledWith(
       "recovered-session-token",
     );
-    expect(useAuthStore.getState().isLoggedIn).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-1");
   });
 
@@ -171,7 +362,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession skips biometric recovery when biometrics disabled", async () => {
@@ -182,7 +373,7 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(retrieveBiometricTokenMock).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
   test("initSession falls through to unauthenticated when biometric token is expired", async () => {
@@ -194,7 +385,36 @@ describe("biometric session recovery", () => {
     await useAuthStore.getState().initSession();
 
     expect(installSessionCookiesMock).toHaveBeenCalledWith("expired-token");
-    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
     expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
+describe("connectLocalAssistant", () => {
+  test("selects the assistant, primes the connection, and logs in", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+
+    await useAuthStore.getState().connectLocalAssistant("local-a");
+
+    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    // No platform assistants — nothing to probe, so the status settles
+    // directly to "absent" rather than staying "unknown".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("rethrows the prime failure without marking the session logged in", async () => {
+    mockIsLocalMode = true;
+    mockPrimeError = new Error("Guardian token not found");
+
+    await expect(
+      useAuthStore.getState().connectLocalAssistant("local-a"),
+    ).rejects.toThrow("Guardian token not found");
+
+    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

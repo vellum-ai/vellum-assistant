@@ -441,6 +441,7 @@ describe("regenerate with web_search_tool_result", () => {
 
     const events: Array<{ type: string; message?: string }> = [];
 
+    let processing = false;
     const session: HistoryConversationContext = {
       conversationId,
       traceEmitter: {
@@ -448,7 +449,10 @@ describe("regenerate with web_search_tool_result", () => {
       } as unknown as HistoryConversationContext["traceEmitter"],
       sendToClient: (msg) => events.push(msg),
       messages: [...inMemoryMessages],
-      processing: false,
+      isProcessing: () => processing,
+      setProcessing: (value: boolean) => {
+        processing = value;
+      },
       abortController: null,
       async runAgentLoop(content, userMessageId) {
         agentLoopCalled = true;
@@ -777,6 +781,12 @@ describe("web_search_tool_result structural guard", () => {
     // (server_tool_use -> web_search_tool_result) are injected by the
     // provider, not the local tool executor, so they never flow here.
     "agent/loop.ts",
+
+    // Counts consecutive errors for locally-executed tools to bound retry
+    // coaching. Server-side web search results (web_search_tool_result) carry
+    // no is_error flag and are not produced by the tool executor, so only
+    // tool_result is relevant. Same reasoning as agent/loop.ts above.
+    "plugins/defaults/tool-error/hooks/post-tool-use.ts",
 
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.

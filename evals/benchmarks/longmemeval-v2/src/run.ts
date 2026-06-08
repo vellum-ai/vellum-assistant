@@ -81,8 +81,15 @@ export async function run(
   benchmark: Benchmark,
   input: BenchmarkRunInput,
 ): Promise<BenchmarkRunResult> {
-  const { profiles, filterIds, filterFlag, session, sessionLabel, progress } =
-    input;
+  const {
+    profiles,
+    filterIds,
+    filterFlag,
+    session,
+    sessionLabel,
+    cliArgv,
+    progress,
+  } = input;
 
   const dataRoot =
     process.env["EVALS_LONGMEMEVAL_DATA_ROOT"] ??
@@ -128,6 +135,7 @@ export async function run(
             runId: id,
             sessionId: session,
             sessionLabel,
+            cliArgv,
             progress,
           });
         } catch (err) {

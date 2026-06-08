@@ -1,5 +1,7 @@
+import { lazy, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
@@ -7,17 +9,47 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useIsSessionInitializing,
+  useHasPlatformSession,
+} from "@/stores/auth-store";
+import { handleLogout } from "@/lib/auth/handle-logout";
+import { getSelectedAssistant } from "@/lib/local-mode";
+import { useVellumCommands } from "@/runtime/vellum-commands";
+import { routes } from "@/utils/routes";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
-import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
+import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
+import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { TimezoneSync } from "@/components/timezone-sync";
+import { retireAssistant } from "@/assistant/retire-service";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
+
+const ShareFeedbackModal = lazy(() =>
+  import("@/components/share-feedback-modal").then((m) => ({
+    default: m.ShareFeedbackModal,
+  })),
+);
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -33,7 +65,7 @@ const KEYBOARD_OPEN_THRESHOLD_PX = 100;
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
  *    here as a side effect — the hook publishes `assistantState` and
  *    stable imperative callbacks into `useAssistantLifecycleStore`,
- *    and the active assistant id into `useAssistantSelectionStore`.
+ *    and the active assistant id into `useResolvedAssistantsStore`.
  *    Mounting once at the app root means every layout / route can
  *    read the current assistant via store selectors without each
  *    running a duplicate polling state machine.
@@ -54,14 +86,13 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const sessionStatus = useAuthStore.use.sessionStatus();
+  const isSessionInitializing = useIsSessionInitializing();
+  const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(hasPlatformSession && !authLoading);
+  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing);
   useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
+    sessionStatus,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,
@@ -69,7 +100,9 @@ export function RootLayout() {
     resolveOnboardingRedirect,
   });
 
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -81,6 +114,24 @@ export function RootLayout() {
   useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
 
+  // Keep the browser favicon in sync with the assistant's avatar across
+  // every authenticated route (chat, settings, logs, etc.). Mounted here
+  // so the favicon persists when navigating between sibling layouts.
+  const avatar = useAssistantAvatar(assistantId);
+  useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
+
+  // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
+  // the live connection status to the menu-bar dot. Both no-op off Electron.
+  useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
+  useElectronStatusSync();
+  useElectronFeatureFlagBridge();
+
+  // Size the Electron main window to the onboarding layout (440×630
+  // default) while on an onboarding step, and back to the main-app size
+  // elsewhere. No-op off Electron. Mounted at the app root so it tracks
+  // navigation across the whole onboarding flow.
+  useOnboardingWindowSize();
+
   useEventBusInit({ assistantId, isAssistantActive });
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
@@ -89,6 +140,74 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
+  // dispatches by id; the destructive confirmation lives here in the layout so
+  // the retire can run without first routing the user to settings.
+  const [retireId, setRetireId] = useState<string | null>(null);
+  const [retirePending, setRetirePending] = useState(false);
+  // Whether the tray "New Assistant…" name-prompt dialog is open.
+  const [createOpen, setCreateOpen] = useState(false);
+
+  useVellumCommands({
+    openSettings: () => {
+      void navigate(routes.settings.root);
+    },
+    logout: () => {
+      void handleLogout(navigate);
+    },
+    rePair: () => {
+      const id = getSelectedAssistant()?.assistantId;
+      if (id) {
+        void useAuthStore.getState().connectLocalAssistant(id);
+      }
+    },
+    shareFeedback: () => setFeedbackOpen(true),
+    selectAssistant: (command) => {
+      if (command.kind === "selectAssistant") {
+        // The tray lists managed (platform-hosted) assistants, so switching
+        // goes through the platform selection path — not connectLocalAssistant,
+        // which primes a local gateway and no-ops for managed assistants.
+        void selectPlatformAssistant(command.assistantId);
+      }
+    },
+    createAssistant: () => {
+      setCreateOpen(true);
+    },
+    retireAssistant: (command) => {
+      if (command.kind === "retireAssistant") {
+        setRetireId(command.assistantId);
+      }
+    },
+    quickInputSubmit: (command) => {
+      if (command.kind !== "quickInputSubmit") {
+        return;
+      }
+      const draftId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      useViewerStore.getState().setMainView("chat");
+      void navigate(
+        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
+      );
+    },
+  });
+
+  const handleConfirmRetire = async () => {
+    if (!retireId) return;
+    setRetirePending(true);
+    const outcome = await retireAssistant(retireId);
+    if (outcome.ok) {
+      setRetireId(null);
+      setRetirePending(false);
+      toast.success("Assistant retired.");
+      navigate(outcome.nextRoute, { replace: true });
+      return;
+    }
+    toast.error(outcome.error);
+    setRetirePending(false);
+    setRetireId(null);
+  };
 
   const keyboardOpen =
     isMobile &&
@@ -134,6 +253,43 @@ export function RootLayout() {
 
       {/* Portal target for mobile overlays that use `position: fixed`. */}
       <div id="viewport-overlays" />
+
+      {/* Headless: keeps daemon config.ui.detectedTimezone fresh on
+          focus/zone change. No-ops until an assistant id resolves. */}
+      <TimezoneSync />
+
+      {feedbackOpen ? (
+        <LazyBoundary>
+          <ShareFeedbackModal
+            open={feedbackOpen}
+            onClose={() => setFeedbackOpen(false)}
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
+          />
+        </LazyBoundary>
+      ) : null}
+
+      {/* Destructive confirmation for the tray "Retire <assistant>…" command.
+          Mirrors the settings RetireAssistant dialog so a retire triggered from
+          the menu bar carries the same irreversible-action warning. */}
+      <ConfirmDialog
+        open={retireId !== null}
+        title="Retire Assistant"
+        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
+        confirmLabel="Retire"
+        destructive
+        isPending={retirePending}
+        onConfirm={handleConfirmRetire}
+        onCancel={() => setRetireId(null)}
+      />
+
+      {/* Name-prompt for the tray "New Assistant…" command — hatches an
+          additional managed assistant and switches to it. */}
+      <CreateAssistantDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
     </div>
   );
 }

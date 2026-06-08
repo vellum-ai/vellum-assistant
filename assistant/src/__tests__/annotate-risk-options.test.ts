@@ -103,6 +103,7 @@ function makeDeps(): EventHandlerDeps {
       userMessageInterface: "web",
       assistantMessageInterface: "web",
     } as unknown as EventHandlerDeps["turnInterfaceContext"],
+    applyCompaction: async () => {},
   };
 }
 
@@ -120,9 +121,7 @@ function findPersistedToolUse(
   toolUseId: string,
 ): Record<string, unknown> {
   const parsed = JSON.parse(rawContent) as Array<Record<string, unknown>>;
-  const block = parsed.find(
-    (b) => b.type === "tool_use" && b.id === toolUseId,
-  );
+  const block = parsed.find((b) => b.type === "tool_use" && b.id === toolUseId);
   if (!block) throw new Error(`tool_use block ${toolUseId} not found`);
   return block;
 }

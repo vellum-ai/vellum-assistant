@@ -2028,6 +2028,7 @@ function buildSlackDmRequest(
 }
 
 interface SlackInboundProcessOptions {
+  attachmentIds?: string[];
   displayContent?: string;
   transport?: {
     channelId?: string;
@@ -2111,7 +2112,6 @@ function flattenText(messages: Message[]): string {
 interface CapturedSlackProcessMessage {
   conversationId: string;
   content: string;
-  attachmentIds?: string[];
   options?: SlackInboundProcessOptions;
 }
 
@@ -2146,10 +2146,9 @@ async function handleAndCaptureLiveSlackProcessMessage(
   const processMessage = async (
     conversationId: string,
     content: string,
-    attachmentIds?: string[],
     options?: SlackInboundProcessOptions,
   ): Promise<{ messageId: string }> => {
-    captured = { conversationId, content, attachmentIds, options };
+    captured = { conversationId, content, options };
     const messageId = persistSlackInboundFromProcessMessage(
       conversationId,
       content,
@@ -2212,7 +2211,6 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const processMessage = async (
       _conversationId: string,
       _content: string,
-      _attachmentIds?: string[],
       options?: {
         transport?: { hints?: string[] };
       },
@@ -2327,7 +2325,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(captured.content.match(/<external_content/g)?.length).toBe(1);
     expect(captured.content).toContain('<external_content source="slack"');
     expect(captured.content).toContain("\n\n</external_content>");
-    expect(captured.attachmentIds).toEqual(["att-slack-file"]);
+    expect(captured.options?.attachmentIds).toEqual(["att-slack-file"]);
     expect(captured.options?.displayContent).toBe("");
 
     const persisted = readMessagesByConversation(captured.conversationId);
@@ -2370,7 +2368,6 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const processMessage = async (
       conversationId: string,
       content: string,
-      _attachmentIds?: string[],
       options?: SlackInboundProcessOptions,
     ): Promise<{ messageId: string }> => {
       const messageId = persistSlackInboundFromProcessMessage(
@@ -2495,7 +2492,6 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const processMessage = async (
       conversationId: string,
       content: string,
-      _attachmentIds?: string[],
       options?: SlackInboundProcessOptions,
     ): Promise<{ messageId: string }> => ({
       messageId: persistSlackInboundFromProcessMessage(
@@ -2551,7 +2547,6 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const processMessage = async (
       conversationId: string,
       content: string,
-      _attachmentIds?: string[],
       options?: SlackInboundProcessOptions,
     ): Promise<{ messageId: string }> => ({
       messageId: persistSlackInboundFromProcessMessage(

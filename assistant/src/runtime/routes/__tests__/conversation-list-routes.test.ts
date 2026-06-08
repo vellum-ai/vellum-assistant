@@ -23,13 +23,14 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import { findConversation } from "../../../daemon/conversation-store.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { rawRun } from "../../../memory/raw-query.js";
 import { conversations } from "../../../memory/schema.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
+import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -112,7 +113,9 @@ describe("GET /v1/conversations — archiveStatus", () => {
     seedArchived("archived-1");
     seedArchived("archived-2");
 
-    const result = (await invoke({ archiveStatus: "archived" })) as ListResponse;
+    const result = (await invoke({
+      archiveStatus: "archived",
+    })) as ListResponse;
 
     expect(result.conversations).toHaveLength(2);
     const titles = result.conversations.map((c) => c.title).sort();
@@ -161,11 +164,74 @@ describe("GET /v1/conversations — archiveStatus", () => {
     // AND a live archived row to make sure the archived list isn't empty.
     seedArchived("archived-live");
 
-    const result = (await invoke({ archiveStatus: "archived" })) as ListResponse;
+    const result = (await invoke({
+      archiveStatus: "archived",
+    })) as ListResponse;
 
     expect(result.conversations.map((c) => c.title).sort()).toEqual([
       "archived-live",
       "pinned-archived",
     ]);
+  });
+});
+
+describe("GET /v1/conversations — conversationType", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("default response returns foreground rows only", async () => {
+    // GIVEN a foreground, a background, and a scheduled conversation
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+
+    // WHEN listing without a conversationType filter
+    const result = (await invoke()) as ListResponse;
+
+    // THEN only the foreground row is returned
+    expect(result.conversations.map((c) => c.title)).toEqual(["foreground-1"]);
+  });
+
+  test("conversationType=background returns background and scheduled (umbrella)", async () => {
+    // GIVEN a foreground, a background, and a scheduled conversation
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+
+    // WHEN listing with conversationType=background
+    const result = (await invoke({
+      conversationType: "background",
+    })) as ListResponse;
+
+    // THEN both the background and scheduled rows are returned
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "bg-1",
+      "sched-1",
+    ]);
+  });
+
+  test("conversationType=scheduled returns scheduled rows only", async () => {
+    // GIVEN a foreground, a background, and a scheduled conversation
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+
+    // WHEN listing with conversationType=scheduled
+    const result = (await invoke({
+      conversationType: "scheduled",
+    })) as ListResponse;
+
+    // THEN only the scheduled row is returned (background is excluded)
+    expect(result.conversations.map((c) => c.title)).toEqual(["sched-1"]);
+  });
+
+  test("unknown conversationType is rejected with a 400", async () => {
+    // GIVEN a request with an unrecognized conversationType
+    // WHEN listing — THEN it throws a BadRequestError (400) instead of
+    // silently falling back to the foreground list
+    expect(() => invoke({ conversationType: "private" })).toThrow(
+      BadRequestError,
+    );
   });
 });

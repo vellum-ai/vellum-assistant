@@ -56,6 +56,11 @@ export interface PageIndexEntry {
   /** Numeric IDs of outgoing edges, in sorted order. */
   edges: number[];
   /**
+   * Leaf slugs declared in the page's `leaves:` frontmatter; `[]` when absent.
+   * Synthetic entries (skills, CLI commands) never declare leaves.
+   */
+  leaves: string[];
+  /**
    * File mtime in epoch ms; 0 for synthetic entries (skills, CLI commands)
    * that have no on-disk source file. Used by `splitTier1` to rank pages
    * by recency.
@@ -118,6 +123,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     slug: string;
     summary: string;
     outgoingSlugs: string[];
+    leaves: string[];
     modifiedAt: number;
   }
 
@@ -177,6 +183,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug,
       summary: normalizeSummary(summarySource),
       outgoingSlugs: page.frontmatter.edges,
+      leaves: page.frontmatter.leaves ?? [],
       modifiedAt: mtimeMs,
     });
   }
@@ -186,6 +193,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: `${SKILL_SLUG_PREFIX}${entry.id}`,
       summary: normalizeSummary(entry.content),
       outgoingSlugs: [],
+      leaves: [],
       modifiedAt: 0,
     });
   }
@@ -195,6 +203,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: `${CLI_COMMAND_SLUG_PREFIX}${entry.id}`,
       summary: normalizeSummary(entry.description),
       outgoingSlugs: [],
+      leaves: [],
       modifiedAt: 0,
     });
   }
@@ -210,6 +219,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: draft.slug,
       summary: draft.summary,
       edges: [],
+      leaves: draft.leaves,
       modifiedAt: draft.modifiedAt,
     };
     bySlug.set(entry.slug, entry);
@@ -329,6 +339,7 @@ function buildLocalPageIndex(
       slug: src.slug,
       summary: src.summary,
       edges: [],
+      leaves: src.leaves,
       modifiedAt: src.modifiedAt,
     };
     localBySlug.set(local.slug, local);

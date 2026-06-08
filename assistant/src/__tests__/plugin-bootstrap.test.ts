@@ -32,25 +32,22 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
+import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
-  getInjectors,
-  getMiddlewaresFor,
+  closeRegistration,
+  getRegisteredPlugins,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import {
-  type PipelineMiddlewareMap,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
 } from "../plugins/types.js";
+import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Redirect plugin storage directory creation into a per-process temp tree so
@@ -60,12 +57,6 @@ const TEST_WORKSPACE_DIR = join(
   `vellum-plugin-bootstrap-test-${process.pid}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-  assistantVersion: "9.9.9-test",
-};
 
 /**
  * Test helper. Accepts the new `hooks` bag and ALSO legacy top-level
@@ -139,7 +130,7 @@ describe("plugin bootstrap", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(received).toBeDefined();
     const ctx = received!;
@@ -155,7 +146,7 @@ describe("plugin bootstrap", () => {
       join(TEST_WORKSPACE_DIR, "plugins-data", "alpha"),
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
-    expect(ctx.assistantVersion).toBe("9.9.9-test");
+    expect(ctx.assistantVersion).toBe(APP_VERSION);
   });
 
   test("credential resolution: init receives the resolved value under credentials[key]", async () => {
@@ -176,7 +167,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(getSecureKeyAsyncMock).toHaveBeenCalledTimes(1);
     expect(getSecureKeyAsyncMock).toHaveBeenCalledWith("some-key");
@@ -196,7 +187,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -228,7 +219,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -276,7 +267,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -304,7 +295,7 @@ describe("plugin bootstrap", () => {
       }),
     );
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
 
     // The last plugin to register must shut down first; the first to register
@@ -320,7 +311,38 @@ describe("plugin bootstrap", () => {
     // tool-result truncate, etc.). Just assert bootstrap completes without
     // throwing — the surface of defaults is verified in each pipeline's own
     // dedicated test file.
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
+  });
+
+  test("startup ordering: defaults registered before the window closes survive bootstrap replay", async () => {
+    /**
+     * Reproduces the daemon startup ordering the registration regression
+     * guards: defaults must register before `loadUserPlugins()` closes the
+     * window, so the `registerDefaultPlugins` replay inside `bootstrapPlugins`
+     * is swallowed by the duplicate-name check instead of throwing on the
+     * closed window and leaving every default unregistered.
+     */
+
+    // GIVEN the first-party defaults have registered while the window is open
+    // (what `initializePlugins()` does at daemon startup)
+    registerDefaultPlugins();
+
+    // AND a user plugin registers after them (what `loadUserPlugins()` does)
+    registerPlugin(buildPlugin("user-after-defaults"));
+
+    // AND the registration window has since closed
+    closeRegistration();
+
+    // WHEN bootstrap runs and replays the default registration
+    await bootstrapPlugins();
+
+    // THEN the defaults are still registered, ahead of the user plugin, so the
+    // middleware onion order is unchanged
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).toContain("default-compaction");
+    expect(names.indexOf("default-compaction")).toBeLessThan(
+      names.indexOf("user-after-defaults"),
+    );
   });
 
   // ── requiresFlag gating (G2.2) ──────────────────────────────────────────
@@ -351,7 +373,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(true);
   });
@@ -408,7 +430,7 @@ describe("plugin bootstrap", () => {
     const { matchSkillRoute } =
       await import("../runtime/skill-route-registry.js");
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // init must not have fired.
     expect(initFired).toBe(false);
@@ -431,7 +453,7 @@ describe("plugin bootstrap", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(true);
   });
@@ -456,52 +478,29 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(false);
   });
 
-  test("requiresFlag disabled: plugin middleware and injectors are dropped from the registry", async () => {
-    // Regression: prior to the unregisterPlugin() call on the flag-gated skip
-    // path, `getMiddlewaresFor()` and `getInjectors()` iterated over every
-    // entry in `registeredPlugins` — so a gated-off plugin's middleware and
-    // injectors still ran on every pipeline invocation and system-prompt
-    // assembly even though `init()` had never fired to set up the state they
-    // depended on.
-    setOverridesForTesting({ "plugin-middleware-disabled": false });
+  test("requiresFlag disabled: the skipped plugin is removed from the registry", async () => {
+    // Regression: a flag-gated skip must call `unregisterPlugin()` so the
+    // gated-off plugin does not linger in `registeredPlugins` with its
+    // `init()` never having fired to set up the state it depends on.
+    setOverridesForTesting({ "plugin-registry-disabled": false });
 
-    const gatedMiddleware: PipelineMiddlewareMap["llmCall"] = async (
-      args,
-      next,
-    ) => next(args);
     const plugin = buildPlugin(
-      "gated-middleware",
-      {
-        middleware: { llmCall: gatedMiddleware },
-        injectors: [
-          {
-            name: "gated-middleware-injector",
-            order: 100,
-            async produce() {
-              return null;
-            },
-          },
-        ],
-      },
-      { requiresFlag: ["plugin-middleware-disabled"] },
+      "gated-registry",
+      {},
+      { requiresFlag: ["plugin-registry-disabled"] },
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
-    // Neither the middleware slot nor the injector list should expose the
-    // flag-gated plugin's contributions. The default plugins also contribute
-    // llmCall middleware / injectors, so we key on identity rather than
-    // asserting empty lists.
-    expect(getMiddlewaresFor("llmCall")).not.toContain(gatedMiddleware);
-    expect(
-      getInjectors().some((i) => i.name === "gated-middleware-injector"),
-    ).toBe(false);
+    // The gated-off plugin must not survive in the registry snapshot.
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("gated-registry");
   });
 
   test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {
@@ -520,7 +519,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
 
     // The shutdown hook is a single registered callback that walks a

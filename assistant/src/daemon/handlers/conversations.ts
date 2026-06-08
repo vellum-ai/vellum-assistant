@@ -3,15 +3,16 @@ import { v4 as uuid } from "uuid";
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
 import { regenerate } from "../conversation-history.js";
 import {
-  clearAllActiveConversations,
   conversationEntries,
   findConversation,
+} from "../conversation-registry.js";
+import {
+  clearAllActiveConversations,
   getOrCreateConversation,
   touchConversation,
 } from "../conversation-store.js";
@@ -28,23 +29,11 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       touchConversation(conversationId);
-      conversation.handleConfirmationResponse(
-        msg.requestId,
-        decision,
-        msg.selectedPattern,
-        msg.selectedScope,
-        undefined,
-        { source: "button" },
-      );
-      // Idempotent cleanup: the prompter's `resolveConfirmation` already
-      // resolved the interaction with the correct approved/rejected state
-      // before we reach here, so the entry is typically gone. This call is
-      // a safety net for paths where the prompter no-ops; map decision to
-      // state to keep the emitted event accurate when it does fire.
-      pendingInteractions.resolve(
-        msg.requestId,
-        decision === "allow" ? "approved" : "rejected",
-      );
+      conversation.handleConfirmationResponse(msg.requestId, decision, {
+        selectedPattern: msg.selectedPattern,
+        selectedScope: msg.selectedScope,
+        emissionContext: { source: "button" },
+      });
       return;
     }
   }
@@ -225,10 +214,7 @@ export function steerToMessage(
   | { steered: true }
   | {
       steered: false;
-      reason:
-        | "conversation_not_found"
-        | "message_not_found"
-        | "not_processing";
+      reason: "conversation_not_found" | "message_not_found" | "not_processing";
     } {
   const conversation = findConversation(conversationId);
   if (!conversation) {

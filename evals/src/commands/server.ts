@@ -11,6 +11,7 @@ import {
   RUNS_DIR,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
+import { startNgrokTunnel, type NgrokTunnel } from "../lib/ngrok";
 import {
   findExecutionRunId,
   listReportSessions,
@@ -459,6 +460,39 @@ export function openInBrowser(url: string): void {
   }
 }
 
+/**
+ * Spin up an ngrok HTTPS tunnel pointing at the local server, print the
+ * public URL, and wire teardown to SIGINT / SIGTERM so the agent process
+ * is killed cleanly when the operator hits ctrl-C. Returns the live
+ * tunnel handle so callers (currently just `registerServerCommand`) can
+ * keep a reference if they need it.
+ *
+ * Failure mode: any throw from `startNgrokTunnel` (missing binary on
+ * PATH, no authtoken, agent crash, poll timeout) is logged and re-
+ * thrown — the local report server stays up but the operator sees the
+ * error immediately. We don't fall back to "serve locally only" because
+ * the operator explicitly asked for a tunnel; quietly skipping would
+ * hide the fact that their `--ngrok` flag did nothing.
+ */
+async function enableNgrokTunnel(port: number): Promise<NgrokTunnel> {
+  const tunnel = await startNgrokTunnel({ port });
+  console.log(`Public ngrok URL: ${tunnel.publicUrl}`);
+
+  const teardown = (signal: NodeJS.Signals): void => {
+    tunnel.stop().finally(() => {
+      // After tearing down the tunnel, re-raise the signal so the
+      // parent Bun.serve loop sees a real exit instead of dangling.
+      process.kill(process.pid, signal);
+    });
+  };
+  // `once` + an inline re-raise rather than `process.exit()` so we don't
+  // smother any other shutdown listeners the harness might install.
+  process.once("SIGINT", () => teardown("SIGINT"));
+  process.once("SIGTERM", () => teardown("SIGTERM"));
+
+  return tunnel;
+}
+
 export function registerServerCommand(program: Command): void {
   program
     .command("server")
@@ -470,10 +504,28 @@ export function registerServerCommand(program: Command): void {
       (value) => Number(value),
       DEFAULT_PORT,
     )
-    .action(async (opts: { host: string; port: number }) => {
+    .option(
+      "--ngrok",
+      "Expose the server publicly via an ngrok HTTPS tunnel (requires `ngrok` on PATH; supply an authtoken via `NGROK_AUTHTOKEN` env var or `ngrok config add-authtoken`)",
+    )
+    .action(async (opts: { host: string; port: number; ngrok?: boolean }) => {
       // Before starting the server, clean up any stale runs.
       await scavengeAbandonedRuns();
       const { url } = startReportServer(opts);
       console.log(`Evals report server listening on ${url}`);
+
+      if (opts.ngrok) {
+        try {
+          await enableNgrokTunnel(opts.port);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Failed to start ngrok tunnel: ${msg}`);
+          // Bubble a non-zero exit so scripts can detect the failure;
+          // the local server has already been told to stop because
+          // process.exit is final and will tear Bun.serve down too.
+          process.exitCode = 1;
+          return;
+        }
+      }
     });
 }

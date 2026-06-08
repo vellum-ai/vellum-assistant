@@ -5,7 +5,7 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnState, isSending, isThinking } from "@/domains/chat/turn-store";
+import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the
@@ -36,7 +36,7 @@ export interface UIContext {
  * Whether the "Thinking..." indicator should be visible.
  *
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
- *   isSending && (isThinking || !lastVisible.isStreaming) && !hasActiveToolCall
+ *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
  *
  * Show the dots whenever the turn is actively processing, no assistant
  * text is streaming yet, and no tool call is in-flight. The fallback
@@ -55,7 +55,8 @@ export interface UIContext {
  * is being processed.
  */
 export function shouldShowThinkingIndicator(
-  state: TurnState,
+  phase: TurnPhase,
+  activeToolCallCount: number,
   ctx: UIContext,
 ): boolean {
   const restoredProcessing =
@@ -63,38 +64,15 @@ export function shouldShowThinkingIndicator(
     ctx.hasPendingAssistantResponse === true;
 
   return (
-    (isSending(state) || restoredProcessing) &&
+    (isSending(phase) || restoredProcessing) &&
     !ctx.hasPendingSecret &&
     !ctx.hasPendingConfirmation &&
     !ctx.hasPendingQuestion &&
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
-    (isThinking(state) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
-    state.activeToolCallCount === 0
+    (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
+    activeToolCallCount === 0
   );
-}
-
-/**
- * Whether an assistant text bubble should be shown for a given message.
- *
- * Mirrors macOS render precedence: hide assistant text bubbles when active
- * inline surfaces are present, UNLESS all visible surfaces have completed.
- * This prevents the assistant's text response from competing with an
- * interactive surface for the user's attention.
- *
- * When no active inline surfaces exist (or all are completed), the bubble
- * is always visible.
- */
-export function shouldShowAssistantBubble(
-  _state: TurnState,
-  ctx: UIContext,
-): boolean {
-  // If there are uncompleted visible surfaces, suppress the assistant
-  // text bubble so the surface has the user's full attention.
-  if (ctx.hasUncompletedVisibleSurface) {
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -107,11 +85,11 @@ export function shouldShowAssistantBubble(
  * there is an active turn to stop.
  */
 export function canStopGeneration(
-  state: TurnState,
+  phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
   if (
-    state.phase === "awaiting_user_input" ||
+    phase === "awaiting_user_input" ||
     ctx.hasPendingSecret ||
     ctx.hasPendingConfirmation ||
     ctx.hasPendingQuestion ||
@@ -122,33 +100,17 @@ export function canStopGeneration(
   }
 
   return (
-    isSending(state) ||
+    isSending(phase) ||
     ctx.hasStreamingAssistantMessage ||
     ctx.activeConversationIsProcessing === true
   );
 }
 
 /**
- * Label to display alongside the thinking indicator (e.g. "Processing
- * bash results", "Compacting context"). Returns `null` when no label
- * should be shown — callers should fall back to a default like
- * "Thinking" at the render layer.
- *
- * Mirrors macOS `effectiveStatusText`, which is projected from the
- * daemon's `assistant_activity_state.statusText` field.
- */
-export function getThinkingStatusText(state: TurnState): string | null {
-  return state.statusText;
-}
-
-/**
  * Sending is blocked only by prompts with a dedicated cancel UI (secret,
  * confirmation). Visible surfaces don't block — sending implicitly dismisses
- * them in `AssistantPageClient.sendMessage`.
+ * them in `useSendMessage`.
  */
-export function isSendDisabled(
-  _state: TurnState,
-  ctx: UIContext,
-): boolean {
+export function isSendDisabled(ctx: UIContext): boolean {
   return ctx.hasPendingSecret || ctx.hasPendingConfirmation;
 }

@@ -5,6 +5,11 @@ import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import {
+  isPlaceholderSentinelText,
+  PLACEHOLDER_BLOCKS_OMITTED,
+  PLACEHOLDER_EMPTY_TURN,
+} from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -160,33 +165,6 @@ function sanitizeToolId(id: string): string {
 
 const SYNTHETIC_RESULT =
   "<synthesized_result>tool result missing from history</synthesized_result>";
-
-// Null-byte prefix makes these placeholders impossible to produce via normal
-// model output or user input, preventing false positives in isPlaceholder().
-export const PLACEHOLDER_EMPTY_TURN =
-  "\x00__PLACEHOLDER__[empty assistant turn]";
-export const PLACEHOLDER_BLOCKS_OMITTED =
-  "\x00__PLACEHOLDER__[internal blocks omitted]";
-
-// Compared against the payload with any leading `\x00` stripped, so the check
-// matches both the prefixed sentinel we emit and any bare variant that lost
-// the null byte in transit (e.g. the model echoing the text back without
-// reproducing the control character).
-const PLACEHOLDER_SENTINEL_BARE: ReadonlySet<string> = new Set([
-  PLACEHOLDER_EMPTY_TURN.slice(1),
-  PLACEHOLDER_BLOCKS_OMITTED.slice(1),
-]);
-
-/**
- * True when the text is one of the provider's internal alternation-preserving
- * sentinels, with or without the null-byte prefix. These must never be
- * persisted or rendered to users — they exist only in outbound Anthropic API
- * request bodies.
- */
-export function isPlaceholderSentinelText(text: string): boolean {
-  const normalized = text.startsWith("\x00") ? text.slice(1) : text;
-  return PLACEHOLDER_SENTINEL_BARE.has(normalized);
-}
 
 /**
  * Synthetic placeholder injected as user-message content when Anthropic API
@@ -1230,6 +1208,23 @@ export class AnthropicProvider implements Provider {
         sentMessages = params.messages;
       }
 
+      // Haiku does not support the extended-cache-ttl beta, so it must never
+      // receive a `ttl` on any cache_control. The client's own breakpoints
+      // already omit it for Haiku, but callers (e.g. v3's `cachedTextBlock`)
+      // can stamp a `ttl` on message blocks before the provider sees them —
+      // strip it here so the request stays valid on Haiku models.
+      if (isHaiku) {
+        for (const msg of sentMessages) {
+          if (!Array.isArray(msg.content)) continue;
+          for (const block of msg.content) {
+            if (typeof block === "string") continue;
+            const cc = (block as { cache_control?: { ttl?: unknown } })
+              .cache_control;
+            if (cc && "ttl" in cc) delete cc.ttl;
+          }
+        }
+      }
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
       innerTimeoutSignal = timeoutSignal;
@@ -1650,8 +1645,21 @@ export class AnthropicProvider implements Provider {
     block: ContentBlock,
   ): Anthropic.ContentBlockParam | null {
     switch (block.type) {
-      case "text":
-        return { type: "text", text: block.text };
+      case "text": {
+        // Preserve a caller-stamped cache_control breakpoint (e.g. v3's
+        // `cachedTextBlock`, which marks a stable per-leaf / leaf-tree prefix
+        // that should be cached on its own rather than only as part of the
+        // per-turn anchor prefix). The internal ContentBlock type omits the
+        // field, so reach for it via cast. The Haiku ttl-strip downstream still
+        // applies. Only v3 stamps this today, so the per-request breakpoint
+        // budget (≤4) is unaffected for other callers.
+        const cacheControl = (
+          block as { cache_control?: Anthropic.CacheControlEphemeral }
+        ).cache_control;
+        return cacheControl
+          ? { type: "text", text: block.text, cache_control: cacheControl }
+          : { type: "text", text: block.text };
+      }
       case "thinking":
         if (!block.signature) {
           return null;

@@ -43,7 +43,8 @@ mock.module("../auth/token-exchange.js", () => ({
 }));
 
 const { AuthRateLimiter } = await import("../auth-rate-limiter.js");
-const { createAuthMiddleware } = await import("../http/middleware/auth.js");
+const { createAuthMiddleware, loopbackFallbackCountTracker } =
+  await import("../http/middleware/auth.js");
 
 const PLATFORM_USER_ID = "user-abc-123";
 const GUARDIAN_PRINCIPAL = "actor-guardian-xyz";
@@ -60,10 +61,17 @@ function makeReq(headers: Record<string, string> = {}): Request {
   });
 }
 
+function makeLoopbackServer(address = "127.0.0.1") {
+  return {
+    requestIP: () => ({ address, port: 12345 }),
+  } as never;
+}
+
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
   mockFindVellumGuardian = mock(async () => null);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
+  loopbackFallbackCountTracker.reset();
 });
 
 afterEach(() => {
@@ -125,6 +133,29 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
     expect(res).toBeNull();
   });
 
+  test("uses platform header check before tokenless loopback fallback", async () => {
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer());
+    expect(res?.status).toBe(401);
+    expect(mockReadCredential).not.toHaveBeenCalled();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  test("uses platform header check when a platform bearer is also forwarded", async () => {
+    mockReadCredential = mock(async () => PLATFORM_USER_ID);
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({
+        "x-vellum-user-id": PLATFORM_USER_ID,
+        authorization: "Bearer vak_platform_key",
+      }),
+    );
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
   test("falls through to JWT mode when IS_PLATFORM is false (rejects missing bearer token)", async () => {
     // DISABLE_HTTP_AUTH=true but IS_PLATFORM=false → should use JWT path, not
     // platform header path. No JWT provided, so expect 401.
@@ -142,6 +173,38 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
 // =========================================================================
 
 describe("requireEdgeGuardianAuth — actor principal mode", () => {
+  test("falls back to loopback when Authorization header is absent", async () => {
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer());
+    expect(res).toBeNull();
+    expect(mockValidateEdgeToken).not.toHaveBeenCalled();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  test("invalid bearer token falls back to loopback", async () => {
+    mockValidateEdgeToken = mock(() => ({ ok: false, reason: "expired" }));
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ authorization: "Bearer bad-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  test("a guardian loopback fallback is counted under the edge-guardian guard", async () => {
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer());
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([
+      {
+        guard: "edge-guardian",
+        path: "/v1/contact-channels/abc/verify",
+        failureKind: "missing_authorization",
+        count: 1,
+      },
+    ]);
+  });
+
   test("returns 503 when findVellumGuardian throws (transient assistant DB outage)", async () => {
     mockValidateEdgeToken = mock(() => ({
       ok: true,
@@ -158,6 +221,42 @@ describe("requireEdgeGuardianAuth — actor principal mode", () => {
       makeReq({ authorization: "Bearer fake-jwt" }),
     );
     expect(res?.status).toBe(503);
+  });
+
+  test("guardian mismatch falls back to loopback", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: `actor:test-assistant:some-other-actor`,
+        scope_profile: "actor_client_v1",
+      },
+    }));
+    mockFindVellumGuardian = mock(async () => ({
+      principalId: GUARDIAN_PRINCIPAL,
+    }));
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ authorization: "Bearer fake-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+  });
+
+  test("non-actor principal falls back to loopback", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: "user:test-user",
+        scope_profile: "actor_client_v1",
+      },
+    }));
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ authorization: "Bearer fake-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
   });
 
   test("returns 403 when actor principal does not match the bound guardian", async () => {

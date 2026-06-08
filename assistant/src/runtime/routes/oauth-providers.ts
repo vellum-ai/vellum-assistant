@@ -6,7 +6,10 @@
  * the standard runtime auth middleware.
  */
 
+import { z } from "zod";
+
 import { loadConfig } from "../../config/loader.js";
+import { getOAuthCallbackUrl } from "../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
   deleteConnection,
@@ -85,13 +88,24 @@ function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
     );
   }
 
-  if (!isProviderVisible(row, loadConfig())) {
+  const config = loadConfig();
+  if (!isProviderVisible(row, config)) {
     throw new NotFoundError(
       `No OAuth provider registered for "${providerKey}"`,
     );
   }
 
-  return { provider: serializeProviderFull(row) };
+  let oauthCallbackUrl: string | null = null;
+  try {
+    oauthCallbackUrl = getOAuthCallbackUrl(config);
+  } catch {
+    // Ingress not configured or disabled — callback URL unavailable
+  }
+
+  return {
+    provider: serializeProviderFull(row),
+    oauth_callback_url: oauthCallbackUrl,
+  };
 }
 
 function handleRegisterProvider({ body = {} }: RouteHandlerArgs) {
@@ -208,7 +222,8 @@ function handleUpdateProvider({
   if (b.default_scopes !== undefined) params.defaultScopes = b.default_scopes;
   if (b.available_scopes !== undefined)
     params.availableScopes = b.available_scopes;
-  if (b.scope_separator !== undefined) params.scopeSeparator = b.scope_separator;
+  if (b.scope_separator !== undefined)
+    params.scopeSeparator = b.scope_separator;
   if (b.token_endpoint_auth_method !== undefined)
     params.tokenEndpointAuthMethod = b.token_endpoint_auth_method;
   if (b.token_exchange_body_format !== undefined)
@@ -233,13 +248,15 @@ function handleUpdateProvider({
     params.injectionTemplates = b.injection_templates;
   if (b.app_type !== undefined) params.appType = b.app_type;
   if (b.identity_url !== undefined) params.identityUrl = b.identity_url;
-  if (b.identity_method !== undefined) params.identityMethod = b.identity_method;
+  if (b.identity_method !== undefined)
+    params.identityMethod = b.identity_method;
   if (b.identity_headers !== undefined)
     params.identityHeaders = b.identity_headers;
   if (b.identity_body !== undefined) params.identityBody = b.identity_body;
   if (b.identity_response_paths !== undefined)
     params.identityResponsePaths = b.identity_response_paths;
-  if (b.identity_format !== undefined) params.identityFormat = b.identity_format;
+  if (b.identity_format !== undefined)
+    params.identityFormat = b.identity_format;
   if (b.identity_ok_field !== undefined)
     params.identityOkField = b.identity_ok_field;
   if (b.setup_notes !== undefined) params.setupNotes = b.setup_notes;
@@ -309,6 +326,37 @@ async function handleDeleteProvider({
 // Route definitions
 // ---------------------------------------------------------------------------
 
+/**
+ * Lightweight summary projection of an OAuth provider returned by the catalog
+ * list endpoint. Mirrors `SerializedProviderSummary` from the provider
+ * serializer (snake_case to match the HTTP API convention).
+ */
+export const oauthProviderSummarySchema = z.object({
+  provider_key: z.string(),
+  display_name: z.string().nullable(),
+  description: z.string().nullable(),
+  dashboard_url: z.string().nullable(),
+  client_id_placeholder: z.string().nullable(),
+  requires_client_secret: z.boolean(),
+  logo_url: z.string().nullable(),
+  supports_managed_mode: z.boolean(),
+  managed_service_is_paid: z.boolean(),
+  feature_flag: z.string().nullable(),
+});
+
+/**
+ * Response for the single-provider detail endpoint. The `provider` field is the
+ * full serialized provider configuration — an open-ended, admin-defined object
+ * whose keys depend on the stored row (parsed JSON blobs, identity templates,
+ * and forwarded columns), so it is intentionally typed as an open record rather
+ * than a closed schema. `oauth_callback_url` is the ingress callback URL the
+ * web UI consumes (null when ingress is not configured).
+ */
+export const oauthProviderDetailSchema = z.object({
+  provider: z.record(z.string(), z.unknown()),
+  oauth_callback_url: z.string().nullable(),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "oauth_providers_get",
@@ -319,8 +367,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "List OAuth providers",
-    description:
-      "List all registered OAuth providers with optional filtering.",
+    description: "List all registered OAuth providers with optional filtering.",
     tags: ["oauth"],
     handler: handleListProviders,
     queryParams: [
@@ -330,6 +377,9 @@ export const ROUTES: RouteDefinition[] = [
         description: "Filter by managed mode support (true/false)",
       },
     ],
+    responseBody: z.object({
+      providers: z.array(oauthProviderSummarySchema),
+    }),
   },
   {
     operationId: "oauth_providers_by_providerKey_get",
@@ -343,6 +393,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Get a single OAuth provider by key.",
     tags: ["oauth"],
     handler: handleGetProvider,
+    responseBody: oauthProviderDetailSchema,
   },
   {
     operationId: "oauth_providers_post",

@@ -1,20 +1,28 @@
 import { Loader2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+    type ReactNode,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Tag } from "@vellum/design-library/components/tag";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import {
-  type Assistant,
-  type AssistantHealthz,
-  getAssistant,
-  getAssistantHealthz,
+    type Assistant,
+    getAssistant,
+    getAssistantHealthz,
 } from "@/assistant/api";
-import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/utils/error-report";
-import { useEnvironmentStore } from "@/stores/environment-store";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
+import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useAuthStore } from "@/stores/auth-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
+import { toast } from "@vellumai/design-library";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 
@@ -29,8 +37,8 @@ const HEALTHZ_POLL_TIMEOUT_MS = 90_000;
  * a resize has actually landed.
  */
 function allocationChanged(
-  next: AssistantHealthz,
-  baseline: AssistantHealthz,
+  next: HealthzGetResponse,
+  baseline: HealthzGetResponse,
 ): boolean {
   return (
     (next.memory?.maxMb ?? null) !== (baseline.memory?.maxMb ?? null) ||
@@ -41,7 +49,7 @@ function allocationChanged(
 export interface AssistantWithHealthz {
   assistant: Assistant | null;
   assistantLoading: boolean;
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
@@ -51,7 +59,7 @@ export interface AssistantWithHealthz {
    * `baseline` (the resize has landed) or a timeout elapses. Tolerates the
    * pod-restart window where /v1/health is briefly unreachable.
    */
-  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void>;
+  refetchUntilResized: (baseline: HealthzGetResponse | null) => Promise<void>;
 }
 
 export function useAssistantWithHealthz(): AssistantWithHealthz {
@@ -69,7 +77,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   });
   const assistantId = assistant?.id;
 
-  const [healthz, setHealthz] = useState<AssistantHealthz | null>(null);
+  const [healthz, setHealthz] = useState<HealthzGetResponse | null>(null);
   const [healthzLoading, setHealthzLoading] = useState(false);
   const [healthzPolling, setHealthzPolling] = useState(false);
   const healthzRequestIdRef = useRef(0);
@@ -77,9 +85,9 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   const pollIdRef = useRef(0);
 
   const fetchHealthz = useCallback(
-    async (
-      opts?: { keepStaleOnError?: boolean },
-    ): Promise<AssistantHealthz | null> => {
+    async (opts?: {
+      keepStaleOnError?: boolean;
+    }): Promise<HealthzGetResponse | null> => {
       if (!assistantId) {
         setHealthz(null);
         setHealthzLoading(false);
@@ -102,16 +110,11 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
       } catch (error) {
         if (requestId !== healthzRequestIdRef.current) return null;
         if (!opts?.keepStaleOnError) setHealthz(null);
-        const isNetworkError =
-          error instanceof TypeError &&
-          /failed to fetch|load failed|networkerror/i.test(error.message);
         // Transient unreachability during a resize restart is expected — don't
         // report it while polling.
-        if (!isNetworkError && !opts?.keepStaleOnError) {
-          reportError(error, {
-            context: "fetch_assistant_healthz",
-            userMessage: "Failed to load assistant info",
-          });
+        if (!isTransientNetworkError(error) && !opts?.keepStaleOnError) {
+          captureError(error, { context: "fetch_assistant_healthz" });
+          toast.error("Failed to load assistant info");
         }
         return null;
       } finally {
@@ -145,7 +148,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   }, [refetchAssistant, fetchHealthz]);
 
   const refetchUntilResized = useCallback(
-    async (baseline: AssistantHealthz | null) => {
+    async (baseline: HealthzGetResponse | null) => {
       const pollId = ++pollIdRef.current;
       const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
       setHealthzPolling(true);
@@ -193,7 +196,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
 export interface AssistantStatusPanelProps {
   assistant: Assistant | null;
   assistantLoading: boolean;
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
 }
 
@@ -267,7 +270,11 @@ export function AssistantStatusPanel({
       )}
 
       <Label>Created</Label>
-      <Value>{assistant.created ? new Date(assistant.created).toLocaleDateString() : "Unknown"}</Value>
+      <Value>
+        {assistant.created
+          ? new Date(assistant.created).toLocaleDateString()
+          : "Unknown"}
+      </Value>
 
       <Label>Version</Label>
       <DevModeVersionUnlock
@@ -280,7 +287,7 @@ export function AssistantStatusPanel({
 }
 
 export interface SystemResourcesPanelProps {
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
 }
 

@@ -65,8 +65,12 @@ function makeFakeConversation(
     ...options.result,
   };
 
+  let processing = options.processing ?? false;
   const fake = {
-    processing: options.processing ?? false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     getMessages(): Message[] {
       if (!returnedAfter && calls === 0) return messagesBefore;
       return messagesAfter;
@@ -85,9 +89,7 @@ function makeFakeConversation(
 }
 
 function findRoute() {
-  const route = ROUTES.find(
-    (r) => r.operationId === "playgroundForceCompact",
-  );
+  const route = ROUTES.find((r) => r.operationId === "playgroundForceCompact");
   if (!route) throw new Error("force-compact route not registered");
   return route;
 }

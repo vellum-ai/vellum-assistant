@@ -6,16 +6,18 @@
  * by calling store actions in response to I/O events.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
-  createTerminalSession,
-  destroyTerminalSession,
-  resizeTerminal,
-  sendTerminalInput,
+  assistantsTerminalSessionsCreate,
+  assistantsTerminalSessionsDestroy,
+  assistantsTerminalSessionsInputCreate,
+  assistantsTerminalSessionsResizeCreate,
+} from "@/generated/api/sdk.gen";
+import {
   subscribeTerminalEvents,
   type TerminalOutputStream,
-} from "@/domains/terminal/api";
+} from "@/domains/terminal/terminal-stream";
 import { useTerminalStore } from "@/domains/terminal/terminal-store";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,7 @@ export function useTerminalSession({
   const streamRef = useRef<TerminalOutputStream | null>(null);
   const onDataRef = useRef(onData);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDataRef.current = onData;
   }, [onData]);
 
@@ -110,7 +112,7 @@ export function useTerminalSession({
       const buffered = inputBufferRef.current;
       if (!buffered || !assistantId) return;
       inputBufferRef.current = "";
-      sendTerminalInput(assistantId, sessionId, buffered).catch(() => {});
+      assistantsTerminalSessionsInputCreate({ path: { assistant_id: assistantId, session_id: sessionId }, body: { data: buffered }, throwOnError: false }).catch(() => {});
     }, INPUT_FLUSH_INTERVAL_MS);
   }, [assistantId]);
 
@@ -136,8 +138,37 @@ export function useTerminalSession({
 
       let sessionId: string;
       try {
-        const session = await createTerminalSession(assistantId, apiOptions);
-        sessionId = session.sessionId;
+        const { data, error, response } = await assistantsTerminalSessionsCreate({
+          path: { assistant_id: assistantId },
+          body: apiOptions,
+          throwOnError: false,
+        });
+
+        if (!response || !response.ok) {
+          const detail =
+            error && typeof error === "object" && !Array.isArray(error)
+              ? ((error as Record<string, unknown>).detail as string | undefined)
+              : undefined;
+          throw new Error(
+            detail ?? `Failed to create terminal session (HTTP ${response?.status ?? "unknown"})`,
+          );
+        }
+
+        const raw =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : {};
+        const sid =
+          typeof raw.session_id === "string"
+            ? raw.session_id
+            : typeof raw.id === "string"
+              ? raw.id
+              : undefined;
+
+        if (!sid) {
+          throw new Error("Backend did not return a session ID");
+        }
+        sessionId = sid;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to create terminal session";
         if (isReconnect) useTerminalStore.getState().reconnectFailed(message);
@@ -147,7 +178,7 @@ export function useTerminalSession({
 
       const expected = isReconnect ? "reconnecting" : "connecting";
       if (useTerminalStore.getState().status !== expected) {
-        destroyTerminalSession(assistantId, sessionId).catch(() => {});
+        assistantsTerminalSessionsDestroy({ path: { assistant_id: assistantId, session_id: sessionId }, throwOnError: false }).catch(() => {});
         return;
       }
 
@@ -182,7 +213,7 @@ export function useTerminalSession({
 
       const dims = lastDimensionsRef.current;
       if (dims && assistantId) {
-        resizeTerminal(assistantId, sessionId, dims.cols, dims.rows).catch(() => {});
+        assistantsTerminalSessionsResizeCreate({ path: { assistant_id: assistantId, session_id: sessionId }, body: { cols: dims.cols, rows: dims.rows }, throwOnError: false }).catch(() => {});
       }
     },
     [assistantId, apiOptions, startInputFlushTimer, stopInputFlushTimer],
@@ -212,7 +243,7 @@ export function useTerminalSession({
       const prevSessionId = lastSessionIdRef.current;
       if (prevSessionId && assistantId) {
         lastSessionIdRef.current = null;
-        destroyTerminalSession(assistantId, prevSessionId).catch(() => {});
+        assistantsTerminalSessionsDestroy({ path: { assistant_id: assistantId, session_id: prevSessionId }, throwOnError: false }).catch(() => {});
       }
 
       useTerminalStore.getState().requestReconnect();
@@ -253,7 +284,7 @@ export function useTerminalSession({
     pendingResizeRef.current = null;
 
     if (sessionId && assistantId) {
-      destroyTerminalSession(assistantId, sessionId).catch(() => {});
+      assistantsTerminalSessionsDestroy({ path: { assistant_id: assistantId, session_id: sessionId }, throwOnError: false }).catch(() => {});
     }
 
     useTerminalStore.getState().requestReconnect();
@@ -280,7 +311,7 @@ export function useTerminalSession({
     }
 
     if (sessionId && assistantId) {
-      destroyTerminalSession(assistantId, sessionId).catch(() => {});
+      assistantsTerminalSessionsDestroy({ path: { assistant_id: assistantId, session_id: sessionId }, throwOnError: false }).catch(() => {});
     }
 
     useTerminalStore.getState().closed();
@@ -308,7 +339,7 @@ export function useTerminalSession({
         const current = useTerminalStore.getState();
         if (!pending || !current.sessionId || current.status !== "connected" || !assistantId) return;
         pendingResizeRef.current = null;
-        resizeTerminal(assistantId, current.sessionId, pending.cols, pending.rows).catch(() => {});
+        assistantsTerminalSessionsResizeCreate({ path: { assistant_id: assistantId, session_id: current.sessionId }, body: { cols: pending.cols, rows: pending.rows }, throwOnError: false }).catch(() => {});
       }, RESIZE_DEBOUNCE_MS);
     },
     [assistantId],
@@ -342,7 +373,7 @@ export function useTerminalSession({
 
       const { sessionId } = useTerminalStore.getState();
       if (sessionId && assistantId) {
-        destroyTerminalSession(assistantId, sessionId).catch(() => {});
+        assistantsTerminalSessionsDestroy({ path: { assistant_id: assistantId, session_id: sessionId }, throwOnError: false }).catch(() => {});
       }
 
       useTerminalStore.getState().reset();

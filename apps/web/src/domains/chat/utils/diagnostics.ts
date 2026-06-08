@@ -1,22 +1,39 @@
 /**
  * Chat-domain diagnostic summarization helpers.
  *
- * Compact summaries of chat-specific types (DisplayMessage, RuntimeMessage)
+ * Compact summaries of chat-specific types (DisplayMessage, ConversationMessage)
  * for the diagnostics ring buffer. Generic recording infrastructure lives
  * in `@/lib/diagnostics`.
  */
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type {
+  ConversationContentBlock,
+  ConversationMessage,
+} from "@vellumai/assistant-api";
 import { roleCounts } from "@/lib/diagnostics";
+
+/**
+ * Serialized size of a message's unified `contentBlocks` projection, in KB
+ * (UTF-8 bytes, two-decimal precision). This is the migration's canonical
+ * content payload, so its size is the meaningful weight of a row's body.
+ */
+function contentBlocksSizeKb(
+  blocks: ConversationContentBlock[] | undefined,
+): number {
+  if (!blocks || blocks.length === 0) {
+    return 0;
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(blocks)).length;
+  return Math.round((bytes / 1024) * 100) / 100;
+}
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
-    contentLength: message.content.length,
+    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
     timestamp: message.timestamp ?? null,
-    isStreaming: message.isStreaming === true,
     queueStatus: message.queueStatus ?? null,
     queuePosition: message.queuePosition ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
@@ -27,11 +44,11 @@ export function summarizeDisplayMessage(message: DisplayMessage): Record<string,
   };
 }
 
-export function summarizeRuntimeMessage(message: RuntimeMessage): Record<string, unknown> {
+export function summarizeRuntimeMessage(message: ConversationMessage): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
-    contentLength: message.content.length,
+    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
     timestamp: message.timestamp ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
     surfaceCount: message.surfaces?.length ?? 0,
@@ -48,7 +65,6 @@ export function summarizeDisplayMessages(
   return {
     count: messages.length,
     roleCounts: roleCounts(messages),
-    streamingCount: messages.filter((message) => message.isStreaming).length,
     queuedCount: messages.filter((message) => message.queueStatus === "queued").length,
     processingCount: messages.filter((message) => message.queueStatus === "processing").length,
     first: messages[0] ? summarizeDisplayMessage(messages[0]) : null,
@@ -58,7 +74,7 @@ export function summarizeDisplayMessages(
 }
 
 export function summarizeRuntimeMessages(
-  messages: RuntimeMessage[],
+  messages: ConversationMessage[],
   tailCount = 20,
 ): Record<string, unknown> {
   return {

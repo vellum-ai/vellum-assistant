@@ -71,6 +71,10 @@
           "retry_backoff_ms": {
             "type": "integer",
             "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed. Defaults to 60000 (60s). Allowed range: 1000 to 1800000."
           }
         },
         "required": ["name"]
@@ -170,6 +174,10 @@
           "retry_backoff_ms": {
             "type": "integer",
             "description": "Base backoff delay in milliseconds between retries. Exponential backoff is applied. Defaults to 60000."
+          },
+          "timeout_ms": {
+            "type": ["integer", "null"],
+            "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed (default 60000, range 1000 to 1800000). Pass null to clear a custom timeout and revert to the default."
           }
         },
         "required": ["job_id"]

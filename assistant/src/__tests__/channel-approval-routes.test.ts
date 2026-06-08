@@ -16,7 +16,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
@@ -325,7 +325,9 @@ describe("inbound callback metadata triggers decision handling", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cb-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-cb-1", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -362,7 +364,9 @@ describe("inbound callback metadata triggers decision handling", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cb-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-cb-2", "deny", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -410,7 +414,9 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-txt-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-txt-1", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -554,7 +560,9 @@ describe("empty content with callbackData bypasses validation", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-empty-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-empty-1", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -696,7 +704,9 @@ describe("callback requestId validation", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-match", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-match", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -730,7 +740,9 @@ describe("callback requestId validation", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-plaintext", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-plaintext", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -933,7 +945,9 @@ describe("plain-text channel approval decisions", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-pt-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-1", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -966,7 +980,9 @@ describe("plain-text channel approval decisions", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-pt-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-2", "deny", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -1098,7 +1114,9 @@ describe("guardian decision scoping — multiple pending approvals", () => {
     expect(body.approval).toBe("guardian_decision_applied");
 
     // The older request's session should have been called
-    expect(olderSession).toHaveBeenCalledWith("req-older", "allow");
+    expect(olderSession).toHaveBeenCalledWith("req-older", "allow", {
+      decisionContext: undefined,
+    });
 
     // The newer request's session should NOT have been called
     expect(newerSession).not.toHaveBeenCalled();
@@ -1244,7 +1262,9 @@ describe("expired guardian approval auto-denies via sweep", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // The session should have been denied
-    expect(sessionMock).toHaveBeenCalledWith("req-exp-1", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-exp-1", "deny", {
+      decisionContext: undefined,
+    });
 
     // Both requester and guardian should have been notified
     const requesterNotify = deliverSpy.mock.calls.filter(
@@ -1457,7 +1477,9 @@ describe("conversational approval engine — standard path", () => {
     expect(body.approval).toBe("decision_applied");
 
     // The session should have received an allow decision
-    expect(sessionMock).toHaveBeenCalledWith("req-conv-2", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-conv-2", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -1504,7 +1526,9 @@ describe("conversational approval engine — standard path", () => {
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
 
-    expect(sessionMock).toHaveBeenCalledWith("req-conv-3", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-conv-3", "deny", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -1556,7 +1580,9 @@ describe("conversational approval engine — standard path", () => {
 
     // The callback button should have been used directly, not the engine
     expect(mockConversationGenerator).not.toHaveBeenCalled();
-    expect(sessionMock).toHaveBeenCalledWith("req-conv-4", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-conv-4", "allow", {
+      decisionContext: undefined,
+    });
 
     deliverSpy.mockRestore();
   });
@@ -1705,7 +1731,9 @@ describe("guardian conversational approval via conversation engine", () => {
     expect(body.approval).toBe("guardian_decision_applied");
 
     // The session should have received an 'allow' decision
-    expect(sessionMock).toHaveBeenCalledWith("req-gnlp-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-gnlp-1", "allow", {
+      decisionContext: undefined,
+    });
 
     // The approval record should have been updated (no longer pending)
     const pending = getAllPendingApprovalsByGuardianChat(
@@ -2097,7 +2125,9 @@ describe("requester cancel of guardian-gated pending request", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cancel-1", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-cancel-1", "deny", {
+      decisionContext: undefined,
+    });
 
     // Requester should have been notified
     const requesterReply = deliverSpy.mock.calls.find(
@@ -2178,7 +2208,9 @@ describe("requester cancel of guardian-gated pending request", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cancel-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-cancel-2", "deny", {
+      decisionContext: undefined,
+    });
 
     // Engine should have been called with reject-only allowed actions
     expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
@@ -2605,7 +2637,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2666,7 +2697,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2724,7 +2754,6 @@ describe("background channel processing approval prompts", () => {
       async (
         _conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2765,7 +2794,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });

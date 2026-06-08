@@ -55,11 +55,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "email-channel",
+      id: "a2a-channel",
       scope: "assistant",
-      key: "email-channel",
-      label: "Email Channel",
-      description: "Email channel integration",
+      key: "a2a-channel",
+      label: "A2A Channel",
+      description: "A2A channel integration",
       defaultEnabled: false,
     },
     {
@@ -273,6 +273,107 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached).toEqual({ browser: true });
   });
 
+  test("syncNow re-fetches with current credentials after an identity change (warm-pool claim)", async () => {
+    // Regression for JARVIS-1018: a warm-pool pod that already synced flags
+    // for a previous identity gets reassigned to a new assistant. The
+    // credential-change wiring in index.ts calls syncNow(); it must re-fetch
+    // with the NEW api key and overwrite the cached per-assistant flag values
+    // immediately, rather than serving the previous identity's (or registry
+    // default) values until the next ~5-min poll.
+    const cache = fakeCredentialCache({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "old-assistant-key",
+    });
+
+    // Previous identity: self-intro-greeting OFF.
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "self-intro-greeting": false } }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({ credentials: cache });
+    await sync.start();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "self-intro-greeting": false });
+
+    // Warm-pool claim: credentials now belong to the newly-assigned assistant,
+    // whose flag evaluation returns self-intro-greeting ON.
+    cache._setValues({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "new-assistant-key",
+    });
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "self-intro-greeting": true } }),
+    );
+
+    await sync.syncNow();
+    sync.stop();
+
+    // Re-fetched immediately, authenticated as the new identity...
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Api-Key new-assistant-key");
+
+    // ...and the cached value now reflects the new assistant.
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "self-intro-greeting": true });
+  });
+
+  test("syncNow coalesces a follow-up fetch when an identity change lands mid-sync", async () => {
+    // JARVIS-1018 hardening: during a warm-pool claim several credential files
+    // are written in quick succession, each firing the change handler's
+    // syncNow(). The first fetch may be authenticated with a stale key; a
+    // second syncNow() arriving while it is in flight must NOT be dropped by
+    // the re-entrancy guard — it must trigger one more fetch so the final
+    // identity's flags are cached, not the stale ones.
+    const cache = fakeCredentialCache({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "old-assistant-key",
+    });
+
+    let fetchCount = 0;
+    const seenKeys: string[] = [];
+    fetchMock = mock(async (_input: unknown, init?: RequestInit) => {
+      fetchCount++;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seenKeys.push(headers.Authorization ?? "");
+      // Slow fetch so the second syncNow lands while the first is in flight.
+      await new Promise((r) => setTimeout(r, 100));
+      const isNew = headers.Authorization === "Api-Key new-assistant-key";
+      return Response.json({ flags: { "self-intro-greeting": isNew } });
+    });
+
+    const sync = new RemoteFeatureFlagSync({ credentials: cache });
+    await sync.start(); // initial fetch with the old key
+    // Reset counters so we only measure the overlapping-syncNow window.
+    fetchCount = 0;
+    seenKeys.length = 0;
+
+    // First syncNow starts a slow fetch authenticated with the old key.
+    const first = sync.syncNow();
+    await new Promise((r) => setTimeout(r, 20)); // let that fetch begin
+
+    // Warm-pool claim: identity changes, then a second syncNow arrives while
+    // the first fetch is still in flight.
+    cache._setValues({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "new-assistant-key",
+    });
+    await sync.syncNow(); // returns immediately, records pendingResync
+    await first; // first loop settles, then runs the coalesced follow-up
+    sync.stop();
+
+    // Two fetches: the original (old key) plus the coalesced follow-up (new key).
+    expect(fetchCount).toBe(2);
+    expect(seenKeys[0]).toBe("Api-Key old-assistant-key");
+    expect(seenKeys[1]).toBe("Api-Key new-assistant-key");
+
+    // Final cached value reflects the new identity, not the stale fetch.
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "self-intro-greeting": true });
+  });
+
   test("preserves cached flags on non-OK response", async () => {
     // First, seed cached flags with a successful fetch
     fetchMock = mock(async () =>
@@ -388,14 +489,15 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("filters non-boolean values from response", async () => {
+  test("accepts boolean and string values, filters other types from response", async () => {
     fetchMock = mock(async () =>
       Response.json({
         flags: {
           browser: true,
-          contacts: "yes" as unknown,
+          "default-model": "claude-sonnet-4-6",
           other: 1 as unknown,
           valid: false,
+          nullVal: null as unknown,
         },
       }),
     );
@@ -410,6 +512,7 @@ describe("RemoteFeatureFlagSync", () => {
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({
       browser: true,
+      "default-model": "claude-sonnet-4-6",
       valid: false,
     });
   });
@@ -472,7 +575,7 @@ describe("RemoteFeatureFlagSync", () => {
     // GA flags (defaultEnabled: true in the registry) should not be disabled
     // by remote overrides — only local persisted overrides can do that.
     // Uses the test-local registry which defines test-ga-flag as GA
-    // (defaultEnabled: true) and email-channel as gated (defaultEnabled: false).
+    // (defaultEnabled: true) and a2a-channel as gated (defaultEnabled: false).
     fetchMock = mock(async () =>
       Response.json({
         flags: {
@@ -480,7 +583,7 @@ describe("RemoteFeatureFlagSync", () => {
           // to true so the missing-key fallback does not disable it.
           "test-ga-flag": false,
           // Gated flag (defaultEnabled: false) — remote false is kept
-          "email-channel": false,
+          "a2a-channel": false,
           // GA flag set to true — should be kept (redundant but harmless)
           "test-ga-flag-true": true,
           // Unknown flag — remote false is kept (not in registry)
@@ -499,12 +602,36 @@ describe("RemoteFeatureFlagSync", () => {
     const cached = readRemoteFeatureFlags();
     // test-ga-flag (GA, remote false) should be normalized to true
     expect(cached["test-ga-flag"]).toBe(true);
-    // email-channel (gated, remote false) should be present
-    expect(cached["email-channel"]).toBe(false);
+    // a2a-channel (gated, remote false) should be present
+    expect(cached["a2a-channel"]).toBe(false);
     // test-ga-flag-true (unknown but true) should be present
     expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present
     expect(cached["unknown-flag"]).toBe(false);
+  });
+
+  test("GA normalization does not affect string flag values", async () => {
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          "test-ga-flag": false,
+          "a2a-channel": "custom-value",
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // Boolean false for GA flag is normalized to true
+    expect(cached["test-ga-flag"]).toBe(true);
+    // String values are never subject to GA normalization
+    expect(cached["a2a-channel"]).toBe("custom-value");
   });
 
   test("calls onChanged when remote flags change", async () => {

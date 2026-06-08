@@ -41,9 +41,10 @@ export function getWorkspaceSystemPromptDir(): string {
 }
 
 /**
- * Render every section in id-sort order, returning the trimmed body of
- * each enabled section.  Discovery walks the bundled registry plus any
- * `.md` files in the workspace override dir, and takes the union of ids.
+ * Render static sections in id-sort order, then dynamic sections in id-sort
+ * order, returning the trimmed body of each enabled section. Discovery walks
+ * the bundled registry plus any `.md` files in the workspace override dir,
+ * and takes the union of ids.
  *
  * Resolution per id:
  *   - workspace `.md` file present → use workspace body (override)
@@ -68,9 +69,8 @@ export function getWorkspaceSystemPromptDir(): string {
  * of only `_`-comments).  This is the supported "disable a bundled
  * default" path.
  *
- * The numeric prefix on each id is load-bearing for sort order; pick a
- * number that places the section where it should appear in the final
- * prompt.
+ * The numeric prefix on each id is load-bearing inside its render phase; pick
+ * a number that places the section where it should appear in the final prompt.
  */
 export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
   const workspaceDir = getWorkspaceSystemPromptDir();
@@ -99,7 +99,20 @@ function collectSectionIds(workspaceDir: string): string[] {
       );
     }
   }
-  return [...ids].sort();
+  return [...ids].sort(compareSectionIds);
+}
+
+function compareSectionIds(a: string, b: string): number {
+  const aDynamic = isDynamicSectionId(a);
+  const bDynamic = isDynamicSectionId(b);
+  if (aDynamic !== bDynamic) return aDynamic ? 1 : -1;
+  return a.localeCompare(b);
+}
+
+function isDynamicSectionId(id: string): boolean {
+  return BUNDLED_SYSTEM_SECTIONS.some(
+    (section) => section.id === id && section.dynamic === true,
+  );
 }
 
 interface ResolvedSection {

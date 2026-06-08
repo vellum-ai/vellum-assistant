@@ -101,6 +101,7 @@ private struct FeatureCardContainer<Content: View>: View {
 private struct FeatureCardHeader: View {
     let icon: VIcon
     let iconBg: Color
+    var iconFg: Color = VColor.auxWhite
     let label: String
 
     var body: some View {
@@ -110,7 +111,7 @@ private struct FeatureCardHeader: View {
                     .fill(iconBg)
                     .frame(width: 40, height: 40)
                 icon.image(size: 20)
-                    .foregroundStyle(VColor.auxWhite)
+                    .foregroundStyle(iconFg)
             }
             Spacer()
             Text(label)
@@ -133,6 +134,7 @@ private struct OpenSourceFeatureCard: View {
             FeatureCardHeader(
                 icon: .github,
                 iconBg: VColor.contentEmphasized,
+                iconFg: VColor.surfaceBase,
                 label: "Open Source"
             )
 

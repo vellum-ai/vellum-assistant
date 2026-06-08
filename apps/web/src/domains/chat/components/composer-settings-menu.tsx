@@ -1,34 +1,39 @@
 
-import { Check, Sparkles, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { BottomSheet } from "@vellum/design-library";
-import { Button } from "@vellum/design-library";
-import { Menu } from "@vellum/design-library";
-import { PanelItem } from "@vellum/design-library";
+import {
+    gateAutoProfile,
+    profilePickerLabel,
+    visibleProfilesForPicker,
+    type ProfilePickerEntry,
+} from "@/assistant/profile-pickers";
+import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
+import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
 import { client } from "@/generated/api/client.gen";
+import {
+    conversationsByIdGet,
+    conversationsByIdInferenceprofilePut,
+} from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  profilePickerLabel,
-  visibleProfilesForPicker,
-  gateAutoProfile,
-  type ProfilePickerEntry,
-} from "@/assistant/profile-pickers";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import {
-  deleteConversationOverride,
-  getConversationOverride,
-  getGlobalThresholds,
-  setConversationOverride,
-  setGlobalThresholds,
+    deleteConversationOverride,
+    getConversationOverride,
+    getGlobalThresholds,
+    setConversationOverride,
+    setGlobalThresholds,
 } from "@/lib/threshold-api";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
-  THRESHOLD_PRESETS,
-  overrideAction,
-  presetFromThreshold,
-  type ThresholdPreset,
+    THRESHOLD_PRESETS,
+    overrideAction,
+    presetFromThreshold,
+    type ThresholdPreset,
 } from "@/utils/threshold-presets";
+import { BottomSheet, Button, Menu, PanelItem, Tooltip } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface Props {
   assistantId: string;
@@ -59,9 +64,15 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Ref (not state) — flipped to true once the first combined fetch resolves.
   // Used to guard handleProfileSelect without triggering extra renders.
   const profilesReadyRef = useRef(false);
+  // State mirror of profilesReadyRef — drives a re-render so the quick-add "+"
+  // can disable itself until the config fetch settles. Gating "+" on the empty
+  // initial profileOrder/profileMap matters: opening the modal with those empty
+  // values would let a duplicate name overwrite an existing profile and reset
+  // the persisted profileOrder to just the new entry.
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
 
   const conversationIdRef = useRef(conversationId);
-  useEffect(() => {
+  useLayoutEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
@@ -106,6 +117,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   useEffect(() => {
     if (!assistantId) return;
     profilesReadyRef.current = false;
+    setProfilesLoaded(false);
     let cancelled = false;
 
     (async () => {
@@ -117,9 +129,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             throwOnError: false,
           }),
           conversationId
-            ? client.get<Record<string, unknown>, unknown>({
-                url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}`,
-                path: { assistant_id: assistantId, conversation_id: conversationId },
+            ? conversationsByIdGet({
+                path: { assistant_id: assistantId, id: conversationId },
                 throwOnError: false,
               })
             : Promise.resolve(null),
@@ -142,10 +153,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
         // Determine effective profile — per-conversation override wins over global.
         let effective: string | null = globalActive;
-        if (convResult?.status === "fulfilled" && convResult.value !== null && convResult.value?.data) {
-          const convData = convResult.value.data as Record<string, unknown>;
-          const conv = (convData.conversation as Record<string, unknown> | undefined) ?? convData;
-          const inferenceProfile = typeof conv.inferenceProfile === "string" ? conv.inferenceProfile : null;
+        if (convResult?.status === "fulfilled" && convResult.value !== null) {
+          const inferenceProfile =
+            convResult.value.data?.conversation.inferenceProfile ?? null;
           if (inferenceProfile !== null) {
             effective = inferenceProfile;
           }
@@ -154,6 +164,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         setProfileActiveKey(effective);
         lastConfirmedProfileRef.current = effective;
         profilesReadyRef.current = true;
+        setProfilesLoaded(true);
       } catch {
         if (cancelled) return;
       }
@@ -210,11 +221,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     [assistantId, conversationId, globalInteractive],
   );
 
+  // Resolves to `true` when the selection write was confirmed by the server,
+  // `false` when it was guarded out or rolled back. Normal picker callers
+  // ignore the result (their rollback UX is unchanged); the quick-add
+  // onCreated path awaits it so a failed autoselect can surface an error toast
+  // instead of silently reporting success.
   const handleProfileSelect = useCallback(
-    async (name: string) => {
+    async (name: string): Promise<boolean> => {
       // Guard against interaction before profiles are loaded — mirrors the
       // globalInteractive === null guard on handleSelect.
-      if (!profilesReadyRef.current) return;
+      if (!profilesReadyRef.current) return false;
       // Capture conversationId at call time so post-async guards can verify the
       // user hasn't switched conversations while the request was in flight.
       const capturedConversationId = conversationIdRef.current;
@@ -222,11 +238,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
       try {
         if (capturedConversationId) {
           // Per-conversation override — matches the threshold pattern.
-          await client.put({
-            url: `/v1/assistants/{assistant_id}/conversations/{conversation_id}/inference-profile`,
-            path: { assistant_id: assistantId, conversation_id: capturedConversationId },
+          await conversationsByIdInferenceprofilePut({
+            path: { assistant_id: assistantId, id: capturedConversationId },
             body: { profile: name },
-            headers: { "Content-Type": "application/json" },
             throwOnError: true,
           });
         } else {
@@ -255,15 +269,12 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         // for staleTime to elapse. Predicate match covers both the global
         // (conversationId=null) and per-conversation cache entries.
         void queryClient.invalidateQueries({
-          predicate: (query) => {
-            const key = query.queryKey;
-            return (
-              Array.isArray(key) &&
-              key[0] === "active-profile-model" &&
-              key[1] === assistantId
-            );
-          },
+          predicate: (query) =>
+            activeProfileModelQueryKey(assistantId, null).every(
+              (seg, i) => seg === null || query.queryKey[i] === seg,
+            ),
         });
+        return true;
       } catch {
         if (conversationIdRef.current === capturedConversationId) {
           // Roll back to the last server-confirmed value, not a stale closure
@@ -271,6 +282,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           // requests race (select A → select B → A fails → should stay at B).
           setProfileActiveKey(lastConfirmedProfileRef.current);
         }
+        return false;
       }
     },
     [assistantId, queryClient],
@@ -292,6 +304,11 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
+  // Quick-add "+" is part of the provider-first profile-creation UX and is
+  // gated by the same client flag. When off, the Model Profile header renders
+  // no "+" and the quick-add modal is unreachable from chat.
+  const providerFirstEnabled =
+    useClientFeatureFlagStore.use.providerFirstProfileCreation();
 
   const visibleProfileEntries = useMemo(
     () =>
@@ -300,6 +317,66 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         queryComplexityRoutingEnabled,
       ),
     [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
+  );
+
+  // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
+  // import settings directly — see local/no-cross-domain-imports). The provider
+  // renders the ProfileEditorModal in create mode, persists the new profile,
+  // and toasts; we hand it the current profile names and an onCreated callback
+  // so the new profile is autoselected for this thread once it persists.
+  const { openProfileQuickAdd } = useProfileQuickAdd();
+
+  const existingProfileNames = useMemo(
+    () => Array.from(new Set([...profileOrder, ...Object.keys(profileMap)])),
+    [profileOrder, profileMap],
+  );
+
+  // The "+" quick-add affordance rendered in both the desktop Menu.Label and
+  // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
+  // Disabled until `profilesLoaded` (see its declaration for why). Gated to
+  // `null` when the provider-first flag is off, so neither header shows a "+".
+  const quickAddButton = !providerFirstEnabled ? null : (
+    <Tooltip
+      content={profilesLoaded ? "New Profile" : "Loading profiles…"}
+      side="top"
+    >
+      <Button
+        variant="ghost"
+        size="compact"
+        iconOnly={<Plus className="h-3.5 w-3.5" />}
+        aria-label="New Profile"
+        disabled={!profilesLoaded}
+        aria-disabled={!profilesLoaded}
+        onClick={() => {
+          if (!profilesLoaded) return;
+          setOpen(false);
+          openProfileQuickAdd({
+            existingNames: existingProfileNames,
+            onCreated: (name) => {
+              // Reflect the new profile locally so the picker renders it
+              // immediately (the daemon-config fetch only re-runs on
+              // assistant/conversation change).
+              setProfileMap((prev) => ({ ...prev, [name]: { label: null } }));
+              setProfileOrder((prev) =>
+                prev.includes(name) ? prev : [...prev, name],
+              );
+              // Profiles are guaranteed loaded by now (the "+" is disabled
+              // until then); allow the autoselect to write the per-thread
+              // override. If that write fails, handleProfileSelect rolls the
+              // selection back and resolves false — surface that so the flow
+              // doesn't silently report the profile as selected. Creation
+              // itself succeeded, so the provider's create-success toast stays.
+              profilesReadyRef.current = true;
+              void handleProfileSelect(name).then((selected) => {
+                if (!selected) {
+                  toast.error("Profile created, but couldn't switch to it");
+                }
+              });
+            },
+          });
+        }}
+      />
+    </Tooltip>
   );
 
   const trigger = (
@@ -348,32 +425,30 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                 />
               );
             })}
-            {visibleProfileEntries.length > 0 && (
-              <>
-                <MenuDivider />
-                <SectionLabel>Model Profile</SectionLabel>
-                {visibleProfileEntries.map((entry) => {
-                  const isActive = entry.name === profileActiveKey;
-                  return (
-                    <PanelItem
-                      key={entry.name}
-                      icon={Sparkles}
-                      label={profilePickerLabel(entry)}
-                      active={isActive}
-                      trailingAction={
-                        isActive ? (
-                          <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-                        ) : undefined
-                      }
-                      onSelect={() => {
-                        handleProfileSelect(entry.name);
-                        setOpen(false);
-                      }}
-                    />
-                  );
-                })}
-              </>
-            )}
+            <MenuDivider />
+            <SectionLabel trailingAction={quickAddButton}>
+              Model Profile
+            </SectionLabel>
+            {visibleProfileEntries.map((entry) => {
+              const isActive = entry.name === profileActiveKey;
+              return (
+                <PanelItem
+                  key={entry.name}
+                  icon={Sparkles}
+                  label={profilePickerLabel(entry)}
+                  active={isActive}
+                  trailingAction={
+                    isActive ? (
+                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                    ) : undefined
+                  }
+                  onSelect={() => {
+                    handleProfileSelect(entry.name);
+                    setOpen(false);
+                  }}
+                />
+              );
+            })}
           </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
@@ -408,39 +483,43 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             </Menu.Item>
           );
         })}
-        {visibleProfileEntries.length > 0 && (
-          <>
-            <Menu.Separator />
-            <Menu.Label className="text-label-small-default normal-case tracking-normal">
-              Model Profile
-            </Menu.Label>
-            {visibleProfileEntries.map((entry) => {
-              const isActive = entry.name === profileActiveKey;
-              return (
-                <Menu.Item
-                  key={entry.name}
-                  onSelect={() => handleProfileSelect(entry.name)}
-                  leftIcon={<Sparkles className="h-3.5 w-3.5" />}
-                  className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
-                  shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
-                  title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
-                >
-                  {profilePickerLabel(entry)}
-                </Menu.Item>
-              );
-            })}
-          </>
-        )}
+        <Menu.Separator />
+        <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
+          <span>Model Profile</span>
+          {quickAddButton}
+        </Menu.Label>
+        {visibleProfileEntries.map((entry) => {
+          const isActive = entry.name === profileActiveKey;
+          return (
+            <Menu.Item
+              key={entry.name}
+              onSelect={() => handleProfileSelect(entry.name)}
+              leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+              className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
+              shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
+              title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
+            >
+              {profilePickerLabel(entry)}
+            </Menu.Item>
+          );
+        })}
       </Menu.Content>
     </Menu.Root>
   );
 }
 
 /** Bottom-sheet section label — small-caps style matching Menu.Label. */
-function SectionLabel({ children }: { children: ReactNode }) {
+function SectionLabel({
+  children,
+  trailingAction,
+}: {
+  children: ReactNode;
+  trailingAction?: ReactNode;
+}) {
   return (
-    <div className="px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
-      {children}
+    <div className="flex items-center justify-between gap-2 px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
+      <span>{children}</span>
+      {trailingAction}
     </div>
   );
 }

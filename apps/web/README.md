@@ -84,7 +84,7 @@ bun run lint       # eslint
 [Storybook](https://storybook.js.org/) provides isolated component
 development for `apps/web` components — the ones tied to the app
 (routing, stores, layout) that don't belong in
-`@vellum/design-library`. Design-system primitives live in their own
+`@vellumai/design-library`. Design-system primitives live in their own
 Storybook (`packages/design-library`, port 6006).
 
 ```bash

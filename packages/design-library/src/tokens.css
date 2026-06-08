@@ -1,12 +1,12 @@
 /* ---------------------------------------------------------------------------
- * Design system tokens — @vellum/design-library
+ * Design system tokens — @vellumai/design-library
  *
  * Single source of truth for color, typography, and component tokens.
  * Consuming apps import this file to provide the CSS variable context that
  * design-library components depend on.
  *
  * Usage (in a consuming app's global CSS):
- *   @import "@vellum/design-library/tokens.css";
+ *   @import "@vellumai/design-library/tokens.css";
  *
  * Theme selection is controlled by a `data-theme` attribute on any ancestor
  * element (typically <html> or a wrapper <div>):
@@ -27,6 +27,27 @@
  * https://tailwindcss.com/docs/dark-mode#using-a-data-attribute
  * --------------------------------------------------------------------------- */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, [data-theme=velvet], [data-theme=velvet] *));
+
+/* ---------------------------------------------------------------------------
+ * Keyboard-only focus ring variant.
+ *
+ * Replaces bare `focus-visible:` on interactive elements so focus rings
+ * only appear during keyboard navigation — not on touch/tap or
+ * programmatic focus. Mirrors the heuristic browsers apply to native
+ * `<button>` and `<a>` elements but NOT to generic focusable elements
+ * like `<div role="button" tabIndex={0}>` (WebKit omission tracked in
+ * w3c/csswg-drafts#12127).
+ *
+ * The `initInputModality()` utility sets `data-modality="pointer"` on
+ * `<html>` during pointer interactions and `data-modality="keyboard"`
+ * during keyboard navigation. The `:not([data-modality=pointer])`
+ * selector means focus rings show by default when the tracker has not
+ * been initialized — safe progressive enhancement.
+ *
+ * @see utils/input-modality.ts
+ * @see https://react-aria.adobe.com/useFocusVisible — same concept
+ * --------------------------------------------------------------------------- */
+@custom-variant keyboard-focus (&:where(:root:not([data-modality=pointer]) *, :root:not([data-modality=pointer])):focus-visible);
 
 /* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so
@@ -227,6 +248,8 @@
   --feed-nudge-weak: #F0D9E0;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #C8E5E2;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #EFE8C4;
 
@@ -307,6 +330,8 @@
   --feed-nudge-weak: #432B33;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #293D3B;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 
@@ -393,6 +418,8 @@
   --feed-nudge-weak: #432B33;
   --feed-digest-strong: #0E9B8B;
   --feed-digest-weak: #293D3B;
+  /* credits/coins accent (teal) */
+  --credits-accent: #0E9B8B;
   --feed-thread-strong: #E9C91A;
   --feed-thread-weak: #464125;
 

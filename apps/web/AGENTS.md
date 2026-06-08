@@ -10,6 +10,7 @@ Read these before making changes:
 - **[`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md)** — Zustand stores, atomic selectors, TanStack Query, the no-`useReducer` rule.
 - **[`docs/EVENT_BUS.md`](./docs/EVENT_BUS.md)** — Cross-domain push signals (SSE, app lifecycle, network). Single connection, typed events, no per-component `visibilitychange` handlers.
 - **[`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
+- **[`docs/CONVENTIONS.md` — Platform gating](./docs/CONVENTIONS.md#platform-gating)** — The `usePlatformGate()` hook, the five user states (platform-hosted vs self-hosted × logged-in vs not), and when to gate/disable/hide platform-dependent UI surfaces.
 - **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
 - **[`docs/ELECTRON.md`](./docs/ELECTRON.md)** — Electron renderer patterns: `runtime/` wrapper modules for `window.vellum.*`, domain-owned bridge hooks, the three-file dance for new bridge surfaces. Read this if your change touches anything under `src/runtime/` that uses `window.vellum`.
 
@@ -17,7 +18,10 @@ Read these before making changes:
 
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
 - **Don't ship cross-route state through outlet context.** React Router outlet context [re-renders every consumer when any field changes](https://reactrouter.com/start/framework/outlet), forces a bundled value through every layout, and silently resolves to `undefined` whenever an intermediate `<Outlet />` (a gate, a wrapper) sits between writer and reader. Cross-route state — auth, lifecycle, selection, feature flags, layout slots — belongs in a Zustand store so consumers can subscribe atomically and so intermediate routes don't break the channel. Use outlet context only for one-shot parent→direct-child wiring with no intermediate routes.
+- **HeyAPI client interceptors**: The daemon, platform, and auth clients have different routing requirements. Daemon SDK requests forward unconditionally to the self-hosted gateway; platform requests use a segment allowlist. Don't share interceptors across clients with different routing needs. Interceptors [chain sequentially](https://heyapi.dev/openapi-ts/clients/fetch#interceptors) — a gate registered after a rewrite interceptor receives the *rewritten* request, so it must check the final URL, not assume platform origin.
 - **Type colocation**: Types live with the module that owns them. `src/types/` is only for cross-domain types with no clear owning module. Don't create `-types.ts` files to break circular dependencies — use [`import type`](https://www.typescriptlang.org/docs/handbook/modules/reference.html#type-only-imports-and-exports) instead (erased at compile time, no runtime cycle). See [`docs/CONVENTIONS.md` — Top-level shared directories](./docs/CONVENTIONS.md#top-level-shared-directories).
+- **Org-readiness gating for daemon queries**: Platform-mode requests need the `Vellum-Organization-Id` header, which the interceptor reads from the org store. The store hydrates asynchronously after auth, so TanStack Query hooks that mount eagerly must gate on `useIsOrgReady()` via the [`enabled` option](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries). See [`docs/STATE_MANAGEMENT.md` — Org-readiness gating](./docs/STATE_MANAGEMENT.md#org-readiness-gating-for-daemon-queries).
+- **Don't use bare `Sentry.captureException`** — use `captureError()` from `lib/sentry/capture-error.ts`. It filters transient network errors, logs to console, and captures to Sentry with structured tags. Raw Sentry API is reserved for framework integration points (`RouteErrorBoundary`, `RouterProvider.onError`, `LazyBoundary`). See [`docs/CONVENTIONS.md` — Manual error reporting](./docs/CONVENTIONS.md#manual-error-reporting-from-imperative-code).
 
 When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
 coherent boundary, extract it into a `docs/TOPIC.md` sibling with a
@@ -31,7 +35,7 @@ pattern (`assistant/docs/`, `docs/` at the repo root).
 - **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) — all shared state uses Zustand stores (see [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md))
 - **Server state**: [TanStack Query](https://tanstack.com/query/latest) with [HeyAPI plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) via `@tailwindcss/vite`
-- **Design system**: `@vellum/design-library` at [`packages/design-library/`](../../packages/design-library/)
+- **Design system**: `@vellumai/design-library` at [`packages/design-library/`](../../packages/design-library/)
 - **Platform**: Web + iOS via [Capacitor](https://capacitorjs.com/) — native code paths must be preserved
 
 ## Routing

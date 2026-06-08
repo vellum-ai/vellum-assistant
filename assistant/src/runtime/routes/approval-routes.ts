@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -97,11 +97,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
   conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
-    selectedPattern,
-    selectedScope,
-    undefined,
     {
-      source: "button",
+      selectedPattern,
+      selectedScope,
+      emissionContext: { source: "button" },
     },
   );
 

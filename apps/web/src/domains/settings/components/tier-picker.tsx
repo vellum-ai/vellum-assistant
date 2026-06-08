@@ -1,14 +1,15 @@
 import { Info } from "lucide-react";
 import { useMemo } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Typography } from "@vellum/design-library/components/typography";
 import type {
-  MachineTier,
-  MachineTierEnum,
-  StorageTier,
-  StorageTierEnum,
+    MachineTier,
+    MachineTierEnum,
+    StorageTier,
+    StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Typography } from "@vellumai/design-library/components/typography";
+import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**
  * Display labels for the Pro machine tiers. Uses a static label map so casing
@@ -33,27 +34,9 @@ export function isTierDisabled(tier: MachineTier | StorageTier): boolean {
   return (tier as unknown as { disabled?: boolean }).disabled === true;
 }
 
-/** "$50/mo" for whole-dollar tiers; "$50.50/mo" only when cents are present. */
-function formatMonthly(totalCents: number): string {
-  const dollars = totalCents / 100;
-  return Number.isInteger(dollars)
-    ? `$${dollars}/mo`
-    : `$${dollars.toFixed(2)}/mo`;
-}
-
-function formatDelta(deltaCents: number): string {
-  const prefix = deltaCents > 0 ? "+" : "−";
-  const absDollars = Math.abs(deltaCents) / 100;
-  const formatted = Number.isInteger(absDollars)
-    ? `$${absDollars}`
-    : `$${absDollars.toFixed(2)}`;
-  return `${prefix}${formatted}/mo`;
-}
-
 export interface TierPickerProps {
   machineTiers: MachineTier[];
   storageTiers: StorageTier[];
-  basePriceCents: number;
   selectedMachineTier: MachineTierEnum | null;
   selectedStorageTier: StorageTierEnum | null;
   onMachineTierChange: (tier: MachineTierEnum) => void;
@@ -65,7 +48,6 @@ export interface TierPickerProps {
 export function TierPicker({
   machineTiers,
   storageTiers,
-  basePriceCents,
   selectedMachineTier,
   selectedStorageTier,
   onMachineTierChange,
@@ -73,27 +55,6 @@ export function TierPicker({
   currentMachinePriceCents,
   currentStoragePriceCents,
 }: TierPickerProps) {
-  const selectedMachine = machineTiers.find(
-    (t) => t.tier === selectedMachineTier,
-  );
-  const selectedStorage = storageTiers.find(
-    (t) => t.tier === selectedStorageTier,
-  );
-  const totalCents =
-    selectedMachine && selectedStorage
-      ? basePriceCents +
-        selectedMachine.price_cents +
-        selectedStorage.price_cents
-      : null;
-  const currentTotalCents =
-    currentMachinePriceCents != null && currentStoragePriceCents != null
-      ? basePriceCents + currentMachinePriceCents + currentStoragePriceCents
-      : null;
-  const totalDelta =
-    totalCents != null && currentTotalCents != null
-      ? totalCents - currentTotalCents
-      : null;
-
   const machineOptions = useMemo(
     () =>
       machineTiers.map((t) => {
@@ -175,32 +136,6 @@ export function TierPicker({
           options={storageOptions}
         />
       </div>
-      {totalCents !== null && (
-        <div className="flex items-center gap-1">
-          <Typography
-            as="p"
-            variant="body-small-emphasised"
-            data-testid="tier-picker-total"
-            className="text-[var(--content-default)]"
-          >
-            Total: {formatMonthly(totalCents)}
-            {totalDelta != null && totalDelta !== 0 && (
-              <span className="ml-1 text-[var(--content-tertiary)]">
-                ({formatDelta(totalDelta)})
-              </span>
-            )}
-          </Typography>
-          <span
-            title={
-              totalDelta != null && totalDelta !== 0
-                ? `Your Pro Plan subscription will change from ${formatMonthly(currentTotalCents!)} to ${formatMonthly(totalCents!)}. Includes a $10/month flat fee for Pro Features.`
-                : "Includes a $10/month flat fee for Pro Features."
-            }
-          >
-            <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
-          </span>
-        </div>
-      )}
     </div>
   );
 }

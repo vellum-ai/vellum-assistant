@@ -6,9 +6,13 @@ import { isElectron } from "@/runtime/is-electron";
  * `window.vellum.*` directly — feature code calls these named functions
  * and the cross-platform branch lives here.
  *
- * On non-Electron hosts (web, Capacitor iOS) both functions are no-ops
- * that resolve immediately, so callers can fire them unconditionally on
- * state change without an `isElectron()` check at every call site.
+ * On non-Electron hosts (web, Capacitor iOS) both functions are no-ops,
+ * so callers can fire them unconditionally on state change without an
+ * `isElectron()` check at every call site.
+ *
+ * Both are fire-and-forget (`ipcRenderer.send` under the hood) — the main
+ * process applies the change and there is nothing to await, matching the
+ * one-way publish style of `status.ts` / `icon.ts`.
  */
 
 /**
@@ -18,9 +22,9 @@ import { isElectron } from "@/runtime/is-electron";
  *
  * Safe to call from any host — no-op off Electron.
  */
-export async function setDockBadge(count: number): Promise<void> {
+export function setDockBadge(count: number): void {
   if (!isElectron()) return;
-  await window.vellum?.dock.setBadge(count);
+  window.vellum?.dock.setBadge(count);
 }
 
 /**
@@ -33,7 +37,7 @@ export async function setDockBadge(count: number): Promise<void> {
  * source of truth and this becomes a no-op the renderer drops. Safe to
  * call from any host — no-op off Electron.
  */
-export async function setDockSignedIn(signedIn: boolean): Promise<void> {
+export function setDockSignedIn(signedIn: boolean): void {
   if (!isElectron()) return;
-  await window.vellum?.dock.setSignedIn(signedIn);
+  window.vellum?.dock.setSignedIn(signedIn);
 }

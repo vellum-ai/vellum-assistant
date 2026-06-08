@@ -6,8 +6,16 @@ const log = getLogger("run-script");
 
 /** Maximum combined stdout + stderr captured (bytes). */
 const MAX_OUTPUT_BYTES = 10_000;
-/** Default timeout for script execution (ms). */
-const DEFAULT_TIMEOUT_MS = 60_000;
+/** Default timeout for script execution (ms) when a schedule sets no override. */
+export const DEFAULT_TIMEOUT_MS = 60_000;
+/** Smallest script timeout override a caller may set (ms). */
+export const MIN_SCRIPT_TIMEOUT_MS = 1_000;
+/**
+ * Largest script timeout override a caller may set (ms). Capped so a wedged
+ * script cannot block the scheduler tick indefinitely; mirrors the talk-mode
+ * budget in scheduler.ts.
+ */
+export const MAX_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface ScriptResult {
   exitCode: number;
@@ -75,7 +83,9 @@ export async function runScript(
     ]);
     const stdout = truncate(stdoutStr);
     const timeoutMsg = `Script timed out after ${timeoutMs}ms`;
-    const stderr = truncate(stderrStr ? `${timeoutMsg}\n${stderrStr}` : timeoutMsg);
+    const stderr = truncate(
+      stderrStr ? `${timeoutMsg}\n${stderrStr}` : timeoutMsg,
+    );
     log.info(
       { command, timedOut: true, stdoutLen: stdout.length },
       "Script timed out",
@@ -97,4 +107,19 @@ export async function runScript(
 function truncate(text: string): string {
   if (text.length <= MAX_OUTPUT_BYTES) return text;
   return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
+}
+
+/**
+ * Validate a caller-supplied script timeout override (ms). Returns an error
+ * message when the value is not a positive integer within the allowed bounds,
+ * or `null` when it is acceptable.
+ */
+export function validateScriptTimeoutMs(value: number): string | null {
+  if (!Number.isInteger(value)) {
+    return "timeout_ms must be an integer number of milliseconds";
+  }
+  if (value < MIN_SCRIPT_TIMEOUT_MS || value > MAX_SCRIPT_TIMEOUT_MS) {
+    return `timeout_ms must be between ${MIN_SCRIPT_TIMEOUT_MS} and ${MAX_SCRIPT_TIMEOUT_MS} (ms)`;
+  }
+  return null;
 }

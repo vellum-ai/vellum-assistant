@@ -36,7 +36,6 @@ import {
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
 import type { SubagentStatus } from "@vellumai/assistant-api";
-import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { truncate } from "@/domains/chat/utils/truncate";
@@ -44,7 +43,7 @@ import {
   formatMs,
   type ToolCallCardData,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/use-tool-call-card-data";
+} from "@/domains/chat/hooks/tool-call-card-utils";
 
 export type { ToolCallCardData, ToolCallCardStep };
 
@@ -178,7 +177,7 @@ function findMatchingInFlightToolIndex(
  * a human reply but the card chrome still reads as in-flight). `aborted`
  * surfaces as `"error"` so the card doesn't read as a clean completion.
  */
-function deriveCardState(status: SubagentStatus): ToolProgressCardState {
+function deriveCardState(status: SubagentStatus): ToolCallCardData["state"] {
   switch (status) {
     case "running":
     case "pending":

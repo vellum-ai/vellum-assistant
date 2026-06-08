@@ -18,10 +18,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildWebSearchErrorStep,
   computeToolCallCardData,
-  hasWebTool,
-} from "@/domains/chat/hooks/use-tool-call-card-data";
+  computeToolCallCardDataFromItems,
+  type ToolCallCardItem,
+  WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+} from "@/domains/chat/hooks/tool-call-card-utils";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
@@ -44,13 +48,15 @@ function makeResult(
 function makeToolCall(
   overrides: Partial<ChatMessageToolCall> & {
     id: string;
-    toolName: string;
+    name: string;
+    status?: "running" | "completed" | "error";
   },
 ): ChatMessageToolCall {
+  const { status = "completed", ...rest } = overrides;
   return {
     input: {},
-    status: "completed",
-    ...overrides,
+    ...toolCallStatusWireFields(status),
+    ...rest,
   };
 }
 
@@ -59,18 +65,19 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 1000,
         completedAt: 2500,
         input: { command: "echo hello" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]).toEqual({
       kind: "tool",
       durationLabel: "2s",
+      startedAt: 1000,
       title: "Working (bash)",
       info: "echo hello",
       activity: "",
@@ -89,7 +96,7 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 1000,
         completedAt: 2000,
@@ -100,7 +107,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toMatchObject({
       kind: "tool",
       activity: "Greeting the user from the shell",
@@ -114,19 +121,19 @@ describe("computeToolCallCardData — step kinds", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         input: { command: "echo hello" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toMatchObject({ kind: "tool", activity: "" });
     expect(data.currentStepInfo).toBe("echo hello");
   });
 
   test("emits a `web_search` step with the legacy descriptor shape", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -139,7 +146,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]).toMatchObject({
       kind: "web_search",
@@ -151,7 +158,7 @@ describe("computeToolCallCardData — step kinds", () => {
 
   test("emits a `web_search_error` step when metadata has errorMessage and empty results", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -165,7 +172,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "web_search_error",
       title: "Web search failed",
@@ -176,7 +183,7 @@ describe("computeToolCallCardData — step kinds", () => {
 
   test("emits a `thinking` step for web_fetch metadata", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_fetch", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "web_fetch", status: "completed" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -194,7 +201,7 @@ describe("computeToolCallCardData — step kinds", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps[0]).toEqual({
       kind: "thinking",
       durationLabel: "<1s",
@@ -203,80 +210,35 @@ describe("computeToolCallCardData — step kinds", () => {
   });
 });
 
-describe("computeToolCallCardData — leadingThinkingText", () => {
-  test("prepends a `thinking` step when leadingThinkingText is non-null", () => {
-    const toolCalls = [
-      makeToolCall({
-        id: "tc-1",
-        toolName: "bash",
-        status: "completed",
-        startedAt: 0,
-        completedAt: 1000,
-      }),
-    ];
-    const data = computeToolCallCardData(
-      toolCalls,
-      {},
-      "I'll look at the bash output first.",
-    );
-    expect(data.steps).toHaveLength(2);
-    expect(data.steps[0]).toEqual({
-      kind: "thinking",
-      durationLabel: "",
-      text: "I'll look at the bash output first.",
-    });
-    expect(data.steps[1]!.kind).toBe("tool");
-    expect(data.stepCount).toBe("2 steps");
-  });
-
-  test("does not prepend when leadingThinkingText is null", () => {
-    const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
-    ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
-    expect(data.steps).toHaveLength(1);
-    expect(data.steps[0]!.kind).toBe("tool");
-  });
-
-  test("does not prepend when leadingThinkingText is empty", () => {
-    const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
-    ];
-    const data = computeToolCallCardData(toolCalls, {}, "");
-    expect(data.steps).toHaveLength(1);
-    expect(data.steps[0]!.kind).toBe("tool");
-  });
-});
-
 describe("computeToolCallCardData — state transitions", () => {
   test("state is `loading` while any tool call is still running", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 
   test("state is `loading` for a mix of running + completed tools", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 
   test("state is `complete` once every tool reaches a terminal status", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
       makeToolCall({
         id: "tc-2",
-        toolName: "str_replace_editor",
+        name: "str_replace_editor",
         status: "completed",
         input: { command: "view", path: "/tmp/x.txt" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("complete");
     expect(data.stepCount).toBe("2 steps");
   });
@@ -285,12 +247,12 @@ describe("computeToolCallCardData — state transitions", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         confirmationDecision: "denied",
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("denied");
     expect((data.steps[0] as { status: string }).status).toBe("denied");
   });
@@ -299,31 +261,31 @@ describe("computeToolCallCardData — state transitions", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         confirmationDecision: "denied",
       }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("denied");
   });
 
   test("state is `error` when a tool ended in error and no tools are still running", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "error" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("error");
     expect((data.steps[0] as { status: string }).status).toBe("error");
   });
 
   test("state is `loading` (not `error`) when an error tool sits alongside a still-running tool", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "error" }),
-      makeToolCall({ id: "tc-2", toolName: "edit_file", status: "running" }),
+      makeToolCall({ id: "tc-1", name: "bash", status: "error" }),
+      makeToolCall({ id: "tc-2", name: "edit_file", status: "running" }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.state).toBe("loading");
   });
 });
@@ -336,12 +298,12 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate logs" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(0);
     expect(data.stepCount).toBe("0 steps");
   });
@@ -353,18 +315,18 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "First" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Second" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(0);
   });
 
@@ -372,23 +334,124 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         status: "running",
         input: { label: "Investigate" },
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "running",
         input: { command: "ls" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
     // Header derivation also ignores the filtered spawn so the carousel
     // reflects only the bash call.
     expect(data.currentStepTitle).toBe("Working (bash)");
+  });
+});
+
+describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
+  test("interleaves thinking between tool steps in the given order", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "first I reason" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          input: { command: "ls" },
+        }),
+      },
+      { kind: "thinking", text: "then I reason again" },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.steps).toHaveLength(3);
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "first I reason",
+    });
+    expect(data.steps[1]!.kind).toBe("tool");
+    expect(data.steps[2]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "then I reason again",
+    });
+    expect(data.stepCount).toBe("3 steps");
+  });
+
+  test("skips empty thinking items and subagent_spawn tool items", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-spawn",
+          name: "subagent_spawn",
+          status: "running",
+          input: { label: "Investigate" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          input: { command: "ls" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.steps).toHaveLength(1);
+    expect(data.steps[0]!.kind).toBe("tool");
+  });
+});
+
+describe("computeToolCallCardDataFromItems — header reflects the latest step", () => {
+  test("a run ending in a thinking step surfaces it in the header", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "read_file",
+          status: "completed",
+          input: { path: "/tmp/state.txt" },
+        }),
+      },
+      { kind: "thinking", text: "Now I understand the current state." },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    // Latest step is thinking → "Thinking" title + the thinking text (the
+    // brain glyph is added by the card component, not the projection).
+    expect(data.currentStepKind).toBe("thinking");
+    expect(data.currentStepTitle).toBe("Thinking");
+    expect(data.currentStepInfo).toBe("Now I understand the current state.");
+  });
+
+  test("a run ending in a tool step keeps the tool-derived header", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Let me read the file first." },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          input: { command: "echo hi" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.currentStepKind).toBe("tool");
+    expect(data.currentStepTitle).toBe("Working (bash)");
+    expect(data.currentStepInfo).toBe("echo hi");
   });
 });
 
@@ -398,8 +461,8 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
   // same step set + state for purely-web inputs.
   test("matches the legacy hook's output for the 'two completed web_search' fixture", () => {
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "web_search" }),
-      makeToolCall({ id: "tc-2", toolName: "web_search" }),
+      makeToolCall({ id: "tc-1", name: "web_search" }),
+      makeToolCall({ id: "tc-2", name: "web_search" }),
     ];
     const liveWebActivity: Record<string, ToolActivityMetadata> = {
       "tc-1": {
@@ -421,7 +484,7 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]).toMatchObject({
       kind: "web_search",
@@ -445,12 +508,12 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "running",
         input: { query: "tigers" },
       }),
     ];
-    const data = computeToolCallCardData(toolCalls, {}, null);
+    const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toEqual({
       kind: "thinking",
       durationLabel: "",
@@ -467,12 +530,12 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
-        toolName: "web_search",
+        name: "web_search",
         status: "completed",
       }),
       makeToolCall({
         id: "tc-2",
-        toolName: "bash",
+        name: "bash",
         status: "completed",
         startedAt: 0,
         completedAt: 500,
@@ -490,7 +553,7 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
         },
       },
     };
-    const data = computeToolCallCardData(toolCalls, liveWebActivity, null);
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.steps[1]!.kind).toBe("tool");
@@ -500,23 +563,175 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
   });
 });
 
-describe("hasWebTool", () => {
-  test("returns true when any tool call is a web tool", () => {
-    expect(
-      hasWebTool([
-        makeToolCall({ id: "tc-1", toolName: "bash" }),
-        makeToolCall({ id: "tc-2", toolName: "web_search" }),
-      ]),
-    ).toBe(true);
+describe("computeToolCallCardData — web_search backend-failure copy", () => {
+  // Mirror of WEB_SEARCH_BACKEND_FAILURE_MESSAGE in
+  // assistant/src/tools/network/web-search-error.ts (and the module-local
+  // constant in use-tool-call-card-data.ts). apps/web cannot import from
+  // assistant/, so the canonical string is duplicated here verbatim.
+  const CANONICAL_BACKEND_FAILURE_MESSAGE =
+    "Search is having trouble right now. You can try again in a moment, continue without web search, or paste the relevant details here and I'll use those.";
+
+  test("renders the canonical backend-failure message verbatim when the daemon provides it", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
+    expect(data.steps[0]).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      // Verbatim — not overridden, not truncated to "Search failed.".
+      errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+    });
+    expect(data.currentStepInfo).toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
   });
 
-  test("returns false when no tool calls are web tools", () => {
+  test("the local default string matches the canonical assistant constant", () => {
+    expect(WEB_SEARCH_BACKEND_FAILURE_MESSAGE).toBe(
+      CANONICAL_BACKEND_FAILURE_MESSAGE,
+    );
+  });
+
+  test("buildWebSearchErrorStep falls back to the friendly default when errorMessage is undefined", () => {
+    // The error step renders verbatim copy from the daemon when present, but
+    // must degrade to the canonical friendly message if the backend ever
+    // omits it (regression for the buildWebSearchErrorStep default).
+    const step = buildWebSearchErrorStep({
+      query: "tigers",
+      provider: "anthropic-native",
+      resultCount: 0,
+      durationMs: 800,
+      results: [],
+      // errorMessage intentionally omitted.
+    });
+    expect(step).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      errorMessage: WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    });
+  });
+
+  test("web_fetch DNS/host errors never render as a web_search backend failure", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "web_fetch", status: "error" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webFetch: {
+          url: "https://grimgoods.io/products",
+          finalUrl: "https://grimgoods.io/products",
+          status: 0,
+          byteCount: 0,
+          charCount: 0,
+          truncated: false,
+          domain: "grimgoods.io",
+          redirectCount: 0,
+          durationMs: 120,
+          errorMessage:
+            'Error: Unable to resolve host "grimgoods.io" while fetching the page',
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
+    // No web_search_error step is produced from a web_fetch failure.
     expect(
-      hasWebTool([makeToolCall({ id: "tc-1", toolName: "bash" })]),
+      data.steps.some((step) => step.kind === "web_search_error"),
     ).toBe(false);
+    // The friendly web_search backend copy is never surfaced for a fetch error.
+    expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
   });
 
-  test("returns false on an empty list", () => {
-    expect(hasWebTool([])).toBe(false);
+  test("a failed web_search with empty results and NO errorMessage renders the friendly default via the UI path", () => {
+    // Daemon omits webSearch.errorMessage but the tool call itself is terminal
+    // with status "error" (mapped from the tool_result isError flag). This is
+    // the production UI path Codex flagged — buildWebSearchErrorStep's friendly
+    // default must be reachable, not only via the direct unit test.
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "web_search", status: "error" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          // errorMessage intentionally omitted.
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
+    expect(data.steps[0]).toEqual({
+      kind: "web_search_error",
+      title: "Web search failed",
+      durationLabel: "<1s",
+      errorMessage: CANONICAL_BACKEND_FAILURE_MESSAGE,
+    });
+    expect(data.currentStepTitle).toBe("Web search failed");
+    expect(data.currentStepInfo).toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("a successful no_results web_search (status completed, no errorMessage) stays a normal step", () => {
+    // ATL-727 core invariant: an empty-but-successful search must NOT render as
+    // a failure. status "completed" + no errorMessage => normal web_search step.
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 800,
+          results: [],
+          // errorMessage intentionally omitted; this is a real no_results hit.
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
+    expect(
+      data.steps.some((step) => step.kind === "web_search_error"),
+    ).toBe(false);
+    expect(data.steps[0]!.kind).toBe("web_search");
+    expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("a successful web_search with results produces no error step", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", name: "web_search", status: "completed" }),
+    ];
+    const liveWebActivity: Record<string, ToolActivityMetadata> = {
+      "tc-1": {
+        webSearch: {
+          query: "tigers",
+          provider: "anthropic-native",
+          resultCount: 2,
+          durationMs: 1500,
+          results: [makeResult(1), makeResult(2)],
+        },
+      },
+    };
+    const data = computeToolCallCardData(toolCalls, liveWebActivity);
+    expect(
+      data.steps.some((step) => step.kind === "web_search_error"),
+    ).toBe(false);
+    expect(data.steps[0]!.kind).toBe("web_search");
   });
 });
+
+

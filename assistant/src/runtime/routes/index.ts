@@ -85,12 +85,14 @@ import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
+import { ROUTES as INTERNAL_TELEMETRY_ROUTES } from "./internal-telemetry-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
+import { ROUTES as MEMORY_V3_ROUTES } from "./memory-v3-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
@@ -211,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INFERENCE_SEND_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
+  ...INTERNAL_TELEMETRY_ROUTES,
   ...MCP_AUTH_ROUTES,
   ...OAUTH_CONNECT_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
@@ -218,6 +221,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
+  ...MEMORY_V3_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...MIGRATION_ROUTES,
   ...NOTIFICATION_ROUTES,

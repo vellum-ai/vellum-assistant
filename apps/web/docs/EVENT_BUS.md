@@ -37,27 +37,30 @@ Centralizing through a bus also gives us:
 
 | Module | Role |
 |---|---|
-| `apps/web/src/stores/event-bus-store.ts` | The bus itself. Zustand store with `subscribe(event, handler)` / `publish(event, payload)` actions and a module-private handler registry. |
-| `apps/web/src/hooks/use-event-bus-init.ts` | Wires the bus to its sources: opens the single assistant-scoped `/v1/events` SSE, registers `document.visibilitychange` + `window.online`/`offline` + Capacitor `App.appStateChange`. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route (chat, settings, logs, onboarding). |
+| `apps/web/src/lib/event-bus.ts` | The bus itself. Plain module with `publish` / `subscribe` / `__resetForTesting` exports and a module-private handler `Map`. Not a Zustand store — no state, just a registry. See the [stateless-registries carve-out](./STATE_MANAGEMENT.md#when-zustand-does-not-apply-stateless-registries). |
+| `apps/web/src/hooks/use-bus-subscription.ts` | React hook wrapping `useEffect` + `subscribe` with a stable handler ref so inline arrows don't re-register on every render. |
+| `apps/web/src/hooks/use-event-bus-init.ts` | Thin React adapter. Wires the signal sources at mount and calls `sseService.attach` whenever the active assistant changes. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route. |
+| `apps/web/src/runtime/event-sources/*` | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron deep links). Each calls `publish` directly and returns an unsubscribe. |
+| `apps/web/src/lib/lifecycle-diagnostics.ts` | Bus consumer that records `app.*` / `power.*` signals into the durable lifecycle diagnostics ring so support bundles show whether any resume / visibility / network signal fired. Attached once alongside the signal sources in `use-event-bus-init.ts`. |
+| `apps/web/src/assistant/sse-service.ts` | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals. |
 
-The bus is a Zustand store per the [state-management
-convention](./STATE_MANAGEMENT.md) — all shared client-state primitives
-live in Zustand. The store's state is private; consumers only ever call
-the action surface (`subscribe` / `publish`). Pub/sub semantics do not
-flow through Zustand reactivity: handlers fire synchronously from
+The bus is a plain pub/sub module. Handlers fire synchronously from
 `publish()` so a burst of events isn't collapsed into a single React
-commit cycle.
+commit cycle. The handler `Map` lives in module scope, not in any
+Zustand store — consumers never read it, only register handlers into
+it and dispatch through it.
 
 ## Event protocol
 
-Every event name in `BusEventMap` has a typed payload. The producer is
-`useEventBusInit` for everything except `reachability.retry-requested`,
-which is produced by the burst-limited reachability retry in
-`use-event-stream.ts`.
+Every event name in `BusEventMap` has a typed payload. Producers:
+
+- `runtime/event-sources/*` for host-environment signals (`app.*`, `power.*`, `deeplink.*`).
+- `assistant/sse-service.ts` for SSE-derived signals (`sse.*`).
+- `use-event-stream.ts`'s burst-limited reachability retry for `reachability.retry-requested`.
 
 | Event | Payload | Produced when |
 |---|---|---|
-| `sse.event` | `AssistantEvent` | Every event the bus-owned SSE connection sees. Consumers narrow on `payload.type` and filter on `payload.conversationId` themselves. |
+| `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a watchdog-driven recovery. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
@@ -77,8 +80,8 @@ which is produced by the burst-limited reachability retry in
 ## Subscribing
 
 In a React hook or component, use `useBusSubscription` from
-`@/hooks/use-bus-subscription.js`. It wraps `useEffect` + `subscribe`
-+ cleanup and stabilises the handler ref so inline arrows don't
+`@/hooks/use-bus-subscription`. It wraps `useEffect` + `subscribe` +
+cleanup and stabilises the handler ref so inline arrows don't
 re-register on every render.
 
 ```ts
@@ -90,54 +93,100 @@ useBusSubscription("app.resume", ({ signal }) => {
 ```
 
 In code outside the React tree (Zustand store bootstraps, route
-loaders, middleware), use `subscribeBus` from the same module and
-store the returned unsubscribe handle alongside the bootstrap's other
-teardown:
+loaders, middleware, services), import `subscribe` from
+`@/lib/event-bus` directly and store the returned unsubscribe
+handle alongside the bootstrap's other teardown:
 
 ```ts
-import { subscribeBus } from "@/hooks/use-bus-subscription";
+import { subscribe } from "@/lib/event-bus";
 
-const unsubscribeResume = subscribeBus("app.resume", () => {
+const unsubscribeResume = subscribe("app.resume", () => {
   refetchIfStale();
 });
 // Add unsubscribeResume() to the existing teardown closure.
 ```
 
-Both helpers wrap `useEventBusStore.getState().subscribe(...)`. New
-code should not call `useEventBusStore.getState()` directly for
-subscriptions — use the helpers so the unsubscribe lifecycle is
-consistent everywhere.
-
 ## Publishing
 
-Publishing is reserved for the bus owner (`useEventBusInit`) and the
-narrow surfaces that need to ask the bus to do something — today only
-`reachability.retry-requested`. Don't add new producers without a
-documented reason.
+Publishing is reserved for the bus's owner files (`sseService`,
+`runtime/event-sources/*`) and the narrow surfaces that need to ask
+the bus to do something — today only `reachability.retry-requested`.
+Don't add new producers without a documented reason.
 
 ```ts
-useEventBusStore.getState().publish("reachability.retry-requested", {});
+import { publish } from "@/lib/event-bus";
+
+publish("reachability.retry-requested", {});
 ```
 
 ## Adding a new event
 
 1. Add the name + payload type to `BusEventMap` in
-   `event-bus-store.ts`. Keep the JSDoc on the field — it's how
+   `lib/event-bus.ts`. Keep the JSDoc on the field — it's how
    consumers learn when the event fires.
-2. Add the producer. SSE-derived events go in `use-event-bus-init.ts`'s
-   SSE effect. DOM-derived events go in its lifecycle effect.
+2. Add the producer. SSE-derived events go in `assistant/sse-service.ts`
+   (the non-React owner of the bus's SSE connection). Host-environment
+   signals (DOM, Capacitor, Electron) go in a new file under
+   `runtime/event-sources/` — see "Adding a new signal source" below.
 3. Add subscribers where needed via `useBusSubscription` (React) or
-   `subscribeBus` (stores / non-React).
-4. Test the producer (publish round-trip in `use-event-bus-init.test.tsx`
-   or `event-bus-store.test.ts`) and at least one consumer.
+   `import { subscribe }` (stores / services / non-React).
+4. Test the producer (publish round-trip in `event-bus.test.ts` or a
+   colocated unit test) and at least one consumer.
+
+## Adding a new signal source
+
+A *signal source* is the bridge between a host-environment event
+(DOM visibility, `window.online`, Capacitor `appStateChange`, Electron
+`powerMonitor`, deep links) and the bus. Each one lives in its own
+file under `runtime/event-sources/`. The shape is intentionally
+narrow:
+
+```ts
+import { publish } from "@/lib/event-bus";
+
+export function publishMySignalSource(): () => void {
+  // ...attach listener, call `publish("my.event", payload)`...
+  return () => {
+    // ...detach listener...
+  };
+}
+```
+
+Rules:
+
+1. **One source per file.** New host-environment signal → new file
+   in `runtime/event-sources/`. Don't add another `if` branch to
+   `useEventBusInit`'s lifecycle effect.
+2. **No `bus` parameter.** Sources call `publish` directly from
+   `@/lib/event-bus`. Tests spy on `eventBus.publish` via
+   `spyOn(eventBus, "publish")` after `import * as eventBus from "@/lib/event-bus"`.
+3. **No-op off-platform.** If the source is platform-conditioned
+   (Capacitor-only, Electron-only), early-return a no-op
+   unsubscribe. `useEventBusInit` calls every source unconditionally.
+4. **Synchronous return.** Even lazy plugin imports (Capacitor) must
+   return the unsubscribe synchronously — use an internal
+   `cancelled` flag if the listener registration is async.
+   See `capacitor-app-state.ts` for the pattern.
+5. **Colocated unit test.** Test in isolation via
+   `spyOn(eventBus, "publish")` on an `import * as eventBus from
+   "@/lib/event-bus"` namespace — don't reach for the integration
+   test in `use-event-bus-init.test.tsx`. The integration test is
+   for SSE-policy behavior, not source wiring.
+6. **Wire it in.** Add a single line to `useEventBusInit`'s Effect 1:
+   ```ts
+   const unsubscribers = [
+     publishVisibilitySource(),
+     // ...
+     publishMySignalSource(),
+   ];
+   ```
 
 ## Conventions
 
-- **Use the helpers, not the raw store.** `useBusSubscription` and
-  `subscribeBus` from `@/hooks/use-bus-subscription.js` are the only
-  blessed subscriber surfaces. Don't reach into
-  `useEventBusStore.getState().subscribe(...)` from new code — the
-  helpers exist to keep the unsubscribe lifecycle consistent.
+- **Two subscriber surfaces.** `useBusSubscription` from
+  `@/hooks/use-bus-subscription` for React; `subscribe` from
+  `@/lib/event-bus` for non-React (stores, services, loaders).
+  Both wrap the same module-private handler registry.
 - **Inline handlers are fine.** `useBusSubscription` stabilises the
   handler ref internally, so passing an arrow function does not
   re-register the subscription on every render. No `useCallback`
@@ -197,8 +246,10 @@ useBusSubscription("sse.event", (event) => {
 ### Imperative subscriber inside a store bootstrap
 
 ```ts
+import { subscribe } from "@/lib/event-bus";
+
 export function setupMyStore(): () => void {
-  const unsubResume = subscribeBus("app.resume", () => {
+  const unsubResume = subscribe("app.resume", () => {
     refetchIfStale();
   });
   return () => {
@@ -210,28 +261,31 @@ export function setupMyStore(): () => void {
 
 ## Don't do this
 
-- **Don't call `subscribeChatEvents` directly outside `use-event-bus-init.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
-- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. Subscribe to `bus.app.resume` instead. The only legitimate `visibilitychange` registration in the app is the one inside `use-event-bus-init.ts`.
+- **Don't call `subscribeChatEvents` directly outside `assistant/sse-service.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
+- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. Subscribe to `bus.app.resume` instead. The only legitimate `visibilitychange` registration in the app is `runtime/event-sources/dom-visibility.ts`.
 - **Don't register `window.online` / `window.offline` listeners** in a component or store. Subscribe to `bus.app.online` / `bus.app.offline`.
 - **Don't add polling intervals to discover state the daemon could push.** If the daemon already knows when something resolves, emit a typed event over `/v1/events` and subscribe to it via the bus.
-- **Don't read `useEventBusStore.use.*` in a component render body.** The store's reactive surface is empty by design — there's no state worth subscribing to. Always use `.getState().subscribe(...)` inside an effect or bootstrap closure.
+- **Don't reach for the handler registry directly.** The bus exports `publish` / `subscribe` / `__resetForTesting`. The internal `Map` is module-private — there's no reactive surface to subscribe to (and that's the point; see [STATE_MANAGEMENT.md](./STATE_MANAGEMENT.md#when-zustand-does-not-apply-stateless-registries)).
 
 ## Testing
 
-`event-bus-store.test.ts` covers the pub/sub surface (subscribe,
+`lib/event-bus.test.ts` covers the pub/sub surface (subscribe,
 unsubscribe, publish, isolation between event names, throwing-handler
-robustness). `use-event-bus-init.test.tsx` covers the source-wiring:
-SSE open gating, event re-broadcast, `sse.opened` cause tagging,
-teardown on `app.hidden`, reopen on `app.resume`, and the dedup window.
+robustness). `assistant/sse-service.test.ts` covers SSE behavior:
+open gating, event re-broadcast, `sse.opened` cause tagging, teardown
+on `app.hidden`, reopen on `app.resume`, the dedup window, and the
+power-driven bounce paths. `use-event-bus-init.test.tsx` asserts the
+thin React-adapter contract (don't attach without a resolved id /
+without an active assistant). Each `runtime/event-sources/*` file
+has a colocated unit test exercising its publish contract via
+`spyOn(eventBus, "publish")` on the module namespace.
 
-`__resetEventBusForTesting()` is exported from
-`event-bus-store.ts` for use in `beforeEach`/`afterEach`. Don't import
-it from production code.
+`__resetForTesting()` is exported from `lib/event-bus.ts` for use in
+`beforeEach` / `afterEach`. Don't import it from production code.
 
 ## References
 
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
-- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — why the bus is a
-  Zustand store even though it doesn't expose reactive state.
+- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md#when-zustand-does-not-apply-stateless-registries)
+  — why the bus is a plain pub/sub module, not a Zustand store.
 - [`CAPACITOR.md`](./CAPACITOR.md) — Capacitor `App.appStateChange`
   feeds the bus's `app.resume` / `app.hidden` channels on iOS.

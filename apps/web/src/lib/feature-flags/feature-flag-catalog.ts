@@ -16,7 +16,8 @@ export interface FlagDefinition {
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
+  values?: string[];
 }
 
 const flags = registry.flags as FlagDefinition[];
@@ -41,6 +42,18 @@ function kebabToStoreKey(kebabKey: string): string {
 function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
   const defaults: Record<string, boolean> = {};
   for (const flag of flags) {
+    if (typeof flag.defaultEnabled !== "boolean") continue;
+    if (scopeIncludes(flag.scope, scope)) {
+      defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
+    }
+  }
+  return defaults;
+}
+
+function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
+  const defaults: Record<string, string> = {};
+  for (const flag of flags) {
+    if (typeof flag.defaultEnabled !== "string") continue;
     if (scopeIncludes(flag.scope, scope)) {
       defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }
@@ -50,6 +63,8 @@ function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
 
 export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
 export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
+export const CLIENT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("client");
+export const ASSISTANT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("assistant");
 
 export type ClientFeatureFlags = Record<string, boolean>;
 export type AssistantFeatureFlags = Record<string, boolean>;

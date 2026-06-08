@@ -66,10 +66,10 @@ src/
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
-    chat/                    # chat feature (turn, subagent, interaction stores)
+    chat/                    # chat feature (turn, subagent, interaction, session stores)
     messages/                # message lifecycle
-    conversations/           # conversation CRUD, grouping, selection
-    voice/                   # STT, TTS, PTT
+    contacts/                # contact management
+    home/                    # home feed
     ...
   hooks/                     # cross-domain shared hooks
   utils/                     # cross-domain shared utilities (pure functions)
@@ -99,7 +99,7 @@ one domain, it belongs inside `domains/<name>/`.
 Reusable, domain-agnostic UI components live in `components/` for
 cross-domain shared UI. The design system (Button, Card, Modal, etc.)
 lives in `packages/design-library/` and is imported as
-`@vellum/design-library`. Components in `components/` must not import
+`@vellumai/design-library`. Components in `components/` must not import
 domain state or feature hooks.
 
 Domain-specific compositions of design library components (e.g. a
@@ -134,14 +134,14 @@ Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#
 
 Group imports in this order, separated by blank lines:
 
-1. **External packages** (`react`, `react-router`, `@vellum/design-library`, etc.)
+1. **External packages** (`react`, `react-router`, `@vellumai/design-library`, etc.)
 2. **Alias imports** (`@/domains/...`, `@/components/...`, `@/lib/...`)
 3. **Relative imports** (`./`, `../`)
 
 ```ts
 import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
-import { Button } from "@vellum/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useMessageStore } from "@/domains/messages/message-store";
 
@@ -305,7 +305,7 @@ export function ChatBody({ messages, onSubmit }: ChatBodyProps) { /* ... */ }
 ### Custom hooks start with `use`
 
 All custom hooks follow the React naming convention: `useSendMessage`,
-`useConversationLoader`, `useInteractionActions`.
+`useConversationHistory`, `useInteractionActions`.
 
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 

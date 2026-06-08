@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type {
   ContentBlock,
   Message,
@@ -107,8 +108,13 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
-// Track all messages persisted to DB
+// Track all messages persisted to DB via addMessage (single-shot writes).
 let persistedMessages: Array<{ role: string; content: string }> = [];
+// Track the latest content written into each reserved row (reserve + update
+// pattern). Tool results persist on arrival and finalize at the loop boundary
+// through this path, so the final value per row id is what lands in the DB.
+let reservedRowContent: Map<string, string> = new Map();
+let reserveCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -138,8 +144,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: () => {},
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-  updateMessageContent: mock(() => {}),
+  reserveMessage: mock(async () => ({ id: `msg-reserve-${++reserveCounter}` })),
+  updateMessageContent: mock((id: string, content: string) => {
+    reservedRowContent.set(id, content);
+  }),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -162,6 +170,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -179,6 +188,7 @@ mock.module("../context/window-manager.js", () => ({
 // Mock AgentLoop that simulates abort after first of multiple tool calls
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -189,10 +199,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -224,8 +235,11 @@ mock.module("../agent/loop.js", () => ({
         isError: false,
       });
 
-      // Abort happens before second tool
-      // Synthesize cancelled result for tu_2 (what the real AgentLoop does)
+      // Abort happens before second tool. The real AgentLoop synthesizes
+      // cancelled results into history AND emits a `cancelled` tool_result
+      // event per tool so the orchestrator captures them for persistence and
+      // forwards them to the client. tu_1 (already captured via its real
+      // tool_result event) wins via the handler's gap-fill guard.
       const resultBlocks: ContentBlock[] = [
         {
           type: "tool_result",
@@ -241,8 +255,27 @@ mock.module("../agent/loop.js", () => ({
         },
       ];
       history.push({ role: "user", content: resultBlocks });
+      onEvent({
+        type: "tool_result",
+        toolUseId: "tu_1",
+        content: "Cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+      onEvent({
+        type: "tool_result",
+        toolUseId: "tu_2",
+        content: "Cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
 
-      return history;
+      return {
+        history,
+        exitReason: null,
+        appendedNewMessages: true,
+        newMessages: history.slice(messages.length),
+      };
     }
   },
 }));
@@ -284,15 +317,17 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
 describe("abort tool result persistence", () => {
   test("abort after first of multiple tool calls still persists all required tool_result blocks", async () => {
     persistedMessages = [];
+    reservedRowContent = new Map();
+    reserveCounter = 0;
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -301,19 +336,26 @@ describe("abort tool result persistence", () => {
       attachments: [],
     });
 
-    // Find user messages in persisted data that contain tool_result
-    const toolResultUserMessages = persistedMessages.filter((m) => {
-      if (m.role !== "user") return false;
-      try {
-        const content = JSON.parse(m.content);
-        return (
-          Array.isArray(content) &&
-          content.some((b: Record<string, unknown>) => b.type === "tool_result")
-        );
-      } catch {
-        return false;
-      }
-    });
+    // Find persisted rows whose final content contains tool_result blocks.
+    // Tool results persist on arrival into one grouped row and finalize at the
+    // abort/loop boundary; the latest content per reserved row id is what lands
+    // in the DB, so one entry per row models the persisted state (a second
+    // entry would mean the batch was wrongly split across rows).
+    const toolResultUserMessages = Array.from(reservedRowContent.values())
+      .map((content) => ({ content }))
+      .filter((m) => {
+        try {
+          const content = JSON.parse(m.content);
+          return (
+            Array.isArray(content) &&
+            content.some(
+              (b: Record<string, unknown>) => b.type === "tool_result",
+            )
+          );
+        } catch {
+          return false;
+        }
+      });
 
     // There should be at least one persisted user message with tool_results
     expect(toolResultUserMessages.length).toBeGreaterThanOrEqual(1);

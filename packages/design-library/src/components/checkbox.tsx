@@ -47,7 +47,7 @@ function Checkbox({
   const rootClasses = cn(
     "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]",
     "border transition-colors outline-none cursor-pointer",
-    "focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+    "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
     "bg-[var(--surface-lift)] border-[var(--border-base)]",
     "data-[state=checked]:bg-[var(--system-positive-strong)] data-[state=checked]:border-transparent",
     "data-[state=indeterminate]:bg-[var(--system-positive-strong)] data-[state=indeterminate]:border-transparent",

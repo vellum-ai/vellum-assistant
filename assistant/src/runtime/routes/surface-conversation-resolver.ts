@@ -18,8 +18,8 @@ import type { Conversation } from "../../daemon/conversation.js";
 import {
   findConversation,
   findConversationBySurfaceId,
-  getOrCreateConversation,
-} from "../../daemon/conversation-store.js";
+} from "../../daemon/conversation-registry.js";
+import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { rawGet } from "../../memory/raw-query.js";
 
 /**
@@ -60,6 +60,7 @@ export async function resolveSurfaceConversation(
     `%"surfaceId":"${escaped}"%`,
   );
   if (!row) return undefined;
-  if (conversationId && conversationId !== row.conversation_id) return undefined;
+  if (conversationId && conversationId !== row.conversation_id)
+    return undefined;
   return await getOrCreateConversation(row.conversation_id);
 }

@@ -6,17 +6,16 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Builds a minimal `ChatMessageToolCall` fixture for testing `deriveStepLabel`.
- * Only the fields the function actually reads (`toolName`, `input`) need
+ * Only the fields the function actually reads (`name`, `input`) need
  * meaningful values; the rest are filled with safe defaults so the inline
  * fixtures stay readable.
  */
 function buildToolCall(
-  overrides: Partial<ChatMessageToolCall> & Pick<ChatMessageToolCall, "toolName">,
+  overrides: Partial<ChatMessageToolCall> & Pick<ChatMessageToolCall, "name">,
 ): ChatMessageToolCall {
   return {
     id: "tc-test",
     input: {},
-    status: "running",
     ...overrides,
   };
 }
@@ -25,7 +24,7 @@ describe("deriveStepLabel", () => {
   test("bash → Working (bash) with truncated command and code icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "bash",
+        name: "bash",
         input: { command: "echo hello world" },
       }),
     );
@@ -41,7 +40,7 @@ describe("deriveStepLabel", () => {
     const longCommand = "x".repeat(120);
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "bash",
+        name: "bash",
         input: { command: longCommand },
       }),
     );
@@ -54,7 +53,7 @@ describe("deriveStepLabel", () => {
   test("str_replace_editor view → Reading with basename and file icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "str_replace_editor",
+        name: "str_replace_editor",
         input: { command: "view", path: "/repo/apps/web/src/index.ts" },
       }),
     );
@@ -69,7 +68,7 @@ describe("deriveStepLabel", () => {
   test("text_editor view → Reading branch matches str_replace_editor", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "text_editor",
+        name: "text_editor",
         input: { command: "view", path: "/tmp/foo/bar.md" },
       }),
     );
@@ -84,7 +83,7 @@ describe("deriveStepLabel", () => {
   test("str_replace_editor create → Editing with pen icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "str_replace_editor",
+        name: "str_replace_editor",
         input: { command: "create", path: "/repo/new-file.tsx" },
       }),
     );
@@ -99,7 +98,7 @@ describe("deriveStepLabel", () => {
   test("str_replace_editor str_replace → Editing with pen icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "str_replace_editor",
+        name: "str_replace_editor",
         input: { command: "str_replace", path: "/repo/src/foo/bar.ts" },
       }),
     );
@@ -114,7 +113,7 @@ describe("deriveStepLabel", () => {
   test("computer → Using computer with action name and monitor icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "computer",
+        name: "computer",
         input: { action: "screenshot" },
       }),
     );
@@ -129,7 +128,7 @@ describe("deriveStepLabel", () => {
   test("mcp__<server>__<method> → Using <server> with method as info", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "mcp__stripe__create_payment_link",
+        name: "mcp__stripe__create_payment_link",
         input: {},
       }),
     );
@@ -144,7 +143,7 @@ describe("deriveStepLabel", () => {
   test("skill → Using a skill with skill name and sparkle icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "skill",
+        name: "skill",
         input: { skill: "code-review" },
       }),
     );
@@ -159,7 +158,7 @@ describe("deriveStepLabel", () => {
   test("skill_execute → Using a skill branch", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "skill_execute",
+        name: "skill_execute",
         input: { name: "deep-research" },
       }),
     );
@@ -174,7 +173,7 @@ describe("deriveStepLabel", () => {
   test("subagent_spawn → Spawning subagent with label and user-plus icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         input: { label: "Investigate flaky test" },
       }),
     );
@@ -189,7 +188,7 @@ describe("deriveStepLabel", () => {
   test("subagent_spawn falls back to objective when label is missing", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         input: { objective: "Audit auth flow" },
       }),
     );
@@ -204,7 +203,7 @@ describe("deriveStepLabel", () => {
   test("unknown tool name → Running <humanized> fallback with bolt icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "some_unknown_tool",
+        name: "some_unknown_tool",
         input: { whatever: "ignored" },
       }),
     );
@@ -219,7 +218,7 @@ describe("deriveStepLabel", () => {
   test("subagent_spawn surfaces input.activity while title stays stable", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "subagent_spawn",
+        name: "subagent_spawn",
         input: {
           label: "research-toronto",
           activity: "Spawning subagent to research Toronto's location in Canada",
@@ -235,7 +234,7 @@ describe("deriveStepLabel", () => {
   test("skill_load falls back to input.reason when activity is absent", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "skill_load",
+        name: "skill_load",
         input: { name: "deep-research", reason: "Loading research playbook" },
       }),
     );
@@ -245,7 +244,7 @@ describe("deriveStepLabel", () => {
   test("no activity or reason → activity is the empty string", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "bash",
+        name: "bash",
         input: { command: "ls" },
       }),
     );
@@ -255,7 +254,7 @@ describe("deriveStepLabel", () => {
   test("skill_execute wrapper preserves outer activity through inner-tool recursion", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        toolName: "skill_execute",
+        name: "skill_execute",
         input: {
           tool: "bash",
           input: { command: "echo hi", activity: "inner activity" },

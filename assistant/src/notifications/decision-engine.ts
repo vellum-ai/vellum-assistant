@@ -149,8 +149,8 @@ function buildSystemPrompt(
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
-    `- \`conversationSeedMessage\` is the opening message in the internal notification conversation — it can be richer and more contextual.`,
-    `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
+    `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
+    `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
     ``,
     `Conversation reuse guidelines:`,
@@ -838,7 +838,10 @@ export async function evaluateSignal(
       selectedChannels,
       reasoningSummary: "assistant_tool pass-through",
       renderedCopy: Object.fromEntries(
-        availableChannels.map((ch) => [ch, { title, body }]),
+        availableChannels.map((ch) => [
+          ch,
+          { title, body, conversationSeedMessage: body },
+        ]),
       ) as NotificationDecision["renderedCopy"],
       conversationActions: Object.fromEntries(
         availableChannels.map((ch) => [ch, { action: "start_new" as const }]),

@@ -2,34 +2,24 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Loader2, Pencil, XCircle } from "lucide-react";
 import { useState } from "react";
 
-import { BottomSheet } from "@vellum/design-library/components/bottom-sheet";
-import { Card } from "@vellum/design-library/components/card";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
-import { Popover } from "@vellum/design-library/components/popover";
-import { toast } from "@vellum/design-library/components/toast";
-import { Button } from "@vellum/design-library/components/button";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  assistantsOauthConnectionsListQueryKey,
-  assistantsOauthDisconnectByConnectionCreateMutation,
+    assistantsOauthConnectionsListQueryKey,
+    assistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Popover } from "@vellumai/design-library/components/popover";
+import { toast } from "@vellumai/design-library/components/toast";
 
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import type { PlatformGateState } from "@/hooks/use-platform-gate";
 
-function extractErrorDetail(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return detail;
-    }
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
-}
+import { extractErrorMessage } from "@/utils/api-errors";
 
 interface IntegrationRowProps {
   assistantId: string;
@@ -38,6 +28,7 @@ interface IntegrationRowProps {
   description: string | null;
   logoUrl: string | null;
   connection: OAuthConnection | null;
+  platformGate: PlatformGateState;
   onConfigure: () => void;
 }
 
@@ -57,6 +48,7 @@ export function IntegrationRow({
   description,
   logoUrl,
   connection,
+  platformGate,
   onConfigure,
 }: IntegrationRowProps) {
   const queryClient = useQueryClient();
@@ -83,8 +75,9 @@ export function IntegrationRow({
       queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
     },
     onError(error) {
-      const detail = extractErrorDetail(
+      const detail = extractErrorMessage(
         error,
+        undefined,
         `Failed to disconnect ${displayName} account.`,
       );
       toast.error(detail);
@@ -128,7 +121,7 @@ export function IntegrationRow({
               </p>
             )}
           </div>
-          {isConnected ? (
+          {isConnected && platformGate === "full" ? (
             <div className="shrink-0">
               <IntegrationConfigureMenu
                 displayName={displayName}

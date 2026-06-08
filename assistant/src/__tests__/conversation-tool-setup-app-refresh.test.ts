@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -70,6 +71,19 @@ import { createToolExecutor } from "../daemon/conversation-tool-setup.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function broadcastPayloads(): unknown[] {
+  return (broadcastSpy.mock.calls as unknown[][]).map(([payload]) => payload);
+}
+
+function expectAppChangeBroadcast(appId: string): void {
+  expect(broadcastPayloads()).toEqual(
+    expect.arrayContaining([
+      { type: "app_files_changed", appId },
+      { type: "sync_changed", tags: [SYNC_TAGS.appsList] },
+    ]) as never,
+  );
+}
 
 /** Build a minimal ToolSetupContext stub. */
 function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
@@ -167,11 +181,8 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_refresh", { app_id: "app-42" });
 
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
-        type: "app_files_changed",
-        appId: "app-42",
-      });
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
+      expectAppChangeBroadcast("app-42");
     });
 
     test("calls updatePublishedAppDeployment", async () => {
@@ -262,6 +273,7 @@ describe("session-tool-setup app refresh side effects", () => {
         type: "app_files_changed",
         appId: "new-app-1",
       });
+      expectAppChangeBroadcast("new-app-1");
     });
 
     test("canonicalizes create_app skill_execute alias before hooks run", async () => {
@@ -293,6 +305,7 @@ describe("session-tool-setup app refresh side effects", () => {
         type: "app_files_changed",
         appId: "alias-app-1",
       });
+      expectAppChangeBroadcast("alias-app-1");
     });
 
     test("canonicalizes legacy computer_use_press_key skill_execute alias before dispatch", async () => {
@@ -403,6 +416,7 @@ describe("session-tool-setup app refresh side effects", () => {
         type: "app_files_changed",
         appId: "new-app-err",
       });
+      expectAppChangeBroadcast("new-app-err");
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
@@ -424,11 +438,8 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_delete", { app_id: "del-app-1" });
 
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
-        type: "app_files_changed",
-        appId: "del-app-1",
-      });
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
+      expectAppChangeBroadcast("del-app-1");
     });
 
     test("skips side effects when app_delete result is an error", async () => {
@@ -480,7 +491,8 @@ describe("session-tool-setup app refresh side effects", () => {
         });
 
         expect(refreshSpy).toHaveBeenCalledTimes(1);
-        expect(broadcastSpy).toHaveBeenCalledTimes(1);
+        expect(broadcastSpy).toHaveBeenCalledTimes(2);
+        expectAppChangeBroadcast("skill-app");
         expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
       }
     });

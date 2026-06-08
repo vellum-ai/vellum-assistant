@@ -105,7 +105,10 @@ mock.module("openai", () => ({
 import { FireworksProvider } from "../providers/fireworks/client.js";
 import { MinimaxProvider } from "../providers/minimax/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
-import { OpenAIChatCompletionsProvider } from "../providers/openai/chat-completions-provider.js";
+import {
+  EMPTY_ASSISTANT_TURN_PLACEHOLDER,
+  OpenAIChatCompletionsProvider,
+} from "../providers/openai/chat-completions-provider.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
 import { OpenRouterProvider } from "../providers/openrouter/client.js";
 
@@ -1582,6 +1585,33 @@ describe("OpenRouterProvider reasoning", () => {
     expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Title");
     expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Categories");
     expect(lastCreateParams).not.toHaveProperty("usageAttributionHeaders");
+  });
+
+  test("backfills placeholder content for a reasoning-only assistant turn", async () => {
+    const provider = new OpenRouterProvider("or-key", "deepseek/deepseek-chat");
+    await provider.sendMessage([
+      userMsg("question"),
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "truncated reasoning", signature: "" },
+        ],
+      },
+    ]);
+
+    const sent = lastCreateParams!.messages as Array<{
+      role: string;
+      content: string | null;
+      reasoning?: string;
+      tool_calls?: unknown;
+    }>;
+    const assistantMsg = sent.find((m) => m.role === "assistant")!;
+    // DeepSeek via OpenRouter rejects an assistant message with neither content
+    // nor tool_calls, so the reasoning-only turn is backfilled with the sentinel
+    // while the reasoning itself travels in the separate `reasoning` field.
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+    expect(assistantMsg.tool_calls).toBeUndefined();
+    expect(assistantMsg.reasoning).toBe("truncated reasoning");
   });
 
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {

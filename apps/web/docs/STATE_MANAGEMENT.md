@@ -40,6 +40,22 @@ References:
 - [Zustand docs](https://zustand.docs.pmnd.rs/)
 - [Zustand — Auto-generating selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
 
+## When Zustand does NOT apply: stateless registries
+
+The "all shared client state lives in Zustand" rule means *state* —
+values consumers read and react to. A handler registry (the event bus,
+in `lib/event-bus.ts`) is not state. It's a pub/sub primitive where
+the only data is a `Map<event, Set<handler>>` that consumers never
+read, only write to and dispatch through. There's nothing for
+selectors to subscribe to. Wrapping it in a Zustand store adds
+ceremony without value — `useEventBusStore.getState().publish(...)`
+when `publish(...)` is the actual operation.
+
+The convention: stateless pub/sub registries are plain modules with
+exported functions. They live in `lib/` alongside other app
+infrastructure. The event bus is the canonical example; other
+registries (if any are added) should follow the same shape.
+
 ## Zustand store conventions
 
 Each domain owns its store, colocated within the domain folder:
@@ -180,6 +196,60 @@ for when to use each API.
 
 Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
 
+## Status as one discriminated union, never parallel booleans
+
+Model an async or multi-phase status as a single
+[discriminated-union](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions)
+field, not a pair of booleans. A `(isLoading, isLoggedIn)` pair has four
+combinations but only three are legal — `(true, true)` ("loading yet already
+logged in") is meaningless, and every reader has to remember which combination
+means what. A single `sessionStatus: "initializing" | "authenticated" |
+"unauthenticated"` makes the illegal state unrepresentable and names each phase
+once.
+
+```ts
+// Avoid — parallel booleans: 4 states encode 3, (true,true) is illegal
+interface AuthState { isLoading: boolean; isLoggedIn: boolean }
+
+// Prefer — one field, every value legal and named
+type SessionStatus = "initializing" | "authenticated" | "unauthenticated";
+interface AuthState { sessionStatus: SessionStatus }
+```
+
+References:
+- [TypeScript — Discriminated unions](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions)
+- [Making illegal states unrepresentable](https://fsharpforfunandprofit.com/posts/designing-with-types-making-illegal-states-unrepresentable/)
+
+## Where derivation lives: inline vs shared predicate
+
+Deriving a value from store state (`status === "authenticated"`,
+`user?.id`) belongs **inline in the consumer** when it is a one-off — keep the
+store's surface minimal and the derivation next to where it's used.
+
+Extract a **shared predicate** when the *same* derivation recurs across
+modules. Re-encoding `status === "authenticated"` at six call sites leaks the
+field's encoding to every reader: the question "is the user authenticated?"
+should be answered in one place, so a change to the encoding touches one line.
+Give the owning module two forms:
+
+- a **pure predicate** `isAuthenticated(status)` for imperative readers
+  (middleware, route resolvers, services) that already hold a value, and
+- a **hook** `useIsAuthenticated()` that composes the predicate over an atomic
+  selector, for reactive components.
+
+```ts
+// Pure predicate — owns the encoding, usable anywhere
+export const isAuthenticated = (s: SessionStatus) => s === "authenticated";
+
+// Hook — reactive read for components, composes the predicate
+export const useIsAuthenticated = () =>
+  isAuthenticated(useAuthStore.use.sessionStatus());
+```
+
+Keep pure predicates in a dependency-free module when modules the store
+*depends on* must also read them — `import type` cannot break a cycle through a
+runtime value (a predicate), only through a type.
+
 ## Reading state: `.use.*` vs `.getState()`
 
 Zustand exposes two ways to read store state. Using the wrong one
@@ -202,7 +272,7 @@ const handleClick = useCallback(() => {
 }, []);
 
 // Middleware — outside React
-const { isLoggedIn } = useAuthStore.getState();
+const { sessionStatus } = useAuthStore.getState();
 ```
 
 Zustand's `set()` is synchronous — `.getState()` after an action
@@ -265,6 +335,149 @@ References:
 - [React Query — Comparison](https://tanstack.com/query/latest/docs/framework/react/comparison)
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
+
+### When to use `useState`
+
+Not all state needs Zustand or React Query. Use plain `useState` when:
+
+- The state is **ephemeral and page-local** — dialog open/close, drawer
+  visibility, which tab is selected, inline form values.
+- There is a **single consumer** — only the component that owns the
+  state reads it. No sibling or distant component needs access.
+- The state **doesn't survive navigation** — losing it on unmount is
+  correct behavior, not a bug.
+
+If any of these stop being true — a second component needs to read the
+state, or it must persist across route changes — promote to a Zustand
+store.
+
+`useState` is the lightest primitive. Using Zustand or React Query when
+`useState` suffices adds ceremony without value.
+
+References:
+- [React — `useState`](https://react.dev/reference/react/useState)
+- [Zustand — When to use Zustand vs useState](https://zustand.docs.pmnd.rs/getting-started/introduction)
+
+### Optimistic updates in mutations
+
+TanStack Query supports two patterns for optimistic UI during mutations.
+Choose based on whether the mutation's optimistic state needs to be
+visible outside the mutating component.
+
+**"Via the UI"** — derive optimistic display from the mutation's own
+reactive state (`isPending`, `variables`). No cache manipulation, no
+manual rollback. Use this when the mutation and query live in the
+**same component**.
+
+```ts
+const deleteMutation = useMutation({
+  mutationFn: (id: string) => deleteContact(id),
+  onSettled: () => invalidateContacts(),
+});
+
+// Derive — don't imperatively set:
+const deletingId = deleteMutation.isPending ? deleteMutation.variables : null;
+const visibleContacts = contacts.filter((c) => c.id !== deletingId);
+```
+
+Rollback is automatic — when the mutation fails, `isPending` becomes
+`false` and the derivation stops.
+
+**"Via the Cache"** — write to the query cache in `onMutate`, roll back
+in `onError`, invalidate in `onSettled`. Use this when optimistic state
+must be visible to **multiple unrelated components** that read from the
+same query cache.
+
+**Always `cancelQueries` first** — an in-flight refetch (e.g. from
+another mutation's `onSettled` invalidation or `refetchOnWindowFocus`)
+can resolve after your optimistic write and overwrite it with stale
+server data. `cancelQueries` aborts those requests so they can't
+interfere.
+
+**Roll back only the changed field, not the full snapshot** — if
+concurrent mutations are possible (e.g. toggling profile A while
+profile B is being edited), restoring a full-config snapshot from
+`onMutate` would silently revert the other mutation's successful
+optimistic update. Instead, capture only the specific field(s) you're
+about to change, and in `onError` use an updater function to patch
+only those fields back. This keeps the rest of the cache intact.
+
+```ts
+const mutation = useMutation({
+  mutationFn: (vars: { id: string; isActive: boolean }) =>
+    patchItem(vars),
+  onMutate: async (vars) => {
+    await queryClient.cancelQueries({ queryKey });
+    // Snapshot only the field we're changing
+    const previousIsActive = queryClient.getQueryData<Item>(queryKey)?.isActive;
+    // Optimistic update via updater function (always reads latest cache)
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: vars.isActive } : old,
+    );
+    return { previousIsActive };
+  },
+  onError: (_err, _vars, ctx) => {
+    // Roll back only the changed field — concurrent updates to other
+    // fields stay intact
+    queryClient.setQueryData<Item>(queryKey, (old) =>
+      old ? { ...old, isActive: ctx?.previousIsActive } : old,
+    );
+  },
+  onSettled: () => queryClient.invalidateQueries({ queryKey }),
+});
+```
+
+When using "Via the Cache" and `onMutate` performs side effects beyond
+`setQueryData` (e.g. `setState` calls), snapshot and restore those in
+`onError` too — TanStack only manages cache rollback automatically.
+
+References:
+- [TanStack — Optimistic Updates](https://tanstack.com/query/v5/docs/framework/react/guides/optimistic-updates)
+- [TkDodo — Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query)
+
+### Deriving state from mutations
+
+Prefer deriving display values from mutation state over maintaining
+parallel `useState`. If `useMutation` already tracks the value (error
+message, pending variables, success result), read it from the mutation
+instead of duplicating it in a `useState`.
+
+```ts
+// Avoid — duplicates mutation error state
+const [error, setError] = useState<string | null>(null);
+const mutation = useMutation({
+  mutationFn: doThing,
+  onError: (err) => setError(err.message),
+});
+
+// Prefer — derive from mutation
+const mutation = useMutation({ mutationFn: doThing });
+const errorMessage = mutation.error?.message ?? null;
+// Clear with mutation.reset() instead of setError(null)
+```
+
+### Org-readiness gating for daemon queries
+
+Platform-mode daemon requests require the `Vellum-Organization-Id`
+header. The org store hydrates asynchronously after auth, so queries
+that mount before hydration completes (e.g. conversation queries on
+the eager `ChatPage` path) must gate on `useIsOrgReady()`:
+
+```ts
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+
+const isOrgReady = useIsOrgReady();
+const query = useQuery({
+  ...queryOptions,
+  enabled: enabled && Boolean(assistantId) && isOrgReady,
+});
+```
+
+Queries mounted inside `<ActiveAssistantGate>` typically don't race
+because the lifecycle resolves after org hydration, but the gate is
+cheap and safe to add defensively.
+
+Reference: [TanStack Query — Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
 
 ### Canonical migration example
 
@@ -345,12 +558,31 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
-**Known exceptions** (slated for migration):
+## Service-owned state vs store-owned state
 
-- `apps/web/src/domains/terminal/use-terminal-state.ts` and
-  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
-  `useReducer` + dispatch. These will be migrated to Zustand stores
-  in a future change. Do not pattern-match new code on these files.
+Module-level singleton services (e.g. `lifecycle-service.ts`) own
+*behavior* — async work, retry budgets, watchdogs, transitions. Any
+**state that React reads** lives in the service's Zustand store, not as
+a private service field, even if there's only one consumer today.
+
+The trap to avoid: a private singleton field + `peek()` method seems
+fine when the only consumer reads it once at mount. It breaks the
+moment a producer fires from *inside* the consumer's React tree
+(rather than from a sibling that navigates to it) — the singleton flip
+happens after the consumer's `useState` lazy initializer already
+peeked, no re-render is triggered, the UI goes stale. Patching by
+flipping a local mirror at the call site is a band-aid every future
+in-tree producer would need to repeat.
+
+Store-resident state avoids this entirely: `setState` on the store
+automatically re-renders every subscriber, regardless of where the
+producer fired from.
+
+Services expose `mark<Field>()` / `clear<Field>()` (or `set<Field>(v)`)
+that internally call `useTheStore.setState(...)`. React consumers read
+via the atomic selector `useTheStore.use.field()`; non-React callers
+read via `useTheStore.getState().field`. No mirror, no `peek`, no
+two-state invariant.
 
 References:
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)

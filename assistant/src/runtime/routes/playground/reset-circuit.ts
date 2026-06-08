@@ -48,9 +48,10 @@ export const ROUTES: RouteDefinition[] = [
         throwConversationNotFound(id);
       }
 
-      conversation.consecutiveCompactionFailures = 0;
-      if (conversation.compactionCircuitOpenUntil !== null) {
-        conversation.compactionCircuitOpenUntil = null;
+      const circuit = conversation.agentLoop.compactionCircuit;
+      circuit.consecutiveCompactionFailures = 0;
+      if (circuit.compactionCircuitOpenUntil !== null) {
+        circuit.compactionCircuitOpenUntil = null;
         conversation.sendToClient({
           type: "compaction_circuit_closed",
           conversationId: conversation.conversationId,
@@ -64,15 +65,19 @@ export const ROUTES: RouteDefinition[] = [
 
 function buildCompactionState(conversation: Conversation) {
   const config = getConfig();
-  const contextWindow = resolveCallSiteConfig("mainAgent", config.llm).contextWindow;
+  const contextWindow = resolveCallSiteConfig(
+    "mainAgent",
+    config.llm,
+  ).contextWindow;
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
   const maxInputTokens = contextWindow.maxInputTokens;
   const compactThresholdRatio = contextWindow.compactThreshold;
   const thresholdTokens = Math.floor(maxInputTokens * compactThresholdRatio);
+  const circuit = conversation.agentLoop.compactionCircuit;
   const isCircuitOpen =
-    conversation.compactionCircuitOpenUntil !== null &&
-    Date.now() < conversation.compactionCircuitOpenUntil;
+    circuit.compactionCircuitOpenUntil !== null &&
+    Date.now() < circuit.compactionCircuitOpenUntil;
 
   return {
     estimatedInputTokens,
@@ -82,8 +87,8 @@ function buildCompactionState(conversation: Conversation) {
     messageCount: messages.length,
     contextCompactedMessageCount: conversation.contextCompactedMessageCount,
     contextCompactedAt: conversation.contextCompactedAt,
-    consecutiveCompactionFailures: conversation.consecutiveCompactionFailures,
-    compactionCircuitOpenUntil: conversation.compactionCircuitOpenUntil,
+    consecutiveCompactionFailures: circuit.consecutiveCompactionFailures,
+    compactionCircuitOpenUntil: circuit.compactionCircuitOpenUntil,
     isCircuitOpen,
     isCompactionEnabled: contextWindow.enabled,
   };

@@ -34,8 +34,11 @@ WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ca-certificates \
+    e2fsprogs \
     iproute2 \
+    mount \
     procps \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder
@@ -51,6 +54,13 @@ COPY --from=builder --chown=gateway:gateway /app/gateway /app
 COPY --from=builder --chown=gateway:gateway /app/packages /app/packages
 
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
+
+COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
+RUN chmod +x \
+    /usr/local/bin/vellum-block-volume-common.sh \
+    /usr/local/bin/vellum-block-volume-init.sh \
+    /usr/local/bin/vellum-block-volume-mount.sh \
+    /usr/local/bin/vellum-block-volume-resize.sh
 
 USER gateway
 

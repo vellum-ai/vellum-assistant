@@ -1,11 +1,12 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
-import type { AgentLoopConversationContext } from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
-type Context = AgentLoopConversationContext;
+type Context = Conversation;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -95,7 +96,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
-  getConversationOverrideProfileFromRow: () => null,
+  resolveOverrideProfile: () => null,
   provenanceFromTrustContext: () => ({}),
   setConversationHistoryStrippedAt: () => {},
   updateConversationContextWindow: () => {},
@@ -105,13 +106,15 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 
-function makeCtx(
-  overrides: Partial<Context> = {},
-): AgentLoopConversationContext {
+function makeCtx(overrides: Partial<Context> = {}): Conversation {
+  let processing = true;
   return {
     conversationId: "conv-123",
     messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "req-123",
     agentLoop: {
@@ -121,6 +124,7 @@ function makeCtx(
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoop,
     provider: { name: "mock-provider" } as Context["provider"],
     systemPrompt: "system",
@@ -131,6 +135,8 @@ function makeCtx(
     } as unknown as Context["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
+    conversationType: "background",
+    source: "memory",
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
@@ -139,8 +145,6 @@ function makeCtx(
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -166,7 +170,6 @@ function makeCtx(
     hasNoClient: false,
     prompter: {} as Context["prompter"],
     queue: {} as Context["queue"],
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -177,7 +180,7 @@ function makeCtx(
     getTurnChannelContext: () => null,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 describe("runAgentLoopImpl disk pressure gate", () => {
@@ -213,10 +216,9 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     expect(activityStates).toContainEqual([
       "idle",
       "error_terminal",
-      "global",
-      "req-123",
+      { anchor: "global", requestId: "req-123" },
     ]);
-    expect(ctx.processing).toBe(false);
+    expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
     expect(ctx.currentRequestId).toBeUndefined();
     expect(drainQueue).toHaveBeenCalledWith("loop_complete");

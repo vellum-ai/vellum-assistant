@@ -264,7 +264,7 @@ export async function runBackgroundJob(
       );
     }
 
-    const work = processMessage(conversation.id, opts.prompt, undefined, {
+    const work = processMessage(conversation.id, opts.prompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
     });

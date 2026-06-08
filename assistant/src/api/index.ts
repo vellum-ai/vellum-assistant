@@ -1,18 +1,24 @@
 import { z } from "zod";
 
+import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
+import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
+import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
+import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
+import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update.js";
+import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
@@ -23,6 +29,8 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
+import { NotificationIntentEventSchema } from "./events/notification-intent.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
@@ -30,15 +38,32 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
+import { SyncChangedEventSchema } from "./events/sync-changed.js";
+import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
+import { ToolResultEventSchema } from "./events/tool-result.js";
+import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
+import { TraceEventSchema } from "./events/trace-event.js";
+import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
+import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AssistantActivityAnchor,
+  AssistantActivityAnchorSchema,
+  type AssistantActivityPhase,
+  AssistantActivityPhaseSchema,
+  type AssistantActivityReason,
+  AssistantActivityReasonSchema,
+  type AssistantActivityStateEvent,
+  AssistantActivityStateEventSchema,
+} from "./events/assistant-activity-state.js";
 export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
@@ -47,6 +72,10 @@ export {
   type AssistantTextDeltaEvent,
   AssistantTextDeltaEventSchema,
 } from "./events/assistant-text-delta.js";
+export {
+  type AssistantThinkingDeltaEvent,
+  AssistantThinkingDeltaEventSchema,
+} from "./events/assistant-thinking-delta.js";
 export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
@@ -86,6 +115,12 @@ export {
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
 export {
+  type ConversationErrorCode,
+  ConversationErrorCodeSchema,
+  type ConversationErrorEvent,
+  ConversationErrorEventSchema,
+} from "./events/conversation-error.js";
+export {
   type ConversationListInvalidatedEvent,
   ConversationListInvalidatedEventSchema,
   type ConversationListInvalidatedReason,
@@ -95,6 +130,16 @@ export {
   type ConversationTitleUpdatedEvent,
   ConversationTitleUpdatedEventSchema,
 } from "./events/conversation-title-updated.js";
+export {
+  type DiskPressureBlockedCapability,
+  DiskPressureBlockedCapabilitySchema,
+  type DiskPressureState,
+  DiskPressureStateSchema,
+  type DiskPressureStatus,
+  type DiskPressureStatusChangedEvent,
+  DiskPressureStatusChangedEventSchema,
+  DiskPressureStatusSchema,
+} from "./events/disk-pressure-status-changed.js";
 export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
@@ -111,6 +156,11 @@ export {
   type DocumentCommentResolvedEvent,
   DocumentCommentResolvedEventSchema,
 } from "./events/document-comment-resolved.js";
+export {
+  type DocumentEditorUpdateEvent,
+  DocumentEditorUpdateEventSchema,
+} from "./events/document-editor-update.js";
+export { type ErrorEvent, ErrorEventSchema } from "./events/error.js";
 export {
   type GenerationCancelledEvent,
   GenerationCancelledEventSchema,
@@ -153,6 +203,14 @@ export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
+export {
+  type NavigateSettingsEvent,
+  NavigateSettingsEventSchema,
+} from "./events/navigate-settings.js";
+export {
+  type NotificationIntentEvent,
+  NotificationIntentEventSchema,
+} from "./events/notification-intent.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type QuestionEntry,
@@ -189,9 +247,51 @@ export {
   SubagentUsageStatsSchema,
 } from "./events/subagent-status-changed.js";
 export {
+  type SyncChangedEvent,
+  SyncChangedEventSchema,
+} from "./events/sync-changed.js";
+export {
+  type ToolOutputChunkEvent,
+  ToolOutputChunkEventSchema,
+  type ToolOutputChunkSubType,
+  ToolOutputChunkSubTypeSchema,
+} from "./events/tool-output-chunk.js";
+export {
+  type RiskScopeOption,
+  RiskScopeOptionSchema,
+  type ToolActivityMetadata,
+  ToolActivityMetadataSchema,
+  type ToolResultEvent,
+  ToolResultEventSchema,
+  type WebFetchMetadata,
+  WebFetchMetadataSchema,
+  type WebSearchMetadata,
+  WebSearchMetadataSchema,
+  type WebSearchProviderId,
+  WebSearchProviderIdSchema,
+  type WebSearchResultItem,
+  WebSearchResultItemSchema,
+} from "./events/tool-result.js";
+export {
+  type ToolUsePreviewStartEvent,
+  ToolUsePreviewStartEventSchema,
+} from "./events/tool-use-preview-start.js";
+export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
+export {
+  type TraceEvent,
+  type TraceEventKind,
+  TraceEventKindSchema,
+  TraceEventSchema,
+  type TraceEventStatus,
+  TraceEventStatusSchema,
+} from "./events/trace-event.js";
+export {
+  type TurnProfileAutoRoutedEvent,
+  TurnProfileAutoRoutedEventSchema,
+} from "./events/turn-profile-auto-routed.js";
 export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
@@ -211,9 +311,78 @@ export {
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
 export {
+  type UsageUpdateEvent,
+  UsageUpdateEventSchema,
+} from "./events/usage-update.js";
+export {
   type UserMessageEchoEvent,
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
+export {
+  type DictationContext,
+  DictationContextSchema,
+  type DictationRequest,
+  DictationRequestSchema,
+} from "./requests/dictation.js";
+export {
+  type ConversationContentBlock,
+  ConversationContentBlockSchema,
+  type ConversationMessage,
+  type ConversationMessageAttachment,
+  ConversationMessageAttachmentSchema,
+  ConversationMessageSchema,
+  type ConversationMessageSurface,
+  ConversationMessageSurfaceSchema,
+  type ConversationMessageToolCall,
+  ConversationMessageToolCallSchema,
+  type ConversationSlackMessage,
+  ConversationSlackMessageSchema,
+  type ConversationSubagentNotification,
+  ConversationSubagentNotificationSchema,
+  type PendingToolConfirmation,
+  PendingToolConfirmationSchema,
+} from "./responses/conversation-message.js";
+export {
+  type DiskPressureStatusResponse,
+  DiskPressureStatusResponseSchema,
+} from "./responses/disk-pressure-status.js";
+export {
+  type Capability,
+  CapabilitySchema,
+  type CapabilityTier,
+  type ContextBanner,
+  ContextBannerSchema,
+  type Fact,
+  type FactCategory,
+  type FactConfidence,
+  FactSchema,
+  type FactSource,
+  type FeedAction,
+  FeedActionSchema,
+  type FeedItem,
+  type FeedItemCategory,
+  FeedItemCategorySchema,
+  type FeedItemDetailPanel,
+  type FeedItemDetailPanelKind,
+  FeedItemDetailPanelKindSchema,
+  FeedItemDetailPanelSchema,
+  FeedItemSchema,
+  type FeedItemStatus,
+  FeedItemStatusSchema,
+  type FeedItemType,
+  FeedItemTypeSchema,
+  type FeedItemUrgency,
+  FeedItemUrgencySchema,
+  type HomeFeedResponse,
+  HomeFeedResponseSchema,
+  type RelationshipState,
+  RelationshipStateSchema,
+  type RelationshipTier,
+  type SuggestedPrompt,
+  SuggestedPromptSchema,
+  type SuggestedPromptSource,
+  SuggestedPromptSourceSchema,
+} from "./responses/home.js";
 export {
   type LlmContextResponse,
   LlmContextResponseSchema,
@@ -248,6 +417,12 @@ export {
   type MemoryV3SelectionRow,
   MemoryV3SelectionRowSchema,
 } from "./responses/memory-v3-selection-log.js";
+export {
+  type SubagentDetailEvent,
+  SubagentDetailEventSchema,
+  type SubagentDetailResponse,
+  SubagentDetailResponseSchema,
+} from "./responses/subagent-detail.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -263,19 +438,25 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
+  AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
+  ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationTitleUpdatedEventSchema,
+  DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
+  DocumentEditorUpdateEventSchema,
+  ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
@@ -286,6 +467,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  NavigateSettingsEventSchema,
+  NotificationIntentEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
@@ -293,11 +476,18 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
+  SyncChangedEventSchema,
+  ToolOutputChunkEventSchema,
+  ToolResultEventSchema,
+  ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
+  TraceEventSchema,
+  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUpdateEventSchema,
+  UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
 ]);
 
@@ -308,3 +498,21 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
  * event migrates into the schema, it appears here automatically.
  */
 export type AssistantEvent = z.infer<typeof AssistantEventSchema>;
+
+/**
+ * SSE wire envelope wrapping every outbound event from the daemon.
+ *
+ * Transport-level metadata (`id`, `seq`, `emittedAt`, `conversationId`)
+ * surrounds the semantic event payload in `message`.
+ */
+export const AssistantEventEnvelopeSchema = z.object({
+  id: z.string(),
+  conversationId: z.string().optional(),
+  seq: z.number().int().optional(),
+  emittedAt: z.string(),
+  message: AssistantEventSchema,
+});
+
+export type AssistantEventEnvelope = z.infer<
+  typeof AssistantEventEnvelopeSchema
+>;

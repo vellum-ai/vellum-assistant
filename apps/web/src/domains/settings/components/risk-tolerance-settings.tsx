@@ -3,19 +3,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Card } from "@vellum/design-library/components/card";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
-  assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-import {
-  getGlobalThresholds,
-  setGlobalThresholds,
+    getGlobalThresholds,
+    setGlobalThresholds,
 } from "@/lib/threshold-api";
 import {
-  THRESHOLD_PRESETS,
-  presetFromThreshold,
+    THRESHOLD_PRESETS,
+    presetFromThreshold,
 } from "@/utils/threshold-presets";
+import { Card } from "@vellumai/design-library/components/card";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 function Divider() {
   return (
@@ -30,14 +28,12 @@ const PRESET_OPTIONS = THRESHOLD_PRESETS.map((p) => ({
 }));
 
 export function RiskToleranceSettings() {
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
+  const assistantId = useActiveAssistantId();
 
   const queryClient = useQueryClient();
   const { data: thresholds, isError: loadError } = useQuery({
     queryKey: ["thresholds", assistantId],
-    queryFn: () => getGlobalThresholds(assistantId!),
-    enabled: !!assistantId,
+    queryFn: () => getGlobalThresholds(assistantId),
     staleTime: 30_000,
   });
 

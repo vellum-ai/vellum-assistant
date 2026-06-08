@@ -21,7 +21,6 @@ export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
-export * from "./message-types/disk-pressure.js";
 export * from "./message-types/document-comments.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
@@ -51,6 +50,7 @@ export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
+import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
 import type {
   _AppsClientMessages,
@@ -77,7 +77,6 @@ import type {
   _DiagnosticsClientMessages,
   _DiagnosticsServerMessages,
 } from "./message-types/diagnostics.js";
-import type { _DiskPressureServerMessages } from "./message-types/disk-pressure.js";
 import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
 import type {
   _DocumentsClientMessages,
@@ -216,7 +215,7 @@ export type ServerMessage =
   | _UpgradesServerMessages
   | _AcpServerMessages
   | _BookmarksServerMessages
-  | _DiskPressureServerMessages
+  | DiskPressureStatusChangedEvent
   | SubagentEvent;
 
 // === Contract schema ===

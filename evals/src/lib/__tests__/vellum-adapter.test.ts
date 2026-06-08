@@ -1,9 +1,11 @@
-import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
 import { VellumAgent, normalizeVellumEventStream } from "../adapters/vellum";
+import { runArtifacts } from "../metrics";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -85,6 +87,16 @@ const profile: Profile = {
   workspaceDir: "/profiles/vellum-bare/workspace",
 };
 
+async function preStageRecordingCa(runId: string): Promise<void> {
+  // applyDockerEgressJail's installRecordingCa polls for this file
+  // for 10s before timing out. In production the recording sidecar's
+  // entrypoint drops it at boot; tests skip that path, so we pre-stage
+  // a fake CA in the host-side recordingDir directly.
+  const runDir = runArtifacts(runId).runDir;
+  await mkdir(runDir, { recursive: true });
+  await writeFile(join(runDir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
+}
+
 describe("VellumAgent", () => {
   test("hatches a fresh docker assistant, applies the jail externally, runs setup, and subscribes to events", async () => {
     const runner = new FakeRunner();
@@ -94,8 +106,13 @@ describe("VellumAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-run-1",
+      // Pin to empty so a host-shell `ANTHROPIC_API_KEY` (or any other
+      // provider var) doesn't leak into the `env: {}` assertion below.
+      // The provider-forwarding contract has its own dedicated tests.
+      processEnv: {},
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     expect(agent.id).toBe("eval-run-1");
@@ -147,8 +164,27 @@ describe("VellumAgent", () => {
     expect(runner.runs[3].args).toContain("--cap-add");
     expect(runner.runs[3].args).toContain("NET_ADMIN");
     expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command — also gets a per-step subprocess-setup-N.log
-    expect(runner.runs[4]).toEqual({
+    // Species default feature flag — runs between jail apply (which
+    // now includes the CA handoff at runs[4..5]) and the first setup
+    // command. See VELLUM_DEFAULT_FEATURE_FLAGS in the adapter for the
+    // canonical list.
+    expect(runner.runs[6]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-1",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+    // Setup command — gets a per-step subprocess-setup-N.log
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -184,6 +220,123 @@ describe("VellumAgent", () => {
     ]);
   });
 
+  test("applies vellum species default flags via `vellum flags set --assistant <id>` BEFORE setup commands", async () => {
+    const runner = new FakeRunner();
+    // Ordering invariants under test:
+    //   (a) species default flags come AFTER docker jail apply
+    //       (runs[3]) but BEFORE any setup command — gated setup
+    //       steps (e.g. `assistant plugins install`) depend on the
+    //       flag being flipped first.
+    //   (b) `--assistant <this.id>` is passed explicitly so the
+    //       user's active-assistant pointer is never mutated by an
+    //       eval run.
+    const profileWithSetup: Profile = {
+      id: "vellum-simple-memory",
+      manifest: {
+        species: "vellum",
+        setup: ["assistant plugins install simple-memory"],
+      },
+      workspaceDir: "/profiles/vellum-simple-memory/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId: "eval-run-2",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // runs[0..3] are hatch + jail rm/build/run; runs[4..5] are the CA
+    // handoff (docker cp + docker exec update-ca-certificates) — same
+    // as the canonical happy-path test. Confirm the count to anchor
+    // the indices: 6 pre-flag steps + 1 species default flag
+    // (`external-plugins`) + 1 setup command = 8.
+    expect(runner.runs.length).toBe(8);
+    expect(runner.runs[0].args[0]).toBe("hatch");
+
+    // Species default: `external-plugins` is always flipped ON for
+    // vellum hatches, regardless of manifest contents.
+    expect(runner.runs[6]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-2",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+
+    // Setup command lands AFTER the species default flag — this is the
+    // chicken-and-egg property the ordering protects.
+    expect(runner.runs[7]).toEqual({
+      command: "vellum",
+      args: [
+        "exec",
+        "eval-run-2",
+        "--",
+        "sh",
+        "-lc",
+        "assistant plugins install simple-memory",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-setup-1\.log$/),
+        logStep: "setup-1",
+      },
+    });
+  });
+
+  test("species default flags still apply to a profile with no setup commands (the bare vellum case)", async () => {
+    const runner = new FakeRunner();
+    // The "no setup commands" case is structurally distinct from "no
+    // flags" — `vellum-bare` exists precisely to exercise the bare
+    // species path. Even with zero setup commands, the species default
+    // flag must land so a downstream test that calls `assistant
+    // plugins install` from inside the agent doesn't trip the gate.
+    const bareProfile: Profile = {
+      id: "vellum-bare",
+      manifest: { species: "vellum" },
+      workspaceDir: "/profiles/vellum-bare/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: bareProfile,
+      testId: "timeline-recall",
+      runId: "eval-run-3",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // hatch + jail rm/build/run + CA install (cp + update-ca-certs) + 1
+    // species default flag = 7. No setup commands.
+    expect(runner.runs.length).toBe(7);
+    expect(runner.runs[6]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-3",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+  });
+
   test("forwards LLM provider API keys from process env into the hatch subprocess", async () => {
     const runner = new FakeRunner();
     // Mix recognized provider vars (should be forwarded), an empty provider
@@ -202,6 +355,7 @@ describe("VellumAgent", () => {
       },
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
@@ -222,6 +376,7 @@ describe("VellumAgent", () => {
       processEnv: { PATH: "/usr/bin" },
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
@@ -237,6 +392,7 @@ describe("VellumAgent", () => {
       runId: "eval-run-seed",
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     await agent.runSetupCommand({
       type: "seed-conversation",
@@ -285,12 +441,20 @@ describe("VellumAgent", () => {
       runId: "eval-run-2",
     });
 
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     agent.events();
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
+    // The shutdown sequence now has six tail entries (in this order):
+    //  1. `vellum message ...` (final user turn)
+    //  2. `docker rm -f <jail-container>` (this.jail.stop())
+    //  3. `vellum retire <runId>` (the retire call we just wrapped)
+    //  4–6. `docker rm -f <runId>-<sibling>` ×3 (force-reap fallback)
+    // The reaper iterates assistant → gateway → credential-executor
+    // in `VELLUM_HATCH_SERVICES` order.
+    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-6)).toEqual([
       [
         "vellum",
         "message",
@@ -301,6 +465,9 @@ describe("VellumAgent", () => {
       ],
       ["docker", "rm", "-f", "eval-run-2-assistant-egress-jail"],
       ["vellum", "retire", "eval-run-2"],
+      ["docker", "rm", "-f", "eval-run-2-assistant"],
+      ["docker", "rm", "-f", "eval-run-2-gateway"],
+      ["docker", "rm", "-f", "eval-run-2-credential-executor"],
     ]);
     expect(runner.process.killed).toBe(true);
   });
@@ -406,8 +573,11 @@ describe("VellumAgent", () => {
         opts?: RunOptions,
       ): Promise<CommandResult> {
         this.runs.push({ command, args, opts });
-        if (args[0] === "exec") {
-          // Setup commands are dispatched as `vellum exec <id> -- …`.
+        // Setup commands are dispatched as `vellum exec <id> -- …`.
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` (CA handoff) is not accidentally
+        // intercepted and returned as a failure.
+        if (command === "vellum" && args[0] === "exec") {
           return {
             exitCode: 1,
             stdout: "",
@@ -436,6 +606,7 @@ describe("VellumAgent", () => {
       runId: "eval-vellum-bare-x-20260524160000123-abcd",
     });
 
+    await preStageRecordingCa(agent.id);
     await expect(agent.hatch()).rejects.toThrow(/setup command/i);
     const sequence = runner.runs.map((r) => [r.command, ...r.args]);
 
@@ -444,6 +615,129 @@ describe("VellumAgent", () => {
     );
     expect(retireCalls).toHaveLength(1);
     expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
+  });
+
+  test("force-reaps every sibling container after retire (defense-in-depth against silent retire failures)", async () => {
+    // The previous catch-path swallowed `vellum retire` failures with
+    // .catch(() => undefined), so a retire that returned non-zero left
+    // the assistant container alive and bound to port 7821, wedging the
+    // next hatch. The fallback reap calls `docker rm -f` per sibling
+    // regardless of retire's exit code — if retire's own rm succeeded
+    // we're a no-op; if it failed we close the leak.
+    class HatchOkSetupFails extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` is not intercepted here.
+        if (command === "vellum" && args[0] === "exec") {
+          return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    const profileWithSetup = {
+      ...profile,
+      manifest: { ...profile.manifest, setup: ["echo hello"] },
+    };
+    const runner = new HatchOkSetupFails();
+    const runId = "eval-vellum-bare-reap-20260524160000123-abcd";
+    const agent = new VellumAgent({
+      runner,
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId,
+    });
+
+    await preStageRecordingCa(agent.id);
+    await expect(agent.hatch()).rejects.toThrow(/setup command/i);
+
+    // The reaper calls `docker rm -f <name>` for each of the three
+    // sibling Vellum hatch containers. Use exact equality (not
+    // startsWith) so unrelated `docker rm -f <runId>-assistant-egress-jail`
+    // calls from the jail's pre-clean step don't poison the assertion.
+    const siblingNames = new Set([
+      `${runId}-assistant`,
+      `${runId}-credential-executor`,
+      `${runId}-gateway`,
+    ]);
+    const dockerRmCalls = runner.runs
+      .filter(
+        (r) =>
+          r.command === "docker" &&
+          r.args[0] === "rm" &&
+          r.args[1] === "-f" &&
+          typeof r.args[2] === "string" &&
+          siblingNames.has(r.args[2]),
+      )
+      .map((r) => r.args[2]);
+    expect(dockerRmCalls.sort()).toEqual([...siblingNames].sort());
+  });
+
+  test("surfaces a [retire] warning when `vellum retire` exits non-zero", async () => {
+    // The previous .catch(() => undefined) gave operators no breadcrumb
+    // back to the failed retire — the cascading port-7821 collisions
+    // looked like spontaneous failures. With the structured warn, the
+    // root cause lands in the runner's subprocess log alongside the
+    // original error.
+    class HatchOkSetupFailsRetireFails extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        // Guard on `command === "vellum"` so `docker exec
+        // update-ca-certificates` is not intercepted here.
+        if (command === "vellum" && args[0] === "exec") {
+          return { exitCode: 1, stdout: "", stderr: "setup command crashed" };
+        }
+        if (args[0] === "retire") {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: "Could not find assistant entry",
+          };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    const profileWithSetup = {
+      ...profile,
+      manifest: { ...profile.manifest, setup: ["echo hello"] },
+    };
+    const runner = new HatchOkSetupFailsRetireFails();
+    const runId = "eval-vellum-bare-retire-warn-20260524160000123-abcd";
+    const agent = new VellumAgent({
+      runner,
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId,
+    });
+
+    await preStageRecordingCa(agent.id);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: unknown) => {
+      if (typeof msg === "string") warnings.push(msg);
+    };
+    try {
+      await expect(agent.hatch()).rejects.toThrow(/setup command/i);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    const retireWarning = warnings.find((w) =>
+      w.startsWith("[retire] vellum retire"),
+    );
+    expect(retireWarning).toBeDefined();
+    expect(retireWarning).toContain(runId);
+    expect(retireWarning).toContain("Could not find assistant entry");
   });
 
   // The two capability methods below back the LongMemEval-V2
@@ -461,6 +755,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-1",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const baseline = runner.runs.length;
@@ -498,6 +793,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-abs",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -513,6 +809,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-traverse",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -531,6 +828,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-write-empty",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(
@@ -560,6 +858,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-newconvo",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
     const beforeKey = agent.conversationKey;
 
@@ -607,6 +906,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-newconvo-bad",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     await expect(agent.newConversation!()).rejects.toThrow(
@@ -639,6 +939,7 @@ describe("VellumAgent", () => {
       testId: "lme-v2",
       runId: "eval-events-rotation",
     });
+    await preStageRecordingCa(agent.id);
     await agent.hatch();
 
     const ingestKey = agent.conversationKey;

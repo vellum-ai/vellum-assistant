@@ -56,6 +56,25 @@ export interface PreChatOnboardingContext {
   skills?: string[];
 }
 
+export const DEFAULT_PRECHAT_INITIAL_MESSAGE = "Wake up, my friend!";
+
+/**
+ * Build the exact user message that ChatPage will auto-send after pre-chat.
+ * The pending context is the source of truth for this value; downstream chat
+ * code should send it as-is rather than reconstructing it from onboarding
+ * fields.
+ */
+export function buildPreChatInitialMessage(
+  ctx: Pick<PreChatOnboardingContext, "assistantName" | "userName">,
+): string {
+  const assistant = ctx.assistantName?.trim();
+  const user = ctx.userName?.trim();
+  if (!assistant && !user) return DEFAULT_PRECHAT_INITIAL_MESSAGE;
+  const hi = assistant ? `Hi ${assistant}` : "Hi";
+  const intro = user ? `, I'm ${user}` : "";
+  return `${hi}${intro}. Nice to meet you.`;
+}
+
 /**
  * Map of known tool IDs from the PreChat UI to the display names the daemon
  * writes into the persona file. Kept in sync with
@@ -189,7 +208,11 @@ function isPreChatOnboardingContext(
   value: unknown,
 ): value is PreChatOnboardingContext {
   if (value === null || typeof value !== "object") return false;
-  const candidate = value as Record<string, unknown>;
+
+  // After the object check, use `in` narrowing for required fields and a
+  // single record view for optional-field checks (TypeScript doesn't support
+  // `in` narrowing on dynamic/optional keys without this step).
+  const candidate = value as Record<string, unknown>; // narrowed from `object`
 
   if (!Array.isArray(candidate.tools)) return false;
   if (!candidate.tools.every((t) => typeof t === "string")) return false;

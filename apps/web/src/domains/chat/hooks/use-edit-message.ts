@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 export function useEditMessage(messages: DisplayMessage[]) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -9,7 +10,7 @@ export function useEditMessage(messages: DisplayMessage[]) {
       const m = messages[i];
       if (m.role === "user" && !m.queueStatus && !m.isOptimistic) {
         setEditingMessageId(m.id);
-        return m.content;
+        return segmentsToPlainText(m.textSegments);
       }
     }
     return null;

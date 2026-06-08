@@ -1,5 +1,5 @@
 import { HomeMarkdownContent } from "./home-markdown-content";
-import type { FeedItem } from "../types";
+import type { FeedItem } from "@vellumai/assistant-api";
 
 export interface HomeGenericDetailProps {
   item: FeedItem;

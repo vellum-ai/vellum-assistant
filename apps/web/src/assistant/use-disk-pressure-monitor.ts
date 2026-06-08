@@ -1,10 +1,11 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
 import {
   acknowledgeAssistantDiskPressure,
   getAssistantDiskPressureStatus,
-  type DiskPressureStatus,
 } from "@/assistant/api";
 import {
   DISK_PRESSURE_POLL_INTERVAL_MS,
@@ -13,7 +14,6 @@ import {
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 export interface UseDiskPressureMonitorOptions {
   assistantId: string | null;
@@ -67,8 +67,10 @@ export function useDiskPressureMonitor({
   const generationRef = useRef(0);
   const pollRequestIdRef = useRef(0);
 
-  activeAssistantIdRef.current = assistantId;
-  enabledRef.current = enabled;
+  useLayoutEffect(() => {
+    activeAssistantIdRef.current = assistantId;
+    enabledRef.current = enabled;
+  });
 
   useEffect(() => {
     generationRef.current += 1;
@@ -169,20 +171,18 @@ export function useDiskPressureMonitor({
       void refresh();
     }, cadenceMs);
 
-    // The bus's `"app.resume"` channel fans in browser visibility,
-    // Capacitor foreground, and `window.online`, so a single
-    // subscription drives the focus-style refetch.
-    const unsubResume = useEventBusStore
-      .getState()
-      .subscribe("app.resume", () => {
-        void refresh();
-      });
-
     return () => {
       window.clearInterval(intervalId);
-      unsubResume();
     };
   }, [assistantId, cadenceMs, enabled, refresh, refreshKey]);
+
+  // The bus's `"app.resume"` channel fans in browser visibility,
+  // Capacitor foreground, and `window.online`, so a single
+  // subscription drives the focus-style refetch. `refresh` guards
+  // on `enabled` and `assistantId` internally.
+  useBusSubscription("app.resume", () => {
+    void refresh();
+  });
 
   const applyStatusEvent = useCallback(
     (payload: DiskPressureStatusEventPayload) => {
@@ -209,7 +209,8 @@ export function useDiskPressureMonitor({
   // Complements the polling interval and resume-refresh above so
   // status changes are reflected immediately without waiting for
   // the next poll tick.
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
     if (event.type !== "disk_pressure_status_changed") return;
     applyStatusEvent(event.status);
   });

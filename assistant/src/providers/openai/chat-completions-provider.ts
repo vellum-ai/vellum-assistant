@@ -4,6 +4,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -101,6 +102,26 @@ export function extractApiErrorDetail(
 const MAX_API_ERROR_DETAIL_CHARS = 2000;
 
 /**
+ * Fallback `content` for an assistant turn that has neither visible text nor
+ * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
+ *
+ * The OpenAI chat-completions schema requires an assistant message to carry
+ * `content` or `tool_calls`. OpenAI itself tolerates `content: null`/`""` here,
+ * but strict OpenAI-compatible backends do not: DeepSeek via OpenRouter rejects
+ * the request with `Invalid assistant message: content or tool_calls must be
+ * set`, and vLLM-style validators coerce empty-string content back to null and
+ * reject it the same way. The placeholder must therefore be a non-empty string.
+ *
+ * We reuse the shared empty-turn sentinel so that
+ * `isPlaceholderSentinelText`/`cleanAssistantContent` strip it from persisted
+ * and rendered history if a model ever echoes it back. The null-byte prefix is
+ * dropped because some OpenAI-compatible backends reject control characters in
+ * message content; the bare form is still recognized by
+ * `isPlaceholderSentinelText`.
+ */
+export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = PLACEHOLDER_EMPTY_TURN.slice(1);
+
+/**
  * Read the first matching header from an SDK error's headers object,
  * tolerating both Map-like (`Headers.get()`) and plain-object shapes.
  * Mirrors the shape-tolerance already in `extractRetryAfterMs`.
@@ -153,6 +174,13 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
    *  When unset, thinking blocks are dropped from outbound assistant messages. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
+  /** Backfill a non-empty placeholder for assistant turns that would otherwise
+   *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
+   *  turns). Off by default; enabled for OpenRouter, whose downstream providers
+   *  (e.g. DeepSeek) reject such messages with `Invalid assistant message:
+   *  content or tool_calls must be set`. See {@link
+   *  EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
+  backfillEmptyAssistantContent?: boolean;
 }
 
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
@@ -228,6 +256,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | "reasoning"
     | "reasoning_content"
     | undefined;
+  private backfillEmptyAssistantContent: boolean;
 
   constructor(
     apiKey: string,
@@ -251,6 +280,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
     this.assistantReasoningField = options.assistantReasoningField;
+    this.backfillEmptyAssistantContent =
+      options.backfillEmptyAssistantContent ?? false;
   }
 
   async sendMessage(
@@ -792,6 +823,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;
+    }
+
+    // An assistant message must carry `content` or `tool_calls`. A turn with
+    // neither (e.g. reasoning-only) would serialize to null/empty content with
+    // no tool calls, which strict OpenAI-compatible backends reject. Reasoning
+    // lives in a separate field and does not satisfy this constraint. Scoped to
+    // providers that need it (OpenRouter) via `backfillEmptyAssistantContent`.
+    if (
+      this.backfillEmptyAssistantContent &&
+      !result.tool_calls &&
+      (result.content === null || result.content === "")
+    ) {
+      result.content = EMPTY_ASSISTANT_TURN_PLACEHOLDER;
     }
 
     return result;

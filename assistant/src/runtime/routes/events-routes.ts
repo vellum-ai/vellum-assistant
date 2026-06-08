@@ -39,8 +39,9 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
+import type { ReplaySubscriber } from "../assistant-stream-state.js";
+import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
-import { getReplayWindow } from "../conversation-stream-state.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -142,6 +143,12 @@ export interface SseSubscriberInstrumentation {
   clientId: string | null;
   interfaceId: string | null;
   conversationKey: string | null;
+  /**
+   * Per-connection id assigned by the hub. Distinguishes connections
+   * sharing a `clientId` (old vs reconnected) so a shed can be attributed
+   * to a specific connection. `null` until the hub subscription is created.
+   */
+  connectionId: string | null;
 }
 
 export type SseShedReason = "callback_backpressure" | "heartbeat_backpressure";
@@ -176,6 +183,7 @@ export function buildSseShedSentryContext(
     heartbeats_sent: inst.heartbeatsSent,
     client_id: inst.clientId,
     interface_id: inst.interfaceId,
+    connection_id: inst.connectionId,
     event_loop_delay_mean_ms: elDelay.mean_ms,
     event_loop_delay_p99_ms: elDelay.p99_ms,
     event_loop_delay_max_ms: elDelay.max_ms,
@@ -215,6 +223,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
       scope.setTag("sse_shed_reason", reason);
       if (inst.clientId) scope.setTag("client_id", inst.clientId);
       if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
+      if (inst.connectionId) scope.setTag("connection_id", inst.connectionId);
       scope.setContext("sse_shed", sentryContext);
       Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
     });
@@ -370,6 +379,7 @@ export function handleSubscribeAssistantEvents(
     clientId,
     interfaceId,
     conversationKey: scopeConversationKey,
+    connectionId: null,
   };
 
   ensureEventLoopDelayMonitorStarted();
@@ -443,6 +453,9 @@ export function handleSubscribeAssistantEvents(
             ...subscriberBase,
             type: "process" as const,
           });
+    // Stamp the hub-assigned connection id so a later backpressure shed can be
+    // tied back to this specific connection in logs and Sentry.
+    instrumentation.connectionId = sub.connectionId;
   } catch (err) {
     if (err instanceof RangeError) {
       throw new ServiceUnavailableError("Too many concurrent connections");
@@ -461,17 +474,38 @@ export function handleSubscribeAssistantEvents(
           return;
         }
 
-        // Reconnect replay: when the caller passed lastSeenSeq and the
-        // subscription is scoped to a single conversation, deliver any
-        // buffered events the client missed before the first heartbeat.
+        // Reconnect replay: when the caller passed lastSeenSeq, deliver
+        // any buffered events the client missed before the first
+        // heartbeat. `seq` is a single global per-assistant counter, so
+        // one cursor resumes the stream regardless of how many
+        // conversations are multiplexed on an unfiltered connection.
+        // Replay re-applies the subscriber's targeting filter; a
+        // conversation-scoped subscription additionally scopes replay to
+        // its own conversation (other conversations are never delivered
+        // live on that connection, so replaying them would be wrong).
         //
         // If the cursor is older than the ring's oldest entry,
         // `getReplayWindow` returns `null`. We do not surface that to
         // the client over the wire -- the connection just goes live.
         // The client detects the gap from the seq jump on its first
         // live event and refetches via the existing messages API.
-        if (lastSeenSeq != null && filter.conversationId) {
-          const window = getReplayWindow(filter.conversationId, lastSeenSeq);
+        if (lastSeenSeq != null) {
+          const replaySubscriber: ReplaySubscriber =
+            clientId && interfaceId
+              ? {
+                  type: "client",
+                  clientId,
+                  interfaceId,
+                  capabilities: ALL_CAPABILITIES.filter((cap) =>
+                    supportsHostProxy(interfaceId, cap),
+                  ),
+                }
+              : { type: "process" };
+          const window = getReplayWindow(
+            lastSeenSeq,
+            replaySubscriber,
+            filter.conversationId,
+          );
           if (window !== null) {
             for (const replayed of window) {
               controller.enqueue(encoder.encode(formatSseFrame(replayed)));
@@ -581,7 +615,7 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "lastSeenSeq",
         description:
-          "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
+          "Optional reconnect cursor: the highest global event seq the client has already applied. `seq` is a single per-assistant counter shared across all conversations, so one cursor resumes the stream regardless of how many conversations are multiplexed on the connection. When set, the daemon replays any buffered events with seq > lastSeenSeq (re-applying the subscriber's targeting/scope filter) before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
       },
     ],
     responseHeaders: {

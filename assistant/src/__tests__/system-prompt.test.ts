@@ -89,6 +89,24 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveGuardianPersona: () => mockPersona.guardianPersona,
 }));
 
+const mockOauthConnections: Array<{
+  provider: string;
+  status: string;
+  accountInfo?: string | null;
+}> = [];
+const mockManagedConnections: Array<{
+  provider: string;
+  accountInfo?: string | null;
+}> = [];
+
+mock.module("../oauth/oauth-store.js", () => ({
+  listConnections: () => mockOauthConnections,
+}));
+
+mock.module("../credential-execution/managed-catalog.js", () => ({
+  getCachedManagedConnections: () => mockManagedConnections,
+}));
+
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } =
   await import("../prompts/system-prompt.js");
@@ -100,6 +118,8 @@ describe("buildSystemPrompt", () => {
     // no-guardian baseline.
     mockPersona.userSlug = null;
     mockPersona.guardianPersona = null;
+    mockOauthConnections.length = 0;
+    mockManagedConnections.length = 0;
   });
 
   afterEach(() => {
@@ -150,6 +170,40 @@ describe("buildSystemPrompt", () => {
     const identityIdx = result.indexOf("# Identity\n\nI am Vellum.");
     const soulIdx = result.indexOf("# Soul\n\nBe thoughtful.");
     expect(identityIdx).toBeLessThan(soulIdx);
+  });
+
+  test("renders runtime-computed dynamic sections after workspace-only static sections", () => {
+    const systemPromptsDir = join(TEST_DIR, "prompts", "system");
+    mkdirSync(systemPromptsDir, { recursive: true });
+    writeFileSync(
+      join(systemPromptsDir, "99-org-policy.md"),
+      "# Org policy\n\nMostly static workspace policy.\n",
+    );
+    mockManagedConnections.push({
+      provider: "google",
+      accountInfo: "user@example.com",
+    });
+
+    const result = buildSystemPrompt();
+
+    const staticIdx = result.indexOf("Mostly static workspace policy.");
+    const dynamicIdx = result.indexOf("# Connected Services");
+    expect(staticIdx).toBeGreaterThan(-1);
+    expect(dynamicIdx).toBeGreaterThan(-1);
+    expect(dynamicIdx).toBeGreaterThan(staticIdx);
+  });
+
+  test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
+
+    const result = buildSystemPrompt({
+      excludeBootstrap: true,
+      excludeCustomPrefix: true,
+    });
+
+    expect(result).toContain("# Identity\n\nI am Vellum.");
+    expect(result).toContain("# Soul\n\nBe thoughtful.");
   });
 
   test("ignores empty SOUL.md", () => {
@@ -617,6 +671,26 @@ describe("buildSystemPrompt", () => {
       const result = buildSystemPrompt();
       expect(result).toContain("<use_parallel_tool_calls>");
       expect(result).toContain("Batch independent tool calls");
+    });
+
+    test("bundled communication section renders and sorts before the parallel-tool-calls block", () => {
+      // `01-communication` sorts ahead of `01-parallel-tool-calls`, so the
+      // communication guidance leads the operational sections.
+      const result = buildSystemPrompt();
+      expect(result).toContain("## Communication");
+      // The core rule: deliberation belongs in private thinking, not text.
+      expect(result).toContain(
+        "in your private thinking — never in user-facing text",
+      );
+      // Closes by deferring to the user's established communication preferences.
+      expect(result).toContain(
+        "Always prioritize communication preferences that you've established",
+      );
+      const communicationIdx = result.indexOf("## Communication");
+      const parallelIdx = result.indexOf("<use_parallel_tool_calls>");
+      expect(communicationIdx).toBeGreaterThan(-1);
+      expect(parallelIdx).toBeGreaterThan(-1);
+      expect(communicationIdx).toBeLessThan(parallelIdx);
     });
 
     test("workspace prefix with frontmatter renders body at the very top", () => {

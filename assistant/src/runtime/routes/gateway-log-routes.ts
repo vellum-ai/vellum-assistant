@@ -35,7 +35,14 @@ async function gatewayFetch(
 
 // ── Schemas ─────────────────────────────────────────────────────────────
 
-const LEVEL_NAMES = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
+const LEVEL_NAMES = [
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+] as const;
 
 const GatewayLogsTailParams = z
   .object({
@@ -45,9 +52,18 @@ const GatewayLogsTailParams = z
   })
   .strict();
 
+const GatewayLogsTailResponseSchema = z.object({
+  lines: z.array(z.record(z.string(), z.unknown())),
+  truncated: z.boolean(),
+});
+type GatewayLogsTailResponse = z.infer<typeof GatewayLogsTailResponseSchema>;
+
 // ── Handlers ────────────────────────────────────────────────────────────
 
-async function handleGatewayLogsTail({ queryParams = {}, body = {} }: RouteHandlerArgs) {
+async function handleGatewayLogsTail({
+  queryParams = {},
+  body = {},
+}: RouteHandlerArgs): Promise<GatewayLogsTailResponse> {
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
   const p = GatewayLogsTailParams.parse(source);
@@ -56,7 +72,9 @@ async function handleGatewayLogsTail({ queryParams = {}, body = {} }: RouteHandl
   if (p.level !== undefined) qs.set("level", p.level);
   if (p.module !== undefined) qs.set("module", p.module);
   const query = qs.toString();
-  return gatewayFetch(`/v1/logs/tail${query ? `?${query}` : ""}`);
+  return gatewayFetch(
+    `/v1/logs/tail${query ? `?${query}` : ""}`,
+  ) as Promise<GatewayLogsTailResponse>;
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -75,8 +93,12 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return the last N structured log entries from the gateway log files.",
     tags: ["gateway-logs"],
+    responseBody: GatewayLogsTailResponseSchema,
     queryParams: [
-      { name: "n", description: "Number of lines to return (1–1000, default: 10)" },
+      {
+        name: "n",
+        description: "Number of lines to return (1–1000, default: 10)",
+      },
       { name: "level", description: "Minimum pino level name (default: info)" },
       { name: "module", description: "Filter to exact pino module name" },
     ],

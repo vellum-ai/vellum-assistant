@@ -102,12 +102,13 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
+import { cachedTextBlock } from "../plugins/defaults/memory-v3-shadow/provider-blocks.js";
+import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
-  AnthropicProvider,
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
-} from "../providers/anthropic/client.js";
+} from "../providers/placeholder-sentinels.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -321,6 +322,98 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     expect(tools).toHaveLength(1);
     expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("preserves a caller's 1h block cache_control and sends the extended-cache beta (non-Haiku)", async () => {
+    // v3's `cachedTextBlock` stamps a stable prefix block with a 1h TTL; the
+    // non-Haiku path must forward it unchanged and send the beta header.
+    await provider.sendMessage([
+      {
+        role: "user",
+        content: [
+          cachedTextBlock("stable pages block"),
+          { type: "text", text: "volatile current message" },
+        ],
+      },
+    ]);
+
+    const messages = lastStreamParams!.messages as Array<{
+      content: Array<{ cache_control?: { type: string; ttl?: string } }>;
+    }>;
+    expect(messages[0].content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+    expect(lastStreamParams!.betas).toContain("extended-cache-ttl-2025-04-11");
+  });
+
+  test("strips ttl from a caller's block cache_control and omits the beta for Haiku", async () => {
+    // Haiku doesn't support the extended-cache-ttl beta, so a caller-stamped
+    // 1h ttl (e.g. from `cachedTextBlock`) must be stripped before sending.
+    const haiku = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-haiku-4-5-20251001",
+    );
+    await haiku.sendMessage([
+      {
+        role: "user",
+        content: [
+          cachedTextBlock("stable pages block"),
+          { type: "text", text: "volatile current message" },
+        ],
+      },
+    ]);
+
+    const messages = lastStreamParams!.messages as Array<{
+      content: Array<{ cache_control?: { type: string; ttl?: string } }>;
+    }>;
+    expect(messages[0].content[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(messages[0].content[0].cache_control).not.toHaveProperty("ttl");
+    expect(
+      (lastStreamParams!.betas as string[] | undefined) ?? [],
+    ).not.toContain("extended-cache-ttl-2025-04-11");
+  });
+
+  test("v3-shape call (system + tools + cached prefix block) stays within the 4-breakpoint cap", async () => {
+    // Mirrors a v3 L2 selector call: a system prompt, a forced tool, and a user
+    // message whose stable <pages> block carries a cache_control breakpoint
+    // followed by the volatile current-message block. The preserved prefix
+    // breakpoint plus the client's system/tools/turn-start anchors must total
+    // exactly Anthropic's max of 4.
+    await provider.sendMessage(
+      [
+        {
+          role: "user",
+          content: [
+            cachedTextBlock("stable pages block"),
+            { type: "text", text: "volatile current message" },
+          ],
+        },
+      ],
+      { systemPrompt: "Select relevant pages.", tools: [sampleTools[0]] },
+    );
+
+    let breakpoints = 0;
+    const system = lastStreamParams!.system as
+      | Array<{ cache_control?: unknown }>
+      | undefined;
+    for (const b of system ?? []) if (b.cache_control) breakpoints++;
+    const tools = lastStreamParams!.tools as
+      | Array<{ cache_control?: unknown }>
+      | undefined;
+    for (const t of tools ?? []) if (t.cache_control) breakpoints++;
+    const messages = lastStreamParams!.messages as Array<{
+      content: Array<{ cache_control?: { type: string; ttl?: string } }>;
+    }>;
+    for (const m of messages)
+      for (const b of m.content) if (b.cache_control) breakpoints++;
+
+    expect(breakpoints).toBe(4);
+    // The stable pages block specifically must hold the preserved breakpoint.
+    expect(messages[0].content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   test("no tools param when tools are omitted", async () => {

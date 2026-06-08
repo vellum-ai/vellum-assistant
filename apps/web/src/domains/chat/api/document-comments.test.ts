@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/generated/api/client.gen";
+import { client } from "@/generated/daemon/client.gen";
 import { ApiError } from "@/utils/api-errors";
 
 import {
@@ -14,8 +14,9 @@ import {
 // ---------------------------------------------------------------------------
 // Test helpers
 //
-// Mock `client.get` / `client.post` / `client.patch` / `client.delete`
-// directly rather than globalThis.fetch — same pattern as
+// The generated daemon SDK functions call `client.get` / `client.post` /
+// `client.patch` / `client.delete` on the daemon client, so mock those
+// methods directly rather than globalThis.fetch — same pattern as
 // conversation-starters.test.ts.
 // ---------------------------------------------------------------------------
 
@@ -108,11 +109,11 @@ describe("fetchComments", () => {
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
+      "/v1/assistants/{assistant_id}/documents/{id}/comments",
     );
     expect(capturedOptions[0]!.path).toEqual({
       assistant_id: "asst-1",
-      document_id: "doc-1",
+      id: "doc-1",
     });
     expect(capturedOptions[0]!.throwOnError).toBe(false);
   });
@@ -208,11 +209,11 @@ describe("createComment", () => {
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
+      "/v1/assistants/{assistant_id}/documents/{id}/comments",
     );
     expect(capturedOptions[0]!.path).toEqual({
       assistant_id: "asst-1",
-      document_id: "doc-1",
+      id: "doc-1",
     });
     expect(capturedOptions[0]!.body).toEqual({
       content: "A comment",
@@ -330,12 +331,12 @@ describe("resolveComment", () => {
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
+      "/v1/assistants/{assistant_id}/documents/{id}/comments/{commentId}",
     );
     expect(capturedOptions[0]!.path).toEqual({
       assistant_id: "asst-1",
-      document_id: "doc-1",
-      comment_id: "c1",
+      id: "doc-1",
+      commentId: "c1",
     });
     expect(capturedOptions[0]!.body).toEqual({ status: "resolved" });
     expect(capturedOptions[0]!.throwOnError).toBe(false);
@@ -383,12 +384,12 @@ describe("reopenComment", () => {
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
+      "/v1/assistants/{assistant_id}/documents/{id}/comments/{commentId}",
     );
     expect(capturedOptions[0]!.path).toEqual({
       assistant_id: "asst-1",
-      document_id: "doc-1",
-      comment_id: "c1",
+      id: "doc-1",
+      commentId: "c1",
     });
     expect(capturedOptions[0]!.body).toEqual({ status: "open" });
     expect(capturedOptions[0]!.throwOnError).toBe(false);
@@ -420,12 +421,12 @@ describe("deleteComment", () => {
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
+      "/v1/assistants/{assistant_id}/documents/{id}/comments/{commentId}",
     );
     expect(capturedOptions[0]!.path).toEqual({
       assistant_id: "asst-1",
-      document_id: "doc-1",
-      comment_id: "c1",
+      id: "doc-1",
+      commentId: "c1",
     });
     expect(capturedOptions[0]!.throwOnError).toBe(false);
   });

@@ -1,8 +1,10 @@
-import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedTimeGroup,
-} from "./types";
+import type { FeedItem, FeedItemCategory } from "@vellumai/assistant-api";
+
+/**
+ * Client-side grouping of feed items by recency. Not part of the wire
+ * contract — derived in the UI from each item's `createdAt`.
+ */
+export type FeedTimeGroup = "today" | "yesterday" | "older";
 
 /**
  * Sort feed items by priority descending, then by createdAt descending.
@@ -19,15 +21,9 @@ export function sortFeedItems(items: FeedItem[]): FeedItem[] {
  * in the local timezone. Returns a Map preserving order. Empty groups
  * are omitted.
  */
-export function groupByTime(
-  items: FeedItem[],
-): Map<FeedTimeGroup, FeedItem[]> {
+export function groupByTime(items: FeedItem[]): Map<FeedTimeGroup, FeedItem[]> {
   const now = new Date();
-  const todayStart = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterdayStart = new Date(
     now.getFullYear(),
     now.getMonth(),

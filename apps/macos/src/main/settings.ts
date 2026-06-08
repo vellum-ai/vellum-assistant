@@ -55,18 +55,57 @@ const store = (): Store<AppSettings> => {
 
 /**
  * Read a setting. Returns `null` (not `undefined`) when the key is absent so
- * the IPC channel marshals cleanly across the contextBridge.
+ * the IPC channel marshals cleanly across the contextBridge. Keyed on
+ * `keyof AppSettings` so the return type is the stored value's type and
+ * callers no longer have to re-cast.
  */
-export const readSetting = (key: string): unknown => {
-  const value = store().get(key as keyof AppSettings);
+export const readSetting = <K extends keyof AppSettings>(
+  key: K,
+): AppSettings[K] | null => {
+  const value = store().get(key);
   return value === undefined ? null : value;
 };
 
 /**
  * Write a setting. electron-store validates the value against the schema and
- * throws `SyntaxError` (with the ajv error message) when invalid; that
- * surfaces to the renderer as a rejected Promise from `window.vellum.settings.set`.
+ * throws `SyntaxError` (with the ajv error message) when invalid. Keyed on
+ * `keyof AppSettings` with a value typed to that key, so an out-of-shape write
+ * is caught at compile time rather than relying on the runtime schema alone.
  */
-export const writeSetting = (key: string, value: unknown): void => {
-  store().set(key as keyof AppSettings, value as never);
+export const writeSetting = <K extends keyof AppSettings>(
+  key: K,
+  value: AppSettings[K],
+): void => {
+  store().set(key, value);
+};
+
+/**
+ * Read the user's override for a single hotkey command, or `null` when none is
+ * set. An explicit empty string is a real value — it means the user disabled
+ * the binding — and is returned as-is; only an absent key yields `null`, in
+ * which case the caller falls back to the compiled default. Shared by
+ * `commands.ts` (menu accelerators) and `global-shortcuts.ts` (system-wide
+ * shortcuts) so the override-resolution rule lives in one place.
+ */
+export const readHotkeyOverride = (key: string): string | null => {
+  const override = readSetting("hotkeys")?.[key];
+  return typeof override === "string" ? override : null;
+};
+
+/**
+ * Subscribe to changes on a specific settings key. Fires when the value
+ * changes (deep equality check by electron-store). Returns an unsubscribe
+ * function.
+ */
+export const onSettingChange = <K extends keyof AppSettings>(
+  key: K,
+  callback: (newValue: AppSettings[K], oldValue: AppSettings[K]) => void,
+): (() => void) => {
+  return store().onDidChange(
+    key,
+    callback as (
+      newValue: AppSettings[K] | undefined,
+      oldValue: AppSettings[K] | undefined,
+    ) => void,
+  );
 };

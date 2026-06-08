@@ -16,12 +16,11 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
-import {
-  PULL_THRESHOLD_PX,
-  usePullToRefresh,
-} from "@/domains/chat/transcript/use-pull-to-refresh";
+import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
+import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
@@ -41,14 +40,11 @@ export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
   assistantDisplayName?: string | null;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
     surfaceId: string,
     action: string,
     input?: unknown,
   ) => void;
-  onRetryError: () => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
@@ -57,15 +53,16 @@ export interface TranscriptProps {
    *  own set if not provided. Callers that need cross-render persistence
    *  should pass a stable ref. */
   expandedToolCallIds?: Set<string>;
-  /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
-   *  real `SecretPromptCard` here. */
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingConfirmation"` items. PR 7 passes
-   *  the real `ConfirmationPromptCard` here. */
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingContactRequest"` items. */
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "onboardingChoice"` items. */
+  /** Persistent expanded progress-card / thinking-block state. Optional — the
+   *  Transcript owns its own maps if not provided. Callers that need the state
+   *  to survive a transcript remount (e.g. when the tool-detail drawer opens)
+   *  should pass stable refs (the chat session store's maps). */
+  expandedCardIds?: Map<string, boolean>;
+  expandedThinkingKeys?: Map<string, boolean>;
+  /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends
+   *  on props from the parent (sendMessage, didOnboarding, etc.) and has a
+   *  different lifecycle than interaction prompts, so it stays as a
+   *  render-prop for now. */
   renderOnboardingChoice?: () => ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
@@ -84,15 +81,13 @@ export interface TranscriptProps {
   unknownNudgeToolCallIds?: Set<string>;
   /** Dismiss handler for an unknown-nudge entry. */
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation.
-   *  Only the matching chip renders the inline confirmation UI. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -174,7 +169,13 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const effectiveExpandedToolCallIds =
       rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
 
-    const [expandedCardIds] = useState(() => new Map<string, boolean>());
+    const [ownedExpandedCardIds] = useState(() => new Map<string, boolean>());
+    const expandedCardIds = rest.expandedCardIds ?? ownedExpandedCardIds;
+    const [ownedExpandedThinkingKeys] = useState(
+      () => new Map<string, boolean>(),
+    );
+    const expandedThinkingKeys =
+      rest.expandedThinkingKeys ?? ownedExpandedThinkingKeys;
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
@@ -226,24 +227,17 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const rowProps = {
       expandedToolCallIds: effectiveExpandedToolCallIds,
       expandedCardIds,
+      expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
-      onSecretSubmit: rest.onSecretSubmit,
-      onConfirmationDecision: rest.onConfirmationDecision,
-      onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,
-      renderPendingSecret: rest.renderPendingSecret,
-      renderPendingConfirmation: rest.renderPendingConfirmation,
-      renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,
-      isSubmittingConfirmation: rest.isSubmittingConfirmation,
       onConfirmationSubmit: rest.onConfirmationSubmit,
       onAllowAndCreateRule: rest.onAllowAndCreateRule,
-      pendingConfirmationToolCallId: rest.pendingConfirmationToolCallId,
       onOpenApp: rest.onOpenApp,
       onOpenDocument: rest.onOpenDocument,
       assistantId: rest.assistantId,

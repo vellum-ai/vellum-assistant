@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
+import { mergeAdjacentAssistantMessages, mergeThinkingSegments } from "@/domains/chat/utils/message-merge";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeAssistant(
   overrides: Omit<Partial<DisplayMessage>, "role"> & { id: string },
 ): DisplayMessage {
   return {
     role: "assistant",
-    content: "",
+    ...textBody(""),
     ...overrides,
   };
 }
@@ -18,7 +19,7 @@ function makeUser(
 ): DisplayMessage {
   return {
     role: "user",
-    content: "",
+    ...textBody(""),
     ...overrides,
   };
 }
@@ -27,33 +28,33 @@ describe("mergeAdjacentAssistantMessages · happy path", () => {
   test("folds two adjacent assistants into the older anchor", () => {
     const older = makeAssistant({
       id: "anchor-old",
-      content: "first half ",
+      ...textBody("first half "),
       timestamp: 1000,
     });
     const newer = makeAssistant({
       id: "anchor-new",
-      content: "second half",
+      ...textBody("second half"),
       timestamp: 1010,
     });
     const result = mergeAdjacentAssistantMessages([older, newer]);
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("anchor-old");
-    expect(result[0]!.content).toBe("first half second half");
+    expect(messageText(result[0]!)).toBe("first half second half");
     expect(result[0]!.mergedMessageIds).toEqual(["anchor-new"]);
     expect(result[0]!.timestamp).toBe(1000);
   });
 
   test("folds a long run of N adjacent assistants onto the first anchor", () => {
     const messages = [
-      makeAssistant({ id: "a-1", content: "1 ", timestamp: 1000 }),
-      makeAssistant({ id: "a-2", content: "2 ", timestamp: 1010 }),
-      makeAssistant({ id: "a-3", content: "3 ", timestamp: 1020 }),
-      makeAssistant({ id: "a-4", content: "4", timestamp: 1030 }),
+      makeAssistant({ id: "a-1", ...textBody("1 "), timestamp: 1000 }),
+      makeAssistant({ id: "a-2", ...textBody("2 "), timestamp: 1010 }),
+      makeAssistant({ id: "a-3", ...textBody("3 "), timestamp: 1020 }),
+      makeAssistant({ id: "a-4", ...textBody("4"), timestamp: 1030 }),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("a-1");
-    expect(result[0]!.content).toBe("1 2 3 4");
+    expect(messageText(result[0]!)).toBe("1 2 3 4");
     expect(result[0]!.mergedMessageIds).toEqual(["a-2", "a-3", "a-4"]);
   });
 
@@ -62,12 +63,12 @@ describe("mergeAdjacentAssistantMessages · happy path", () => {
     // mergedMessageIds populated. The frontend fold must accumulate them.
     const olderPage = makeAssistant({
       id: "page-A-anchor",
-      content: "A ",
+      ...textBody("A "),
       mergedMessageIds: ["row-A1", "row-A2"],
     });
     const newerPage = makeAssistant({
       id: "page-B-anchor",
-      content: "B",
+      ...textBody("B"),
       mergedMessageIds: ["row-B1", "row-B2", "row-B3"],
     });
     const result = mergeAdjacentAssistantMessages([olderPage, newerPage]);
@@ -83,9 +84,9 @@ describe("mergeAdjacentAssistantMessages · happy path", () => {
 
   test("leaves the user-separated turn pair untouched", () => {
     const messages = [
-      makeAssistant({ id: "a-1", content: "first turn", timestamp: 1000 }),
-      makeUser({ id: "u-1", content: "follow-up", timestamp: 1005 }),
-      makeAssistant({ id: "a-2", content: "second turn", timestamp: 1010 }),
+      makeAssistant({ id: "a-1", ...textBody("first turn"), timestamp: 1000 }),
+      makeUser({ id: "u-1", ...textBody("follow-up"), timestamp: 1005 }),
+      makeAssistant({ id: "a-2", ...textBody("second turn"), timestamp: 1010 }),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
     expect(result.map((m) => m.id)).toEqual(["a-1", "u-1", "a-2"]);
@@ -95,8 +96,8 @@ describe("mergeAdjacentAssistantMessages · happy path", () => {
 describe("mergeAdjacentAssistantMessages · referential stability", () => {
   test("returns the input array (by reference) when no adjacent pair exists", () => {
     const messages = [
-      makeUser({ id: "u-1", content: "hi", timestamp: 1000 }),
-      makeAssistant({ id: "a-1", content: "hello", timestamp: 1010 }),
+      makeUser({ id: "u-1", ...textBody("hi"), timestamp: 1000 }),
+      makeAssistant({ id: "a-1", ...textBody("hello"), timestamp: 1010 }),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
     expect(result).toBe(messages);
@@ -110,8 +111,8 @@ describe("mergeAdjacentAssistantMessages · referential stability", () => {
 
   test("idempotent: a second pass over already-merged output is a no-op", () => {
     const messages = [
-      makeAssistant({ id: "a-1", content: "x ", timestamp: 1000 }),
-      makeAssistant({ id: "a-2", content: "y", timestamp: 1010 }),
+      makeAssistant({ id: "a-1", ...textBody("x "), timestamp: 1000 }),
+      makeAssistant({ id: "a-2", ...textBody("y"), timestamp: 1010 }),
     ];
     const first = mergeAdjacentAssistantMessages(messages);
     const second = mergeAdjacentAssistantMessages(first);
@@ -123,10 +124,9 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("shifts text:N indices in the donor by survivor.textSegments.length", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      content: "A0 A1 ",
       textSegments: [
-        { type: "text", content: "A0 " },
-        { type: "text", content: "A1 " },
+        "A0 ",
+        "A1 ",
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -135,15 +135,14 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     });
     const donor = makeAssistant({
       id: "a-2",
-      content: "B0",
-      textSegments: [{ type: "text", content: "B0" }],
+      textSegments: ["B0"],
       contentOrder: [{ type: "text", id: "0" }],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
     expect(result[0]!.textSegments).toEqual([
-      { type: "text", content: "A0 " },
-      { type: "text", content: "A1 " },
-      { type: "text", content: "B0" },
+      "A0 ",
+      "A1 ",
+      "B0",
     ]);
     expect(result[0]!.contentOrder).toEqual([
       { type: "text", id: "0" },
@@ -191,15 +190,15 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       toolCalls: [
-        { id: "toolu_S0", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S0", name: "bash", input: {}, completedAt: 1 },
       ],
       contentOrder: [{ type: "tool", id: "0" }],
     });
     const donor = makeAssistant({
       id: "a-2",
       toolCalls: [
-        { id: "toolu_D0", toolName: "edit", input: {}, status: "completed" },
-        { id: "toolu_D1", toolName: "test", input: {}, status: "completed" },
+        { id: "toolu_D0", name: "edit", input: {}, completedAt: 1 },
+        { id: "toolu_D1", name: "test", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "tool", id: "0" },
@@ -266,7 +265,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       toolCalls: [
-        { id: "toolu_real_X", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_real_X", name: "bash", input: {}, completedAt: 1 },
       ],
       surfaces: [
         {
@@ -284,7 +283,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const donor = makeAssistant({
       id: "a-2",
       toolCalls: [
-        { id: "toolu_real_Y", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_real_Y", name: "edit", input: {}, completedAt: 1 },
       ],
       surfaces: [
         {
@@ -311,9 +310,9 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("interleaved text + tool positional entries remap each by their own offset", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      textSegments: [{ type: "text", content: "thinking..." }],
+      textSegments: ["thinking..."],
       toolCalls: [
-        { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S", name: "bash", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -323,11 +322,11 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const donor = makeAssistant({
       id: "a-2",
       textSegments: [
-        { type: "text", content: "done with bash" },
-        { type: "text", content: "now editing" },
+        "done with bash",
+        "now editing",
       ],
       toolCalls: [
-        { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_D", name: "edit", input: {}, completedAt: 1 },
       ],
       contentOrder: [
         { type: "text", id: "0" },
@@ -349,23 +348,11 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
 });
 
 describe("mergeAdjacentAssistantMessages · skip predicates", () => {
-  test("does NOT fold when either side is streaming", () => {
-    const finalized = makeAssistant({ id: "a-1", content: "done" });
-    const streaming = makeAssistant({
-      id: "a-2",
-      content: "still typing",
-      isStreaming: true,
-    });
-    const result = mergeAdjacentAssistantMessages([finalized, streaming]);
-    expect(result).toHaveLength(2);
-    expect(result.map((m) => m.id)).toEqual(["a-1", "a-2"]);
-  });
-
   test("does NOT fold when either side is optimistic", () => {
-    const real = makeAssistant({ id: "a-1", content: "done" });
+    const real = makeAssistant({ id: "a-1", ...textBody("done") });
     const optimistic = makeAssistant({
       id: "opt-uuid",
-      content: "pending",
+      ...textBody("pending"),
       isOptimistic: true,
     });
     const result = mergeAdjacentAssistantMessages([real, optimistic]);
@@ -373,10 +360,10 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
   });
 
   test("does NOT fold when either side is a subagent notification", () => {
-    const real = makeAssistant({ id: "a-1", content: "spawning subagent" });
+    const real = makeAssistant({ id: "a-1", ...textBody("spawning subagent") });
     const notification = makeAssistant({
       id: "a-2",
-      content: "",
+      ...textBody(""),
       isSubagentNotification: true,
     });
     const result = mergeAdjacentAssistantMessages([real, notification]);
@@ -385,8 +372,8 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
 
   test("only folds assistant role — adjacent user/assistant stays split", () => {
     const messages = [
-      makeUser({ id: "u-1", content: "ping", timestamp: 1000 }),
-      makeAssistant({ id: "a-1", content: "pong", timestamp: 1010 }),
+      makeUser({ id: "u-1", ...textBody("ping"), timestamp: 1000 }),
+      makeAssistant({ id: "a-1", ...textBody("pong"), timestamp: 1010 }),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
     expect(result.map((m) => m.id)).toEqual(["u-1", "a-1"]);
@@ -402,35 +389,32 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
   test("folds three pages of a single turn back into one bubble", () => {
     const pageOld = makeAssistant({
       id: "page-old-anchor",
-      content: "[A] ",
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
-      textSegments: [{ type: "text", content: "[A] " }],
+      textSegments: ["[A] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-A-1", toolName: "bash", input: {}, status: "completed" },
+        { id: "tool-A-1", name: "bash", input: {}, completedAt: 1 },
       ],
     });
     const pageMiddle = makeAssistant({
       id: "page-middle-anchor",
-      content: "[B] ",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
-      textSegments: [{ type: "text", content: "[B] " }],
+      textSegments: ["[B] "],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-B-1", toolName: "edit", input: {}, status: "completed" },
+        { id: "tool-B-1", name: "edit", input: {}, completedAt: 1 },
       ],
     });
     const pageLatest = makeAssistant({
       id: "page-latest-anchor",
-      content: "[C]",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
-      textSegments: [{ type: "text", content: "[C]" }],
+      textSegments: ["[C]"],
       contentOrder: [{ type: "text", id: "0" }],
       toolCalls: [
-        { id: "tool-C-1", toolName: "test", input: {}, status: "completed" },
+        { id: "tool-C-1", name: "test", input: {}, completedAt: 1 },
       ],
     });
 
@@ -442,7 +426,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("page-old-anchor");
-    expect(result[0]!.content).toBe("[A] [B] [C]");
+    expect(messageText(result[0]!)).toBe("[A] [B] [C]");
     expect(result[0]!.timestamp).toBe(1000);
     expect(result[0]!.toolCalls?.map((t) => t.id)).toEqual([
       "tool-A-1",
@@ -453,5 +437,69 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
     expect(result[0]!.mergedMessageIds).toHaveLength(74);
     expect(result[0]!.mergedMessageIds).toContain("page-middle-anchor");
     expect(result[0]!.mergedMessageIds).toContain("page-latest-anchor");
+  });
+});
+
+describe("mergeThinkingSegments", () => {
+  test("returns the populated side when the other is missing or empty", () => {
+    // GIVEN one side has thinking and the other is undefined / empty
+    const segments = ["reasoning"];
+
+    // WHEN merging in either direction
+    // THEN the populated side is returned untouched
+    expect(mergeThinkingSegments(segments, undefined)).toEqual(segments);
+    expect(mergeThinkingSegments(undefined, segments)).toEqual(segments);
+    expect(mergeThinkingSegments(segments, [])).toEqual(segments);
+    expect(mergeThinkingSegments([], segments)).toEqual(segments);
+    expect(mergeThinkingSegments(undefined, undefined)).toBeUndefined();
+  });
+
+  test("keeps the locally-accumulated block while the live stream is ahead", () => {
+    // GIVEN the local row has streamed more reasoning than the server snapshot
+    const local = ["The full local reasoning so far"];
+
+    // AND the server's periodic snapshot still lags behind
+    const server = ["The full local"];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN the richer local block is preserved (no rewind)
+    expect(merged).toEqual(local);
+  });
+
+  test("heals a block truncated by dropped deltas from the server snapshot", () => {
+    // GIVEN deltas dropped while the stream was torn down, so the local block
+    // is missing its leading reasoning
+    const local = [") and so I will summarize the options."];
+
+    // AND the server persisted the complete reasoning for that block
+    const server = [
+      "Let me think about this carefully (weighing the trade-offs) and so I will summarize the options.",
+    ];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN the truncated block is healed from the server's fuller copy
+    expect(merged).toEqual(server);
+  });
+
+  test("merges per index and appends extra trailing blocks from either side", () => {
+    // GIVEN the local row is ahead on its first block but never saw a later one
+    const local = ["full first block reasoning", "partial"];
+
+    // AND the server has a shorter first block but a complete second + third
+    const server = ["full first", "partial third-party block", "trailing"];
+
+    // WHEN reconciliation merges them
+    const merged = mergeThinkingSegments(local, server);
+
+    // THEN each position keeps the longer text and trailing blocks are unioned
+    expect(merged).toEqual([
+      "full first block reasoning",
+      "partial third-party block",
+      "trailing",
+    ]);
   });
 });

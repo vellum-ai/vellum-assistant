@@ -1,7 +1,7 @@
 /**
  * Shared web-search step-row primitives consumed by both
  * `WebSearchProgressCard` (the dedicated purely-web card) and
- * `ToolCallProgressCard` (the unified card that handles mixed groups).
+ * `ActivityRunCard` (the unified card that handles mixed groups).
  *
  * Lifted here to dedupe the previously copy/pasted `OverflowChip` definitions
  * and the `web_search` / `web_search_error` step renderers across the two
@@ -11,31 +11,120 @@
  */
 
 import { AlertCircle } from "lucide-react";
+import { useState } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Popover, Typography } from "@vellumai/design-library";
 
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
 
 /**
- * Small "+N more" pill used at the tail of a `web_search` row's result list.
- * Visually matches `FaviconChip` so the overflow pill sits flush in the same
- * row: identical outer geometry (`inline-flex items-center`, 10/6 padding,
- * pill radius, `--surface-base` fill), identical Inter Medium 12 typography
- * (`body-small-default`), and a `min-h-[26px]` floor so the chip matches the
- * favicon chips' natural height (which is dictated by their 14×14 favicon
- * slot inside the same padding).
+ * First uppercase letter of the result's domain (falling back to its title),
+ * used as the monogram when a favicon is missing or fails to load.
  */
-export function OverflowChip({ count }: { count: number }) {
+function monogramLetter(item: WebSearchResultItem): string {
+  const source = item.domain && item.domain.length > 0 ? item.domain : item.title;
+  const first = source.charAt(0);
+  return first ? first.toUpperCase() : "";
+}
+
+/**
+ * A single source row inside the overflow popover. Renders the site favicon
+ * (with a monogram fallback that survives image load errors), the page title,
+ * and the domain, all wrapped in an external link that opens the source in a
+ * new tab. Mirrors the chat's existing external-link convention (plain
+ * `target="_blank"` anchors, as used by `ChatMarkdownMessage` and the
+ * surface views) rather than introducing bespoke navigation.
+ */
+function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const hasFavicon = Boolean(item.faviconUrl) && !imageFailed;
+
   return (
-    <span className="inline-flex min-h-[26px] items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px]">
-      <Typography
-        variant="body-small-default"
-        className="text-[var(--content-default)]"
+    <a
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--surface-overlay)]"
       >
-        +{count} more
-      </Typography>
-    </span>
+        {hasFavicon ? (
+          <img
+            src={item.faviconUrl}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-contain"
+            onError={() => setImageFailed(true)}
+          />
+        ) : (
+          // typography: off-scale — 10px monogram inside 14px favicon slot
+          <span className="text-[10px] font-medium leading-none text-[var(--content-default)]">
+            {monogramLetter(item)}
+          </span>
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <Typography
+          variant="body-small-default"
+          className="truncate text-[var(--content-default)]"
+        >
+          {item.title}
+        </Typography>
+        <Typography
+          variant="body-small-default"
+          className="truncate text-[var(--content-secondary)]"
+        >
+          {item.domain}
+        </Typography>
+      </span>
+    </a>
+  );
+}
+
+/**
+ * Interactive "+N more" pill rendered at the tail of a `web_search` row when
+ * the result list was clamped. Clicking it opens a popover listing the
+ * remaining (hidden) sources as links so they stay reachable — without it the
+ * pill would be a dead-end with no way to inspect the additional results.
+ *
+ * The trigger visually matches `FaviconChip` so the pill sits flush in the
+ * same row: identical outer geometry (`inline-flex items-center`, 10/6
+ * padding, pill radius, `--surface-base` fill), identical Inter Medium 12
+ * typography (`body-small-default`), and a `min-h-[26px]` floor so the chip
+ * matches the favicon chips' natural height.
+ */
+export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          data-testid="web-search-overflow-chip"
+          className="inline-flex min-h-[26px] cursor-pointer items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px] outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        >
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-default)]"
+          >
+            +{results.length} more
+          </Typography>
+        </button>
+      </Popover.Trigger>
+      <Popover.Content
+        align="start"
+        side="bottom"
+        className="flex max-h-[260px] w-[280px] flex-col gap-0.5 overflow-y-auto"
+      >
+        {results.map((r) => (
+          <OverflowSourceLink key={r.rank} item={r} />
+        ))}
+      </Popover.Content>
+    </Popover.Root>
   );
 }
 
@@ -68,7 +157,8 @@ function ErrorChip({ message }: { message: string }) {
 /**
  * Render a single `web_search` step as a wrapping cluster of favicon chips,
  * optionally followed by a `+N more` overflow pill when the unified hook
- * clamped the visible result count.
+ * clamped the visible result count. The pill reveals the clamped sources in a
+ * popover.
  *
  * Keyed by `rank` (the documented uniqueness invariant on
  * `WebSearchResultItem`) rather than `url` — providers occasionally return
@@ -80,6 +170,7 @@ export function WebSearchStepRow({
 }: {
   step: Extract<ToolCallCardStep, { kind: "web_search" }>;
 }) {
+  const overflowResults = step.overflowResults ?? [];
   return (
     <div className="flex flex-wrap items-center gap-1">
       {step.results.map((r) => (
@@ -90,8 +181,8 @@ export function WebSearchStepRow({
           domain={r.domain}
         />
       ))}
-      {step.overflow && step.overflow > 0 ? (
-        <OverflowChip count={step.overflow} />
+      {overflowResults.length > 0 ? (
+        <OverflowChip results={overflowResults} />
       ) : null}
     </div>
   );

@@ -16,6 +16,19 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+// The sidebar owns its Background/Scheduled lazy queries; stub both so static
+// SSR rendering resolves without a QueryClient. These tests pass the full
+// conversation list through `conversations` and assert the rendered buckets.
+mock.module("@/hooks/conversation-queries", () => ({
+  useBackgroundConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+  useScheduledConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+}));
 
 import type { Conversation } from "@/types/conversation-types";
 import {
@@ -285,3 +298,5 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
 });
+
+

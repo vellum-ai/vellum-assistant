@@ -35,7 +35,7 @@ export const ROUTES: RouteDefinition[] = [
         throwConversationNotFound(id);
       }
 
-      if (conversation.processing) {
+      if (conversation.isProcessing()) {
         throw new ConflictError(
           "Compaction already in progress for this conversation",
         );

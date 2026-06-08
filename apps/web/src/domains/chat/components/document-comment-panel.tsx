@@ -1,23 +1,23 @@
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 import { MessageSquareText, Send, X } from "lucide-react";
-import { Button, Tag, Typography } from "@vellum/design-library";
-
-import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import {
-  createComment,
-  deleteComment,
-  fetchComments,
-  reopenComment,
-  resolveComment,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+    type Ref,
+} from "react";
+
+import {
+    createComment,
+    deleteComment,
+    fetchComments,
+    reopenComment,
+    resolveComment,
 } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 import { DocumentCommentThread } from "./document-comment-thread";
 
@@ -34,7 +34,7 @@ export interface DocumentCommentPanelProps {
   assistantId: string;
   conversationId: string;
   onClose: () => void;
-  onCommentSelect?: (comment: DocumentComment) => void;
+  onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
   onSubmitFeedback?: () => void;
   /** Imperative handle for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentCommentPanelHandle>;
@@ -58,7 +58,9 @@ export function DocumentCommentPanel({
   onSubmitFeedback,
   handleRef,
 }: DocumentCommentPanelProps) {
-  const [comments, setComments] = useState<DocumentComment[]>([]);
+  const [comments, setComments] = useState<DocumentsByIdCommentsPostResponse[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
@@ -89,11 +91,9 @@ export function DocumentCommentPanel({
   }, [loadComments]);
 
   // Expose refreshComments for external callers (e.g. SSE handler).
-  useImperativeHandle(
-    handleRef,
-    () => ({ refreshComments: loadComments }),
-    [loadComments],
-  );
+  useImperativeHandle(handleRef, () => ({ refreshComments: loadComments }), [
+    loadComments,
+  ]);
 
   const topLevelComments = useMemo(
     () => comments.filter((c) => c.parentCommentId === null),
@@ -101,7 +101,7 @@ export function DocumentCommentPanel({
   );
 
   const repliesByParent = useMemo(() => {
-    const map = new Map<string, DocumentComment[]>();
+    const map = new Map<string, DocumentsByIdCommentsPostResponse[]>();
     for (const c of comments) {
       if (c.parentCommentId !== null) {
         const existing = map.get(c.parentCommentId);

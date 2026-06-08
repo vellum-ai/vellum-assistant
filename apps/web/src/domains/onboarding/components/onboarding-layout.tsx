@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 import { CreatureFooter } from "./creature-footer";
 
 /**
@@ -12,14 +13,27 @@ import { CreatureFooter } from "./creature-footer";
  * the viewport (e.g. ToolSelectionScreen on iPhone 13 mini) become scrollable
  * instead of clipping the Continue button off-screen. The CreatureFooter sits
  * outside the scroll container so it stays at the viewport bottom.
+ *
+ * Overlay components (e.g. the provider Dropdown menu) portal into the
+ * trailing at-origin element below — outside the centered, animated content
+ * column. Without it the Dropdown renders inline and its position:fixed menu
+ * anchors to the column's containing block (created by the column's transform
+ * animation) instead of the viewport, landing far off to the side.
  */
 export function OnboardingLayout({ children }: { children: ReactNode }) {
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
+
   return (
     <div className="relative flex h-full flex-col bg-[var(--surface-base)]">
       <div className="flex-1 overflow-y-auto">
-        {children}
+        <PortalContainerProvider container={portalContainer}>
+          {children}
+        </PortalContainerProvider>
       </div>
       <CreatureFooter />
+      <div ref={setPortalContainer} />
     </div>
   );
 }

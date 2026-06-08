@@ -50,6 +50,45 @@ final class ChatProfilePickerTests: XCTestCase {
         )
     }
 
+    func testLabelShowsAutoForExplicitAutoProfile() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: InferenceProfile.autoProfileName,
+                profiles: profiles,
+                activeProfile: "balanced",
+                autoRouting: true
+            ),
+            "Auto"
+        )
+    }
+
+    func testLabelShowsDefaultWhenRoutingEnabledButActiveProfileIsNotAuto() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: nil,
+                profiles: profiles,
+                activeProfile: "balanced",
+                autoRouting: true
+            ),
+            "Default (Balanced)"
+        )
+    }
+
+    func testLabelShowsAutoWhenActiveProfileIsAuto() {
+        let profiles = [InferenceProfile(name: "balanced", label: "Balanced")]
+        XCTAssertEqual(
+            ChatProfilePicker.label(
+                current: nil,
+                profiles: profiles,
+                activeProfile: InferenceProfile.autoProfileName,
+                autoRouting: true
+            ),
+            "Auto"
+        )
+    }
+
     // MARK: - Disabled profiles are filtered from the picker
 
     func testDisabledProfilesAreFilteredFromLabel() {
@@ -65,15 +104,55 @@ final class ChatProfilePickerTests: XCTestCase {
     }
 
     func testPickerBodyFiltersDisabledProfiles() {
-        // Verify that the filtered activeProfiles excludes disabled ones.
         let profiles: [InferenceProfile] = [
             InferenceProfile(name: "active-one"),
             InferenceProfile(name: "disabled-one", status: "disabled"),
             InferenceProfile(name: "active-two"),
         ]
-        let active = profiles.filter { !$0.isDisabled }
+        let active = ChatProfilePicker.visibleProfilesForPicker(profiles)
         XCTAssertEqual(active.count, 2)
         XCTAssertEqual(active.map(\.name), ["active-one", "active-two"])
+    }
+
+    func testVisibleProfilesKeepSelectedDisabledProfile() {
+        let profiles: [InferenceProfile] = [
+            InferenceProfile(name: "balanced", label: "Balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled", label: "Legacy Quality"),
+            InferenceProfile(name: "quality-optimized", label: "Quality"),
+        ]
+
+        let visible = ChatProfilePicker.visibleProfilesForPicker(
+            profiles,
+            selectedNames: ["legacy-quality"]
+        )
+
+        XCTAssertEqual(visible.map(\.name), ["balanced", "legacy-quality", "quality-optimized"])
+    }
+
+    func testVisibleProfilesHideAutoProfile() {
+        let profiles: [InferenceProfile] = [
+            InferenceProfile(name: InferenceProfile.autoProfileName, label: "Auto"),
+            InferenceProfile(name: "balanced", label: "Balanced"),
+            InferenceProfile(name: "quality-optimized", label: "Quality"),
+        ]
+
+        let visible = ChatProfilePicker.visibleProfilesForPicker(profiles)
+
+        XCTAssertEqual(visible.map(\.name), ["balanced", "quality-optimized"])
+    }
+
+    func testVisibleProfilesHideAutoEvenWhenSelected() {
+        let profiles: [InferenceProfile] = [
+            InferenceProfile(name: InferenceProfile.autoProfileName, label: "Auto"),
+            InferenceProfile(name: "balanced", label: "Balanced"),
+        ]
+
+        let visible = ChatProfilePicker.visibleProfilesForPicker(
+            profiles,
+            selectedNames: [InferenceProfile.autoProfileName]
+        )
+
+        XCTAssertEqual(visible.map(\.name), ["balanced"])
     }
 
     // MARK: - Selection callback wiring (covers ComposerView → ChatProfilePicker → ConversationManager)

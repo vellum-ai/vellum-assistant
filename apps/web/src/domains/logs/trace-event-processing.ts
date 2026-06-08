@@ -6,7 +6,6 @@ import {
   CircleCheck,
   CirclePlay,
   CircleX,
-  Eye,
   Inbox,
   LockOpen,
   MessageCircle,
@@ -21,7 +20,7 @@ import type {
   TraceEventKind,
   TraceEventRow,
   TraceEventStatus,
-} from "./trace-events-types";
+} from "./trace-events-api";
 
 export type RequestGroupStatus =
   | "active"
@@ -192,8 +191,6 @@ export function getIconForKind(kind: TraceEventKind): LucideIcon {
       return LockOpen;
     case "tool_failed":
       return TriangleAlert;
-    case "secret_detected":
-      return Eye;
     case "generation_handoff":
       return RefreshCw;
     case "message_complete":

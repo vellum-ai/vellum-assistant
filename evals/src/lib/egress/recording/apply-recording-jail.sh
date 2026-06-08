@@ -32,6 +32,18 @@ fi
 # resolved ALLOW_HOSTS IPs may egress)
 iptables -F OUTPUT
 iptables -P OUTPUT DROP
+# Accept by destination *before* the `-o lo` rule: on some kernels
+# (notably colima's macOS Virtualization.Framework VM), the filter
+# OUTPUT chain's `-o` interface match is evaluated against the
+# pre-routing interface, not the post-DNAT one. That means packets the
+# NAT OUTPUT REDIRECT below rewrites from `<allowed_ip>:443` to
+# `127.0.0.1:<MITM_PORT>` still see `-o eth0` here and fall through to
+# the default DROP — silently breaking mitmproxy interception.
+# Matching by destination IP catches the DNAT'd loopback packets
+# regardless of which interface the kernel reports. Keep the `-o lo`
+# rule below as a defensive belt-and-suspenders for any non-loopback-
+# destined traffic mitmproxy emits over lo (none today, but cheap).
+iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT

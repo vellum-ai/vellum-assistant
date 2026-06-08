@@ -19,6 +19,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var createConversationCallCount = 0
     var archivedConversationIds: Set<String> = []
     var loadedHistoryReconciliationRequests: [(localId: UUID, daemonConversationId: String)] = []
+    var mergedConversationRows: [ConversationListResponseItem] = []
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
 
@@ -107,6 +108,17 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
         applyAssistantAttention(from: item, into: &conversation)
         conversations[index] = conversation
     }
+
+    func mergeConversationRow(from item: ConversationListResponseItem) {
+        mergedConversationRows.append(item)
+        guard let index = conversations.firstIndex(where: { $0.conversationId == item.id }) else { return }
+        var conversation = conversations[index]
+        if conversation.title == "New Conversation" {
+            conversation.title = item.title
+        }
+        applyAssistantAttention(from: item, into: &conversation)
+        conversations[index] = conversation
+    }
 }
 
 private struct NoopConversationHistoryClient: ConversationHistoryClientProtocol {
@@ -144,6 +156,23 @@ private actor RecordingConversationListClient: ConversationListClientProtocol {
     func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse? { nil }
     func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool { true }
     func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool { true }
+}
+
+/// Records single-conversation fetches and returns a preconfigured item per id,
+/// so tests can assert a metadata sync tag patches one row instead of draining
+/// the full paginated list.
+private actor RecordingConversationDetailClient: ConversationDetailClientProtocol {
+    private(set) var fetchedConversationIds: [String] = []
+    private let items: [String: ConversationListResponseItem]
+
+    init(items: [String: ConversationListResponseItem] = [:]) {
+        self.items = items
+    }
+
+    func fetchConversation(conversationId: String) async -> ConversationListResponseItem? {
+        fetchedConversationIds.append(conversationId)
+        return items[conversationId]
+    }
 }
 
 /// Mock that returns paged responses (`hasMore=true` until the configured
@@ -270,6 +299,17 @@ private func makeConversationTitleUpdated(conversationId: String, title: String)
     let dict: [String: Any] = ["type": "conversation_title_updated", "conversationId": conversationId, "title": title]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(ConversationTitleUpdatedMessage.self, from: data)
+}
+
+/// Build a single ConversationListResponseItem via JSON round-trip, used to
+/// stub `RecordingConversationDetailClient` responses.
+private func makeConversationItem(id: String, title: String, updatedAt: Int = 1_700_000_000, hasUnseen: Bool? = nil) -> ConversationListResponseItem {
+    var dict: [String: Any] = ["id": id, "title": title, "updatedAt": updatedAt]
+    if let hasUnseen {
+        dict["assistantAttention"] = ["hasUnseenLatestAssistantMessage": hasUnseen]
+    }
+    let data = try! JSONSerialization.data(withJSONObject: dict)
+    return try! JSONDecoder().decode(ConversationListResponseItem.self, from: data)
 }
 
 // MARK: - Tests
@@ -950,7 +990,7 @@ struct ConversationRestorerTests {
     }
 
     @Test @MainActor
-    func syncMessageRouteQueuesActiveConversationHistoryAndRefreshesList() async {
+    func syncMessageRouteQueuesActiveConversationHistoryWithoutListRefetch() async {
         let dc = GatewayConnectionManager()
         let listClient = RecordingConversationListClient()
         let restorer = ConversationRestorer(
@@ -974,14 +1014,123 @@ struct ConversationRestorerTests {
             activeConversationId: "conv-active"
         )
 
+        // Only the active conversation's history is reconciled.
         #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
         #expect(restorer.pendingHistoryByConversationId["conv-inactive"] == nil)
 
         try? await Task.sleep(nanoseconds: 500_000_000)
-        // Three parallel streams on cold restore: foreground (active),
-        // background (active), and archived. See
-        // `fetchConversationList` in ConversationRestorer.swift.
+        // A messages-only change doesn't alter the list shape, so the full
+        // paginated list is never refetched (previously this drained 3 streams).
+        #expect(await listClient.fetchRequests.isEmpty)
+    }
+
+    @Test @MainActor
+    func syncMetadataRoutePatchesSingleRowWithoutListRefetch() async {
+        let dc = GatewayConnectionManager()
+        let listClient = RecordingConversationListClient()
+        let detailClient = RecordingConversationDetailClient(items: [
+            "conv-1": makeConversationItem(id: "conv-1", title: "Renamed", updatedAt: 5_000, hasUnseen: true)
+        ])
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient,
+            conversationDetailClient: detailClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let conversation = ConversationModel(title: "Original", conversationId: "conv-1")
+        delegate.conversations = [conversation]
+
+        restorer.handleSyncRoutes([.conversationMetadata(conversationId: "conv-1")], activeConversationId: nil)
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        // The single-conversation endpoint was hit for exactly the changed row...
+        #expect(await detailClient.fetchedConversationIds == ["conv-1"])
+        // ...and the full paginated list was NOT refetched.
+        #expect(await listClient.fetchRequests.isEmpty)
+        // The row was patched in place (attention merged from the fetched item).
+        #expect(delegate.mergedConversationRows.map(\.id) == ["conv-1"])
+        #expect(delegate.conversations.first(where: { $0.conversationId == "conv-1" })?.hasUnseenLatestAssistantMessage == true)
+    }
+
+    @Test @MainActor
+    func syncConversationListRouteTriggersRecentRefetchNotSingleRow() async {
+        let dc = GatewayConnectionManager()
+        let listClient = RecordingConversationListClient()
+        let detailClient = RecordingConversationDetailClient()
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient,
+            conversationDetailClient: detailClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        restorer.handleSyncRoutes([.conversationList], activeConversationId: nil)
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        // A shape change triggers a cheap page-1 refetch of the 3 streams
+        // (foreground, background, archived) — NOT a full paginated drain, and
+        // NOT the single-conversation endpoint (RecordingConversationListClient
+        // returns one empty page per stream, so exactly 3 requests).
         #expect(await listClient.fetchRequests.count == 3)
+        #expect(await listClient.fetchRequests.allSatisfy { $0.offset == 0 })
+        #expect(await detailClient.fetchedConversationIds.isEmpty)
+    }
+
+    @Test @MainActor
+    func invalidationRefetchFetchesRecentPageOnlyAndPreservesExistingRows() async {
+        let dc = GatewayConnectionManager()
+        // totalForeground 450 / background 700 means a full drain would paginate
+        // (3 + 4 pages); a page-1-only refetch must issue exactly one request
+        // per stream at offset 0.
+        let listClient = PagedConversationListClient(totalForeground: 450, totalBackground: 700)
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // Seed two already-loaded rows that the page-1 fetch will NOT return,
+        // plus sentinel pagination state that a recent refetch must not reset.
+        delegate.conversations = [
+            ConversationModel(title: "Old 1", conversationId: "old-1"),
+            ConversationModel(title: "Old 2", conversationId: "old-2"),
+        ]
+        delegate.serverOffset = 999
+        delegate.hasMoreConversations = true
+
+        restorer.scheduleInvalidationRefetch()
+        // 250ms debounce + the (fast, non-paginating) 3-stream page-1 fetch.
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        let requests = await listClient.fetchRequests
+        // Exactly one request per stream, all at offset 0 — no pagination loop.
+        #expect(requests.count == 3)
+        #expect(requests.allSatisfy { $0.offset == 0 })
+        #expect(requests.contains { $0.conversationType == nil && $0.archiveStatus == nil })
+        #expect(requests.contains { $0.conversationType == "background" })
+        #expect(requests.contains { $0.archiveStatus == "archived" })
+
+        // The out-of-window rows are preserved (merge, not replace)...
+        #expect(delegate.conversations.contains { $0.conversationId == "old-1" })
+        #expect(delegate.conversations.contains { $0.conversationId == "old-2" })
+        // ...and the recent page-1 rows were merged in.
+        #expect(delegate.conversations.contains { $0.conversationId == "fg-0" })
+
+        // Pagination state is untouched by the recent refetch.
+        #expect(delegate.serverOffset == 999)
+        #expect(delegate.hasMoreConversations == true)
     }
 
     @Test @MainActor
@@ -997,10 +1146,12 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
-        restorer.scheduleInvalidationRefetch()
+        // Cold-start full drain — the path that paginates every stream to
+        // exhaustion. The invalidation path is now page-1-only, so exercise the
+        // drain directly via fetchConversationList().
+        restorer.fetchConversationList()
 
-        // scheduleInvalidationRefetch debounces 250ms before fetching; give the
-        // pagination loop enough time to drain both endpoints.
+        // Give the pagination loop enough time to drain both endpoints.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         // Foreground (archiveStatus == nil → daemon active default): 450 rows
@@ -1044,7 +1195,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
-        restorer.scheduleInvalidationRefetch()
+        // Cold-start full drain — exercised directly (the invalidation path is
+        // page-1-only and would not paginate the archived stream).
+        restorer.fetchConversationList()
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         let requests = await listClient.fetchRequests

@@ -7,6 +7,7 @@ metadata:
   author: vellum-ai
   version: "0.1"
   vellum:
+    category: "content"
     display-name: "Meme Generator"
     activation-hints:
       - "User asks to create or generate a meme"

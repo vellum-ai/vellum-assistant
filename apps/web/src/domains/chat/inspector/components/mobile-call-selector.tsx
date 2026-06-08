@@ -1,8 +1,8 @@
 import { ChevronDown } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { BottomSheet } from "@vellum/design-library";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import { BottomSheet } from "@vellumai/design-library";
 
 import { CallRail } from "./call-rail";
 

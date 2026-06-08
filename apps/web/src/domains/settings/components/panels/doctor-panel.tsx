@@ -1,53 +1,55 @@
 import {
-  AlertTriangle,
-  ArrowUp,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Copy,
-  HardDrive,
-  Loader2,
-  Play,
-  Shield,
-  Square,
-  Wrench,
-  XCircle,
+    AlertTriangle,
+    ArrowUp,
+    Check,
+    CheckCircle2,
+    ChevronDown,
+    ChevronRight,
+    ChevronUp,
+    Copy,
+    HardDrive,
+    Loader2,
+    Play,
+    Shield,
+    Square,
+    Wrench,
+    XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { MarkdownMessage } from "@vellum/design-library";
-import { Button } from "@vellum/design-library/components/button";
-import { Tag } from "@vellum/design-library/components/tag";
+import { MarkdownMessage } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
 
-import {
-  assistantsDoctorHistoryListOptions,
-  assistantsDoctorHistoryRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { getAssistant } from "@/assistant/api";
-import {
-  buildVellumHeaders,
-  buildVellumMutatingHeaders,
-} from "@/lib/auth/request-headers";
-import { reportError } from "@/utils/error-report";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
-import { isPointerCoarse } from "@/utils/pointer";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
-  type ChatEntry,
-  type PersistedMessage,
-  type PersistedMessageKind,
-  type PersistedSessionStatus,
-  hasPendingApproval,
-  hasPendingBackup,
-  mapPersistedMessagesToEntries,
-  mapPersistedStatusToPanelStatus,
-  selectLatestHistorySession,
+    type ChatEntry,
+    type PersistedMessage,
+    type PersistedMessageKind,
+    type PersistedSessionStatus,
+    hasPendingApproval,
+    hasPendingBackup,
+    mapPersistedMessagesToEntries,
+    mapPersistedStatusToPanelStatus,
+    selectLatestHistorySession,
 } from "@/domains/settings/components/panels/doctor-history";
+import {
+    assistantsDoctorHistoryListOptions,
+    assistantsDoctorHistoryRetrieveOptions,
+} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+    buildVellumHeaders,
+    buildVellumMutatingHeaders,
+} from "@/lib/auth/request-headers";
+import { captureError } from "@/lib/sentry/capture-error";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { isPointerCoarse } from "@/utils/pointer";
+import { toast } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,9 +168,11 @@ function MessageCopyButton({ text }: { text: string }) {
 
 function ToolCallBlock({ entry }: { entry: ChatEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
-  const input = entry.meta?.input as Record<string, unknown> | undefined;
-  const result = (entry.meta?.result as string) ?? undefined;
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
+  const input = entry.meta?.input && typeof entry.meta.input === "object" && !Array.isArray(entry.meta.input)
+    ? (entry.meta.input as Record<string, unknown>)
+    : undefined;
+  const result = typeof entry.meta?.result === "string" ? entry.meta.result : undefined;
   const isError = entry.meta?.isError === true;
   const isRunning = entry.meta?.status === "running";
 
@@ -298,9 +302,11 @@ function ApprovalBlock({
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
-  const description = (entry.meta?.description as string) ?? "";
-  const input = entry.meta?.input as Record<string, unknown> | undefined;
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
+  const description = typeof entry.meta?.description === "string" ? entry.meta.description : "";
+  const input = entry.meta?.input && typeof entry.meta.input === "object" && !Array.isArray(entry.meta.input)
+    ? (entry.meta.input as Record<string, unknown>)
+    : undefined;
   const [showDetails, setShowDetails] = useState(false);
 
   const hasDetails = !!toolName || !!description || !!input;
@@ -395,7 +401,7 @@ function BackupPromptBlock({
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName = (entry.meta?.toolName as string) ?? "tool";
+  const toolName = typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
 
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
@@ -468,6 +474,7 @@ export function DoctorPanel({
   const [pendingApproval, setPendingApproval] = useState(false);
   const [pendingBackup, setPendingBackup] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const platformGate = usePlatformGate();
   const [thinking, setThinking] = useState(false);
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<
     string | null
@@ -501,9 +508,7 @@ export function DoctorPanel({
   useEffect(() => {
     if (!historyListEnabled) return;
     if (historyListQuery.isError) {
-      reportError(historyListQuery.error, {
-        context: "doctor_history_list",
-      });
+      captureError(historyListQuery.error, { context: "doctor_history_list" });
       setSelectedHistorySessionId(null);
       setHistoryAutoLoadAttempted(true);
       return;
@@ -554,10 +559,8 @@ export function DoctorPanel({
           setFetchedAssistantId(result.data.id);
         }
       } catch (error) {
-        reportError(error, {
-          context: "fetch_assistant_for_doctor",
-          userMessage: "Failed to load assistant info",
-        });
+        captureError(error, { context: "fetch_assistant_for_doctor" });
+        toast.error("Failed to load assistant info");
       } finally {
         setFetchedAssistantLoading(false);
       }
@@ -667,7 +670,7 @@ export function DoctorPanel({
           }
         } catch (err) {
           if (controller.signal.aborted) return;
-          reportError(err, { context: "doctor_sse_stream" });
+          captureError(err, { context: "doctor_sse_stream" });
           failStream(
             "Event stream disconnected. Start a new session to continue.",
           );
@@ -727,7 +730,7 @@ export function DoctorPanel({
               const idx = prev.findIndex(
                 (e) =>
                   e.kind === "tool_call" &&
-                  (e.meta?.id as string) === event.toolCallId,
+                  typeof e.meta?.id === "string" && e.meta.id === event.toolCallId,
               );
               if (idx === -1) return prev;
               const updated = [...prev];
@@ -801,9 +804,7 @@ export function DoctorPanel({
     if (appliedHistorySessionId === selectedHistorySessionId) return;
 
     if (historyDetailQuery.isError) {
-      reportError(historyDetailQuery.error, {
-        context: "doctor_history_detail",
-      });
+      captureError(historyDetailQuery.error, { context: "doctor_history_detail" });
       setAppliedHistorySessionId(selectedHistorySessionId);
       return;
     }
@@ -889,10 +890,7 @@ export function DoctorPanel({
           "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.",
       });
     } catch (error) {
-      reportError(error, {
-        context: "start_doctor_session",
-        userMessage: "Failed to start doctor session",
-      });
+      captureError(error, { context: "start_doctor_session" });
       appendEntry({ kind: "error", content: "Failed to start doctor session" });
     } finally {
       setStarting(false);
@@ -951,9 +949,11 @@ export function DoctorPanel({
           },
         );
         if (!resp.ok) {
-          const body = await resp.json().catch(() => ({}));
+          const body: unknown = await resp.json().catch(() => ({}));
           const detail =
-            (body as Record<string, unknown>).detail ?? resp.statusText;
+            body && typeof body === "object" && "detail" in body && typeof body.detail === "string"
+              ? body.detail
+              : resp.statusText;
           appendEntry({
             kind: "error",
             content: `Failed to send message: ${detail}`,
@@ -962,7 +962,7 @@ export function DoctorPanel({
           setThinking(true);
         }
       } catch (error) {
-        reportError(error, { context: "send_doctor_message" });
+        captureError(error, { context: "send_doctor_message" });
         appendEntry({ kind: "error", content: "Failed to send message" });
       } finally {
         setSending(false);
@@ -1005,13 +1005,15 @@ export function DoctorPanel({
           >
             Beta
           </Tag>
-          <button
-            type="button"
-            onClick={() => setFeedbackOpen(true)}
-            className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-          >
-            Share Feedback
-          </button>
+          {platformGate === "full" && (
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen(true)}
+              className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+            >
+              Share Feedback
+            </button>
+          )}
         </div>
 
         {isSessionActive && (

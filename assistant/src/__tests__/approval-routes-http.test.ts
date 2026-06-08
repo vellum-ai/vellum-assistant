@@ -119,12 +119,15 @@ mock.module("../permissions/trust-store.js", () => ({
 // ---------------------------------------------------------------------------
 let _conversationFactory: (() => Conversation) | undefined;
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
     // Return the current test session for any conversation ID lookup.
     if (!_conversationFactory) return undefined;
     return _conversationFactory();
   },
+}));
+
+mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -181,8 +184,9 @@ function makeIdleSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
@@ -246,8 +250,9 @@ function makeConfirmationEmittingSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       // Simulate PermissionPrompter.prompt(): self-register in pendingInteractions
       // before emitting the SSE event (registration no longer happens via broadcastMessage).
       pendingInteractions.register(reqId, {

@@ -57,23 +57,41 @@ struct ChatProfilePicker: View {
     @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     /// Pill label: the override profile's display name when set, otherwise
-    /// "Auto" when auto-routing is enabled or "Default (`<activeProfile>`)"
-    /// when it is not.
+    /// "Default (`<activeProfile>`)". The seeded auto profile is surfaced as
+    /// "Auto" when it is the effective profile.
     static func label(current: String?, profiles: [InferenceProfile], activeProfile: String, autoRouting: Bool = false) -> String {
+        if current == InferenceProfile.autoProfileName {
+            return "Auto"
+        }
         if let current {
             return profiles.first(where: { $0.name == current })?.displayName ?? current
         }
-        if autoRouting {
+        if autoRouting && activeProfile == InferenceProfile.autoProfileName {
             return "Auto"
         }
         let activeDisplay = profiles.first(where: { $0.name == activeProfile })?.displayName ?? activeProfile
         return "Default (\(activeDisplay))"
     }
 
+    /// Chat pickers render "Auto" as a dedicated nil-selection row, so the
+    /// seeded meta-profile should never appear in the regular profile list.
+    /// Disabled profiles stay hidden unless they are the selected value.
+    static func visibleProfilesForPicker(
+        _ profiles: [InferenceProfile],
+        selectedNames: [String?] = []
+    ) -> [InferenceProfile] {
+        let selected = Set(selectedNames.compactMap { $0 }.filter { !$0.isEmpty })
+        return profiles.filter { profile in
+            guard profile.name != InferenceProfile.autoProfileName else { return false }
+            return !profile.isDisabled || selected.contains(profile.name)
+        }
+    }
+
     var body: some View {
-        let activeProfiles = profiles.filter { !$0.isDisabled }
         let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-        let isAutoActive = autoRoutingEnabled && current == nil
+        let effectiveProfile = current ?? activeProfile
+        let activeProfiles = Self.visibleProfilesForPicker(profiles, selectedNames: [effectiveProfile])
+        let isAutoActive = autoRoutingEnabled && effectiveProfile == InferenceProfile.autoProfileName
         let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile, autoRouting: autoRoutingEnabled)
         #if os(macOS)
         ComposerPillMenu(
@@ -96,7 +114,7 @@ struct ChatProfilePicker: View {
                     isActive: isAutoActive,
                     size: .regular
                 ) {
-                    onSelect(nil)
+                    onSelect(InferenceProfile.autoProfileName)
                 } trailing: {
                     VStack(alignment: .trailing, spacing: 2) {
                         if isAutoActive {

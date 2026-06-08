@@ -14,9 +14,9 @@ afterEach(() => {
   setOverridesForTesting({});
 });
 
-const DECLARED_FLAG_ID = "email-channel";
+const DECLARED_FLAG_ID = "a2a-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
-const DECLARED_SKILL_ID = "email-channel";
+const DECLARED_SKILL_ID = "a2a-channel";
 const ENABLED_UNDECLARED_FLAG_KEY = "enabled-undeclared-flag";
 const ENABLED_UNDECLARED_SKILL_ID = "enabled-undeclared-skill";
 // ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // email-channel defaults to false in the registry
+    // a2a-channel defaults to false in the registry
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
       false,
     );
@@ -212,7 +212,7 @@ describe("resolveSkillStates with feature flags", () => {
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // email-channel registry default is false, so it is filtered out
+    // a2a-channel registry default is false, so it is filtered out
     expect(resolved.length).toBe(0);
   });
 
@@ -273,7 +273,7 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // email-channel and deploy explicitly false; one unrelated skill explicitly true
+    // a2a-channel and deploy explicitly false; one unrelated skill explicitly true
     expect(ids).toEqual([ENABLED_UNDECLARED_SKILL_ID]);
   });
 });
@@ -284,7 +284,7 @@ describe("resolveSkillStates with feature flags", () => {
 
 describe("resolveSkillStates with frontmatter featureFlag", () => {
   test("skill with featureFlag (defaultEnabled: false) is excluded when no config override", () => {
-    // email-channel has defaultEnabled: false in the registry
+    // a2a-channel has defaultEnabled: false in the registry
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 

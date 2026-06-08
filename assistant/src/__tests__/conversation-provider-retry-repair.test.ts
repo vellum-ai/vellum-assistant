@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -83,11 +84,15 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator: return a small value (well within budget) so preflight
 // does not trigger in existing tests. Stub both the calibrated and raw
-// entry points — the latter backs the default `tokenEstimate` plugin
-// pipeline now used by the orchestrator's preflight / mid-loop checkpoints.
+// entry points — the calibrated estimate backs the orchestrator's preflight /
+// mid-loop overflow checkpoints, and the raw estimate backs the pre-send
+// calibration capture.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
   estimatePromptTokensRaw: () => 1000,
+  // The preflight overflow gate calls this calibrated wrapper directly; stub
+  // it alongside the others so it returns the same small value.
+  estimatePromptTokensWithTools: () => 1000,
   estimateToolsTokens: () => 0,
 }));
 
@@ -216,6 +221,7 @@ let forceCompactionEnabled = false;
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -264,6 +270,7 @@ let firstRunErrorMode:
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -274,10 +281,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -331,7 +339,13 @@ mock.module("../agent/loop.js", () => ({
             { type: "tool_result", tool_use_id: "tu-1", content: "hi" },
           ],
         } as Message);
-        return history; // Progress was made — history grew
+        // Progress was made — history grew
+        return {
+          history,
+          exitReason: null,
+          appendedNewMessages: true,
+          newMessages: history.slice(messages.length),
+        };
       }
 
       // Context-too-large modes: keep failing when compaction can't help
@@ -373,7 +387,13 @@ mock.module("../agent/loop.js", () => ({
           );
         })();
         onEvent({ type: "error", error });
-        return [...messages]; // Return unchanged — no progress
+        // Return unchanged — no progress
+        return {
+          history: [...messages],
+          exitReason: null,
+          appendedNewMessages: false,
+          newMessages: [],
+        };
       }
 
       // Second call (retry) or non-error: succeed normally
@@ -391,7 +411,12 @@ mock.module("../agent/loop.js", () => ({
       };
       history.push(assistantMsg);
       onEvent({ type: "message_complete", message: assistantMsg });
-      return history;
+      return {
+        history,
+        exitReason: null,
+        appendedNewMessages: true,
+        newMessages: history.slice(messages.length),
+      };
     }
   },
 }));
@@ -440,9 +465,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
@@ -463,11 +488,10 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
-    // Orchestrator pipelines (`overflowReduce`, `persistence`, …) run through
-    // the plugin registry; re-register every default so each pipeline has a
-    // middleware to dispatch to. The `context-overflow-reducer` module itself
-    // (and other collaborators) are mocked above, so the default plugins'
-    // delegates go through the mocked implementations.
+    // The compaction pipeline runs through the plugin registry; re-register
+    // every default so it has a middleware to dispatch to. Collaborators are
+    // mocked above, so the default plugins' delegates go through the mocked
+    // implementations.
     resetPluginRegistryAndRegisterDefaults();
   });
 
@@ -547,7 +571,7 @@ describe("provider ordering error retry", () => {
     });
 
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(maybeCompactCalls).toEqual([{ force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
     expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
@@ -572,9 +596,10 @@ describe("provider ordering error retry", () => {
     // (forceCompactionEnabled=false), the second run also fails with
     // context_too_large. The overflow policy (fail_gracefully) surfaces error.
     expect(agentLoopRunCount).toBe(2);
-    // Two maybeCompact calls: initial auto-compact (force:false),
-    // reducer's compactFn (force:true).
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    // One maybeCompact call: the reducer's compactFn (force:true). The
+    // orchestrator's start-of-turn auto-compact no longer runs — the loop's
+    // pre-call budget gate owns turn-start compaction and doesn't trip here.
+    expect(maybeCompactCalls).toEqual([{ force: true }]);
 
     expect(events.some((e) => e.type === "conversation_error")).toBe(true);
   });
@@ -595,7 +620,7 @@ describe("provider ordering error retry", () => {
 
     // Same as above — convergence loop re-runs agent loop, which also fails.
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(maybeCompactCalls).toEqual([{ force: true }]);
     expect(events.some((e) => e.type === "conversation_error")).toBe(true);
   });
 
@@ -614,7 +639,7 @@ describe("provider ordering error retry", () => {
     });
 
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(maybeCompactCalls).toEqual([{ force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
     expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
@@ -637,7 +662,7 @@ describe("provider ordering error retry", () => {
     // the regex patterns, but classifyConversationError recognizes statusCode 413
     // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(maybeCompactCalls).toEqual([{ force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
     expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });

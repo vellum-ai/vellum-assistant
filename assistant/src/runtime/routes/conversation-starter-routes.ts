@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   checkpointKey,
   CK_ITEM_COUNT,
+  CK_LAST_ATTEMPT_AT,
   CK_LAST_GEN_AT,
   countActiveMemoryNodes,
   getCheckpointValue,
@@ -21,10 +22,7 @@ import {
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
 import { getDb } from "../../memory/db-connection.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -35,18 +33,21 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // chips form a coherent, non-repetitive row.
 // ---------------------------------------------------------------------------
 
-interface StarterItem {
-  id: string;
-  label: string;
-  prompt: string;
-  category: string | null;
-  batch: number;
-}
+const starterItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  prompt: z.string(),
+  category: z.string().nullable(),
+  batch: z.number().int(),
+});
 
-export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+type StarterItem = z.infer<typeof starterItemSchema>;
 
-/** Minimum interval between re-enqueue attempts triggered by invalid items. */
-const REFRESH_COOLDOWN_MS = 60_000;
+export const CONVERSATION_STARTERS_STALE_TTL_MS = 4 * 60 * 60 * 1000;
+
+/** Minimum interval between re-enqueue attempts (prevents tight retry loops
+ *  when generation repeatedly fails or produces 0 valid starters). */
+const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 function hasActiveConversationStarterJob(
   db: ReturnType<typeof getDb>,
@@ -200,12 +201,16 @@ function handleListConversationStarters({
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
     let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
+    const lastAttemptAt = parseCheckpointInt(
+      getCheckpointValue(checkpointKey(CK_LAST_ATTEMPT_AT, scopeId)),
+    );
     const withinCooldown =
-      lastGenAt != null && Date.now() - lastGenAt < REFRESH_COOLDOWN_MS;
+      lastAttemptAt != null && Date.now() - lastAttemptAt < REFRESH_COOLDOWN_MS;
     const shouldRefresh =
-      staleByAge ||
-      checkpointAhead ||
-      (invalidItemCount > 0 && totalActive > 0 && !withinCooldown);
+      !withinCooldown &&
+      (staleByAge ||
+        checkpointAhead ||
+        (invalidItemCount > 0 && totalActive > 0));
 
     if (shouldRefresh && !hasActiveJob && isMemoryEnabled()) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
@@ -303,7 +308,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      starters: z.array(z.unknown()).describe("Ordered list of starter chips"),
+      starters: z
+        .array(starterItemSchema)
+        .describe("Ordered list of starter chips"),
       total: z.number().int().describe("Total number of available starters"),
       status: z
         .enum(["ready", "refreshing", "empty", "generating"])

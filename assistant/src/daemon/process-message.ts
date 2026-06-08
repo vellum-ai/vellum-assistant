@@ -65,15 +65,13 @@ const log = getLogger("process-message");
 type ProcessMessageOptions = ConversationCreateOptions & {
   /** Per-turn observer for live agent-loop events. Does not replace SSE broadcast. */
   onEvent?: (msg: ServerMessage) => void;
+  /** IDs of user-uploaded attachments to resolve and include in the turn. */
+  attachmentIds?: string[];
+  /** Originating channel (e.g. "slack", "telegram"). Defaults to "vellum". */
+  sourceChannel?: string;
+  /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
+  sourceInterface?: string;
 };
-
-function stripPerTurnObservers(
-  options?: ProcessMessageOptions,
-): ConversationCreateOptions | undefined {
-  if (!options) return undefined;
-  const { onEvent: _onEvent, ...conversationOptions } = options;
-  return conversationOptions;
-}
 
 function buildEventEmitter(
   observer?: (msg: ServerMessage) => void,
@@ -132,10 +130,7 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
 async function prepareConversationForMessage(
   conversationId: string,
   content: string,
-  attachmentIds: string[] | undefined,
-  options: ConversationCreateOptions | undefined,
-  sourceChannel: string | undefined,
-  sourceInterface: string | undefined,
+  options?: ProcessMessageOptions,
 ): Promise<{
   conversation: Conversation;
   attachments: {
@@ -146,9 +141,18 @@ async function prepareConversationForMessage(
     filePath?: string;
   }[];
 }> {
+  const {
+    attachmentIds,
+    sourceChannel,
+    sourceInterface,
+    onEvent: _onEvent,
+    ...conversationOptions
+  } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
     conversationId,
-    options,
+    Object.keys(conversationOptions).length > 0
+      ? conversationOptions
+      : undefined,
   );
 
   if (conversation.isProcessing()) {
@@ -157,7 +161,7 @@ async function prepareConversationForMessage(
 
   const resolvedChannel = resolveTurnChannel(
     sourceChannel,
-    options?.transport?.channelId,
+    conversationOptions.transport?.channelId,
   );
   const resolvedInterface = resolveTurnInterface(sourceInterface);
   conversation.setAssistantId(
@@ -191,8 +195,15 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
+  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
   // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (shouldAttachHostProxyForCapability("host_cu", resolvedInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      resolvedInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -204,7 +215,11 @@ async function prepareConversationForMessage(
   // is enforced by the skill-projection layer via SKILL.md frontmatter, so
   // an attached proxy is harmless when the flag is off.
   if (
-    shouldAttachHostProxyForCapability("host_app_control", resolvedInterface)
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      resolvedInterface,
+      sourceActorPrincipalId,
+    )
   ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
@@ -216,7 +231,11 @@ async function prepareConversationForMessage(
   }
   // The early `isProcessing()` throw above guarantees the conversation is
   // idle here, so preactivation is unconditional once the proxies are wired.
-  preactivateHostProxySkills(conversation, resolvedInterface);
+  preactivateHostProxySkills(
+    conversation,
+    resolvedInterface,
+    sourceActorPrincipalId,
+  );
   conversation.setCommandIntent(options?.commandIntent ?? null);
   conversation.setTurnChannelContext({
     userMessageChannel: resolvedChannel,
@@ -253,19 +272,12 @@ async function prepareConversationForMessage(
 export async function processMessage(
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: ProcessMessageOptions,
-  sourceChannel?: string,
-  sourceInterface?: string,
 ): Promise<{ messageId: string; assistantMessageId?: string }> {
-  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
-    attachmentIds,
-    conversationOptions,
-    sourceChannel,
-    sourceInterface,
+    options,
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
@@ -424,14 +436,8 @@ export async function processMessage(
     );
     conversation.getMessages().push(cleanMsg);
 
-    conversation.emitActivityState(
-      "thinking",
-      "context_compacting",
-      "assistant_turn",
-    );
-    const result = await conversation.forceCompact({
-      targetInputTokensOverride: slashResult.targetInputTokensOverride,
-    });
+    conversation.emitActivityState("thinking", "context_compacting");
+    const result = await conversation.forceCompact();
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
     const persistedAssistant = await addMessage(
@@ -523,7 +529,8 @@ export async function processMessage(
   }
 
   try {
-    await conversation.runAgentLoop(resolvedContent, messageId, emitEvent, {
+    await conversation.runAgentLoop(resolvedContent, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
@@ -551,19 +558,12 @@ export async function processMessage(
 export async function processMessageInBackground(
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: ProcessMessageOptions,
-  sourceChannel?: string,
-  sourceInterface?: string,
 ): Promise<{ messageId: string }> {
-  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
-    attachmentIds,
-    conversationOptions,
-    sourceChannel,
-    sourceInterface,
+    options,
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
@@ -586,7 +586,8 @@ export async function processMessageInBackground(
   }
 
   conversation
-    .runAgentLoop(content, messageId, emitEvent, {
+    .runAgentLoop(content, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),

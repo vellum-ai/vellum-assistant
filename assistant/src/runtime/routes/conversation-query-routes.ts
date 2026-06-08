@@ -20,6 +20,7 @@
 
 import { z } from "zod";
 
+import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -71,7 +72,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { getMemoryV3SelectionForInspector } from "../../memory/v3/selection-log-store.js";
+import { getMemoryV3SelectionForInspector } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,
   listConnections,
@@ -879,13 +880,11 @@ function handleGetMessageContent({
   return result;
 }
 
-const CONVERSATION_KINDS = [
-  "user",
-  "background",
-  "background_memory_consolidation",
-  "scheduled",
-] as const;
-type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+type ConversationKind =
+  | "user"
+  | "background"
+  | "background_memory_consolidation"
+  | "scheduled";
 
 function resolveConversationKind(
   source: string,
@@ -1172,6 +1171,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
+    requestBody: z.record(z.string(), z.unknown()),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handlePatchConfig,
   },
   {
@@ -1230,7 +1231,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_llm_profiles_replace",
     endpoint: "config/llm/profiles/:name",
     method: "PUT",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Replace an inference profile",
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
@@ -1319,16 +1323,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Internal conversation identifier.",
       },
     ],
-    responseBody: z.object({
-      conversationKey: z.string().nullable().optional(),
-      conversationId: z.string().nullable(),
-      conversationKind: z.enum(CONVERSATION_KINDS),
-      conversationTotalEstimatedCostUsd: z.number().nullable(),
-      logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough().nullable(),
-      memoryV2Activation: z.object({}).passthrough().nullable(),
-      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
-    }),
+    responseBody: LlmContextResponseSchema,
     handler: handleGetConversationLlmContext,
   },
   {
@@ -1343,15 +1338,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return request/response logs and memory recall data for a specific message.",
     tags: ["messages"],
-    responseBody: z.object({
-      messageId: z.string(),
-      conversationKind: z.enum(CONVERSATION_KINDS),
-      conversationTotalEstimatedCostUsd: z.number().nullable(),
-      logs: z.array(z.unknown()),
-      memoryRecall: z.object({}).passthrough().nullable(),
-      memoryV2Activation: z.object({}).passthrough().nullable(),
-      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
-    }),
+    responseBody: LlmContextResponseSchema,
     handler: handleGetLlmContext,
   },
   {

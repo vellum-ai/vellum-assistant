@@ -1,15 +1,15 @@
 import { Loader2, MoreVertical, Pencil, Plus, Search, UserPlus } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Input } from "@vellum/design-library/components/input";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Input } from "@vellumai/design-library/components/input";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import type {
-  ContactSelection,
-  ContactSummary,
+    ContactSelection,
+    ContactSummary,
 } from "@/domains/contacts/types";
 
 interface ContactsListProps {

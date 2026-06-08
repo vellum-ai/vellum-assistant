@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderReportPage } from "../report-html";
+import { formatCliCommand, renderReportPage } from "../report-html";
 import type {
   ReportRunDetail,
   ReportSessionDetail,
@@ -532,5 +532,106 @@ describe("report html", () => {
     // Summary + confirm-button copy still ships.
     expect(html).toContain("Delete run");
     expect(html).toContain("Yes, delete this run");
+  });
+
+  test("session page renders the CLI command block when cliArgv is present", () => {
+    // The reproduction line is the whole point of this surface — assert
+    // the visible label, the canonical `evals` prefix (env-specific
+    // runtime + script path stripped from argv), and the flag tokens
+    // we expect to round-trip without quoting changes.
+    const html = renderReportPage({
+      kind: "session",
+      session: {
+        ...sessionDetail,
+        cliArgv: [
+          "/usr/local/bin/bun",
+          "/repo/evals/src/cli.ts",
+          "run",
+          "--benchmark=longmemeval-v2",
+          "--profiles=vellum-simple-memory",
+          "--filter=057a2d4d",
+          "--label=tier-b-smoke",
+        ],
+      },
+    });
+    expect(html).toContain("CLI command");
+    expect(html).toContain(
+      "evals run --benchmark=longmemeval-v2 --profiles=vellum-simple-memory --filter=057a2d4d --label=tier-b-smoke",
+    );
+    // Argv prefix (bun + script path) is suppressed in the rendered line.
+    expect(html).not.toContain("/usr/local/bin/bun");
+    expect(html).not.toContain("/repo/evals/src/cli.ts");
+  });
+
+  test("session page omits the CLI command block for legacy sessions without cliArgv", () => {
+    // Legacy runs predate the field; the UI must render nothing rather
+    // than a "command unknown" placeholder so old session pages stay
+    // visually clean. The CSS class name ships in every page's
+    // stylesheet block — assert on the rendered HTML attribute
+    // (`class="cli-command"`) and the visible label text instead.
+    const html = renderReportPage({ kind: "session", session: sessionDetail });
+    expect(html).not.toContain('class="cli-command"');
+    expect(html).not.toContain(">CLI command<");
+  });
+
+  test("formatCliCommand strips the bun + script prefix and prepends `evals`", () => {
+    expect(
+      formatCliCommand([
+        "/Users/dev/.bun/bin/bun",
+        "/repo/evals/src/cli.ts",
+        "run",
+        "--profiles=p1",
+      ]),
+    ).toBe("evals run --profiles=p1");
+  });
+
+  test("formatCliCommand returns undefined when argv is missing or too short", () => {
+    expect(formatCliCommand(undefined)).toBeUndefined();
+    expect(formatCliCommand([])).toBeUndefined();
+    // Two entries = runtime + script with no subcommand; not a real
+    // CLI invocation we'd want to surface to operators.
+    expect(formatCliCommand(["bun", "cli.ts"])).toBeUndefined();
+  });
+
+  test("formatCliCommand shell-quotes tokens containing whitespace or shell metacharacters", () => {
+    // Flag values from `--label "tier B smoke"` or paths with spaces
+    // need single-quoting so the rendered line is paste-runnable.
+    // Clean tokens (alphanumerics, `=`, `,`, `.`, `/`, `-`, `_`) stay
+    // unquoted so the output reads naturally for the common case.
+    const command = formatCliCommand([
+      "bun",
+      "cli.ts",
+      "run",
+      "--label=tier B smoke",
+      "--workspace=/path with space/data",
+    ]);
+    expect(command).toBe(
+      "evals run '--label=tier B smoke' '--workspace=/path with space/data'",
+    );
+    // Embedded single quotes use the Bourne `'\''` escape; the result
+    // remains a single valid shell token from the parser's POV.
+    expect(formatCliCommand(["bun", "cli.ts", "run", "--note=it's fine"])).toBe(
+      "evals run '--note=it'\\''s fine'",
+    );
+  });
+
+  test("execution page renders the CLI command block when cliArgv is present", () => {
+    // Same plumbing covers run pages — useful when an operator lands
+    // directly on a per-(profile,test) URL via heartbeat or a shared
+    // link rather than via the session index.
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        cliArgv: [
+          "/usr/local/bin/bun",
+          "/repo/evals/src/cli.ts",
+          "run",
+          "--filter=057a2d4d",
+        ],
+      },
+    });
+    expect(html).toContain("CLI command");
+    expect(html).toContain("evals run --filter=057a2d4d");
   });
 });

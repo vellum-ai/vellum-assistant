@@ -281,6 +281,86 @@ describe("report data", () => {
     expect(match).toMatchObject(expected);
   });
 
+  test("cliArgv is captured on each run summary and surfaced on the session summary", async () => {
+    // `commands/run.ts` stamps the originating `process.argv` onto
+    // every `RunMetadata` it writes; the report layer is responsible
+    // for plumbing it through `summarizeRun` and `summarizeSession`
+    // so the UI can render a copy-pasteable command. This guards the
+    // pass-through end-to-end: the argv is on the per-run summary,
+    // and the session summary lifts it from the first run.
+    const sessionTag = `session-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("cli-a");
+    const runIdB = await freshRunId("cli-b");
+    const argv = [
+      "/usr/local/bin/bun",
+      "/repo/evals/src/cli.ts",
+      "run",
+      "--benchmark=longmemeval-v2",
+      "--profiles=vellum-simple-memory",
+      "--filter=057a2d4d",
+      "--label=tier-b-smoke",
+    ];
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        sessionLabel: "tier-b-smoke",
+        cliArgv: argv,
+        profileId: "p1",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:00.000Z",
+        completedAt: "2026-05-15T12:00:01.000Z",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        sessionLabel: "tier-b-smoke",
+        cliArgv: argv,
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:02.000Z",
+        completedAt: "2026-05-15T12:00:03.000Z",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [{ name: "acc", score: 1 }]);
+    await writeMetricResults(runIdB, [{ name: "acc", score: 1 }]);
+
+    const sessions = await listReportSessions();
+    const match = sessions.find((session) => session.sessionId === sessionTag);
+    expect(match?.cliArgv).toEqual(argv);
+  });
+
+  test("legacy run metadata without cliArgv leaves the field undefined on summaries", async () => {
+    // Defensive: legacy run.json files predate the field. The summary
+    // layer must not synthesize a placeholder — the UI suppresses the
+    // CLI block when `cliArgv` is undefined, and we want this contract
+    // to hold even after the readers go through `summarize`.
+    const sessionTag = `session-legacy-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runId = await freshRunId("legacy-cli");
+
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: sessionTag,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      completedAt: "2026-05-15T12:00:01.000Z",
+      artifactDir: runArtifacts(runId).runDir,
+    });
+    await writeMetricResults(runId, [{ name: "acc", score: 1 }]);
+
+    const sessions = await listReportSessions();
+    const match = sessions.find((session) => session.sessionId === sessionTag);
+    expect(match?.cliArgv).toBeUndefined();
+  });
+
   test("readReportSession returns per-profile aggregates + per-test entries", async () => {
     const sessionTag = `session-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const runIdA = await freshRunId("detail-a");

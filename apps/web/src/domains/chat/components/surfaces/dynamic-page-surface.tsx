@@ -6,7 +6,8 @@ import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { injectBridge } from "@/utils/sandbox-bridge";
-import type { Surface } from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isSurfaceToolCallComplete, type Surface } from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";
 
 // ---------------------------------------------------------------------------
@@ -37,7 +38,9 @@ interface DynamicPageSurfaceProps {
   onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
-  isToolCallComplete?: boolean;
+  /** Tool calls of the message this surface belongs to. The preview unlocks
+   *  once the surface's originating tool call has completed. */
+  toolCalls?: ChatMessageToolCall[];
 }
 
 // ---------------------------------------------------------------------------
@@ -74,12 +77,16 @@ export function DynamicPageSurface({
   onAction,
   assistantId,
   onOpenApp,
-  isToolCallComplete = true,
+  toolCalls,
 }: DynamicPageSurfaceProps) {
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const data = surface.data as unknown as DynamicPageSurfaceData;
   const appId = getDynamicPageAppId(surface);
+  const isToolCallComplete = useMemo(
+    () => isSurfaceToolCallComplete(surface, toolCalls),
+    [surface, toolCalls],
+  );
   const inlineHtml = typeof data.html === "string" && data.html.length > 0
     ? data.html
     : null;

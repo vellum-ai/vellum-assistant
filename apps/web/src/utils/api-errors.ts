@@ -19,13 +19,12 @@ export function toErrorObject(
   response?: Response,
 ): Record<string, unknown> {
   if (error && typeof error === "object" && !Array.isArray(error)) {
-    return error as Record<string, unknown>;
+    return error as Record<string, unknown>; // narrowed from `object`
   }
 
   if (typeof error === "string" && !error.trimStart().startsWith("<")) {
     return {
-      detail:
-        error.slice(0, 500) || response?.statusText || "Request failed.",
+      detail: error.slice(0, 500) || response?.statusText || "Request failed.",
     };
   }
 
@@ -44,26 +43,34 @@ export function extractErrorMessage(
   fallback?: string,
 ): string {
   if (error && typeof error === "object" && !Array.isArray(error)) {
-    const body = error as Record<string, unknown>;
-    if (typeof body.detail === "string") return body.detail;
-    if (typeof body.error === "string") return body.error;
-    if (
-      body.error &&
-      typeof body.error === "object" &&
-      typeof (body.error as Record<string, unknown>).message === "string"
-    ) {
-      return (body.error as Record<string, unknown>).message as string;
+    if ("detail" in error && typeof error.detail === "string") {
+      return error.detail;
     }
-    if (typeof body.message === "string") return body.message;
+    if ("error" in error) {
+      if (typeof error.error === "string") return error.error;
+      if (
+        error.error &&
+        typeof error.error === "object" &&
+        "message" in error.error &&
+        typeof error.error.message === "string"
+      ) {
+        return error.error.message;
+      }
+    }
+    if ("message" in error && typeof error.message === "string") {
+      return error.message;
+    }
   }
 
-  if (typeof error === "string" && error && !error.trimStart().startsWith("<")) {
+  if (
+    typeof error === "string" &&
+    error &&
+    !error.trimStart().startsWith("<")
+  ) {
     return error;
   }
 
-  return (
-    fallback ?? (response ? `HTTP ${response.status}` : "Request failed.")
-  );
+  return fallback ?? (response ? `HTTP ${response.status}` : "Request failed.");
 }
 
 /**
@@ -103,14 +110,3 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
-
-/**
- * Default options spread into every HeyAPI SDK call. In SSR / test
- * environments where `window` is absent, supplies a dummy `baseUrl`
- * so the client constructor doesn't throw; in the browser the client's
- * globally-configured base URL is used.
- */
-export const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);

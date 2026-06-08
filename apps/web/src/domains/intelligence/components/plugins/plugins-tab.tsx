@@ -1,59 +1,84 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Puzzle, Search } from "lucide-react";
+import { Loader2, Puzzle, Search, TriangleAlert } from "lucide-react";
 import {
-  type ChangeEvent,
-  type Dispatch,
-  type SetStateAction,
-  useEffect,
-  useMemo,
-  useState,
+    type ChangeEvent,
+    type Dispatch,
+    type SetStateAction,
+    useMemo,
+    useState,
 } from "react";
 
-import { Card, Input } from "@vellum/design-library";
 import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
 import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
 import {
-  fetchPluginCatalog,
-  fetchPlugins,
-} from "@/domains/intelligence/plugins/api";
+    pluginsGetQueryKey,
+    pluginsSearchGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type {
-  PluginCatalogMatch,
-  PluginInfo,
-} from "@/domains/intelligence/plugins/types";
+    PluginsGetResponse,
+    PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
+import { Card, Input } from "@vellumai/design-library";
+
+type PluginInfo = PluginsGetResponse["plugins"][number];
+type PluginCatalogMatch = PluginsSearchGetResponse["matches"][number];
 
 interface PluginsTabProps {
   assistantId: string;
 }
 
-const SEARCH_DEBOUNCE_MS = 300;
+// The installed list (local filesystem) and the catalog (the daemon's
+// cached, rate-limited GitHub listing) both change rarely, so each is
+// fetched once with no query and filtered in memory as the user types.
+// Typing therefore issues zero network requests — and never re-hits the
+// daemon's catalog search on every keystroke. `staleTime` keeps the data
+// warm across tab switches so revisiting doesn't refetch.
+const CATALOG_STALE_TIME_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Case-insensitive substring match against a plugin's name + description. */
+function matchesQuery(
+  query: string,
+  ...fields: readonly (string | null | undefined)[]
+): boolean {
+  if (!query) return true;
+  return fields.some((f) => f?.toLowerCase().includes(query));
+}
 
 export function PluginsTab({ assistantId }: PluginsTabProps) {
   const [searchValue, setSearchValue] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      setDebouncedSearch(searchValue.trim());
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [searchValue]);
+  const query = searchValue.trim().toLowerCase();
 
   const pluginsQuery = useQuery({
-    queryKey: ["assistantPlugins", assistantId, { q: debouncedSearch }],
-    queryFn: () =>
-      fetchPlugins(assistantId, {
-        query: debouncedSearch || undefined,
-      }),
+    queryKey: pluginsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: { q: undefined },
+    }),
+    queryFn: async ({ signal }) => {
+      const result = await pluginsGet({
+        path: { assistant_id: assistantId },
+        query: { q: undefined },
+        signal,
+        throwOnError: false,
+      });
+      const status = result.response?.status;
+      // Older daemons return 404 when the list endpoint isn't
+      // implemented yet — degrade to an empty installed list.
+      if (status === 404) return { plugins: [] } as PluginsGetResponse;
+      if (!result.response?.ok) throw new Error("Failed to load plugins");
+      return result.data ?? ({ plugins: [] } as PluginsGetResponse);
+    },
     enabled: Boolean(assistantId),
+    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const catalogQuery = useQuery({
-    queryKey: ["assistantPluginCatalog", assistantId, { q: debouncedSearch }],
-    queryFn: () =>
-      fetchPluginCatalog(assistantId, {
-        query: debouncedSearch || undefined,
-      }),
+    ...pluginsSearchGetOptions({
+      path: { assistant_id: assistantId },
+      query: { q: undefined },
+    }),
     enabled: Boolean(assistantId),
+    staleTime: CATALOG_STALE_TIME_MS,
   });
 
   const installedPlugins = useMemo(
@@ -66,26 +91,38 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
     [installedPlugins],
   );
 
-  // Catalog entries that aren't already installed. The list endpoint
-  // and the catalog endpoint are independent — entries the user has
-  // installed locally still appear in the catalog. Suppressing them
-  // here keeps the "Available to install" section honest.
+  const visibleInstalled = useMemo(
+    () =>
+      installedPlugins.filter((p) =>
+        matchesQuery(query, p.name, p.description),
+      ),
+    [installedPlugins, query],
+  );
+
+  // Catalog entries that aren't already installed and match the filter.
+  // The list endpoint and the catalog endpoint are independent — entries
+  // the user has installed locally still appear in the catalog.
+  // Suppressing them here keeps the "Available to install" section honest.
   const catalogMatches = useMemo<readonly PluginCatalogMatch[]>(() => {
     const matches = catalogQuery.data?.matches ?? [];
-    return matches.filter((m) => !installedNames.has(m.name));
-  }, [catalogQuery.data?.matches, installedNames]);
+    return matches.filter(
+      (m) =>
+        !installedNames.has(m.name) &&
+        matchesQuery(query, m.name, m.description),
+    );
+  }, [catalogQuery.data?.matches, installedNames, query]);
 
-  const isSearchingInstalled =
-    pluginsQuery.isFetching && Boolean(debouncedSearch);
-  const isSearchingCatalog =
-    catalogQuery.isFetching && Boolean(debouncedSearch);
-  const isSearching = isSearchingInstalled || isSearchingCatalog;
+  // Filtering is in-memory, so the only spinner-worthy work is a background
+  // refetch of the underlying lists (initial load uses the LoadingState).
+  const isSearching =
+    (pluginsQuery.isFetching && !pluginsQuery.isLoading) ||
+    (catalogQuery.isFetching && !catalogQuery.isLoading);
 
   const isLoadingInstalled = pluginsQuery.isLoading;
   const isLoadingCatalog = catalogQuery.isLoading;
 
   const showInstalledEmpty =
-    !isLoadingInstalled && installedPlugins.length === 0;
+    !isLoadingInstalled && !pluginsQuery.isError && visibleInstalled.length === 0;
   const showCatalogEmpty = !isLoadingCatalog && catalogMatches.length === 0;
 
   return (
@@ -100,11 +137,13 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         <SectionHeader title="Installed" />
         {isLoadingInstalled ? (
           <LoadingState />
+        ) : pluginsQuery.isError ? (
+          <PluginsErrorState />
         ) : showInstalledEmpty ? (
-          <InstalledEmptyState hasQuery={Boolean(debouncedSearch)} />
+          <InstalledEmptyState hasQuery={Boolean(query)} />
         ) : (
           <ul className="flex flex-col gap-2">
-            {installedPlugins.map((plugin) => (
+            {visibleInstalled.map((plugin) => (
               <li key={plugin.id}>
                 <PluginRow plugin={plugin} />
               </li>
@@ -119,7 +158,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
         ) : catalogQuery.isError ? (
           <CatalogErrorState />
         ) : showCatalogEmpty ? (
-          <CatalogEmptyState hasQuery={Boolean(debouncedSearch)} />
+          <CatalogEmptyState hasQuery={Boolean(query)} />
         ) : (
           <ul className="flex flex-col gap-2">
             {catalogMatches.map((match) => (
@@ -197,7 +236,9 @@ function LoadingState() {
 }
 
 function InstalledEmptyState({ hasQuery }: { hasQuery: boolean }) {
-  const title = hasQuery ? "No installed plugins match" : "No Plugins Installed";
+  const title = hasQuery
+    ? "No installed plugins match"
+    : "No Plugins Installed";
   const subtitle = hasQuery
     ? "Try a different search term, or browse the catalog below."
     : "Install a plugin with the CLI, or browse the catalog below.";
@@ -253,6 +294,32 @@ function CatalogEmptyState({ hasQuery }: { hasQuery: boolean }) {
           style={{ color: "var(--content-tertiary)" }}
         >
           {subtitle}
+        </p>
+      </Card.Body>
+    </Card.Root>
+  );
+}
+
+function PluginsErrorState() {
+  return (
+    <Card.Root>
+      <Card.Body className="flex flex-col items-center justify-center py-10 text-center">
+        <TriangleAlert
+          className="mb-3 h-8 w-8"
+          style={{ color: "var(--system-danger)" }}
+          aria-hidden
+        />
+        <h3
+          className="text-title-small"
+          style={{ color: "var(--content-default)" }}
+        >
+          Failed to load plugins
+        </h3>
+        <p
+          className="mt-1 max-w-sm text-body-medium-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          Something went wrong. Try refreshing the page.
         </p>
       </Card.Body>
     </Card.Root>

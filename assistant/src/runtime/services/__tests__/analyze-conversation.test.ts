@@ -61,6 +61,12 @@ function makeConversation() {
     setSubagentAllowedTools: mock(() => {}),
     updateClient: mock(() => {}),
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null as AbortController | null,
     currentRequestId: null as string | null,
     loadedHistoryTrustClass: undefined as string | undefined,
@@ -192,7 +198,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({
         isInteractive: false,
         isUserMessage: true,
@@ -366,7 +371,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({ callSite: "analyzeConversation" }),
     );
   });

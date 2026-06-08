@@ -14,7 +14,7 @@
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -203,14 +203,9 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         reason: `conversation_not_found: ${interaction.conversationId}`,
       };
     }
-    conversation.handleConfirmationResponse(
-      request.id,
-      userDecision,
-      undefined,
-      undefined,
-      undefined,
-      ctx.emissionContext,
-    );
+    conversation.handleConfirmationResponse(request.id, userDecision, {
+      emissionContext: ctx.emissionContext,
+    });
 
     log.info(
       {
@@ -505,7 +500,9 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
-          ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
         },
       };
     }

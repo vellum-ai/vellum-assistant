@@ -1,10 +1,9 @@
 
 import { Mic } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
-import { Modal } from "@vellum/design-library";
-import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
+import { Button, Modal } from "@vellumai/design-library";
 
 const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
 
@@ -31,8 +30,8 @@ export interface MicPermissionPrimerProps {
  * microphone permission prompt. Explains why mic access is needed and lets
  * the user opt in before the system dialog appears.
  *
- * The caller (`AssistantPageClient.handleVoiceBeforeStart`) skips this
- * primer on Capacitor iOS so `getUserMedia` proceeds directly to the OS
+ * The caller (`handleVoiceBeforeStart`) skips this primer on Capacitor
+ * iOS so `getUserMedia` proceeds directly to the OS
  * mic alert: this dialog renders Cancel, close-X, backdrop dismiss, and
  * Escape (Radix Dialog defaults), all of which Apple Guideline 5.1.1(iv)
  * prohibits before a permission request. iOS relies on

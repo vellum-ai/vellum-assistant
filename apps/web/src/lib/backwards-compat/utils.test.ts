@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { useAssistantSupports } from "@/lib/backwards-compat/utils";
+import {
+  useAssistantSupports,
+  whenAssistantVersionKnown,
+} from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
@@ -62,5 +65,39 @@ describe("useAssistantSupports", () => {
   test("strips leading 'v' prefix on the version", () => {
     expect(check("v0.8.5", "0.8.5")).toBe(true);
     expect(check("v0.8.4", "0.8.5")).toBe(false);
+  });
+});
+
+describe("whenAssistantVersionKnown", () => {
+  test("resolves immediately when the version is already known", async () => {
+    setVersion("0.8.6");
+    let resolved = false;
+    const promise = whenAssistantVersionKnown(50).then(() => {
+      resolved = true;
+    });
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("resolves once the version hydrates after the call", async () => {
+    let resolved = false;
+    const promise = whenAssistantVersionKnown(1_000).then(() => {
+      resolved = true;
+    });
+
+    // Not resolved while the version is still null.
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    setVersion("0.8.7");
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("resolves on the timeout when the version never hydrates", async () => {
+    const start = Date.now();
+    await whenAssistantVersionKnown(20);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+    expect(useAssistantIdentityStore.getState().version).toBeNull();
   });
 });

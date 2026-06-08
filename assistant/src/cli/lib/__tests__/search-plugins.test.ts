@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type FetchLike,
   InvalidSearchPatternError,
+  PluginCatalogUnavailableError,
   searchPlugins,
 } from "../search-plugins.js";
 
@@ -180,44 +181,73 @@ describe("searchPlugins", () => {
     expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
   });
 
-  test("HTTP 5xx from GitHub propagates with the status code", async () => {
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("upstream broken", { status: 503 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 503/);
+  test("HTTP 5xx is a transient PluginCatalogUnavailableError", async () => {
+    // GIVEN GitHub returns a 5xx (upstream outage)
+    // WHEN we search
+    // THEN the failure is classified transient so the caller can serve a
+    // stale cache and the route can map it to 503 (not a misleading 500).
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("upstream broken", { status: 503 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as PluginCatalogUnavailableError).status).toBe(503);
   });
 
-  test("HTTP 403 (rate-limited / forbidden) surfaces as an error", async () => {
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("rate limit exceeded", { status: 403 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 403/);
+  test("rate-limited 403 (x-ratelimit-remaining: 0) is transient", async () => {
+    // GIVEN GitHub returns 403 with the rate-limit budget exhausted
+    // WHEN we search
+    // THEN it's transient — this is exactly the unauthenticated 60 req/hr
+    // exhaustion that empties the catalog, and it must surface as 503.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("rate limit exceeded", {
+            status: 403,
+            headers: { "x-ratelimit-remaining": "0" },
+          })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as PluginCatalogUnavailableError).status).toBe(403);
   });
 
-  test("404 on the plugins prefix surfaces as an error (not silently empty)", async () => {
+  test("a 403 without the rate-limit signal is a hard error", async () => {
+    // GIVEN a bare 403 (genuine permissions problem, not rate limiting)
+    // WHEN we search
+    // THEN it is NOT transient — serving a stale catalog would mask a real
+    // misconfiguration, so it propagates as a plain error.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("forbidden", { status: 403 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as Error).message).toMatch(/HTTP 403/);
+  });
+
+  test("404 on the plugins prefix is a hard error (not silently empty)", async () => {
     // Distinct from `installPlugin`, where 404 on a specific plugin name is
     // normal "not found". For the search, 404 on the prefix means the
-    // canonical source path itself is gone — that's an upstream problem
-    // worth surfacing, not a clean empty result.
-    await expect(
-      searchPlugins(
-        { query: "memory" },
-        {
-          fetch: (async () =>
-            new Response("not found", { status: 404 })) as FetchLike,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 404/);
+    // canonical source path itself is gone — that's a real misconfiguration
+    // worth surfacing, not a clean empty result and not a transient outage.
+    const err = await searchPlugins(
+      { query: "memory" },
+      {
+        fetch: (async () =>
+          new Response("not found", { status: 404 })) as FetchLike,
+      },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
+    expect((err as Error).message).toMatch(/HTTP 404/);
   });
 
   test("returns matches sorted by name", async () => {
@@ -236,6 +266,170 @@ describe("searchPlugins", () => {
       "mu-plugin",
       "zeta-plugin",
     ]);
+  });
+
+  test("merges whitelisted marketplace entries with first-party dirs", async () => {
+    // GIVEN the canonical repo serves both a first-party plugin listing and a
+    // marketplace manifest whitelisting an external plugin
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+          description: "Ultra-compressed communication mode.",
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "simple-memory",
+            path: "experimental/plugins/simple-memory",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as FetchLike;
+
+    // WHEN we search the catalog with a match-all query
+    const result = await searchPlugins({ query: "" }, { fetch });
+
+    // THEN both sources appear, sorted by name, each tagged with its origin
+    expect(result.matches).toEqual([
+      {
+        name: "caveman",
+        path: "github:JuliusBrussee/caveman@v1.8.2",
+        description: "Ultra-compressed communication mode.",
+        source: {
+          kind: "github",
+          repo: "JuliusBrussee/caveman",
+          ref: "v1.8.2",
+        },
+      },
+      {
+        name: "simple-memory",
+        path: "experimental/plugins/simple-memory",
+        source: { kind: "first-party" },
+      },
+    ]);
+  });
+
+  test("filters marketplace entries by the query too", async () => {
+    // GIVEN a marketplace whitelisting an external plugin and no first-party dirs
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }) as FetchLike;
+
+    // WHEN the query matches no plugin name
+    const result = await searchPlugins({ query: "memory" }, { fetch });
+
+    // THEN the non-matching marketplace entry is excluded
+    expect(result.matches).toEqual([]);
+  });
+
+  test("first-party dirs win a name collision with the marketplace", async () => {
+    // GIVEN both a first-party dir and a marketplace entry named "caveman"
+    const manifest = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    };
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response(JSON.stringify(manifest), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "caveman",
+            path: "experimental/plugins/caveman",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200 },
+      );
+    }) as FetchLike;
+
+    // WHEN we search
+    const result = await searchPlugins({ query: "caveman" }, { fetch });
+
+    // THEN only the first-party entry surfaces — the manifest is additive
+    expect(result.matches).toEqual([
+      {
+        name: "caveman",
+        path: "experimental/plugins/caveman",
+        source: { kind: "first-party" },
+      },
+    ]);
+  });
+
+  test("a broken marketplace manifest degrades to the first-party listing", async () => {
+    // GIVEN the manifest is malformed but the first-party listing is healthy
+    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("marketplace.json")) {
+        return new Response("{ not json", { status: 200 });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            name: "simple-memory",
+            path: "experimental/plugins/simple-memory",
+            type: "dir",
+            size: 0,
+            download_url: null,
+          },
+        ]),
+        { status: 200 },
+      );
+    }) as FetchLike;
+
+    // WHEN we search
+    const result = await searchPlugins({ query: "" }, { fetch });
+
+    // THEN the core catalog is unaffected by the broken whitelist
+    expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
   });
 
   test("sends no Authorization header (canonical source is a public repo)", async () => {

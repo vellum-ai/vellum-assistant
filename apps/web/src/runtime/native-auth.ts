@@ -7,6 +7,9 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
+import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -244,6 +247,38 @@ export async function startAuthFlow(
       if (errorCode === "USER_CANCELLED") return;
       throw err;
     }
+    return;
+  }
+
+  // Desktop (Electron): open the system browser for OAuth so the user can
+  // leverage existing Google/Apple sessions. The main process handles the
+  // full flow (nonce, browser, deep-link callback, code exchange, cookie
+  // install) and returns the session token. Falls through to the web
+  // form-POST path when the bridge method is absent (older preload).
+  if (isElectron() && window.vellum?.auth?.startOAuth) {
+    const result = await window.vellum.auth.startOAuth({
+      providerHint: options.providerHint,
+      loginHint: options.loginHint,
+      intent: options.intent,
+    });
+    if (result?.sessionToken) {
+      const destination = sanitizeReturnTo(
+        options.intent === "signup"
+          ? routes.onboarding.privacy
+          : options.returnTo ?? null,
+        DEFAULT_POST_AUTH_DESTINATION,
+      );
+      window.location.href = destination;
+    }
+    return;
+  }
+
+  // Standalone local mode (no local Django serving the SPA): redirect
+  // through the platform's login page and back to a loopback callback.
+  if (isLocalMode() && !isPlatformLocal()) {
+    await startLoopbackAuth(options.returnTo ?? undefined, {
+      intent: options.intent,
+    });
     return;
   }
 

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Mock the effective-timezone resolver so we can control the zone
+// `postChatMessage` reads at send time without touching localStorage/Intl.
+let mockEffectiveTimezone = "America/New_York";
+mock.module("@/utils/effective-timezone", () => ({
+  getEffectiveTimezone: () => mockEffectiveTimezone,
+}));
+
 import { postChatMessage } from "@/domains/chat/api/messages";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -32,13 +39,13 @@ describe("postChatMessage onboarding payload", () => {
         bodyText = init.body;
       }
       capturedRequests.push({ url, body: bodyText ?? "" });
-      if (url.includes("/workspace/file/")) {
+      if (url.includes("/workspace/file")) {
         return new Response(JSON.stringify({ detail: "File not found" }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("/workspace/write/")) {
+      if (url.includes("/workspace/write")) {
         return new Response(JSON.stringify({ path: "users/guardian.md", size: 1 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -66,7 +73,7 @@ describe("postChatMessage onboarding payload", () => {
 
   function getRequestBody(): Record<string, unknown> {
     const messageRequests = capturedRequests.filter((request) =>
-      request.url.includes("/messages/"),
+      request.url.includes("/messages"),
     );
     expect(messageRequests).toHaveLength(1);
     const rawBody = messageRequests[0]!.body;
@@ -76,7 +83,7 @@ describe("postChatMessage onboarding payload", () => {
 
   function getWorkspaceWriteBodies(): Record<string, unknown>[] {
     return capturedRequests
-      .filter((request) => request.url.includes("/workspace/write/"))
+      .filter((request) => request.url.includes("/workspace/write"))
       .map((request) => JSON.parse(request.body) as Record<string, unknown>);
   }
 
@@ -238,7 +245,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
@@ -356,7 +363,7 @@ describe("postChatMessage server-minted conversation flow", () => {
   });
 
   function getMessageBody(): Record<string, unknown> {
-    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
     expect(requests).toHaveLength(1);
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
@@ -445,5 +452,87 @@ describe("postChatMessage server-minted conversation flow", () => {
     const body = getMessageBody();
     expect(body.conversationKey).toBe("conv-existing");
     expect(body).not.toHaveProperty("conversationId");
+  });
+});
+
+describe("postChatMessage clientTimezone payload", () => {
+  // Every message carries the live effective timezone so the assistant's
+  // per-turn time awareness stays current as the OS/browser zone changes.
+  // The daemon route (`conversation-routes.ts`) consumes `clientTimezone`
+  // in its turn-timezone cascade — no backend change is needed here.
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+  let capturedRequests: Array<{ url: string; body: string }> = [];
+
+  beforeEach(() => {
+    mockEffectiveTimezone = "America/New_York";
+    originalFetch = globalThis.fetch;
+    capturedRequests = [];
+    useAssistantIdentityStore.getState().clearIdentity();
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      let bodyText: string | undefined;
+      if (input instanceof Request) {
+        bodyText = await input.clone().text();
+      } else if (typeof init?.body === "string") {
+        bodyText = init.body;
+      }
+      capturedRequests.push({ url, body: bodyText ?? "" });
+      return new Response(
+        JSON.stringify({
+          accepted: true,
+          messageId: "msg-1",
+          conversationId: "conv-resp-1",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  function getMessageBody(): Record<string, unknown> {
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages"));
+    expect(requests).toHaveLength(1);
+    return JSON.parse(requests[0]!.body) as Record<string, unknown>;
+  }
+
+  test("includes the live effective timezone on the wire", async () => {
+    mockEffectiveTimezone = "Europe/Berlin";
+
+    await postChatMessage("asst-1", "K", "hello");
+
+    const body = getMessageBody();
+    expect(body.clientTimezone).toBe("Europe/Berlin");
+  });
+
+  test("reflects a changed zone on the next message (read live at send time)", async () => {
+    await postChatMessage("asst-1", "K", "first");
+    expect(getMessageBody().clientTimezone).toBe("America/New_York");
+
+    capturedRequests = [];
+    mockEffectiveTimezone = "Asia/Tokyo";
+
+    await postChatMessage("asst-1", "K", "second");
+    expect(getMessageBody().clientTimezone).toBe("Asia/Tokyo");
+  });
+
+  test("omits clientTimezone when the resolver returns an empty string", async () => {
+    mockEffectiveTimezone = "";
+
+    await postChatMessage("asst-1", "K", "hello");
+
+    const body = getMessageBody();
+    expect(body).not.toHaveProperty("clientTimezone");
   });
 });

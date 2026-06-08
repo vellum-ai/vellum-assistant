@@ -1,42 +1,26 @@
-import type { KeyboardEvent } from "react";
+import { ChevronRight } from "lucide-react";
+import { Link } from "react-router";
 
-import { Card } from "@vellum/design-library";
-import type { PluginInfo } from "@/domains/intelligence/plugins/types";
+import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { routes } from "@/utils/routes";
+import { Card } from "@vellumai/design-library";
 
 interface PluginRowProps {
-  plugin: PluginInfo;
-  /**
-   * Optional row-level click handler. The Plugins tab doesn't yet have
-   * a detail view; passing `onSelect` keeps the affordance ready for
-   * when one lands without changing the row contract.
-   */
-  onSelect?: () => void;
+  plugin: PluginsGetResponse["plugins"][number];
 }
 
-export function PluginRow({ plugin, onSelect }: PluginRowProps) {
-  const interactive = Boolean(onSelect);
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!onSelect) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onSelect();
-    }
-  };
-
+/**
+ * Row for a single installed plugin. Links to the plugin's detail page,
+ * where the README, tracked metadata, and a Remove action live. The
+ * hover affordance (surface tint + chevron) signals the row is
+ * navigable.
+ */
+export function PluginRow({ plugin }: PluginRowProps) {
   return (
     <Card.Root asChild>
-      <div
-        role={interactive ? "button" : undefined}
-        tabIndex={interactive ? 0 : undefined}
-        onClick={onSelect}
-        onKeyDown={handleKeyDown}
-        className={
-          "flex items-center gap-4 px-5 py-4 text-left transition-colors" +
-          (interactive
-            ? " cursor-pointer hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-            : "")
-        }
+      <Link
+        to={routes.plugin(plugin.name)}
+        className="group flex cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="flex h-10 w-10 shrink-0 items-center justify-center text-2xl">
           🧩
@@ -67,7 +51,9 @@ export function PluginRow({ plugin, onSelect }: PluginRowProps) {
           {plugin.issues && plugin.issues.length > 0 ? (
             <p
               className="mt-1 truncate text-body-small-default"
-              style={{ color: "var(--content-warning, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-warning, var(--content-tertiary))",
+              }}
               title={plugin.issues.join("; ")}
             >
               {plugin.issues[0]}
@@ -77,7 +63,12 @@ export function PluginRow({ plugin, onSelect }: PluginRowProps) {
             </p>
           ) : null}
         </div>
-      </div>
+        <ChevronRight
+          className="h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: "var(--content-tertiary)" }}
+          aria-hidden
+        />
+      </Link>
     </Card.Root>
   );
 }

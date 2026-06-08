@@ -2,18 +2,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button, ConfirmDialog } from "@vellum/design-library";
-import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { getAssistant } from "@/assistant/api";
+import { fetchAssistantIdentity } from "@/assistant/identity";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { deleteAvatar } from "@/assistant/avatar-api";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api";
+import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
+import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { installSkill } from "@/domains/intelligence/skills/install";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
-import { getAssistant } from "@/assistant/api";
-import { type AssistantIdentity, fetchAssistantIdentity } from "@/assistant/identity";
+import {
+    skillsByIdDeleteMutation,
+    skillsGetOptions,
+    skillsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type Options } from "@/generated/daemon/sdk.gen";
+import type { IdentityGetResponse, SkillsGetData } from "@/generated/daemon/types.gen";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { captureError } from "@/lib/sentry/capture-error";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { Button, ConfirmDialog } from "@vellumai/design-library";
 
 export interface IdentityCardProps {
   assistantName: string;
@@ -178,7 +185,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     isLoading: isAvatarLoading,
     invalidate: invalidateAvatar,
   } = useAssistantAvatar(assistantId);
-  const [identity, setIdentity] = useState<AssistantIdentity | null>(null);
+  const [identity, setIdentity] = useState<IdentityGetResponse | null>(null);
   const [assistantCreatedAt, setAssistantCreatedAt] = useState<string | null>(null);
   const [loadedAssistantId, setLoadedAssistantId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -202,6 +209,9 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         setAssistantCreatedAt(null);
       }
       setLoadedAssistantId(assistantId);
+    }).catch((err) => {
+      if (cancelled) return;
+      captureError(err, { context: "identity_tab_load" });
     });
 
     return () => {
@@ -213,11 +223,14 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const [constellationFullscreen, setConstellationFullscreen] = useState(false);
 
   const skillsQuery = useQuery({
-    queryKey: ["assistantSkills", assistantId, { kind: "installed" }],
-    queryFn: () => fetchSkills(assistantId, { kind: "installed" }),
+    ...skillsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { kind: "installed" },
+    }),
+    select: (data): SkillInfo[] => data.skills,
     enabled: Boolean(assistantId),
   });
-  const installedSkills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data?.skills]);
+  const installedSkills = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data]);
 
   const handleAvatarChange = useCallback(() => {
     invalidateAvatar();
@@ -235,16 +248,11 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     onOpenThread?.("I'd like to create a custom AI-generated avatar.");
   }, [onOpenThread]);
 
-  const handleDeleteAvatar = useCallback(async () => {
-    const ok = await deleteAvatar(assistantId);
-    if (ok) {
-      invalidateAvatar();
-    }
-  }, [assistantId, invalidateAvatar]);
-
   const invalidateSkills = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ["assistantSkills", assistantId],
+      queryKey: skillsGetQueryKey({
+        path: { assistant_id: assistantId },
+      } as Options<SkillsGetData>),
     });
   }, [assistantId, queryClient]);
 
@@ -258,8 +266,8 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   });
 
   const uninstallMutation = useMutation({
-    mutationFn: (id: string) => uninstallSkill(assistantId, id),
-    onMutate: (id) => setRemovingSkillId(id),
+    ...skillsByIdDeleteMutation(),
+    onMutate: (variables) => setRemovingSkillId(variables.path.id),
     onSettled: () => {
       setRemovingSkillId(null);
       invalidateSkills();
@@ -281,9 +289,11 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     if (!skillPendingRemoval) {
       return;
     }
-    uninstallMutation.mutate(skillPendingRemoval.id);
+    uninstallMutation.mutate({
+      path: { assistant_id: assistantId, id: skillPendingRemoval.id },
+    });
     setSkillPendingRemoval(null);
-  }, [skillPendingRemoval, uninstallMutation]);
+  }, [assistantId, skillPendingRemoval, uninstallMutation]);
 
   const selectedSkill = useMemo(() => {
     if (!selectedSkillId) {
@@ -393,7 +403,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
         onGenerateWithAI={onOpenThread ? handleGenerateWithAI : undefined}
-        onDeleteAvatar={handleDeleteAvatar}
       />
       {removalDialog}
     </div>

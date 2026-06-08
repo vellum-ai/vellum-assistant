@@ -1,30 +1,32 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowDownToLine,
-  ArrowLeft,
-  FileText,
-  Folder,
-  Loader2,
-  Trash2,
+    ArrowDownToLine,
+    ArrowLeft,
+    FileText,
+    Folder,
+    Loader2,
+    Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button, Card } from "@vellum/design-library";
+import {
+    FileMarkdown,
+    isMarkdown,
+} from "@/components/file-markdown";
+import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
-  FileMarkdown,
-  isMarkdown,
-} from "@/components/file-markdown";
-import {
-  fetchSkillFileContent,
-  fetchSkillFiles,
-} from "@/domains/intelligence/skills/api";
-import {
-  isAvailableSkill,
-  isRemovableSkill,
-  type SkillFileEntry,
-  type SkillInfo,
+    isAvailableSkill,
+    isRemovableSkill,
+    type SkillFileEntry,
+    type SkillInfo,
 } from "@/domains/intelligence/skills/types";
+import {
+    skillsByIdFilesContentGetOptions,
+    skillsByIdFilesGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
+import { Button, Card } from "@vellumai/design-library";
 
 interface SkillDetailProps {
   assistantId: string;
@@ -51,8 +53,10 @@ export function SkillDetail({
   const removable = isRemovableSkill(skill);
 
   const filesQuery = useQuery({
-    queryKey: ["skillFiles", assistantId, skill.id],
-    queryFn: () => fetchSkillFiles(assistantId, skill.id),
+    ...skillsByIdFilesGetOptions({
+      path: { assistant_id: assistantId, id: skill.id },
+    }),
+    select: (data) => data ?? null,
   });
 
   const fileEntries = useMemo<SkillFileEntry[]>(
@@ -68,11 +72,11 @@ export function SkillDetail({
   const activePath = selectedPath ?? skillMd?.path ?? null;
 
   const fileContentQuery = useQuery({
-    queryKey: ["skillFileContent", assistantId, skill.id, activePath],
-    queryFn: () =>
-      activePath
-        ? fetchSkillFileContent(assistantId, skill.id, activePath)
-        : Promise.resolve(null),
+    ...skillsByIdFilesContentGetOptions({
+      path: { assistant_id: assistantId, id: skill.id },
+      query: { path: activePath ?? "" },
+    }),
+    select: (data): SkillsByIdFilesContentGetResponse | null => data ?? null,
     enabled: Boolean(activePath),
   });
 
@@ -90,7 +94,7 @@ export function SkillDetail({
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="text-3xl">{skill.emoji ?? "🧩"}</div>
+            <SkillIcon skill={skill} className="h-8 w-8 text-3xl" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <h2

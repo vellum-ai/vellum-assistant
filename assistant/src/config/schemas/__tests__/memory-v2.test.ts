@@ -23,6 +23,7 @@ describe("MemoryV2ConfigSchema", () => {
       bm25_k1: 1.2,
       bm25_b: 0.4,
       consolidation_interval_hours: 4,
+      consolidation_enabled: true,
       consolidation_max_buffer_lines: 100,
       max_page_chars: 5000,
       consolidation_prompt_path: null,

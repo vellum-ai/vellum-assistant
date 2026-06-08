@@ -54,6 +54,12 @@ function makeConversation() {
     setSubagentAllowedTools: mock(() => {}),
     updateClient: mock(() => {}),
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null as AbortController | null,
     currentRequestId: null as string | null,
     runAgentLoop: mock(() => Promise.resolve()),
@@ -117,7 +123,6 @@ describe("POST /v1/conversations/:id/analyze", () => {
     expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({ isInteractive: false, isUserMessage: true }),
     );
   });
@@ -140,7 +145,6 @@ describe("POST /v1/conversations/:id/analyze", () => {
       expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
         expect.any(String),
         "msg-1",
-        undefined,
         expect.objectContaining({ isInteractive: false, isUserMessage: true }),
       );
     } finally {

@@ -3,17 +3,18 @@ import { AlertTriangle, Clock, Inbox, Loader2, Send } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 
-import { Tag } from "@vellum/design-library";
+import { Tag } from "@vellumai/design-library";
 
 import {
-  assistantsEmailAddressesListOptions,
-  assistantsEmailAddressesStatusRetrieveOptions,
-  assistantsEmailsListOptions,
+    assistantsEmailAddressesListOptions,
+    assistantsEmailAddressesStatusRetrieveOptions,
+    assistantsEmailsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  EmailAddressUsage,
-  EmailMessage,
+    EmailAddressUsage,
+    EmailMessage,
 } from "@/generated/api/types.gen";
+import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 function formatTimestamp(iso: string): string {
@@ -187,29 +188,34 @@ function EmailRow({ email }: { email: EmailMessage }) {
 
 interface EmailsTabProps {
   assistantId: string;
+  platformGate: PlatformGateState;
 }
 
-export function EmailsTab({ assistantId }: EmailsTabProps) {
-  const addressesQuery = useQuery(
-    assistantsEmailAddressesListOptions({
+export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
+  const gateEnabled = platformGate === "full";
+
+  const addressesQuery = useQuery({
+    ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId },
     }),
-  );
+    enabled: gateEnabled,
+  });
   const address = addressesQuery.data?.results?.[0];
 
   const statusQuery = useQuery({
     ...assistantsEmailAddressesStatusRetrieveOptions({
       path: { assistant_id: assistantId, id: address?.id ?? "" },
     }),
-    enabled: !!address?.id,
+    enabled: gateEnabled && !!address?.id,
   });
 
-  const emailsQuery = useQuery(
-    assistantsEmailsListOptions({
+  const emailsQuery = useQuery({
+    ...assistantsEmailsListOptions({
       path: { assistant_id: assistantId },
       query: { limit: 10 },
     }),
-  );
+    enabled: gateEnabled,
+  });
 
   const usage: EmailAddressUsage | undefined = statusQuery.data?.usage;
   const emails: EmailMessage[] = emailsQuery.data?.results ?? [];

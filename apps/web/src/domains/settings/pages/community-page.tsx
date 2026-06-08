@@ -1,27 +1,27 @@
 import {
-  ArrowUpRight,
-  Bug,
-  ExternalLink,
-  GitPullRequest,
-  Globe,
-  Heart,
-  Play,
-  Sparkles,
-  Star,
-  Users,
+    ArrowUpRight,
+    Bug,
+    ExternalLink,
+    GitPullRequest,
+    Globe,
+    Heart,
+    Play,
+    Sparkles,
+    Star,
+    Users,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Tag } from "@vellum/design-library/components/tag";
 import { DiscordLogo } from "@/components/icons/discord-logo";
 import { GitHubLogo } from "@/components/icons/github-logo";
-import { YouTubeLogo } from "@/components/icons/youtube-logo";
 import { XLogo } from "@/components/icons/x-logo";
-import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
+import { YouTubeLogo } from "@/components/icons/youtube-logo";
 import { joinDiscord } from "@/hooks/use-discord-nudge";
+import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 function HeroBanner() {
   return (
@@ -81,6 +81,7 @@ function BenefitRow({ icon: Icon, text }: BenefitRowProps) {
 
 interface FeatureCardProps {
   accentColor: string;
+  iconColor?: string;
   label: string;
   icon: ReactNode;
   title: string;
@@ -92,6 +93,7 @@ interface FeatureCardProps {
 
 function FeatureCard({
   accentColor,
+  iconColor = "var(--aux-white)",
   label,
   icon,
   title,
@@ -106,7 +108,7 @@ function FeatureCard({
         <div className="flex items-start justify-between">
           <span
             className="flex size-10 items-center justify-center rounded-lg"
-            style={{ backgroundColor: accentColor, color: "#fff" }}
+            style={{ backgroundColor: accentColor, color: iconColor }}
           >
             {icon}
           </span>
@@ -179,29 +181,31 @@ function ResourceCard({
       className="flex flex-1 cursor-pointer"
     >
       <Card
-        className="flex flex-1 flex-col gap-3 transition-shadow hover:shadow-md"
+        className="flex-1 transition-shadow hover:shadow-md"
         padding="lg"
       >
-        <div className="flex items-start justify-between">
-          <span
-            className="flex size-10 items-center justify-center rounded-lg text-white"
-            style={{ backgroundColor: iconBg }}
-          >
-            {icon}
-          </span>
-          <ExternalLink
-            size={14}
-            className="text-[var(--content-tertiary)]"
-            aria-hidden
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-title-medium text-[var(--content-emphasised)]">
-            {title}
-          </span>
-          <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
-            {description}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between">
+            <span
+              className="flex size-10 items-center justify-center rounded-lg text-white"
+              style={{ backgroundColor: iconBg }}
+            >
+              {icon}
+            </span>
+            <ExternalLink
+              size={14}
+              className="text-[var(--content-tertiary)]"
+              aria-hidden
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-title-medium text-[var(--content-emphasised)]">
+              {title}
+            </span>
+            <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
+              {description}
+            </p>
+          </div>
         </div>
       </Card>
     </a>
@@ -212,12 +216,13 @@ export function CommunityPage() {
   const { handleStar } = useGitHubNudgeState();
 
   return (
-    <div className="max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <HeroBanner />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FeatureCard
           accentColor="var(--content-emphasised)"
+          iconColor="var(--surface-base)"
           label="Open Source"
           icon={<GitHubLogo size={20} />}
           title="Vellum is open source"

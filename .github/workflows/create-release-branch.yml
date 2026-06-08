@@ -181,6 +181,7 @@ jobs:
       - name: Install package dependencies
         run: |
           for pkg in packages/*/; do
+            [ -f "$pkg/package.json" ] || continue
             (cd "$pkg" && bun install --frozen-lockfile)
           done
 
@@ -241,6 +242,9 @@ jobs:
           # Bump Chrome extension version (manifest.json + package.json)
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/manifest.json > tmp && mv tmp clients/chrome-extension/manifest.json
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/package.json > tmp && mv tmp clients/chrome-extension/package.json
+
+          # Stamp pinned CLI version in macOS app
+          sed -i "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" apps/macos/src/main/cli-installer.ts
 
           # Regenerate OpenAPI spec with the new version
           cd assistant && bun run generate:openapi && cd ..

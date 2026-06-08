@@ -1,50 +1,47 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
+import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ProgressBar } from "@vellum/design-library/components/progress-bar";
 import { getAssistant, hatchAssistant } from "@/assistant/api";
-import {
-  isPlatformHostedDisabled,
-  PLATFORM_HOSTED_DISABLED_MESSAGE,
-  resolveAssistantLifecycleState,
-  shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
+import {
+    isPlatformHostedDisabled,
+    PLATFORM_HOSTED_DISABLED_MESSAGE,
+    resolveAssistantLifecycleState,
+    shouldRecoverFromHatchFailure,
+} from "@/assistant/lifecycle";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import {
+    readSelectedVersion,
+    writeSelectedVersion,
+} from "@/domains/onboarding/prefs";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { buildNavigationState } from "@/lib/navigation/build-state";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import type { CharacterTraits } from "@/types/avatar";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-import type { CharacterTraits } from "@/types/avatar";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
-import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { lifecycleService } from "@/assistant/lifecycle-service";
-import {
-  readAiDataConsent,
-  readOnboardingCompleted,
-  readSelectedVersion,
-  readTosAccepted,
-  useOnboardingCompleted,
-  writeSelectedVersion,
-} from "@/domains/onboarding/prefs";
-import {
-  clearPrivacyConsent,
-  hasRecentPrivacyConsent,
-  markPrivacyConsent,
-} from "@/domains/onboarding/signals";
-import { isNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
 
-// Module-level promise so HMR remounts and StrictMode double-mounts
+// Module-level promises so HMR remounts and StrictMode double-mounts
 // can await the same in-flight hatch instead of spawning duplicates.
-let localHatchPromise: Promise<import("@/lib/local-mode").LocalHatchResult> | null = null;
+let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
+let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
@@ -80,39 +77,22 @@ export type HatchGateDecision =
   | { kind: "wait" }
   | { kind: "redirect"; to: string };
 
-export function decideHatchGate(input: {
-  isAuthLoading: boolean;
-  isLoggedIn: boolean;
-  isLocalMode: boolean;
-  isReplay: boolean;
-  onboardingCompleted: boolean;
-  tosAccepted: boolean;
-  aiDataConsentAccepted: boolean;
-  cameFromPrivacyScreen: boolean;
-}): HatchGateDecision {
-  if (input.isAuthLoading) return { kind: "wait" };
-  if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
-  if (input.onboardingCompleted && !input.isReplay) {
-    return { kind: "redirect", to: routes.assistant };
-  }
-  if (input.isLocalMode) return { kind: "proceed" };
-  const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
-  if (!input.cameFromPrivacyScreen && !persistedConsent) {
-    return { kind: "redirect", to: getOnboardingEntrypoint() };
-  }
+export function decideHatchGate(): HatchGateDecision {
+  const decision = resolveNavigation(
+    buildNavigationState(),
+    { kind: "hatch-gate" },
+  );
+  if (decision.action === "redirect") return { kind: "redirect", to: decision.to };
+  if (decision.action === "wait") return { kind: "wait" };
   return { kind: "proceed" };
 }
 
 export function HatchingScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const isReplay = searchParams.get("replay") === "1";
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
-  const userId = useAuthStore.use.user()?.id ?? null;
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const isAuthLoading = useAuthStore.use.isLoading();
-  const [, setOnboardingCompleted] = useOnboardingCompleted();
+  const sessionStatus = useAuthStore.use.sessionStatus();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
   );
@@ -148,17 +128,7 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
-    const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
-    const decision = decideHatchGate({
-      isAuthLoading,
-      isLoggedIn,
-      isLocalMode: isLocalMode(),
-      isReplay,
-      onboardingCompleted: readOnboardingCompleted(),
-      tosAccepted: readTosAccepted(),
-      aiDataConsentAccepted: readAiDataConsent(),
-      cameFromPrivacyScreen,
-    });
+    const decision = decideHatchGate();
     if (decision.kind === "redirect") {
       void navigate(decision.to, { replace: true });
       return;
@@ -179,11 +149,8 @@ export function HatchingScreen() {
       try {
         writeSelectedVersion("");
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_mark_completed" },
-        });
+        captureError(err, { context: "onboarding_mark_completed" });
       }
-      markPrivacyConsent(userId);
       setDisplayProgress(1);
       displayProgressRef.current = 1;
       segmentStartRef.current = 1;
@@ -195,23 +162,18 @@ export function HatchingScreen() {
           await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
-            try {
-              setOnboardingCompleted(true);
-            } catch (err) {
-              Sentry.captureException(err, {
-                tags: { context: "hatching_mark_onboarding_completed_native" },
-              });
-            }
-            clearPrivacyConsent();
+            // Native flow skips the pre-chat screen, so there's no
+            // typed message to drive the auto-greet gate. Mark the
+            // lifecycle one-shot so the destination chat mount shows
+            // the loading gate until the server greeting arrives.
+            lifecycleService.markExpectingFirstMessage();
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
             return;
           }
           void navigate(
-            isReplay
-              ? `${routes.onboarding.prechat}?replay=1`
-              : routes.onboarding.prechat,
+            routes.onboarding.prechat,
             { replace: true },
           );
         })();
@@ -220,23 +182,43 @@ export function HatchingScreen() {
 
     const startHatch = async () => {
       transitionPhase("provisioning");
-      if (isReplay) {
-        scheduleNextPoll(0);
-        return;
+
+      // For platform hatches, check if an assistant is already active
+      // (debug replay, returning user) and skip the hatch request.
+      // Local hatches always need to run hatchLocalAssistant() to
+      // create the local daemon, even when a cloud assistant exists.
+      if (!useLocalHatch) {
+        try {
+          const existing = await getAssistant();
+          if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+            if (isLocalMode()) {
+              void saveLockfileAssistant({
+                assistantId: existing.data.id,
+                cloud: "vellum",
+                runtimeUrl: getPlatformRuntimeUrl(),
+                hatchedAt: new Date().toISOString(),
+              });
+            }
+            handleHatchReady();
+            return;
+          }
+        } catch {
+          // Fall through to normal hatch
+        }
+        if (cancelled) return;
       }
 
       // Local/Docker hatch lifecycle:
-      // 1. POST /assistant/__local/hatch → CLI spawns daemon + gateway
-      // 2. Reload lockfile to discover new assistant
+      // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
+      //    main process over IPC in Electron) to spawn the daemon + gateway
+      // 2. Reload lockfile to discover the new assistant
       // 3. Acquire gateway token + set self-hosted connection
       // 4. Navigate to pre-chat flow
-      //
-      // Transport: fetch to Vite dev middleware.
-      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process. (LUM-1997)
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
-            localHatchPromise = hatchLocalAssistant();
+            const remote = hostingParam === "docker" ? "docker" : undefined;
+            localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
           const result = await localHatchPromise;
           localHatchPromise = null;
@@ -264,8 +246,14 @@ export function HatchingScreen() {
               try {
                 const res = await fetch(`${gatewayUrl}/readyz`);
                 if (res.ok) {
-                  const body = await res.json() as { status: string };
-                  if (body.status === "ok") {
+                  const body: unknown = await res.json();
+                  if (
+                    body &&
+                    typeof body === "object" &&
+                    "status" in body &&
+                    body.status === "ok"
+                  ) {
+                    clearGatewayToken();
                     await primeLocalGatewayConnection();
                     gatewayReady = true;
                     break;
@@ -286,6 +274,17 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
+          // Apply the model-provider key collected on the API-key step to the
+          // freshly hatched assistant. Non-blocking on failure — onboarding
+          // proceeds and the user can fix it in Settings.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              captureError(err, { context: "onboarding_apply_provider_key" });
+            }
+          }
+
           handleHatchReady();
         } catch {
           localHatchPromise = null;
@@ -296,9 +295,13 @@ export function HatchingScreen() {
       }
 
       try {
-        const result = await hatchAssistant(
-          pinnedVersion ? { version: pinnedVersion } : undefined,
-        );
+        if (!platformHatchPromise) {
+          platformHatchPromise = hatchAssistant(
+            pinnedVersion ? { version: pinnedVersion } : undefined,
+          );
+        }
+        const result = await platformHatchPromise;
+        platformHatchPromise = null;
         if (cancelled) return;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
@@ -324,9 +327,8 @@ export function HatchingScreen() {
           }
         }
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_hatch_assistant" },
-        });
+        platformHatchPromise = null;
+        captureError(err, { context: "onboarding_hatch_assistant" });
         if (cancelled) return;
       }
 
@@ -361,15 +363,13 @@ export function HatchingScreen() {
               if (existing) return;
               return saveCharacterTraits(assistantId, hatchTraits);
             }).catch((err) => {
-              Sentry.captureException(err, {
-                tags: { context: "onboarding_avatar_sync" },
-              });
+              captureError(err, { context: "onboarding_avatar_sync" });
             });
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
                 cloud: "vellum",
-                runtimeUrl: window.location.origin,
+                runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
               });
             }
@@ -387,9 +387,7 @@ export function HatchingScreen() {
         }
         scheduleNextPoll(POLL_INTERVAL_MS);
       } catch (err) {
-        Sentry.captureException(err, {
-          tags: { context: "onboarding_poll_assistant" },
-        });
+        captureError(err, { context: "onboarding_poll_assistant" });
         if (cancelled) return;
         scheduleNextPoll(POLL_INTERVAL_MS);
       }
@@ -406,14 +404,10 @@ export function HatchingScreen() {
   }, [
     attempt,
     hatchTraits,
-    isAuthLoading,
-    isLoggedIn,
-    isReplay,
+    sessionStatus,
     navigate,
-    setOnboardingCompleted,
     transitionPhase,
     useLocalHatch,
-    userId,
   ]);
 
   useEffect(() => {
@@ -508,9 +502,7 @@ export function HatchingScreen() {
                 void navigate(
                   useLocalHatch
                     ? routes.onboarding.hosting
-                    : isReplay
-                      ? `${routes.onboarding.privacy}?replay=1`
-                      : routes.onboarding.privacy,
+                    : routes.onboarding.privacy,
                   { replace: true },
                 )
               }

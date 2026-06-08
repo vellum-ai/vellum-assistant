@@ -1,8 +1,9 @@
 # vellum-evals-runtime
 
-A thin OCI runtime wrapper around `runc`, configured as the **default-runtime** of
-the inner dockerd inside the privileged eval-pod. Its sole job is to mutate the
-OCI `config.json` of every container the inner dockerd creates so that:
+A thin OCI runtime wrapper around `runc`, registered as a **named (non-default)
+runtime** of the inner dockerd inside the privileged eval-pod. The eval
+orchestrator selects it for the **single run/species container** it hatches, and
+only that opted-in container gets its OCI `config.json` mutated so that:
 
 1. The container's process environment has our three TLS-CA env vars set:
    - `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/recording-ca.pem`
@@ -14,9 +15,16 @@ OCI `config.json` of every container the inner dockerd creates so that:
    inherits the eval-pod's netns, where iptables NAT redirects `:443 → :8443`
    into mitmproxy.
 
-Together these three changes mean every assistant species container (Vellum,
-Hermes, OpenClaw, …) is born trusting our recording CA and routes outbound
-TLS through mitmproxy, **without any code changes on the species side**.
+Together these three changes mean the run/species container (Vellum, Hermes,
+OpenClaw, …) is born trusting our recording CA and routes outbound TLS through
+mitmproxy, **without any code changes on the species side**.
+
+The wrapper is opt-in per container: it only applies these mutations when the
+spec carries the `ai.vellum.evals.mitm` OCI annotation. Every other container
+the inner dockerd creates — recording sidecars, sub-containers the agent spins
+up, anything launched with `--network=none` or `--network container:<target>` —
+is left byte-for-byte untouched and keeps its own network namespace and trust
+store. See [Scope](#scope-why-not-default-runtime).
 
 ## Lifecycle
 
@@ -27,8 +35,9 @@ containerd-shim
         │  1. detect `create` subcommand
         │  2. find --bundle dir
         │  3. read <bundle>/config.json
-        │  4. mutate (env + mount + drop netns)
-        │  5. write back
+        │  4. opted in? (ai.vellum.evals.mitm annotation) — if not, pass through
+        │  5. mutate (env + mount + drop netns)
+        │  6. write back
         │
         └── exec /usr/bin/runc create --bundle /var/lib/docker/.../bundle <cid>
               │ (real runc reads the now-mutated config and creates the container)
@@ -38,15 +47,16 @@ containerd-shim
 
 The wrapper exits the moment it `exec`s real runc. It does **not** run for the
 lifetime of the container. All non-`create` subcommands (`start`, `state`,
-`kill`, `delete`, ...) pass through to real runc unchanged.
+`kill`, `delete`, ...) — and every `create` for a container that is **not**
+opted in — pass through to real runc unchanged.
 
 ## How dockerd is told to use it
 
-The eval-pod's inner dockerd is started with this `daemon.json`:
+The eval-pod's inner dockerd registers the wrapper as a **named** runtime but
+leaves the stock `runc` as the default, so untouched containers run normally:
 
 ```json
 {
-  "default-runtime": "vellum-evals-runtime",
   "runtimes": {
     "vellum-evals-runtime": {
       "path": "/usr/local/bin/vellum-evals-runtime"
@@ -55,7 +65,43 @@ The eval-pod's inner dockerd is started with this `daemon.json`:
 }
 ```
 
+The orchestrator then selects the runtime **and** sets the opt-in annotation on
+the run/species container only:
+
+```sh
+docker run \
+  --runtime vellum-evals-runtime \
+  --annotation ai.vellum.evals.mitm=1 \
+  <species-image> ...
+```
+
+`--annotation` passes the key through to the OCI spec's `.annotations`
+([docker run reference](https://docs.docker.com/reference/cli/docker/container/run/));
+the wrapper reads it to decide whether to mutate. `--runtime` is the primary
+scoping; the annotation is the in-binary fail-safe.
+
 (The eval-pod Dockerfile + start.sh that set this up ship in a follow-up PR.)
+
+## Scope (why not default-runtime)
+
+The wrapper is **not** the dockerd `default-runtime`, and the network-namespace
+drop is **not** applied to every container. Doing so was a container-isolation
+regression: the inner dockerd creates more than just the species container
+(recording sidecars, sub-containers the agent itself launches, etc.). Forcing
+_all_ of them to share the eval-pod netns means an untrusted eval/species
+container could:
+
+- reach pod-local `localhost` services it should never see,
+- contend for or listen on the same ports as sidecars, and
+- with `CAP_NET_RAW`, observe or interfere with sibling/sidecar traffic.
+
+It also overrode explicit isolation requests (`--network=none`,
+`--network container:<target>`, custom bridge networks) silently.
+
+Scoping the runtime to a single opted-in container confines the MITM plumbing to
+exactly the container whose egress we need to record, and lets every other
+container keep the network isolation it asked for. The orchestrator opts in via
+`--runtime` + `--annotation` — no species-image changes required.
 
 ## Configuration
 
@@ -107,6 +153,7 @@ straight into the eval-pod image with no Go toolchain or libc needed.
 go test ./...
 ```
 
-Tests exercise (a) the pure spec-mutation function with table-driven inputs
-and (b) the arg-parser + on-disk rewrite path against a tempdir-hosted
-synthetic bundle. No runc, no docker, no network — all hermetic.
+Tests exercise (a) the pure spec-mutation function with table-driven inputs,
+(b) the opt-in gate that scopes the rewrite to annotated containers, and
+(c) the arg-parser + on-disk rewrite path against a tempdir-hosted synthetic
+bundle. No runc, no docker, no network — all hermetic.

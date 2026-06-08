@@ -198,19 +198,17 @@ export async function applyGuardianDecision(
     decisionContext,
   } = params;
 
-  const effectiveDecision: ApprovalDecisionResult = decision;
-
   // Capture pending approval info before handleChannelDecision resolves
   // (and removes) the pending interaction. Needed for grant minting.
   const approvalInfo = getApprovalInfoByConversation(approval.conversationId);
-  const matchedInfo = effectiveDecision.requestId
-    ? approvalInfo.find((a) => a.requestId === effectiveDecision.requestId)
+  const matchedInfo = decision.requestId
+    ? approvalInfo.find((a) => a.requestId === decision.requestId)
     : approvalInfo[0];
 
   // Apply the decision to the underlying session
   const result = await handleChannelDecision(
     approval.conversationId,
-    effectiveDecision,
+    decision,
     decisionContext,
   );
 
@@ -218,15 +216,13 @@ export async function applyGuardianDecision(
     return {
       applied: false,
       reason: "stale",
-      requestId: effectiveDecision.requestId,
+      requestId: decision.requestId,
     };
   }
 
   // Update the guardian approval request record
   const approvalStatus =
-    effectiveDecision.action === "reject"
-      ? ("denied" as const)
-      : ("approved" as const);
+    decision.action === "reject" ? ("denied" as const) : ("approved" as const);
   updateApprovalDecision(approval.id, {
     status: approvalStatus,
     decidedByExternalUserId: actorExternalUserId ?? actorPrincipalId,
@@ -236,17 +232,13 @@ export async function applyGuardianDecision(
   // Skip when neither actor identity is available -- minting a grant without
   // a known guardian identity is meaningless (e.g. requester self-cancel).
   const effectiveGuardianId = actorExternalUserId ?? actorPrincipalId;
-  if (
-    effectiveDecision.action !== "reject" &&
-    matchedInfo &&
-    effectiveGuardianId
-  ) {
+  if (decision.action !== "reject" && matchedInfo && effectiveGuardianId) {
     tryMintToolApprovalGrant({
       approvalInfo: matchedInfo,
       approval,
       decisionChannel: actorChannel,
       guardianExternalUserId: effectiveGuardianId,
-      effectiveAction: effectiveDecision.action,
+      effectiveAction: decision.action,
     });
   }
 

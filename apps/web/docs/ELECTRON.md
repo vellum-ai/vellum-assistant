@@ -35,6 +35,26 @@ See [`apps/web/src/runtime/dock.ts`](../src/runtime/dock.ts) and [`apps/web/src/
 
 ---
 
+## When a capability has a real web/dev implementation, the wrapper branches instead of no-opping
+
+Most bridges are desktop-only niceties (Dock badge, biometrics) and so the off-Electron branch is a no-op. Some capabilities, though, are first-class on the web/dev host too and have a genuine non-Electron implementation — the wrapper is then a true **transport seam**: it selects the implementation once, and both branches are real.
+
+[`local-mode-host.ts`](../src/runtime/local-mode-host.ts) is the reference. Local-mode provisioning drives the Vellum CLI, which must run in a trusted host process — the Electron main process in the desktop shell, or the Vite dev-server middleware on web/dev. The wrapper is the one place that branch lives:
+
+```ts
+// apps/web/src/runtime/local-mode-host.ts
+export async function hatchLocalAssistant(species = "vellum") {
+  if (isElectron()) return window.vellum!.localMode.hatch(species);
+  // web/dev: the Vite middleware spawns the CLI binary
+  const res = await fetch("/assistant/__local/hatch", { method: "POST", /* … */ });
+  return res.json();
+}
+```
+
+The rules are otherwise identical to the no-op wrappers: feature code imports the named function and never sees the branch, and the wrapper is the only renderer file that touches `window.vellum.localMode`. The only difference is that the non-Electron path returns a real result rather than `undefined`/no-op, so both hosts honor the same contract.
+
+---
+
 ## Hooks that bridge feature state to the Electron host live in the domain, not in `runtime/`
 
 The `runtime/` wrappers expose **imperative functions** (`setDockBadge(count)`, `useVellumCommands(handlers)`). When a feature needs to publish state changes to the host on every tick (e.g. unread count → Dock badge), the React hook that does that **lives in the domain that owns the source data**, not in the runtime layer.

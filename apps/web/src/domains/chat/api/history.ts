@@ -6,10 +6,11 @@
 // the UI loads the most recent page on open and pages older history in on
 // demand as the user scrolls up.
 
-// Side-effect import — configures the HeyAPI client (CSRF cookie + active
-// organization header) exactly the same way `./api.ts` does.
-
-import { client } from "@/generated/api/client.gen";
+import { messagesGet } from "@/generated/daemon/sdk.gen";
+import type {
+  MessagesGetData,
+  MessagesGetResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -21,43 +22,23 @@ import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
-import type {
-  RuntimeMessage,
-  RuntimeSubagentNotification,
-} from "@/domains/chat/api/messages";
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 
 export type { PaginatedHistoryResult };
 
 const DEFAULT_LATEST_LIMIT = 50;
 const DEFAULT_OLDER_LIMIT = 50;
 
-interface PaginatedHistoryResponseBody {
-  messages?: unknown;
-  hasMore?: unknown;
-  oldestTimestamp?: unknown;
-  oldestMessageId?: unknown;
-}
+type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
 function parsePaginatedResponse(
-  body: PaginatedHistoryResponseBody,
+  body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
-  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
-  const validMessages = rawMessages.filter(
-    (m): m is RuntimeMessage =>
-      !!m &&
-      typeof m === "object" &&
-      ((m as RuntimeMessage).role === "user" ||
-        (m as RuntimeMessage).role === "assistant"),
-  );
+  const rows = body?.messages ?? [];
 
   // Map to display messages first so we can correlate ids with subagent
   // notifications. The two arrays share the same indices.
-  const mapped = validMessages.map(mapRuntimeToDisplayMessage);
+  const mapped = rows.map(mapRuntimeToDisplayMessage);
   const messages = dedupeDisplayMessages(mapped);
 
   // Extract notifications and associate each with the id of the last
@@ -65,8 +46,8 @@ function parsePaginatedResponse(
   // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
   let lastAssistantMessageId: string | undefined;
-  for (let i = 0; i < validMessages.length; i++) {
-    const m = validMessages[i];
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i];
     if (!m) continue;
     if (m.role === "assistant" && !m.subagentNotification) {
       lastAssistantMessageId = m.id;
@@ -80,36 +61,26 @@ function parsePaginatedResponse(
     }
   }
 
-  const hasMore = typeof body.hasMore === "boolean" ? body.hasMore : false;
-  const oldestTimestamp =
-    typeof body.oldestTimestamp === "number" &&
-    Number.isFinite(body.oldestTimestamp)
-      ? body.oldestTimestamp
-      : null;
-  const oldestMessageId =
-    typeof body.oldestMessageId === "string" && body.oldestMessageId.length > 0
-      ? body.oldestMessageId
-      : null;
+  const hasMore = body?.hasMore ?? false;
+  const oldestTimestamp = body?.oldestTimestamp ?? null;
+  const oldestMessageId = body?.oldestMessageId || null;
+  const seq = body?.seq ?? null;
 
   return {
     messages,
     hasMore,
     oldestTimestamp,
     oldestMessageId,
+    seq,
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };
 }
 
 async function fetchPaginatedHistory(
   assistantId: string,
-  query: Record<string, string>,
+  query: HistoryQuery,
 ): Promise<PaginatedHistoryResult> {
-  const { data, error, response } = await client.get<
-    PaginatedHistoryResponseBody,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/messages/",
+  const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
     throwOnError: false,
@@ -130,7 +101,7 @@ async function fetchPaginatedHistory(
     throw new ApiError(response.status, message);
   }
 
-  const result = parsePaginatedResponse(data ?? {});
+  const result = parsePaginatedResponse(data);
   recordDiagnostic("history_page_fetch", {
     assistantId,
     query,
@@ -138,6 +109,7 @@ async function fetchPaginatedHistory(
     hasMore: result.hasMore,
     oldestTimestamp: result.oldestTimestamp,
     oldestMessageId: result.oldestMessageId,
+    seq: result.seq ?? null,
     messages: summarizeDisplayMessages(result.messages),
   });
   return result;
@@ -157,7 +129,7 @@ export async function fetchLatestHistoryPage(
   return fetchPaginatedHistory(assistantId, {
     conversationId,
     page: "latest",
-    limit: String(limit),
+    limit,
   });
 }
 
@@ -175,7 +147,7 @@ export async function fetchOlderHistoryPage(
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
     conversationId,
-    beforeTimestamp: String(beforeTimestamp),
-    limit: String(limit),
+    beforeTimestamp,
+    limit,
   });
 }

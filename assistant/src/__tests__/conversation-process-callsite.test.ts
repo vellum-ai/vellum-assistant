@@ -12,6 +12,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
@@ -203,20 +204,18 @@ mock.module("../memory/retriever.js", () => ({
 }));
 
 // Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
-// via the options object (see assistant/src/agent/loop.ts → AgentLoopRunOptions).
+// via the options object (see assistant/src/agent/loop.ts → AgentLoopConstructorOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      config?: Record<string, unknown>,
-      _tools?: unknown,
-      _toolExecutor?: unknown,
-      _resolveTools?: unknown,
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>,
-    ) {
-      captured.constructorMaxTokens = config?.maxTokens;
-      const resolved = resolveSystemPrompt?.([]);
+    compactionCircuit = new CompactionCircuit("test-conv");
+    constructor(options?: {
+      provider?: unknown;
+      systemPrompt?: string;
+      config?: Record<string, unknown>;
+      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
+    }) {
+      captured.constructorMaxTokens = options?.config?.maxTokens;
+      const resolved = options?.resolveSystemPrompt?.([]);
       captured.resolvedMaxTokens = resolved?.maxTokens;
       captured.resolvedHasMaxTokens =
         resolved !== undefined &&
@@ -228,12 +227,13 @@ mock.module("../agent/loop.js", () => ({
     getResolvedTools() {
       return [];
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: Record<string, unknown>) => void,
-      options?: { callSite?: string },
-    ): Promise<Message[]> {
-      captured.callSite = options?.callSite;
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: Record<string, unknown>) => void;
+      callSite?: string;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
+      captured.callSite = options.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,
@@ -252,6 +252,7 @@ mock.module("../agent/loop.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -308,9 +309,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 

@@ -91,11 +91,14 @@ mock.module("../config/loader.js", () => ({
 let _conversationFactory: (() => Conversation) | undefined;
 let _approvalGenerator: unknown;
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
     if (!_conversationFactory) return undefined;
     return _conversationFactory();
   },
+}));
+
+mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (..._args: unknown[]) => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -166,8 +169,9 @@ function makeCompletingConversation(): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;

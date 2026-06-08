@@ -25,6 +25,12 @@ export interface ReportRunSummary {
   runId: string;
   sessionId: string;
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`.
+   * Surfaced by the report UI as the canonical "how do I reproduce
+   * this run" line. Undefined for legacy runs that predate the field.
+   */
+  cliArgv?: string[];
   profileId?: string;
   testId?: string;
   status: RunMetadata["status"] | "unknown";
@@ -149,6 +155,13 @@ export interface SessionTestEntry {
 export interface ReportSessionSummary {
   sessionId: string;
   sessionLabel?: string;
+  /**
+   * `process.argv` of the `evals run` that produced this session. All
+   * runs in a session share the same value, so we lift it onto the
+   * session summary directly (taken from the first run). Undefined for
+   * legacy sessions that predate the field.
+   */
+  cliArgv?: string[];
   runCount: number;
   profileIds: string[];
   testIds: string[];
@@ -209,6 +222,7 @@ function summarize(input: {
     // explode on mixed data.
     sessionId: input.metadata?.sessionId ?? input.runId,
     sessionLabel: input.metadata?.sessionLabel,
+    cliArgv: input.metadata?.cliArgv,
     profileId: input.metadata?.profileId,
     testId: input.metadata?.testId,
     status: fallbackStatus(input.metadata),
@@ -449,6 +463,12 @@ function summarizeSession(runs: ReportRunSummary[]): ReportSessionSummary {
   return {
     sessionId: first.sessionId,
     sessionLabel: first.sessionLabel,
+    // `cliArgv` is stamped onto every run in the session with the same
+    // value (commands/run.ts captures it once per invocation), so the
+    // first row is authoritative. Falling back to `find` on a later
+    // run with a defined value would only matter if upstream contracts
+    // drift — call it out then; we don't want to mask that here.
+    cliArgv: first.cliArgv,
     runCount: runs.length,
     profileIds: uniq(
       runs

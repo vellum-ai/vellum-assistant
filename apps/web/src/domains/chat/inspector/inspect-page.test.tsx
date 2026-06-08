@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 // ---------------------------------------------------------------------------
 // Mutable per-test stubs
@@ -64,7 +65,7 @@ let authUserStub: AuthUserStub | null = {
   email: "dev@vellum.ai",
   isStaff: false,
 };
-let authLoadingStub = false;
+let sessionInitializingStub = false;
 
 let contextStub: ContextStub = {
   data: undefined,
@@ -77,7 +78,8 @@ let contextStub: ContextStub = {
 interface MessageListEntry {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  textSegments?: string[];
+  contentOrder?: Array<{ type: string; id: string }>;
   timestamp: number;
 }
 
@@ -125,9 +127,9 @@ mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
       user: () => authUserStub,
-      isLoading: () => authLoadingStub,
     },
   },
+  useIsSessionInitializing: () => sessionInitializingStub,
 }));
 
 mock.module("@/domains/chat/inspector/inspector-api", () => ({
@@ -168,7 +170,7 @@ beforeEach(() => {
   searchParamsMap = new Map();
   assistantStub = { assistantId: "asst-1" };
   authUserStub = { email: "dev@vellum.ai", isStaff: false };
-  authLoadingStub = false;
+  sessionInitializingStub = false;
   contextStub = {
     data: undefined,
     isLoading: true,
@@ -350,13 +352,13 @@ describe("InspectPage — dual-mode chrome", () => {
       {
         id: "msg-raw-1",
         role: "user",
-        content: "Hello there, how is the inspector going?",
+        ...textBody("Hello there, how is the inspector going?"),
         timestamp: 1,
       },
       {
         id: "msg-2",
         role: "assistant",
-        content: "Great — we're shipping dual-mode chrome right now.",
+        ...textBody("Great — we're shipping dual-mode chrome right now."),
         timestamp: 2,
       },
     ];

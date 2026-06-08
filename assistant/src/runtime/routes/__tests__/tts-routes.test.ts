@@ -164,8 +164,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for messages/:messageId/tts, tts/synthesize, and tts/synthesize-cli", () => {
-    expect(ROUTES).toHaveLength(3);
+  test("exports route definitions for tts/providers, messages/:messageId/tts, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(4);
+
+    const providers = getRoute("tts/providers");
+    expect(providers.method).toBe("GET");
+    expect(providers.policy?.requiredScopes).toContain("settings.read");
 
     const msgTts = getRoute("messages/:messageId/tts");
     expect(msgTts.method).toBe("POST");

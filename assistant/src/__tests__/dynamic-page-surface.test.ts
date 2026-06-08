@@ -58,6 +58,105 @@ describe("Tool definition includes dynamic_page", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tool execution guard
+// ---------------------------------------------------------------------------
+
+describe("ui_show dynamic_page app substitute guard", () => {
+  test("rejects dynamic_page when the model labels it as an app build", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "JARVIS 1020 Test Counter",
+        activity: "Building the JARVIS 1020 Test Counter app",
+        data: {
+          html: "<button>Increment</button>",
+          preview: {
+            title: "JARVIS 1020 Test Counter",
+            subtitle: "Click INCREMENT to count up",
+          },
+        },
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('skill: "app-builder"');
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects dynamic_page with a clean title but substantial interactive html", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "Labor Market Stats",
+        data: {
+          html:
+            "<div id='root'></div><script>" +
+            "const data=[/*...*/];".padEnd(2100, "/") +
+            "new Chart(document.getElementById('root'), {});</script>",
+          preview: { title: "Labor Market Stats" },
+        },
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('skill: "app-builder"');
+    expect(proxied).toBe(false);
+  });
+
+  test("allows transient non-app dynamic_page surfaces", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "My Slides",
+        data: {
+          html: "<h1>Hello</h1>",
+          preview: {
+            title: "Slides",
+            subtitle: "3 slides about Apple",
+          },
+        },
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result).toEqual({ content: "proxied", isError: false });
+    expect(proxied).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // UiSurfaceShowDynamicPage structure
 // ---------------------------------------------------------------------------
 

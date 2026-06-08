@@ -48,4 +48,26 @@ final class MessageClientTimezoneTests: XCTestCase {
         XCTAssertEqual(body["hostHomeDir"] as? String, NSHomeDirectory())
         XCTAssertEqual(body["hostUsername"] as? String, NSUserName())
     }
+
+    func testMessageBodyOmitsDefaultPreChatInitialMessageOverride() throws {
+        let onboarding = PreChatOnboardingContext(
+            tools: [],
+            tasks: [],
+            tone: "grounded",
+            userName: nil,
+            assistantName: nil,
+            initialMessage: PreChatOnboardingContext.defaultInitialMessage
+        )
+
+        let body = MessageClient.messageBody(
+            content: PreChatOnboardingContext.defaultInitialMessage,
+            conversationKey: "conversation-123",
+            onboarding: onboarding,
+            clientTimezone: ""
+        )
+        let onboardingBody = try XCTUnwrap(body["onboarding"] as? [String: Any])
+
+        XCTAssertNil(onboardingBody["initialMessage"])
+        XCTAssertEqual(onboardingBody["tone"] as? String, "grounded")
+    }
 }

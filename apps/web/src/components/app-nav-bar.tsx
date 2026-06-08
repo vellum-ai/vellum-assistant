@@ -1,10 +1,9 @@
 
-import { ArrowUp, ChevronUp, Globe, Loader2, Pencil, X } from "lucide-react";
+import { ArrowUp, ChevronUp, Globe, Loader2, Maximize2, Pencil, X } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
-import { Typography } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";
+import { Button, Typography } from "@vellumai/design-library";
 
 export interface AppNavBarProps {
   appName: string;
@@ -19,10 +18,12 @@ export interface AppNavBarProps {
   isSharing?: boolean;
   onDeploy?: () => void;
   isDeploying?: boolean;
+  /** When provided, renders a fullscreen toggle button in the right group. */
+  onToggleFullscreen?: () => void;
   onClose: () => void;
 }
 
-export function AppNavBar({ appName, onEdit, isEditing, onShare, isSharing, onDeploy, isDeploying, onClose }: AppNavBarProps) {
+export function AppNavBar({ appName, onEdit, isEditing, onShare, isSharing, onDeploy, isDeploying, onToggleFullscreen, onClose }: AppNavBarProps) {
   const isMobile = useIsMobile();
   // While the bar is acting as the minimized strip on mobile, tapping the
   // title is the primary "open app" affordance — same callback as the
@@ -66,6 +67,14 @@ export function AppNavBar({ appName, onEdit, isEditing, onShare, isSharing, onDe
             onClick={onShare}
             disabled={isSharing}
             tooltip={isSharing ? "Sharing…" : "Share"}
+          />
+        )}
+        {onToggleFullscreen != null && (
+          <Button
+            variant="outlined"
+            iconOnly={<Maximize2 />}
+            onClick={onToggleFullscreen}
+            tooltip="Fullscreen"
           />
         )}
         {onEdit != null && (

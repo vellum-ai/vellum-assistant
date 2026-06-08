@@ -1,0 +1,21 @@
+{
+  "name": "vellum-assistant",
+  "owner": {
+    "name": "Vellum",
+    "url": "https://github.com/vellum-ai/vellum-assistant"
+  },
+  "plugins": [
+    {
+      "name": "caveman",
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman",
+        "ref": "v1.8.2"
+      },
+      "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
+      "category": "productivity",
+      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "license": "MIT"
+    }
+  ]
+}

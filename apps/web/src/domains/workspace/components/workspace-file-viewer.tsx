@@ -5,26 +5,42 @@
  * Ctrl+S / Cmd+S to save.
  */
 
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check,
-  Copy,
-  Download,
-  FileIcon,
-  FileText,
-  FolderOpen,
-  Image as ImageIcon,
-  Loader2,
-  Pencil,
-  Video,
+    queryOptions,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from "@tanstack/react-query";
+import {
+    Check,
+    Copy,
+    Download,
+    FileIcon,
+    FileText,
+    FolderOpen,
+    Image as ImageIcon,
+    Loader2,
+    Pencil,
+    Video,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { client } from "@/generated/api/client.gen";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import {
+    workspaceFileContentGet,
+    workspaceFileGet,
+    workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 
@@ -32,27 +48,18 @@ import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace
 // API helpers
 // ---------------------------------------------------------------------------
 
-interface WorkspaceFileResponse {
-  name?: string;
-  path?: string;
-  size?: number;
-  mimeType?: string;
-  modifiedAt?: string;
-  content?: string;
-}
-
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
   query: { path: string; showHidden?: boolean };
 }) {
-  return queryOptions<WorkspaceFileResponse>({
+  return queryOptions<WorkspaceFileGetResponse>({
     queryFn: async () => {
-      const query: Record<string, string> = { path: opts.query.path };
-      if (opts.query.showHidden) query.showHidden = "true";
-      const { data, error } = await client.get<WorkspaceFileResponse, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/file/",
+      const { data, error } = await workspaceFileGet({
         path: opts.path,
-        query,
+        query: {
+          path: opts.query.path,
+          ...(opts.query.showHidden ? { showHidden: "true" } : {}),
+        },
       });
       if (error) throw error;
       return data!;
@@ -82,7 +89,8 @@ function FileHeaderIcon({ mimeType }: { mimeType: string }) {
     <span
       className="flex h-5 w-5 shrink-0 items-center justify-center rounded"
       style={{
-        backgroundColor: "color-mix(in oklab, var(--content-default) 10%, transparent)",
+        backgroundColor:
+          "color-mix(in oklab, var(--content-default) 10%, transparent)",
       }}
     >
       <Icon
@@ -104,7 +112,8 @@ function ViewModeToggle({
     <div
       className="inline-flex rounded-md p-0.5"
       style={{
-        backgroundColor: "color-mix(in oklab, var(--content-default) 6%, transparent)",
+        backgroundColor:
+          "color-mix(in oklab, var(--content-default) 6%, transparent)",
       }}
     >
       {(["preview", "source"] as const).map((mode) => {
@@ -116,15 +125,11 @@ function ViewModeToggle({
             onClick={() => onChange(mode)}
             className="h-auto rounded border-0 px-2.5 py-1 text-body-small-default hover:bg-transparent"
             style={{
-              backgroundColor: active
-                ? "var(--surface-lift)"
-                : "transparent",
+              backgroundColor: active ? "var(--surface-lift)" : "transparent",
               color: active
                 ? "var(--content-default)"
                 : "var(--content-tertiary)",
-              boxShadow: active
-                ? "0 1px 2px rgba(0,0,0,0.15)"
-                : undefined,
+              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.15)" : undefined,
             }}
           >
             {mode === "preview" ? "Preview" : "Source"}
@@ -186,18 +191,18 @@ function BinaryContentViewer({
 }) {
   const { data: blob, isLoading } = useQuery({
     queryFn: async () => {
-      const query: Record<string, string> = { path };
-      if (showHidden) query.showHidden = "true";
-      const res = await client.get<Blob, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+      const res = await workspaceFileContentGet({
         path: { assistant_id: assistantId },
-        query,
+        query: { path, ...(showHidden ? { showHidden: "true" } : {}) },
         parseAs: "blob",
       });
       if (res.error) throw res.error;
       return res.data!;
     },
-    queryKey: ["assistantsWorkspaceFileContentRetrieve", { assistantId, path, showHidden }],
+    queryKey: [
+      "assistantsWorkspaceFileContentRetrieve",
+      { assistantId, path, showHidden },
+    ],
     enabled: !!path,
   });
 
@@ -431,7 +436,11 @@ function SourcePre({
   return (
     <pre
       className={`m-0 h-full overflow-auto p-4 text-body-medium-lighter leading-relaxed${!readOnly ? " cursor-text" : ""}`}
-      style={{ color: "var(--content-default)", fontFamily: MONO_FONT, whiteSpace }}
+      style={{
+        color: "var(--content-default)",
+        fontFamily: MONO_FONT,
+        whiteSpace,
+      }}
       onClick={!readOnly ? onStartEdit : undefined}
     >
       {content}
@@ -486,12 +495,16 @@ export function WorkspaceFileViewer({
   };
 
   const saveMutation = useMutation({
-    mutationFn: async ({ path, content }: { path: string; content: string }) => {
-      const { error, response } = await client.post<unknown, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/write/",
+    mutationFn: async ({
+      path,
+      content,
+    }: {
+      path: string;
+      content: string;
+    }) => {
+      const { error, response } = await workspaceWritePost({
         path: { assistant_id: assistantId },
         body: { path, content, encoding: "utf8" },
-        headers: { "Content-Type": "application/json" },
         throwOnError: false,
       });
       if (!response?.ok || error) {
@@ -629,7 +642,9 @@ export function WorkspaceFileViewer({
           ) : isEditing ? (
             <FileTextarea
               value={editableContent}
-              onChange={(v) => setEditOverride({ path: selectedPath, content: v })}
+              onChange={(v) =>
+                setEditOverride({ path: selectedPath, content: v })
+              }
               onSave={handleSave}
             />
           ) : (
@@ -681,7 +696,9 @@ export function WorkspaceFileViewer({
           ) : isEditing ? (
             <FileTextarea
               value={editableContent}
-              onChange={(v) => setEditOverride({ path: selectedPath, content: v })}
+              onChange={(v) =>
+                setEditOverride({ path: selectedPath, content: v })
+              }
               onSave={handleSave}
             />
           ) : (
@@ -716,7 +733,9 @@ export function WorkspaceFileViewer({
           {isEditing ? (
             <FileTextarea
               value={editableContent}
-              onChange={(v) => setEditOverride({ path: selectedPath, content: v })}
+              onChange={(v) =>
+                setEditOverride({ path: selectedPath, content: v })
+              }
               onSave={handleSave}
             />
           ) : (
@@ -774,20 +793,26 @@ export function WorkspaceFileViewer({
           <div className="mt-2 space-y-1">
             <p
               className="text-body-small-default"
-              style={{ color: "var(--content-secondary, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-secondary, var(--content-tertiary))",
+              }}
             >
               {mimeType}
             </p>
             <p
               className="text-body-small-default"
-              style={{ color: "var(--content-secondary, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-secondary, var(--content-tertiary))",
+              }}
             >
               {formatFileSize(data.size, "Unknown size")}
             </p>
             {data.modifiedAt && (
               <p
                 className="text-body-small-default"
-                style={{ color: "var(--content-secondary, var(--content-tertiary))" }}
+                style={{
+                  color: "var(--content-secondary, var(--content-tertiary))",
+                }}
               >
                 Modified: {new Date(data.modifiedAt).toLocaleString()}
               </p>

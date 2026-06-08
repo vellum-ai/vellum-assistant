@@ -1,19 +1,16 @@
 import { LayoutGrid } from "lucide-react";
 
-import { Button } from "@vellum/design-library";
-import {
-  CATEGORY_DISPLAY_NAMES,
-  CATEGORY_ICONS,
-  SKILL_CATEGORIES,
-} from "@/domains/intelligence/skills/category";
-import type { SkillCategory } from "@/domains/intelligence/skills/types";
+import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
+import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
+import { Button } from "@vellumai/design-library";
 
 interface CategorySidebarProps {
-  selected: SkillCategory | null;
-  onSelect: (category: SkillCategory | null) => void;
+  selected: string | null;
+  onSelect: (category: string | null) => void;
   counts: Record<string, number>;
   totalCount: number;
   showCounts: boolean;
+  categories: CategoryInfo[];
 }
 
 export function CategorySidebar({
@@ -22,9 +19,10 @@ export function CategorySidebar({
   counts,
   totalCount,
   showCounts,
+  categories,
 }: CategorySidebarProps) {
-  const sortedCategories = [...SKILL_CATEGORIES].sort((a, b) =>
-    CATEGORY_DISPLAY_NAMES[a].localeCompare(CATEGORY_DISPLAY_NAMES[b]),
+  const sortedCategories = [...categories].sort((a, b) =>
+    a.label.localeCompare(b.label),
   );
 
   return (
@@ -37,17 +35,17 @@ export function CategorySidebar({
         showCount={showCounts}
         onClick={() => onSelect(null)}
       />
-      {sortedCategories.map((category) => {
-        const Icon = CATEGORY_ICONS[category];
+      {sortedCategories.map((cat) => {
+        const Icon = resolveCategoryIcon(cat.icon) ?? LayoutGrid;
         return (
           <CategoryRow
-            key={category}
+            key={cat.slug}
             icon={Icon}
-            label={CATEGORY_DISPLAY_NAMES[category]}
-            count={counts[category] ?? 0}
-            isActive={selected === category}
+            label={cat.label}
+            count={counts[cat.slug] ?? 0}
+            isActive={selected === cat.slug}
             showCount={showCounts}
-            onClick={() => onSelect(category)}
+            onClick={() => onSelect(cat.slug)}
           />
         );
       })}

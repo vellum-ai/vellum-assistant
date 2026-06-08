@@ -1,57 +1,63 @@
-import { AlertTriangle, Sparkles, Wand2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { AlertTriangle, Sparkles, Wand2 } from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
-import { Dropdown } from "@vellum/design-library";
+import { Dropdown } from "@vellumai/design-library";
 
-import { storePendingInitialMessage } from "@/utils/initial-message-launch";
-import { routes } from "@/utils/routes";
-import { formatCost, formatTokens } from "@/domains/logs/format";
-import { getBrowserTimezone } from "@/utils/browser-timezone";
 import {
-  buildCallSiteMetadataMap,
-  fetchUsageCallSiteCatalog,
+    buildCallSiteMetadataMap,
+    fetchUsageCallSiteCatalog,
 } from "@/domains/logs/call-site-metadata";
+import {
+    UsageTrendChart,
+    UsageTrendSkeleton,
+    type UsageTrendChartLegendItem,
+} from "@/domains/logs/components/usage-trend-chart";
+import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
 import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
-import type {
-  UsageBreakdownResponse,
-  UsageGroupBreakdown,
-  UsageGroupBy,
-  UsageTimeRange,
-  UsageTotals,
-} from "@/domains/logs/usage-types";
 import {
-  fetchUsageBreakdown,
-  fetchUsageDaily,
-  fetchUsageSeries,
-  fetchUsageTotals,
+    fetchUsageBreakdown,
+    fetchUsageDaily,
+    fetchUsageSeries,
+    fetchUsageTotals,
 } from "@/domains/logs/usage-api";
 import {
-  formatBreakdownTokens,
-  formatBreakdownTokensShort,
+    formatBreakdownTokens,
+    formatBreakdownTokensShort,
 } from "@/domains/logs/usage-breakdown-format";
 import {
-  decorateUsageSeriesGroups,
-  seriesFromDailyBuckets,
+    decorateUsageSeriesGroups,
+    seriesFromDailyBuckets,
+    usageSeriesKeyForGroupValue,
 } from "@/domains/logs/usage-series";
 import {
-  DEFAULT_USAGE_GROUP_BY,
-  FALLBACK_USAGE_GROUP_BY,
-  resolveEffectiveUsageGranularity,
-  resolveRangeWindow,
-  resolveUsageGranularity,
-  shouldFallbackUsageGroupBy,
-  shouldFetchUsageSeries,
-  shouldRetryUsageGroupQuery,
-  trendTitle,
-  USAGE_GROUP_BY_OPTIONS,
+    buildUsageSearchParams,
+    FALLBACK_USAGE_GROUP_BY,
+    readUsageUrlState,
+    resolveEffectiveUsageGranularity,
+    resolveRangeWindow,
+    resolveUsageGranularity,
+    shouldFallbackUsageGroupBy,
+    shouldFetchUsageSeries,
+    shouldRetryUsageGroupQuery,
+    trendTitle,
+    USAGE_GROUP_BY_OPTIONS,
+    type UsageSearchParamsUpdate,
 } from "@/domains/logs/usage-tab-state";
-import {
-  UsageTrendChart,
-  UsageTrendSkeleton,
-} from "@/domains/logs/components/usage-trend-chart";
+import type {
+    UsageBreakdownResponse,
+    UsageGroupBreakdown,
+    UsageGroupBy,
+    UsageTimeRange,
+    UsageTotals,
+} from "@/domains/logs/usage-types";
+import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
+import { storePendingInitialMessage } from "@/utils/initial-message-launch";
+import { routes } from "@/utils/routes";
+import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 interface UsageTabProps {
   assistantId: string;
@@ -86,18 +92,49 @@ const COST_OPTIMIZATION_PROMPT = [
 
 export function UsageTab({ assistantId }: UsageTabProps) {
   const navigate = useNavigate();
-  const [range, setRange] = useState<UsageTimeRange>("7d");
-  const [groupBy, setGroupBy] = useState<UsageGroupBy>(
-    DEFAULT_USAGE_GROUP_BY,
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { range, groupBy, scheduleId } = useMemo(
+    () => readUsageUrlState(searchParams),
+    [searchParams],
   );
-  const rangeWindow = useMemo(() => resolveRangeWindow(range), [range]);
+  const timezone = useEffectiveTimezone();
+  const updateUsageSearchParams = useCallback(
+    (update: UsageSearchParamsUpdate) => {
+      setSearchParams(
+        (prev) => buildUsageSearchParams(prev, update),
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  // Depend on `timezone` so bounded ranges (e.g. "Today", "Last 7 days")
+  // recompute their from/to boundaries in the effective zone when it changes
+  // (OS or `device:timezone` update). `resolveRangeWindow` derives the calendar
+  // day boundaries in `timezone`, keeping them aligned with the `tz` sent to
+  // the backend rather than browser-local boundaries.
+  const rangeWindow = useMemo(
+    () => resolveRangeWindow(range, timezone),
+    [range, timezone],
+  );
   const granularity = useMemo(() => resolveUsageGranularity(range), [range]);
-  const [timezone] = useState(getBrowserTimezone);
+
+  const schedulesQuery = useQuery({
+    queryKey: assistantSchedulesQueryKey(assistantId),
+    queryFn: () => fetchSchedules(assistantId),
+    staleTime: 10_000,
+  });
 
   const startCostConversation = (message: string) => {
     storePendingInitialMessage(message);
     void navigate(routes.assistant);
   };
+
+  const handleRangeChange = useCallback(
+    (nextRange: UsageTimeRange) => {
+      updateUsageSearchParams({ range: nextRange });
+    },
+    [updateUsageSearchParams],
+  );
 
   const totalsQuery = useQuery({
     queryKey: [
@@ -105,11 +142,13 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       assistantId,
       rangeWindow.from,
       rangeWindow.to,
+      scheduleId ?? null,
     ],
     queryFn: () =>
       fetchUsageTotals(assistantId, {
         from: rangeWindow.from,
         to: rangeWindow.to,
+        scheduleId,
       }),
   });
 
@@ -120,6 +159,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.from,
       rangeWindow.to,
       groupBy,
+      scheduleId ?? null,
     ],
     queryFn: async () => {
       try {
@@ -129,6 +169,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy,
+            scheduleId,
           }),
         };
       } catch (error) {
@@ -142,6 +183,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             from: rangeWindow.from,
             to: rangeWindow.to,
             groupBy: FALLBACK_USAGE_GROUP_BY,
+            scheduleId,
           }),
         };
       }
@@ -163,6 +205,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       granularity,
       timezone,
       effectiveGroupBy,
+      scheduleId ?? null,
     ],
     queryFn: () => {
       if (!seriesGroupBy) {
@@ -175,6 +218,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         granularity,
         groupBy: seriesGroupBy,
         tz: timezone,
+        scheduleId,
       });
     },
     enabled: Boolean(seriesGroupBy),
@@ -189,6 +233,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.to,
       granularity,
       timezone,
+      scheduleId ?? null,
     ],
     queryFn: () =>
       fetchUsageDaily(assistantId, {
@@ -196,6 +241,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         to: rangeWindow.to,
         granularity,
         tz: timezone,
+        scheduleId,
       }),
     enabled: !seriesGroupBy || seriesQuery.isError,
   });
@@ -311,25 +357,37 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const isHourly = effectiveGranularity === "hourly";
   const trendGroupBy =
     seriesGroupBy && seriesQuery.error ? undefined : effectiveGroupBy;
+  const selectedScheduleLegendItems = useMemo(() => {
+    if (effectiveGroupBy !== "schedule" || !scheduleId) {
+      return undefined;
+    }
+
+    return buildSelectedScheduleLegendItems(schedulesQuery.data, scheduleId);
+  }, [effectiveGroupBy, scheduleId, schedulesQuery.data]);
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
     if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
       void breakdownQuery.refetch();
       void seriesQuery.refetch();
     }
-    setGroupBy(nextGroupBy);
+    updateUsageSearchParams({
+      groupBy: nextGroupBy,
+      scheduleId: nextGroupBy === "schedule" ? undefined : null,
+    });
   };
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3
           className="text-title-small"
           style={{ color: "var(--content-default)" }}
         >
           Usage
         </h3>
-        <TimeRangeStrip range={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <TimeRangeStrip range={range} onChange={handleRangeChange} />
+        </div>
       </div>
 
       <section aria-label="Totals">
@@ -349,16 +407,22 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             >
               {trendTitle(effectiveGranularity, trendGroupBy)}
             </h4>
-            <GroupByPicker
-              value={effectiveGroupBy}
-              onChange={handleGroupByChange}
-            />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <GroupByPicker
+                value={effectiveGroupBy}
+                onChange={handleGroupByChange}
+              />
+            </div>
           </div>
           <QueryState
             query={trendQuery}
             skeleton={<UsageTrendSkeleton isHourly={isHourly} />}
             render={(buckets) => (
-              <UsageTrendChart buckets={buckets} isHourly={isHourly} />
+              <UsageTrendChart
+                buckets={buckets}
+                isHourly={isHourly}
+                legendItems={selectedScheduleLegendItems}
+              />
             )}
           />
         </div>
@@ -375,6 +439,41 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       />
     </div>
   );
+}
+
+function buildSelectedScheduleLegendItems(
+  schedules: readonly Pick<AssistantSchedule, "id" | "name">[] | undefined,
+  selectedScheduleId: string,
+): UsageTrendChartLegendItem[] {
+  const knownSchedules = schedules ?? [];
+  const hasSelectedSchedule = knownSchedules.some(
+    (schedule) => schedule.id === selectedScheduleId,
+  );
+  const legendSources = [
+    ...(hasSelectedSchedule
+      ? []
+      : [
+          {
+            id: selectedScheduleId,
+            label: unknownScheduleLabel(selectedScheduleId),
+          },
+        ]),
+    ...knownSchedules.map((schedule) => ({
+      id: schedule.id,
+      label: schedule.name || schedule.id,
+    })),
+  ];
+
+  return legendSources.map((schedule, colorIndex) => ({
+    seriesKey: usageSeriesKeyForGroupValue(schedule.id, "schedule"),
+    label: schedule.label,
+    colorIndex,
+    state: schedule.id === selectedScheduleId ? "active" : "inactive",
+  }));
+}
+
+function unknownScheduleLabel(scheduleId: string) {
+  return `Unknown schedule (${scheduleId})`;
 }
 
 function CostAssistantSection({

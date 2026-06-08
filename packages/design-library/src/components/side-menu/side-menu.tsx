@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { Typography } from "../typography";
+import { Tooltip } from "../tooltip";
 import { cn } from "../../utils/cn";
 
 /**
@@ -426,9 +427,34 @@ function SideMenuSubList({
 // Item
 // ---------------------------------------------------------------------------
 
+/**
+ * Leading icon for a SideMenu.Item.
+ *
+ * Polymorphic by design: most call sites pass a Lucide component (`Globe`,
+ * `Rocket`, …), but app-shaped surfaces (pinned apps, library entries) carry
+ * an emoji string on their record (`app.icon: "🚀"`) sourced from the app
+ * manifest. Accepting either keeps the prop name consistent end-to-end with
+ * the underlying field and lets callers express the fallback inline:
+ * `icon={app.icon ?? Rocket}`.
+ */
+export type SideMenuItemIcon = LucideIcon | string;
+
 export interface SideMenuItemProps {
-  icon?: LucideIcon;
+  icon?: SideMenuItemIcon;
   label: string;
+  /**
+   * Show a styled tooltip on hover in the collapsed rail, defaulting its
+   * content to `label` (the common case where the tooltip just surfaces the
+   * hidden label). Ignored when expanded, since the label is already visible.
+   * Use `tooltip` instead when the text should differ from `label`.
+   */
+  showCollapsedTooltip?: boolean;
+  /**
+   * Custom collapsed-rail tooltip text, for when it should differ from
+   * `label`. Implies `showCollapsedTooltip` and replaces the native `title`.
+   * Ignored when expanded. Mirrors the `tooltip` prop on `Button`.
+   */
+  tooltip?: string;
   badge?: ReactNode;
   trailingIcon?: LucideIcon;
   trailingIconClassName?: string;
@@ -443,12 +469,12 @@ export interface SideMenuItemProps {
 }
 
 function ItemLeadingIcon({
-  Icon,
+  icon,
   indent,
   active,
   collapsed,
 }: {
-  Icon: LucideIcon | undefined;
+  icon: SideMenuItemIcon | undefined;
   indent: boolean;
   active: boolean;
   collapsed: boolean;
@@ -461,7 +487,24 @@ function ItemLeadingIcon({
       />
     );
   }
-  if (!Icon) return null;
+  if (!icon) return null;
+  // String icons (emoji) render in a fixed-size span sized to match the 14px
+  // Lucide icons so layout stays uniform whether the row is a Lucide-backed
+  // nav entry or an app row pulling an emoji from its manifest.
+  if (typeof icon === "string") {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none",
+          collapsed ? "mx-auto" : undefined,
+        )}
+      >
+        {icon}
+      </span>
+    );
+  }
+  const Icon = icon;
   const iconClass = cn(
     "shrink-0",
     active
@@ -498,8 +541,10 @@ type SharedButtonProps = Omit<
 >;
 
 function SideMenuItem({
-  icon: Icon,
+  icon,
   label,
+  showCollapsedTooltip = false,
+  tooltip,
   badge,
   trailingIcon: TrailingIcon,
   trailingIconClassName,
@@ -519,7 +564,7 @@ function SideMenuItem({
   const rowClasses = cn(
     "group relative flex items-center",
     "rounded-[6px]",
-    "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+    "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",
     "transition-colors",
     "gap-[8px] p-2",
@@ -554,22 +599,36 @@ function SideMenuItem({
 
   const leadingIconNode = (
     <ItemLeadingIcon
-      Icon={Icon}
+      icon={icon}
       indent={indent}
       active={active}
       collapsed={collapsed}
     />
   );
 
-  const titleAttr = collapsed ? label : undefined;
+  // Collapsed rail shows a styled tooltip when asked (defaulting to `label`)
+  // or when custom `tooltip` text is given. Drop the native `title` then so the
+  // two don't stack into a double tooltip on hover.
+  const tooltipContent = tooltip ?? (showCollapsedTooltip ? label : undefined);
+  const showStyledTooltip = collapsed && tooltipContent != null;
+  const titleAttr = collapsed && !showStyledTooltip ? label : undefined;
   const ariaCurrent = active ? ("page" as const) : undefined;
+
+  const withTooltip = (element: ReactNode) =>
+    showStyledTooltip ? (
+      <Tooltip content={tooltipContent} side="right">
+        {element}
+      </Tooltip>
+    ) : (
+      element
+    );
 
   if (href) {
     const {
       onClick: anchorOnClick,
       ...anchorProps
     } = rest as SharedAnchorProps;
-    return (
+    return withTooltip(
       <a
         ref={ref as Ref<HTMLAnchorElement>}
         data-slot="side-menu-item"
@@ -606,7 +665,7 @@ function SideMenuItem({
     }
   };
 
-  return (
+  return withTooltip(
     <button
       ref={ref as Ref<HTMLButtonElement>}
       data-slot="side-menu-item"
@@ -622,7 +681,7 @@ function SideMenuItem({
       {labelNode}
       {badgeNode}
       {trailingNode}
-    </button>
+    </button>,
   );
 }
 

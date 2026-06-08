@@ -46,7 +46,6 @@ mock.module("../../memory/conversation-crud.js", () => ({
 let processMessageImpl: (
   conversationId: string,
   content: string,
-  attachmentIds: string[] | undefined,
   options: Record<string, unknown> | undefined,
 ) => Promise<{ messageId: string }> = async () => ({ messageId: "msg-1" });
 const processMessageCalls: Array<{
@@ -59,11 +58,10 @@ mock.module("../../daemon/process-message.js", () => ({
   processMessage: async (
     conversationId: string,
     content: string,
-    attachmentIds: string[] | undefined,
     options: Record<string, unknown> | undefined,
   ) => {
     processMessageCalls.push({ conversationId, content, options });
-    return processMessageImpl(conversationId, content, attachmentIds, options);
+    return processMessageImpl(conversationId, content, options);
   },
 }));
 

@@ -1,49 +1,46 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
+import { featureFlagsClientFlagValuesRetrieve } from "@/generated/api/sdk.gen";
+import type { ClientFeatureFlagsResponse } from "@/generated/api/types.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
+  CLIENT_STRING_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
 
-interface ClientFlagValuesResponse {
-  flags: Record<string, boolean>;
-}
+const VALID_BOOL_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
+const VALID_STRING_KEYS = new Set(Object.keys(CLIENT_STRING_FLAG_DEFAULTS));
 
-const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
-
-async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
-  const { data, error, response } = await client.get<
-    ClientFlagValuesResponse,
-    Record<string, unknown>,
-    false
-  >({
-    url: `/v1/feature-flags/client-flag-values/`,
+async function fetchClientFlagValues(): Promise<ClientFeatureFlagsResponse> {
+  const { data, error, response } = await featureFlagsClientFlagValuesRetrieve({
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch client feature flags");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to fetch client feature flags: ${response.status}`);
   }
-  return data as ClientFlagValuesResponse;
+  return data;
 }
 
 function mapFlags(
-  serverFlags: Record<string, boolean>,
-): Record<string, boolean> {
-  const mapped: Record<string, boolean> = {};
+  serverFlags: Record<string, boolean | string>,
+): { boolFlags: Record<string, boolean>; stringFlags: Record<string, string> } {
+  const boolFlags: Record<string, boolean> = {};
+  const stringFlags: Record<string, string> = {};
   for (const [flagKey, value] of Object.entries(serverFlags)) {
     const storeKey = flagKeyToStoreKey(flagKey);
-    if (VALID_KEYS.has(storeKey)) {
-      mapped[storeKey] = value;
+    if (typeof value === "boolean" && VALID_BOOL_KEYS.has(storeKey)) {
+      boolFlags[storeKey] = value;
+    } else if (typeof value === "string" && VALID_STRING_KEYS.has(storeKey)) {
+      stringFlags[storeKey] = value;
     }
   }
-  return mapped;
+  return { boolFlags, stringFlags };
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
@@ -58,7 +55,12 @@ export function useClientFeatureFlagSync(enabled: boolean) {
 
   useEffect(() => {
     if (data?.flags) {
-      useClientFeatureFlagStore.getState().setFlags(mapFlags(data.flags));
+      const { boolFlags, stringFlags } = mapFlags(data.flags);
+      const store = useClientFeatureFlagStore.getState();
+      store.setFlags(boolFlags);
+      if (Object.keys(stringFlags).length > 0) {
+        store.setStringFlags(stringFlags);
+      }
     }
   }, [data]);
 }

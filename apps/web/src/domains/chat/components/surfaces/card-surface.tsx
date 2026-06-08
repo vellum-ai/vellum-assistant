@@ -3,6 +3,7 @@ import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/types/types";
+import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -62,6 +63,24 @@ const DEFAULT_STATUS = { label: "Pending", colorClass: "text-[var(--content-disa
 
 function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
+}
+
+// Once the overall task is `completed`, treat any lingering `failed` step as
+// recovered: a recoverable step (e.g. a Gmail reconnect) can be left `failed`
+// with no corrective per-step update, which would otherwise show a permanent red
+// glyph on a successful flow.
+function effectiveStepStatus(
+  stepStatus: string | undefined,
+  taskCompleted: boolean,
+): string | undefined {
+  if (taskCompleted && stepStatus === "failed") {
+    return "completed";
+  }
+  return stepStatus;
+}
+
+function normalizedTitle(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function StatusBadge({ status }: { status: string | undefined }) {
@@ -142,11 +161,18 @@ function InProgressDetail({ value }: { value: string }) {
   );
 }
 
-function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
+function TaskStepList({
+  steps,
+  taskCompleted,
+}: {
+  steps: TaskStepItem[];
+  taskCompleted: boolean;
+}) {
   return (
     <div className="mt-5 divide-y divide-[var(--border-base)]">
       {steps.map((step, index) => {
-        const showDetailOnRight = step.status === "in_progress" && !!step.detail;
+        const status = effectiveStepStatus(step.status, taskCompleted);
+        const showDetailOnRight = status === "in_progress" && !!step.detail;
         return (
           <div key={step.id || index} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
             <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
@@ -164,7 +190,7 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
             </div>
             {showDetailOnRight && <InProgressDetail value={step.detail!} />}
             <div className="shrink-0">
-              <StepIcon status={step.status} />
+              <StepIcon status={status} />
             </div>
           </div>
         );
@@ -173,13 +199,19 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
   );
 }
 
-function TaskProgressDisplay({ templateData }: { templateData: Record<string, unknown> }) {
+function TaskProgressDisplay({
+  templateData,
+  titleFallback,
+}: {
+  templateData: Record<string, unknown>;
+  titleFallback?: string;
+}) {
   const steps = Array.isArray(templateData.steps)
     ? (templateData.steps as TaskStepItem[])
     : null;
 
   if (steps && steps.length > 0) {
-    const title = typeof templateData.title === "string" ? templateData.title : "Task";
+    const title = normalizedTitle(templateData.title) || titleFallback || "Task";
     const status = typeof templateData.status === "string" ? templateData.status : undefined;
 
     return (
@@ -188,7 +220,7 @@ function TaskProgressDisplay({ templateData }: { templateData: Record<string, un
           <span className="text-title-small text-[var(--content-strong)]">{title}</span>
           <StatusBadge status={status} />
         </div>
-        <TaskStepList steps={steps} />
+        <TaskStepList steps={steps} taskCompleted={status === "completed"} />
       </div>
     );
   }
@@ -204,21 +236,29 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   const data = surface.data as unknown as CardSurfaceData;
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress = data.template === "task_progress" && data.templateData;
-  const hasSteps = isTaskProgress && Array.isArray(data.templateData?.steps) &&
-    (data.templateData!.steps as unknown[]).length > 0;
+  // Shared predicate so this render-detection and the activity-summary
+  // hoist-detection in transcript-message-body cannot drift.
+  const hasSteps = isTaskProgressSurface(surface);
+  const cardTitle = normalizedTitle(data.title) || normalizedTitle(surface.title);
+  const surfaceWithoutContainerTitle = { ...surface, title: undefined };
 
   if (hasSteps) {
     return (
-      <SurfaceContainer surface={surface} onAction={onAction}>
-        <TaskProgressDisplay templateData={data.templateData!} />
+      <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
+        <TaskProgressDisplay
+          templateData={data.templateData!}
+          titleFallback={cardTitle}
+        />
       </SurfaceContainer>
     );
   }
 
   return (
-    <SurfaceContainer surface={surface} onAction={onAction}>
+    <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
       <div>
-        <h3 className="text-title-small text-[var(--content-strong)]">{data.title}</h3>
+        {cardTitle && (
+          <h3 className="text-title-small text-[var(--content-strong)]">{cardTitle}</h3>
+        )}
 
         {data.subtitle && (
           <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">{data.subtitle}</p>
@@ -267,7 +307,10 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
             )}
 
             {isTaskProgress && (
-              <TaskProgressDisplay templateData={data.templateData!} />
+              <TaskProgressDisplay
+                templateData={data.templateData!}
+                titleFallback={cardTitle}
+              />
             )}
           </>
         )}

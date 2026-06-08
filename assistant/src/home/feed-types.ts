@@ -1,17 +1,18 @@
 /**
  * Home activity feed data contract.
  *
- * Defines the shape of `FeedItem`s shown in the macOS Home page feed
- * section plus the on-disk file format written by the daemon feed
- * writer (PR 5) and served by the daemon HTTP route (PR 6).
+ * The feed-item and suggested-prompt wire shapes are owned by the
+ * canonical `@vellumai/assistant-api` package (`api/responses/home.ts`)
+ * so the daemon route handlers, the OpenAPI generator, and external
+ * clients all derive from one source. This module re-exports those
+ * shapes for daemon-internal consumers and adds the on-disk file format
+ * (`HomeFeedFile`) that composes them — a daemon-only persistence
+ * concern that never crosses the wire.
  *
- * The TDD contract field originally named `ttl` is renamed internally
- * to `expiresAt` — it is an absolute ISO-8601 timestamp, not a
- * duration. Absolute timestamps match the `timestamp` and `createdAt`
- * fields and make stateless read-time expiry filtering trivial. If we
- * ever need to expose `ttl` on a public wire format again we can add
- * a translation layer at the route boundary; within the daemon, all
- * internal types use `expiresAt`.
+ * The TDD contract field originally named `ttl` is surfaced as
+ * `expiresAt` — an absolute ISO-8601 timestamp, not a duration. Absolute
+ * timestamps match the `timestamp` and `createdAt` fields and make
+ * stateless read-time expiry filtering trivial.
  *
  * **v2 schema collapse** — feed items now have a single `notification`
  * type. The legacy `nudge | digest | action | thread` distinctions
@@ -19,240 +20,54 @@
  * them) have been removed; everything that lands in the home feed is
  * a notification, with the writer's only merge rule being "same `id`
  * replaces in place, otherwise append". Workspace migration
- * `061-home-feed-notification-only` rewrites pre-v2 files on first
- * boot.
- *
- * A structurally compatible Swift mirror lives at
- * `clients/shared/Network/FeedItem.swift` (PR 3). Any change here
- * must be mirrored there.
+ * `079-home-feed-notification-only` rewrites pre-v2 files on first boot.
  */
 
 import { z } from "zod";
 
-/** High-level kind of feed item — drives which Swift view renders it. */
-export type FeedItemType = "notification";
+import { FeedItemSchema } from "../api/responses/home.js";
 
-/** User-facing lifecycle of a feed item. */
-export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
-
-/** Visual urgency treatment — controls badge color independently of sort priority. */
-export type FeedItemUrgency = "low" | "medium" | "high" | "critical";
-
-/** Broad category for grouping and filtering feed items. */
-export type FeedItemCategory =
-  | "security"
-  | "scheduling"
-  | "background"
-  | "email"
-  | "system";
-
-/**
- * A single action button attached to a feed item.
- *
- * `prompt` is the pre-seeded user message the action sends to the
- * assistant when triggered — the HTTP route (PR 6) creates a new
- * conversation with this prompt as the first user turn.
- */
-export interface FeedAction {
-  id: string;
-  label: string;
-  prompt: string;
-}
-
-/** Which detail panel the macOS client should open for this feed item. */
-export type FeedItemDetailPanelKind =
-  | "emailDraft"
-  | "documentPreview"
-  | "permissionChat"
-  | "paymentAuth"
-  | "toolPermission"
-  | "updatesList";
-
-/** Server-driven detail panel descriptor attached to a feed item. */
-export interface FeedItemDetailPanel {
-  kind: FeedItemDetailPanelKind;
-}
-
-/**
- * A single item rendered in the Home feed.
- *
- * Mirrors the TDD contract plus one internal-only field:
- *   - `createdAt` — when the writer recorded the item (distinct from
- *                   `timestamp`, which is the event time). Used for
- *                   TTL sweeps and stable ordering.
- *
- * The TDD's `ttl` field is renamed to `expiresAt` here; see the
- * module comment above for the rationale.
- */
-export interface FeedItem {
-  id: string;
-  type: FeedItemType;
-  /** Integer in [0, 100]; higher values sort earlier. */
-  priority: number;
-  /**
-   * Optional short header. Omit when the source did not supply one — the
-   * notification pipeline never manufactures a title from rendered copy
-   * (LLM-echoed bodies stutter against `summary`). Clients fall back to
-   * `summary` when rendering a row.
-   */
-  title?: string;
-  summary: string;
-  /** Event time (ISO-8601). */
-  timestamp: string;
-  /** Defaults to `"new"` at parse time. */
-  status: FeedItemStatus;
-  /** Absolute ISO-8601 expiry timestamp (renamed from TDD `ttl`). */
-  expiresAt?: string;
-  actions?: FeedAction[];
-  /** Visual urgency treatment — controls badge color independently of sort priority. */
-  urgency?: FeedItemUrgency;
-  /**
-   * Source conversation that emitted this notification, when known. Used by
-   * the "Go to Thread" affordance in the detail panel. Omitted when the
-   * source context is not a navigable conversation (scheduler job ids,
-   * watcher event ids, CLI tool-call ids).
-   */
-  conversationId?: string;
-  /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
-  detailPanel?: FeedItemDetailPanel;
-  /** Broad category for grouping and filtering feed items. */
-  category?: FeedItemCategory;
-  /** True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces. */
-  noteworthy?: boolean;
-  /** True when the assistant herself emitted this item (e.g. via the `notifications send` skill). Drives clients to swap the row's leading icon for the persona avatar; system-generated items keep the category icon. */
-  fromAssistant?: boolean;
-  /** Arbitrary structured data the detail panel or other consumers can use. */
-  metadata?: Record<string, unknown>;
-  /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
-  createdAt: string;
-}
+export {
+  type FeedAction,
+  type FeedItem,
+  type FeedItemCategory,
+  type FeedItemDetailPanel,
+  type FeedItemDetailPanelKind,
+  FeedItemSchema as feedItemSchema,
+  type FeedItemStatus,
+  type FeedItemType,
+  type FeedItemUrgency,
+  type SuggestedPrompt,
+  SuggestedPromptSchema as suggestedPromptSchema,
+  type SuggestedPromptSource,
+} from "../api/responses/home.js";
 
 /**
  * On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
  *
- * Written by the PR 5 writer, read by the PR 6 HTTP route and
- * `parseFeedFile` below. `version` is pinned to `2` (collapsed schema);
- * pre-v2 files are rewritten by workspace migration
- * `061-home-feed-notification-only`.
+ * Written by the feed writer, read by the HTTP route and `parseFeedFile`
+ * below. `version` is pinned to `2` (collapsed schema); pre-v2 files are
+ * rewritten by workspace migration `079-home-feed-notification-only`.
  */
 export interface HomeFeedFile {
   version: 2;
-  items: FeedItem[];
+  items: z.infer<typeof FeedItemSchema>[];
   updatedAt: string;
 }
-
-/**
- * Origin of a suggested prompt — whether it was deterministically derived
- * (e.g. from a missing OAuth connection) or generated by the assistant.
- */
-export type SuggestedPromptSource = "deterministic" | "assistant";
-
-/**
- * A prompt suggestion shown at the top of the Home page.
- *
- * Deterministic prompts are derived from workspace state (e.g. missing
- * OAuth connections). Assistant-generated prompts are contextual
- * conversation starters produced by the LLM.
- */
-export interface SuggestedPrompt {
-  id: string;
-  label: string;
-  icon?: string;
-  prompt: string;
-  source: SuggestedPromptSource;
-}
-
-// ---------------------------------------------------------------------------
-// Zod schemas
-// ---------------------------------------------------------------------------
-
-const feedItemTypeSchema = z.literal("notification");
-
-const feedItemStatusSchema = z.enum(["new", "seen", "acted_on", "dismissed"]);
-
-const feedItemUrgencySchema = z.enum(["low", "medium", "high", "critical"]);
-
-const feedActionSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  prompt: z.string(),
-});
-
-const feedItemDetailPanelKindSchema = z.enum([
-  "emailDraft",
-  "documentPreview",
-  "permissionChat",
-  "paymentAuth",
-  "toolPermission",
-  "updatesList",
-]);
-
-const feedItemDetailPanelSchema = z.object({
-  kind: feedItemDetailPanelKindSchema,
-});
-
-const feedItemCategorySchema = z.enum([
-  "security",
-  "scheduling",
-  "background",
-  "email",
-  "system",
-]);
-
-/**
- * Schema for a single `FeedItem`.
- *
- * Notes:
- *   - `priority` must be an integer in [0, 100]; string numerics
- *     (e.g. `"5"`) are rejected — we want deterministic ordering and
- *     silent coercion tends to mask writer bugs.
- *   - `status` defaults to `"new"` so the writer does not need to
- *     set it on every append.
- */
-export const feedItemSchema = z.object({
-  id: z.string(),
-  type: feedItemTypeSchema,
-  priority: z.number().int().min(0).max(100),
-  title: z.string().optional(),
-  summary: z.string(),
-  timestamp: z.string(),
-  status: feedItemStatusSchema.default("new"),
-  expiresAt: z.string().optional(),
-  actions: z.array(feedActionSchema).optional(),
-  urgency: feedItemUrgencySchema.optional(),
-  conversationId: z.string().optional(),
-  detailPanel: feedItemDetailPanelSchema.optional(),
-  category: feedItemCategorySchema.optional(),
-  noteworthy: z.boolean().optional(),
-  fromAssistant: z.boolean().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  createdAt: z.string(),
-});
-
-const suggestedPromptSourceSchema = z.enum(["deterministic", "assistant"]);
-
-export const suggestedPromptSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  icon: z.string().optional(),
-  prompt: z.string(),
-  source: suggestedPromptSourceSchema,
-});
 
 /** Schema for the on-disk `home-feed.json` file. */
 const homeFeedFileSchema = z.object({
   version: z.literal(2),
-  items: z.array(feedItemSchema),
+  items: z.array(FeedItemSchema),
   updatedAt: z.string(),
 });
 
 /**
  * Parse and validate a raw value read from `home-feed.json`.
  *
- * Used by the PR 5 writer on read-back and by the PR 6 HTTP route
- * when serving the feed. Throws a `ZodError` on any validation
- * failure — callers are expected to log + recover (e.g. treat the
- * file as empty).
+ * Used by the writer on read-back and by the HTTP route when serving the
+ * feed. Throws a `ZodError` on any validation failure — callers are
+ * expected to log + recover (e.g. treat the file as empty).
  */
 export function parseFeedFile(raw: unknown): HomeFeedFile {
   return homeFeedFileSchema.parse(raw) as HomeFeedFile;

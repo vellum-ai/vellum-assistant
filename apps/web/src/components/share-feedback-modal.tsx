@@ -1,44 +1,51 @@
 import { Capacitor } from "@capacitor/core";
 import { useMutation } from "@tanstack/react-query";
 import {
-  Bug,
-  Info,
-  Lightbulb,
-  Loader2,
-  type LucideIcon,
-  Mail,
-  MessageCircle,
-  Paperclip,
-  Send,
-  X,
+    Bug,
+    Info,
+    Lightbulb,
+    Loader2,
+    type LucideIcon,
+    Mail,
+    MessageCircle,
+    Paperclip,
+    Send,
+    X,
 } from "lucide-react";
 import {
-  type ChangeEvent,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
+    type ChangeEvent,
+    type DragEvent,
+    type KeyboardEvent,
+    type MouseEvent,
+    useCallback,
+    useEffect,
+    useId,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown, type DropdownOption } from "@vellum/design-library/components/dropdown";
-import { Input, Textarea } from "@vellum/design-library/components/input";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Toggle } from "@vellum/design-library/components/toggle";
+import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import type { ClassificationEnum } from "@/generated/api/types.gen";
-import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
-import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
+import { logsExportPost } from "@/generated/daemon/sdk.gen";
+import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
+import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
+import { Button } from "@vellumai/design-library/components/button";
+import {
+    Dropdown,
+    type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
+import { Input, Textarea } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 type Reason = "bug_report" | "feature_request" | "other";
 
@@ -52,21 +59,46 @@ interface ReasonOption {
 }
 
 const REASON_OPTIONS: ReasonOption[] = [
-  { value: "bug_report", label: "Bug Report", icon: Bug, includesLogsByDefault: true },
-  { value: "feature_request", label: "Feature Request", icon: Lightbulb, includesLogsByDefault: false },
-  { value: "other", label: "Other", icon: MessageCircle, includesLogsByDefault: false },
+  {
+    value: "bug_report",
+    label: "Bug Report",
+    icon: Bug,
+    includesLogsByDefault: true,
+  },
+  {
+    value: "feature_request",
+    label: "Feature Request",
+    icon: Lightbulb,
+    includesLogsByDefault: false,
+  },
+  {
+    value: "other",
+    label: "Other",
+    icon: MessageCircle,
+    includesLogsByDefault: false,
+  },
 ];
 
-const TIME_RANGES: { value: TimeRange; label: string; cutoffMs: number | null }[] = [
+const TIME_RANGES: {
+  value: TimeRange;
+  label: string;
+  cutoffMs: number | null;
+}[] = [
   { value: "past_hour", label: "Past hour", cutoffMs: 60 * 60 * 1000 },
-  { value: "past_24_hours", label: "Past 24 hours", cutoffMs: 24 * 60 * 60 * 1000 },
+  {
+    value: "past_24_hours",
+    label: "Past 24 hours",
+    cutoffMs: 24 * 60 * 60 * 1000,
+  },
   { value: "all_time", label: "All time", cutoffMs: null },
 ];
 
-const TIME_RANGE_OPTIONS: DropdownOption<TimeRange>[] = TIME_RANGES.map((r) => ({
-  value: r.value,
-  label: r.label,
-}));
+const TIME_RANGE_OPTIONS: DropdownOption<TimeRange>[] = TIME_RANGES.map(
+  (r) => ({
+    value: r.value,
+    label: r.label,
+  }),
+);
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -77,7 +109,16 @@ const ALLOWED_MIME_TYPES = new Set([
   "video/quicktime",
   "video/webm",
 ]);
-const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "mp4", "mov", "webm"]);
+const ALLOWED_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "mp4",
+  "mov",
+  "webm",
+]);
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
@@ -156,10 +197,7 @@ async function fetchPlatformLogs(
   },
 ): Promise<Uint8Array | null> {
   try {
-    const headers = await buildVellumMutatingHeaders({
-      "Content-Type": "application/json",
-    });
-    const body: Record<string, unknown> = {};
+    const body: LogsExportPostData["body"] = {};
     if (opts.window.startTime != null) {
       body.startTime = opts.window.startTime;
       body.endTime = opts.window.endTime;
@@ -173,15 +211,16 @@ async function fetchPlatformLogs(
     if (opts.activeConversationId) {
       body.conversationId = opts.activeConversationId;
     }
-    const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+    const { data, error } = await logsExportPost({
+      path: { assistant_id: assistantId },
+      body,
+      parseAs: "blob",
+      throwOnError: false,
     });
-    if (!res.ok) {
+    if (error || !(data instanceof Blob)) {
       return null;
     }
-    const buf = await res.arrayBuffer();
+    const buf = await data.arrayBuffer();
     return new Uint8Array(buf);
   } catch {
     return null;
@@ -223,12 +262,19 @@ async function buildClientLogsFile(
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
     url: typeof window !== "undefined" ? window.location.href : "",
-    viewport: typeof window !== "undefined" ? { width: window.innerWidth, height: window.innerHeight } : null,
-    screen: typeof screen !== "undefined" ? { width: screen.width, height: screen.height } : null,
+    viewport:
+      typeof window !== "undefined"
+        ? { width: window.innerWidth, height: window.innerHeight }
+        : null,
+    screen:
+      typeof screen !== "undefined"
+        ? { width: screen.width, height: screen.height }
+        : null,
     connection:
       typeof navigator !== "undefined" && "connection" in navigator
         ? {
-            effectiveType: (navigator.connection as { effectiveType?: string }).effectiveType,
+            effectiveType: (navigator.connection as { effectiveType?: string })
+              .effectiveType,
             downlink: (navigator.connection as { downlink?: number }).downlink,
             rtt: (navigator.connection as { rtt?: number }).rtt,
           }
@@ -240,14 +286,27 @@ async function buildClientLogsFile(
     hardwareConcurrency:
       typeof navigator !== "undefined" ? navigator.hardwareConcurrency : null,
   };
-  const contextBytes = new TextEncoder().encode(JSON.stringify(payload, null, 2));
-  const diagnosticsBytes = new TextEncoder().encode(JSON.stringify(chatDiagnostics, null, 2));
+  const contextBytes = new TextEncoder().encode(
+    JSON.stringify(payload, null, 2),
+  );
+  const diagnosticsBytes = new TextEncoder().encode(
+    JSON.stringify(chatDiagnostics, null, 2),
+  );
   const tarParts: Uint8Array[] = [
     buildTarEntry("web-client-context.json", contextBytes),
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
 
-  // ATL-654 triage: capture the live debug API state for indicator-stuck reports.
+  // Capture client debug-flag state so flag values are unambiguous during
+  // analysis. The flags are localStorage-only overrides with no server
+  // targeting, so they can't be reconstructed after the fact — a report has
+  // to carry them or the resolved value is lost.
+  const debugFlagBytes = new TextEncoder().encode(
+    JSON.stringify(buildDebugFlagSnapshot(), null, 2),
+  );
+  tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
+
+  // Capture the live chat debug API state for indicator-stuck reports.
   // This is a separate file so support can diff it against the main diagnostics
   // snapshot without cross-contamination.
   try {
@@ -261,16 +320,83 @@ async function buildClientLogsFile(
         clientMessages: debugApi.getClientMessages?.() ?? null,
         transcriptItems: debugApi.getTranscriptItems?.() ?? null,
         thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
+        streamingRing: debugApi.streamingRing?.() ?? null,
       };
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),
       );
-      tarParts.push(buildTarEntry("web-chat-debug-api-triage.json", triageBytes));
+      tarParts.push(
+        buildTarEntry("web-chat-debug-api-triage.json", triageBytes),
+      );
     }
   } catch {
     // Debug API is best-effort; if it's missing or throws, don't block the
     // feedback submission. This can happen during SSR, in tests, or if the
     // chat page hasn't mounted the API yet.
+  }
+
+  // SSE clients/events + focus/visibility, read through the same live debug
+  // API. Per-client traffic ages (no bytes for minutes but never errored)
+  // plus a `hasFocus:false` + `visibilityState:"visible"` capture are the
+  // fingerprint of the "stale after refocus" report — `visibilitychange`
+  // only fires on tab-switch / minimize / full occlusion, not when the
+  // browser window merely loses focus to another app.
+  try {
+    const eventsApi =
+      typeof window !== "undefined"
+        ? (
+            window as unknown as {
+              _vellumDebug?: { events?: ChatDebugEventsApi };
+            }
+          )._vellumDebug?.events
+        : null;
+    if (eventsApi) {
+      const triagePayload = {
+        focus:
+          typeof document !== "undefined"
+            ? {
+                hasFocus:
+                  typeof document.hasFocus === "function"
+                    ? document.hasFocus()
+                    : null,
+                visibilityState: document.visibilityState,
+              }
+            : null,
+        // `AbortSignal` isn't JSON-serializable, so project it to an
+        // `aborted` flag and keep the rest of each client verbatim.
+        clients: eventsApi.getClients().map(({ abortSignal, ...rest }) => ({
+          ...rest,
+          aborted: abortSignal.aborted,
+        })),
+        events: eventsApi.getEvents(),
+      };
+      const triageBytes = new TextEncoder().encode(
+        JSON.stringify(triagePayload, null, 2),
+      );
+      tarParts.push(buildTarEntry("web-sse-liveness-triage.json", triageBytes));
+    }
+  } catch {
+    // Debug API is best-effort; if it's missing or throws, don't block the
+    // feedback submission. This can happen during SSR, in tests, or if the
+    // chat page hasn't mounted the API yet.
+  }
+
+  if (isElectron() && window.vellum?.feedback) {
+    try {
+      const electronDiagnostics = await window.vellum.feedback.diagnostics();
+      const diagBytes = new TextEncoder().encode(
+        JSON.stringify(electronDiagnostics, null, 2),
+      );
+      tarParts.push(buildTarEntry("electron-diagnostics.json", diagBytes));
+    } catch { /* best-effort */ }
+
+    try {
+      const redactedLogs = await window.vellum.feedback.logs();
+      if (redactedLogs) {
+        const logBytes = new TextEncoder().encode(redactedLogs);
+        tarParts.push(buildTarEntry("electron-main-logs.txt", logBytes));
+      }
+    } catch { /* best-effort */ }
   }
 
   if (assistantId) {
@@ -330,17 +456,21 @@ export function ShareFeedbackModal({
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
-  const [selectedReason, setSelectedReason] = useState<Reason>(initialReason ?? "bug_report");
+  const [selectedReason, setSelectedReason] = useState<Reason>(
+    initialReason ?? "bug_report",
+  );
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [includeLogs, setIncludeLogs] = useState<boolean>(
-    REASON_OPTIONS.find((r) => r.value === (initialReason ?? "bug_report"))?.includesLogsByDefault ?? true,
+    REASON_OPTIONS.find((r) => r.value === (initialReason ?? "bug_report"))
+      ?.includesLogsByDefault ?? true,
   );
   const [hasManuallyToggledLogs, setHasManuallyToggledLogs] = useState(false);
   const [logTimeRange, setLogTimeRange] = useState<TimeRange>("past_hour");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [includeConversation, setIncludeConversation] = useState(false);
 
   const mutation = useMutation(feedbackCreateMutation());
   const [isBuildingLogs, setIsBuildingLogs] = useState(false);
@@ -358,10 +488,14 @@ export function ShareFeedbackModal({
     setSelectedReason(reason);
     setMessage("");
     setEmail(authEmail ?? "");
-    setIncludeLogs(REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ?? true);
+    setIncludeLogs(
+      REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
+        true,
+    );
     setHasManuallyToggledLogs(false);
     setLogTimeRange("past_hour");
     setAttachments([]);
+    setIncludeConversation(false);
     setSubmitError(null);
     setIsBuildingLogs(false);
     mutation.reset();
@@ -387,7 +521,10 @@ export function ShareFeedbackModal({
   const handleSelectReason = (reason: Reason) => {
     setSelectedReason(reason);
     if (!hasManuallyToggledLogs) {
-      setIncludeLogs(REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ?? false);
+      setIncludeLogs(
+        REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
+          false,
+      );
     }
   };
 
@@ -440,7 +577,8 @@ export function ShareFeedbackModal({
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.length) addFiles(Array.from(e.dataTransfer.files));
+    if (e.dataTransfer.files?.length)
+      addFiles(Array.from(e.dataTransfer.files));
   };
 
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -468,7 +606,7 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              activeConversationId ?? null,
+              isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
               getDiagnosticsSnapshot,
             )
           : null;
@@ -487,10 +625,13 @@ export function ShareFeedbackModal({
         },
         bodySerializer: (body) => {
           const form = new FormData();
-          for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+          for (const [key, value] of Object.entries(
+            body as Record<string, unknown>,
+          )) {
             if (value == null) continue;
             if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value) form.append("attachments", file as Blob);
+              for (const file of value)
+                form.append("attachments", file as Blob);
               continue;
             }
             if (value instanceof Blob) {
@@ -505,7 +646,11 @@ export function ShareFeedbackModal({
       onSubmitted?.();
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to submit feedback. Please try again.");
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Failed to submit feedback. Please try again.",
+      );
     } finally {
       setIsBuildingLogs(false);
     }
@@ -538,7 +683,10 @@ export function ShareFeedbackModal({
           className="flex items-center justify-between border-b pb-4"
           style={{ borderColor: "var(--border-subtle)" }}
         >
-          <h2 id={titleId} className="!m-0 text-title-small text-[var(--content-default)]">
+          <h2
+            id={titleId}
+            className="!m-0 text-title-small text-[var(--content-default)]"
+          >
             Share Feedback
           </h2>
           <Button
@@ -551,7 +699,9 @@ export function ShareFeedbackModal({
           />
         </div>
 
-        <div className={`flex flex-col gap-3.5 overflow-y-auto pt-4 ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}>
+        <div
+          className={`flex flex-col gap-3.5 overflow-y-auto pt-4 ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}
+        >
           {shouldShowEmail && (
             <Input
               id={`${titleId}-email`}
@@ -637,22 +787,27 @@ export function ShareFeedbackModal({
 
           {selectedReason !== "feature_request" && (
             <div className="flex items-center justify-between">
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <Toggle
-                  checked={includeLogs}
-                  onChange={handleToggleLogs}
-                  aria-label="Include browser diagnostics"
-                />
-                <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                  Include diagnostics
-                </span>
-                <span
-                  title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
-                  className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
-                >
-                  <Info className="h-3.5 w-3.5" />
-                </span>
-              </label>
+              <div className="flex items-center gap-2.5">
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <Toggle
+                    checked={includeLogs}
+                    onChange={handleToggleLogs}
+                    aria-label="Include browser diagnostics"
+                  />
+                  <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                    Include diagnostics
+                  </span>
+                </label>
+                <Tooltip content="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials.">
+                  <button
+                    type="button"
+                    aria-label="About diagnostics"
+                    className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
+              </div>
               {includeLogs && (
                 <Dropdown
                   options={TIME_RANGE_OPTIONS}
@@ -662,6 +817,19 @@ export function ShareFeedbackModal({
                 />
               )}
             </div>
+          )}
+
+          {isElectron() && activeConversationId && selectedReason !== "feature_request" && (
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <Toggle
+                checked={includeConversation}
+                onChange={() => setIncludeConversation((v) => !v)}
+                aria-label="Include the most recent conversation"
+              />
+              <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                Include the most recent conversation
+              </span>
+            </label>
           )}
 
           <div className="flex flex-col gap-2">
@@ -774,11 +942,17 @@ function ReasonChip({
     >
       <Icon
         className="h-3.5 w-3.5 shrink-0"
-        style={{ color: isSelected ? "var(--primary-base)" : "var(--content-secondary)" }}
+        style={{
+          color: isSelected
+            ? "var(--primary-base)"
+            : "var(--content-secondary)",
+        }}
       />
       <span
         className="text-body-small-default"
-        style={{ color: isSelected ? "var(--primary-base)" : "var(--content-default)" }}
+        style={{
+          color: isSelected ? "var(--primary-base)" : "var(--content-default)",
+        }}
       >
         {option.label}
       </span>
@@ -786,7 +960,13 @@ function ReasonChip({
   );
 }
 
-function AttachmentThumbnail({ file, onRemove }: { file: File; onRemove: () => void }) {
+function AttachmentThumbnail({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
   const isImage = file.type.startsWith("image/");
   const previewUrl = useMemo(
     () => (isImage ? URL.createObjectURL(file) : null),
@@ -804,7 +984,11 @@ function AttachmentThumbnail({ file, onRemove }: { file: File; onRemove: () => v
       title={file.name}
     >
       {isImage && previewUrl ? (
-        <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+        <img
+          src={previewUrl}
+          alt={file.name}
+          className="h-full w-full object-cover"
+        />
       ) : (
         <Paperclip className="h-5 w-5 text-[var(--content-secondary)]" />
       )}

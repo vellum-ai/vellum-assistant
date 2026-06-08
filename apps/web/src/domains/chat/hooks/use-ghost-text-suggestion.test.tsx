@@ -16,17 +16,19 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realRQ from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { SuggestionResult } from "@/domains/chat/api/suggestion-api";
+import type { SuggestionGetResponse } from "@/generated/daemon/types.gen";
 
 interface CapturedQueryOptions {
   queryKey: readonly unknown[];
-  queryFn: (ctx: { signal: AbortSignal }) => Promise<SuggestionResult>;
+  queryFn: (ctx: { signal: AbortSignal }) => Promise<SuggestionGetResponse>;
   enabled: boolean;
   staleTime: number;
 }
 
 let lastCapturedOptions: CapturedQueryOptions | null = null;
-let useQueryStub: { data: SuggestionResult | undefined } = { data: undefined };
+let useQueryStub: { data: SuggestionGetResponse | undefined } = {
+  data: undefined,
+};
 
 mock.module("@tanstack/react-query", () => ({
   ...realRQ,
@@ -44,9 +46,8 @@ mock.module("@/domains/chat/api/suggestion-api", () => ({
   }),
 }));
 
-const { useGhostTextSuggestion } = await import(
-  "@/domains/chat/hooks/use-ghost-text-suggestion"
-);
+const { useGhostTextSuggestion } =
+  await import("@/domains/chat/hooks/use-ghost-text-suggestion");
 
 let lastReturn: string | null = null;
 
@@ -55,6 +56,7 @@ function Probe(props: {
   conversationId: string | null;
   lastCompleteAssistantMsgId: string | null;
 }) {
+  // eslint-disable-next-line react-hooks/globals -- synchronous renderToStaticMarkup test harness
   lastReturn = useGhostTextSuggestion(props);
   return null;
 }

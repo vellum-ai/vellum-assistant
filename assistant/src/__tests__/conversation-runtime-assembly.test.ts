@@ -1,16 +1,31 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { eq } from "drizzle-orm";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
 // `true`) makes the PKB injector go silent — force it off here so the v1
 // injection chain assertions stay meaningful.
 const realLoaderForAssemblyTest = await import("../config/loader.js");
 const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+// Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
+// config self-resolution inside `applyRuntimeInjections` can be exercised.
+let assemblyConfiguredUserTimezone: string | null | undefined;
+let assemblyDetectedTimezone: string | null | undefined;
 mock.module("../config/loader.js", () => ({
   ...realLoaderForAssemblyTest,
   getConfig: () => {
     const real = realGetConfigForAssemblyTest();
     return {
       ...real,
+      ui: {
+        ...real.ui,
+        userTimezone:
+          assemblyConfiguredUserTimezone ?? real.ui?.userTimezone ?? null,
+        detectedTimezone:
+          assemblyDetectedTimezone ?? real.ui?.detectedTimezone ?? null,
+      },
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
       slack: { ...real.slack, botUserId: "U_BOT" },
     };
@@ -33,18 +48,35 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
   },
 }));
 
+// `applyRuntimeInjections` computes the `<turn_context>` `current_time` live via
+// `formatTurnTimestamp`; pin it so the rendered block matches the deterministic
+// `buildUnifiedTurnContextBlock` expectations below. The rest of the module
+// (timezone canonicalization/resolution) keeps its real behavior.
+const FIXED_TURN_TIMESTAMP = "2026-04-02T12:00:00Z";
+// Conversation id the runtime-injection tests register their live conversation
+// under; passed explicitly now that `applyRuntimeInjections` requires the
+// caller to name the conversation it resolves through.
+const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
+const realDateContextForAssemblyTest =
+  await import("../daemon/date-context.js");
+mock.module("../daemon/date-context.js", () => ({
+  ...realDateContextForAssemblyTest,
+  formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
+}));
+
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import type {
   ChannelCapabilities,
   SlackTranscriptInputRow,
-  UnifiedTurnContextOptions,
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
   assembleSlackActiveThreadFocusBlock,
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
-  buildUnifiedTurnContextBlock,
-  findLastInjectedNowContent,
   getSlackCompactionWatermarkForPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
@@ -58,31 +90,124 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { getPkbRoot } from "../memory/pkb/types.js";
+import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+  buildUnifiedTurnContextBlock,
+  type UnifiedTurnContextOptions,
+} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
-// `applyRuntimeInjections` is now driven by the default injector chain
-// (PR G2.1). The default-injectors plugin must be registered for the chain
-// to emit workspace, PKB, NOW.md, subagent, Slack, and thread-focus blocks.
-// Each test gets a clean registry so a test that registers its own plugin
-// doesn't leak into the next one.
-beforeEach(() => {
-  resetPluginRegistryForTests();
-  registerPlugin(defaultInjectorsPlugin);
-});
+// `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
+// reading the live conversation's persisted message rows, so the schema must
+// exist before any Slack-channel assembly test runs.
+initializeDb();
+
+// The pkb-reminder injector derives PKB-active state from the workspace itself
+// — `readPkbContext()` returning content behind the personal-memory trust gate
+// — rather than from a threaded flag. Tests that need the reminder to fire seed
+// a default auto-injected PKB file under the workspace pkb root; tests that
+// need it suppressed leave the pkb dir empty.
+function seedPkbContent(): void {
+  const root = getPkbRoot();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "INDEX.md"), "workspace knowledge index", "utf-8");
+}
+
+function clearPkbContent(): void {
+  rmSync(getPkbRoot(), { recursive: true, force: true });
+}
+
+// The now-md injector derives NOW.md state from the workspace itself —
+// `readNowScratchpad()` returning content behind the personal-memory trust gate
+// and the `scratchpadInjection` config toggle — rather than from a threaded
+// option. Seed the file so the injector fires; clear it so suites that assert
+// NOW.md is absent stay unaffected.
+function seedNowScratchpad(content: string): void {
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  mkdirSync(dirname(nowPath), { recursive: true });
+  writeFileSync(nowPath, content, "utf-8");
+}
+
+function clearNowScratchpad(): void {
+  rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
+}
+
+// The workspace-context injector sources its block off the live `Conversation`
+// looked up by `conversationId`. Register a fake instance carrying both a
+// non-dirty workspace context (non-null content, not dirty) so
+// `resolveWorkspaceTopLevelContext` returns it verbatim without rescanning the
+// filesystem, and an active dynamic-page surface, so `applyRuntimeInjections`
+// resolves the `<workspace>` and `<active_workspace>` blocks from it;
+// `clearConversations()` between tests keeps suites that assert the blocks are
+// absent unaffected.
+function seedActiveSurfaceConversation(
+  conversationId: string,
+  workspaceText: string,
+  surfaceId: string,
+  data: SurfaceData,
+  channelCapabilities?: ChannelCapabilities,
+  commandIntent?: { type: string; payload?: string; languageCode?: string },
+  currentTurnTemporalSnapshot?: {
+    clientTimezone: string | null;
+  },
+): void {
+  setConversation(conversationId, {
+    conversationId,
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: workspaceText,
+    workspaceTopLevelDirty: false,
+    currentActiveSurfaceId: surfaceId,
+    surfaceState: new Map<
+      string,
+      { surfaceType: SurfaceType; data: SurfaceData }
+    >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
+    channelCapabilities: channelCapabilities ?? undefined,
+    commandIntent,
+    currentTurnTemporalSnapshot,
+  } as never);
+}
+
+function clearWorkspaceContext(): void {
+  clearConversations();
+}
+
+// The `<channel_capabilities>` branch and the Slack gates source the channel
+// capabilities off the live `Conversation` looked up by `conversationId`.
+// Register a fake fallback instance carrying the given capabilities (and a
+// non-dirty empty workspace + empty surface so the other live-sourced branches
+// stay inert) so `applyRuntimeInjections` resolves them; `clearConversations()`
+// between tests keeps suites asserting absence unaffected.
+function seedChannelCapabilitiesConversation(
+  caps: ChannelCapabilities | null,
+  transportHints?: string[],
+): void {
+  setConversation("runtime-assembly-fallback", {
+    conversationId: "runtime-assembly-fallback",
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: "",
+    workspaceTopLevelDirty: false,
+    surfaceState: new Map(),
+    channelCapabilities: caps ?? undefined,
+    transportHints,
+  } as never);
+}
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
@@ -556,6 +681,8 @@ describe("stripChannelCapabilityContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections with channelCapabilities", () => {
+  afterEach(clearConversations);
+
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -571,8 +698,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
+    seedChannelCapabilitiesConversation(caps);
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: caps,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.length).toBe(1);
@@ -584,8 +712,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is null", async () => {
+    seedChannelCapabilitiesConversation(null);
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: null,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.length).toBe(1);
@@ -593,7 +722,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is omitted", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -607,8 +738,9 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
+    seedChannelCapabilitiesConversation(caps);
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      channelCapabilities: caps,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.length).toBe(1);
@@ -736,23 +868,51 @@ describe("applyRuntimeInjections — injection mode", () => {
     },
   ];
 
-  const fullOptions = {
-    workspaceTopLevelContext: "<workspace>\nRoot: /sandbox\n</workspace>",
-    channelCommandContext: { type: "start" } as const,
-    activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
-    channelCapabilities: {
-      channel: "telegram",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-    } as ChannelCapabilities,
-    unifiedTurnContext:
-      "<turn_context>\ncurrent_time: 2026-03-04 (Tuesday) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
-    nowScratchpad: "Current focus: shipping PR 3",
-    pkbContext: "essentials content here",
-    pkbActive: true,
-    isNonInteractive: true,
+  const channelCapabilities: ChannelCapabilities = {
+    channel: "telegram",
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
   };
+
+  const fullOptions = {
+    // Non-interactive turn so the `<non_interactive_context>` branch fires.
+    isNonInteractive: true,
+    requestId: "injection-mode-req",
+    conversationId: "injection-mode-conv",
+    turnIndex: 0,
+    // Guardian trust so the personal-memory gate admits the actor regardless
+    // of the telegram channel capabilities under test, letting the reminder
+    // gate hinge purely on PKB content presence.
+    trust: {
+      sourceChannel: "vellum" as const,
+      trustClass: "guardian" as const,
+    },
+  };
+
+  // The reminder fires only when the workspace has PKB content, and the now-md
+  // injector only when NOW.md has content; seed both so the full-mode cases
+  // exercise the active branch.
+  beforeEach(() => {
+    seedPkbContent();
+    seedNowScratchpad("Current focus: shipping PR 3");
+    seedActiveSurfaceConversation(
+      "injection-mode-conv",
+      "<workspace>\nRoot: /sandbox\n</workspace>",
+      "sf_1",
+      { html: "<div>test</div>" },
+      channelCapabilities,
+      { type: "start" },
+      {
+        clientTimezone: null,
+      },
+    );
+  });
+  afterEach(() => {
+    clearPkbContent();
+    clearNowScratchpad();
+    clearWorkspaceContext();
+  });
 
   test("full mode (default) includes all injections", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -858,14 +1018,40 @@ describe("applyRuntimeInjections — injection mode", () => {
 
     expect(texts).toContain("Hello");
   });
+
+  test("post-compaction re-injection resolves the live conversation from the conversation id", async () => {
+    // GIVEN the seeded live conversation `injection-mode-conv` whose
+    // conversation-scoped blocks (`<active_workspace>`, `<channel_capabilities>`)
+    // only resolve when `applyRuntimeInjections` finds it by conversation id
+    // AND the agent loop hands the post-compaction hook the turn-identity fields
+    // flat (`requestId`, `conversationId`, `trust`)
+    const { messages: result } = await postCompact({
+      history: baseMessages,
+      requestId: "reinject-req",
+      conversationId: "injection-mode-conv",
+      trust: { sourceChannel: "vellum", trustClass: "guardian" },
+      isNonInteractive: false,
+      mode: "full",
+      modelProfile: null,
+      actorContext: null,
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // THEN the hook forwards `conversationId` onto the flat injection options,
+    // so the re-injection resolves the same live conversation as the turn's
+    // initial assembly rather than the synthetic fallback.
+    expect(allText).toContain("<active_workspace>");
+    expect(allText).toContain("<channel_capabilities>");
+  });
 });
 
-// The standalone `injectNowScratchpad` helper was removed in G2.1. The
-// now-md default injector (registered by `defaultInjectorsPlugin`) emits
-// the `<NOW.md>` block as an `after-memory-prefix` placement during
-// `applyRuntimeInjections`. The suites below (`applyRuntimeInjections with
-// nowScratchpad` and the injection-mode tests) cover that behaviour
-// end-to-end.
+// The now-md default injector emits the `<NOW.md>` block as an
+// `after-memory-prefix` placement during `applyRuntimeInjections`. The suites
+// below (`applyRuntimeInjections with nowScratchpad` and the injection-mode
+// tests) cover that behaviour end-to-end.
 
 // ---------------------------------------------------------------------------
 // stripNowScratchpad
@@ -1013,7 +1199,7 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
     ).toContain("<turn_context>");
   });
 
-  test("<workspace> blocks are NOT stripped", () => {
+  test("<workspace> blocks ARE stripped so the injector re-sources them post-compaction", () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -1029,10 +1215,10 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
 
     const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(2);
-    expect(
-      (result[0].content[0] as { type: "text"; text: string }).text,
-    ).toContain("<workspace>");
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
   });
 
   test("legacy <workspace_top_level> blocks ARE stripped for backward compat", () => {
@@ -1192,9 +1378,15 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     },
   ];
 
-  test("injects NOW.md block when provided", async () => {
+  // The now-md injector sources NOW.md from the workspace itself rather than
+  // from a threaded option, so seed the file to drive injection and clear it so
+  // the absent-content cases see no block.
+  afterEach(clearNowScratchpad);
+
+  test("injects NOW.md block when the file has content", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.length).toBe(1);
@@ -1206,8 +1398,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("scratchpad appears before user's original text content", async () => {
+    seedNowScratchpad("scratchpad notes");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "scratchpad notes",
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     // Scratchpad comes first (before user content)
@@ -1220,25 +1413,19 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     );
   });
 
-  test("does not inject when nowScratchpad is null", async () => {
+  test("does not inject when the NOW.md file is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: null,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
-  test("does not inject when nowScratchpad is omitted", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-
   test("skipped in minimal mode", async () => {
+    seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      nowScratchpad: "Current focus: fix the bug",
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -1662,6 +1849,8 @@ describe("buildUnifiedTurnContextBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections with unifiedTurnContext", () => {
+  afterEach(clearConversations);
+
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -1669,12 +1858,42 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     },
   ];
 
-  const sampleBlock =
-    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+  const sampleOptions = {
+    interfaceName: "macos",
+  };
+  // The block reflects the options-bag interface and the `current_time` the
+  // injector computes live (pinned to `FIXED_TURN_TIMESTAMP` for this suite).
+  const sampleBlock = buildUnifiedTurnContextBlock({
+    timestamp: FIXED_TURN_TIMESTAMP,
+    ...sampleOptions,
+  });
 
-  test("injects unifiedTurnContext when provided", async () => {
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (its presence gates the `<turn_context>` block) and the turn interface
+  // context (so the injector sources the interface label to match
+  // `sampleOptions.interfaceName`).
+  function seedTemporalSnapshot(): void {
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        clientTimezone: null,
+      },
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
+    } as never);
+  }
+
+  test("injects the turn-context block when the inputs are provided", async () => {
+    seedTemporalSnapshot();
+
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result).toHaveLength(1);
@@ -1688,25 +1907,21 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     );
   });
 
-  test("does not inject when unifiedTurnContext is null", async () => {
+  test("does not inject when the timestamp snapshot is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: null,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
   });
 
-  test("does not inject when unifiedTurnContext is omitted", async () => {
-    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
-
-    expect(result).toHaveLength(1);
-    expect(result[0].content).toHaveLength(1);
-  });
-
   test("injected in full mode", async () => {
+    seedTemporalSnapshot();
+
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
+      ...sampleOptions,
       mode: "full",
     });
 
@@ -1719,8 +1934,11 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("injected in minimal mode (no mode guard)", async () => {
+    seedTemporalSnapshot();
+
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
+      ...sampleOptions,
       mode: "minimal",
     });
 
@@ -1734,10 +1952,167 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 });
 
 // ---------------------------------------------------------------------------
+// applyRuntimeInjections self-resolves the config timezones
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections timezone resolution", () => {
+  afterEach(() => {
+    assemblyConfiguredUserTimezone = undefined;
+    assemblyDetectedTimezone = undefined;
+    clearConversations();
+  });
+
+  const baseMessages: Message[] = [
+    { role: "user", content: [{ type: "text", text: "Hello there" }] },
+  ];
+
+  // Seed the live fallback conversation with the per-turn temporal snapshot the
+  // loop freezes after memory retrieval. `applyRuntimeInjections` sources the
+  // client timezone and the long-absence gap from it, so the turn-context block
+  // only emits when this snapshot is present.
+  function seedTemporalSnapshot(
+    clientTimezone: string | null,
+    timeSinceLastMessage: string | null = null,
+  ): void {
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        clientTimezone,
+        timeSinceLastMessage,
+      },
+    } as never);
+  }
+
+  function injectedText(result: { messages: Message[] }): string {
+    return result.messages[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+  }
+
+  test("sources the configured and detected timezones from config, not the options bag", async () => {
+    /**
+     * Verifies the re-homed configured user timezone and detected-timezone
+     * fallback are read from `config.ui` inside `applyRuntimeInjections`
+     * rather than threaded through the options bag. The detected timezone is
+     * the device-timezone fallback used when the client reports none.
+     */
+    // GIVEN the guardian has configured a user timezone in config
+    assemblyConfiguredUserTimezone = "America/New_York";
+
+    // AND a different server-detected timezone is configured
+    assemblyDetectedTimezone = "America/Los_Angeles";
+
+    // AND the turn's frozen snapshot carries no client timezone (so the
+    // detected timezone is the device-timezone fallback)
+    seedTemporalSnapshot(null);
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
+
+    // THEN the injector surfaces the mismatch using the config-sourced values
+    const injected = injectedText(result);
+    expect(injected).toContain("configured_user_timezone: America/New_York");
+    expect(injected).toContain("client_device_timezone: America/Los_Angeles");
+  });
+
+  test("sources clientTimezone from the conversation's frozen turn snapshot", async () => {
+    /**
+     * Verifies the per-turn client timezone is taken from the conversation's
+     * frozen `currentTurnTemporalSnapshot` and takes precedence over the
+     * config-sourced detected-timezone fallback.
+     */
+    // GIVEN the configured user timezone and a detected fallback in config
+    assemblyConfiguredUserTimezone = "America/New_York";
+    assemblyDetectedTimezone = "America/Denver";
+
+    // AND the turn's frozen snapshot carries a client timezone
+    seedTemporalSnapshot("America/Los_Angeles");
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
+
+    // THEN the injector surfaces the mismatch using the snapshot's client value
+    const injected = injectedText(result);
+    expect(injected).toContain("configured_user_timezone: America/New_York");
+    expect(injected).toContain("client_device_timezone: America/Los_Angeles");
+  });
+
+  test("omits the mismatch lines when config and client timezone agree", async () => {
+    /**
+     * Verifies no mismatch affordance is emitted when the config-sourced
+     * configured user timezone matches the snapshot's client timezone.
+     */
+    // GIVEN the configured user timezone matches the client timezone
+    assemblyConfiguredUserTimezone = "America/New_York";
+
+    // AND the turn's frozen snapshot carries the matching client timezone
+    seedTemporalSnapshot("America/New_York");
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
+
+    // THEN no timezone-mismatch lines are injected
+    const injected = injectedText(result);
+    expect(injected).not.toContain("configured_user_timezone:");
+    expect(injected).not.toContain("client_device_timezone:");
+  });
+
+  test("sources time_since_last_message from the conversation's frozen turn snapshot", async () => {
+    /**
+     * Verifies the long-absence gap is taken from the conversation's frozen
+     * `currentTurnTemporalSnapshot` rather than threaded through the options
+     * bag, so every post-compaction re-injection reuses the turn-start value.
+     */
+    // GIVEN the turn's frozen snapshot carries a long-absence gap
+    seedTemporalSnapshot(null, "2d ago");
+
+    // WHEN a turn is assembled without the gap in the options bag
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
+
+    // THEN the injector surfaces the gap from the snapshot
+    const injected = injectedText(result);
+    expect(injected).toContain("time_since_last_message: 2d ago");
+  });
+
+  test("omits time_since_last_message when the snapshot carries no gap", async () => {
+    /**
+     * Verifies no `time_since_last_message` line is emitted when the frozen
+     * snapshot's gap is null (the normal back-and-forth case).
+     */
+    // GIVEN the turn's frozen snapshot carries no long-absence gap
+    seedTemporalSnapshot(null, null);
+
+    // WHEN a turn is assembled
+    const result = await applyRuntimeInjections(baseMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
+
+    // THEN no gap line is injected
+    const injected = injectedText(result);
+    expect(injected).not.toContain("time_since_last_message");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // applyRuntimeInjections blocks.unifiedTurnContext
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
+  afterEach(clearConversations);
+
   const userTailMessages: Message[] = [
     {
       role: "user",
@@ -1745,18 +2120,50 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     },
   ];
 
-  const sampleBlock =
-    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+  const sampleOptions = {
+    interfaceName: "macos",
+  };
+  // The block reflects the options-bag interface and the `current_time` the
+  // injector computes live (pinned to `FIXED_TURN_TIMESTAMP` for this suite).
+  const sampleBlock = buildUnifiedTurnContextBlock({
+    timestamp: FIXED_TURN_TIMESTAMP,
+    ...sampleOptions,
+  });
+
+  // Seed the live fallback conversation with the per-turn temporal snapshot
+  // (its presence gates the `<turn_context>` block) and the turn interface
+  // context (so the injector sources the interface label to match
+  // `sampleOptions.interfaceName`).
+  function seedTemporalSnapshot(): void {
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      currentTurnTemporalSnapshot: {
+        clientTimezone: null,
+      },
+      currentTurnInterfaceContext: {
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+      },
+    } as never);
+  }
 
   test("captures unifiedTurnContext when tail is a user message", async () => {
+    seedTemporalSnapshot();
+
     const result = await applyRuntimeInjections(userTailMessages, {
-      unifiedTurnContext: sampleBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
   });
 
   test("does not capture when tail is not a user message", async () => {
+    seedTemporalSnapshot();
+
     const assistantTailMessages: Message[] = [
       {
         role: "user",
@@ -1769,95 +2176,18 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
     ];
 
     const result = await applyRuntimeInjections(assistantTailMessages, {
-      unifiedTurnContext: sampleBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });
 
   test("does not capture when unifiedTurnContext option is absent", async () => {
-    const result = await applyRuntimeInjections(userTailMessages, {});
+    const result = await applyRuntimeInjections(userTailMessages, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+    });
 
     expect(result.blocks.unifiedTurnContext).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// findLastInjectedNowContent
-// ---------------------------------------------------------------------------
-
-describe("findLastInjectedNowContent", () => {
-  test("extracts NOW.md content from the last user message", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nCurrent focus: fix the bug\n</NOW.md>",
-          },
-          { type: "text", text: "Hello" },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe(
-      "Current focus: fix the bug",
-    );
-  });
-
-  test("returns null when no NOW.md injection exists", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "Hello" }],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBeNull();
-  });
-
-  test("returns the most recent injection when multiple exist", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nOld focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "OK" }] },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nNew focus\n</NOW.md>",
-          },
-        ],
-      },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("New focus");
-  });
-
-  test("skips assistant messages", () => {
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "<NOW.md Always keep this up to date>\nUser focus\n</NOW.md>",
-          },
-        ],
-      },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
-    ];
-
-    expect(findLastInjectedNowContent(messages)).toBe("User focus");
   });
 });
 
@@ -1889,6 +2219,35 @@ function makeSubagentState(
       estimatedCost: 0,
     },
   };
+}
+
+// `applyRuntimeInjections` self-resolves the `<active_subagents>` block from the
+// global subagent manager keyed by the conversation, so tests seed children
+// directly into the manager's private maps (mirroring the production source)
+// rather than threading a pre-built block through options.
+interface SubagentManagerTestInternals {
+  subagents: Map<string, { state: SubagentState }>;
+  parentToChildren: Map<string, Set<string>>;
+}
+
+function seedSubagentChild(
+  parentConversationId: string,
+  state: SubagentState,
+): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.set(state.config.id, { state });
+  const ids =
+    internals.parentToChildren.get(parentConversationId) ?? new Set<string>();
+  ids.add(state.config.id);
+  internals.parentToChildren.set(parentConversationId, ids);
+}
+
+function clearSeededSubagents(): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.clear();
+  internals.parentToChildren.clear();
 }
 
 describe("buildSubagentStatusBlock", () => {
@@ -1968,25 +2327,78 @@ describe("applyRuntimeInjections — subagent status", () => {
     content: [{ type: "text", text: "user message" }],
   };
 
-  test("includes subagent status in full mode", async () => {
+  afterEach(() => {
+    clearSeededSubagents();
+    clearConversations();
+  });
+
+  test("includes self-resolved subagent status in full mode", async () => {
+    // GIVEN the (fallback) parent conversation has one running child subagent
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in full mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
-      subagentStatusBlock:
-        "<active_subagents>\n- [running] test\n</active_subagents>",
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
+
+    // THEN the tail user message carries the `<active_subagents>` block the
+    // injector self-resolved from the subagent manager
     const tail = result[result.length - 1];
     const texts = tail.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text);
     expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(true);
+    expect(texts.some((t) => t.includes('"worker"'))).toBe(true);
   });
 
   test("skips subagent status in minimal mode", async () => {
+    // GIVEN the (fallback) parent conversation has one running child subagent
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in minimal mode
     const { messages: result } = await applyRuntimeInjections([userMsg], {
-      subagentStatusBlock:
-        "<active_subagents>\n- [running] test\n</active_subagents>",
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
+
+    // THEN the subagent status block is gated out
+    const tail = result[result.length - 1];
+    const texts = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(false);
+  });
+
+  test("skips subagent status when the conversation is itself a subagent", async () => {
+    // GIVEN the live conversation is itself a subagent (no nesting)
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      isSubagent: true,
+    } as never);
+    // AND a child is registered under its id
+    seedSubagentChild(
+      "runtime-assembly-fallback",
+      makeSubagentState({ id: "child-1", label: "worker", status: "running" }),
+    );
+
+    // WHEN runtime injections run in full mode
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
+      conversationId: FALLBACK_CONVERSATION_ID,
+      mode: "full",
+    });
+
+    // THEN no `<active_subagents>` block is emitted
     const tail = result[result.length - 1];
     const texts = tail.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -2032,21 +2444,34 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   const FLAT_REMINDER = buildPkbReminder([]);
 
-  // Use a platform-agnostic absolute workspace root so the tests work on
-  // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
-  // mirror production, where `pkbRoot = join(workingDir, "pkb")`.
-  const pkbWorkingDir = "/tmp/fake-workspace";
-  const pkbRoot = `${pkbWorkingDir}/pkb`;
+  // The pkb-reminder injector sources the PKB root itself via `getPkbRoot()`,
+  // so the in-context file paths these tests build must resolve against the
+  // same per-test workspace the injector sees.
+  const pkbRoot = getPkbRoot();
+
+  // The pkb-reminder injector reads the dense/sparse PKB query pair off the
+  // conversation's live graph handle (the memory-retrieval hook records it
+  // there during retrieval), not from the injection options. Register a handle
+  // for the fallback conversation id `applyRuntimeInjections` synthesizes and
+  // seed it with a query vector so the hint-search branch runs.
+  let graphHandle: ConversationGraphMemory;
+  beforeEach(() => {
+    graphHandle = new ConversationGraphMemory("runtime-assembly-fallback");
+    graphHandle.recordPkbQueryVectors([0.1, 0.2, 0.3], undefined);
+  });
+  afterEach(() => {
+    graphHandle.dispose();
+  });
+
+  // PKB content makes `readPkbContext()` non-null so the (vellum/guardian-
+  // equivalent) fallback trust gate admits the reminder; cleared after each
+  // test to avoid leaking into suites that assert the reminder is absent.
+  beforeEach(seedPkbContent);
+  afterEach(clearPkbContent);
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2, 0.3],
-      pkbScopeId: "scope-1",
-      pkbConversation: { messages: baseMessages },
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
+      conversationId: FALLBACK_CONVERSATION_ID,
       ...overrides,
     };
   }
@@ -2082,10 +2507,11 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("default auto-injected files (from PKB_DEFAULT_FILES) are filtered out of hints", async () => {
     // Regression test: when `_autoinject.md` is missing, `readPkbContext`
     // falls back to PKB_DEFAULT_FILES — so those files ARE in the prompt.
-    // The tracker must know about them too, otherwise the reminder would
-    // redundantly recommend e.g. `essentials.md` even though its contents
-    // are already injected. The agent-loop passes the effective auto-inject
-    // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
+    // The injector sources the same fallback via `getPkbAutoInjectList`, so
+    // it must know about them too, otherwise the reminder would redundantly
+    // recommend e.g. `essentials.md` even though its contents are already
+    // injected. The per-test workspace has no `_autoinject.md`, so the
+    // injector resolves PKB_DEFAULT_FILES here.
     pkbSearchResults = [
       { path: "essentials.md", denseScore: 0.95 },
       { path: "topics/alpha.md", denseScore: 0.9 },
@@ -2094,16 +2520,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({
-        // Simulate the fallback the agent-loop now threads through:
-        // `_autoinject.md` is missing, so defaults are injected.
-        pkbAutoInjectList: [
-          "INDEX.md",
-          "essentials.md",
-          "threads.md",
-          "buffer.md",
-        ],
-      }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2143,27 +2560,26 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Build a conversation that has already read topics/beta.md via file_read.
-    const conversationWithRead: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Working messages where topics/beta.md was already read via file_read on
+    // an earlier turn, followed by the current user prompt as the tail.
+    const conversationWithRead: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     const { messages: result } = await applyRuntimeInjections(
-      baseMessages,
-      makePkbOptions({ pkbConversation: conversationWithRead }),
+      conversationWithRead,
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2201,10 +2617,13 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
+    // No dense vector was recorded on the graph handle this turn, so the
+    // injector must skip the hint search entirely.
+    graphHandle.recordPkbQueryVectors(undefined, undefined);
 
     const { messages: result } = await applyRuntimeInjections(
       baseMessages,
-      makePkbOptions({ pkbQueryVector: undefined }),
+      makePkbOptions(),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
@@ -2318,37 +2737,28 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    // Pre-compaction conversation: beta was already read.
-    const preCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_pre",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/beta.md` },
-            },
-          ],
-        },
-      ],
-    };
+    // Pre-compaction working messages: beta was already read on an earlier
+    // turn, followed by the current user prompt as the tail.
+    const preCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_pre",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/beta.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
     // 1. Initial injection sees the pre-compaction state — beta should be
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
-      baseMessages,
-      {
-        pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
-        pkbScopeId: "scope-1",
-        pkbConversation: preCompactionConversation,
-        pkbRoot,
-        pkbWorkingDir,
-        pkbAutoInjectList: [],
-      },
+      preCompactionMessages,
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -2360,41 +2770,29 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(initialReminder).toBeDefined();
     expect(initialReminder).not.toContain("- topics/beta.md");
 
-    // 2. Simulate compaction: strip all runtime injections, rebuild
-    // conversation to reflect the post-compaction state (tool_use blocks
-    // are serialized into summary text, so the only live file_read is the
-    // newly-read gamma).
-    const postCompactionConversation: { messages: Message[] } = {
-      messages: [
-        ...baseMessages,
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_post",
-              name: "file_read",
-              input: { path: `${pkbRoot}/topics/gamma.md` },
-            },
-          ],
-        },
-      ],
-    };
-    const postCompactionMessages = stripInjectionsForCompaction(initialResult);
+    // 2. After compaction the working messages reflect the post-compaction
+    // state: beta's tool_use was serialized into summary text and dropped,
+    // so the only live file_read is the newly-read gamma.
+    const postCompactionMessages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_post",
+            name: "file_read",
+            input: { path: `${pkbRoot}/topics/gamma.md` },
+          },
+        ],
+      },
+      ...baseMessages,
+    ];
 
-    // 3. Re-inject with the new conversation — gamma (now in context)
+    // 3. Re-inject over the post-compaction messages — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      {
-        pkbActive: true,
-        pkbQueryVector: [0.1, 0.2],
-        pkbScopeId: "scope-1",
-        pkbConversation: postCompactionConversation,
-        pkbRoot,
-        pkbWorkingDir,
-        pkbAutoInjectList: [],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
@@ -2414,6 +2812,19 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 // ---------------------------------------------------------------------------
 
 describe("Slack channel chronological rendering — multi-thread", () => {
+  afterEach(() => {
+    clearConversations();
+    // The focus-block tests persist rows under the runtime-assembly fallback
+    // conversation; clear them so later tests resolve against an empty DB.
+    const db = getDb();
+    db.delete(messages)
+      .where(eq(messages.conversationId, "runtime-assembly-fallback"))
+      .run();
+    db.delete(conversations)
+      .where(eq(conversations.id, "runtime-assembly-fallback"))
+      .run();
+  });
+
   // Slack ts values are seconds-since-epoch with microsecond precision.
   // Pick a few stable anchors so thread aliases (sha-derived) stay
   // predictable across the scenarios.
@@ -2457,6 +2868,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       content: JSON.stringify([{ type: "text", text: opts.text }]),
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
+      clientMessageId: null,
     };
   }
 
@@ -2475,6 +2887,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       content: JSON.stringify([{ type: "text", text: opts.text }]),
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
+      clientMessageId: null,
     };
   }
 
@@ -2490,18 +2903,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
+    // Persist the rows + live conversation so `applyRuntimeInjections`
+    // self-resolves the chronological transcript from conversation state,
+    // exactly as production does.
+    seedSlackChannelConversationWithRows(slackChannelCaps, rows);
     const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: slackChannelCaps,
-      slackChronologicalMessages,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
     return messages;
   }
@@ -2788,24 +3199,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "vellum question" }],
     };
+    seedChannelCapabilitiesConversation({
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    });
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {
-        channelCapabilities: {
-          channel: "vellum",
-          dashboardCapable: true,
-          supportsDynamicUi: true,
-          supportsVoiceInput: true,
-        },
-        // Even if we accidentally pass a chronological transcript, the
-        // branch must be a no-op for non-slack channels.
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "should not appear" }],
-          },
-        ],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     expect(result.length).toBe(1);
     const allText = result[0].content
@@ -2813,7 +3215,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).toContain("vellum question");
-    expect(allText).not.toContain("should not appear");
   });
 
   // ── DMs (chatType === "im") use chronological rendering ────────────────
@@ -2826,36 +3227,38 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
     };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "dm-1",
+        createdAt: 1700000000_000,
+        text: "earlier DM line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+      assistantRow({
+        id: "dm-2",
+        createdAt: 1700000005_000,
+        text: "prior reply",
+        slackMeta: buildSlackMeta({ channelTs: T0_REPLY1 }),
+      }),
+    ];
+    seedSlackChannelConversationWithRows(
+      {
+        channel: "slack",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "im",
+      },
+      rows,
+    );
     const { messages: result } = await applyRuntimeInjections(
       [lastUserMessage],
-      {
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "im",
-        },
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "[11/14/23 14:25 @alice]: earlier DM line",
-              },
-            ],
-          },
-          {
-            role: "assistant",
-            content: [{ type: "text", text: "prior reply" }],
-          },
-        ],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
-    // The chronological transcript REPLACES the default runMessages, so
-    // the inbound `DM question` text does not appear — only the rendered
-    // transcript lines do (plus any non-Slack injections).
+    // The self-resolved chronological transcript REPLACES the default
+    // runMessages, so the inbound `DM question` text does not appear — only
+    // the rendered transcript lines do (plus any non-Slack injections).
     const allText = result
       .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -2864,6 +3267,62 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("earlier DM line");
     expect(allText).toContain("prior reply");
     expect(allText).not.toContain("DM question");
+  });
+
+  // ── Compaction boundary scopes the self-resolved transcript ──────────
+  // The transcript self-resolves from persisted rows scoped by the
+  // conversation's Slack compaction boundary. Rows at or before the
+  // persisted watermark were folded into the summary, so a fresh load
+  // excludes them and surfaces only the post-watermark tail — returning
+  // the compacted view rather than resurrecting folded history.
+  test("self-resolved transcript respects the Slack compaction watermark", async () => {
+    const slackCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "folded",
+        createdAt: 1700000000_000,
+        text: "folded pre-compaction line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+      userRow({
+        id: "fresh",
+        createdAt: 1700000030_000,
+        text: "fresh post-compaction line",
+        slackMeta: buildSlackMeta({ channelTs: T2, displayName: "bob" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    // A persisted watermark at T0 folds the first row into the summary.
+    seedSlackChannelConversationWithRows(slackCaps, rows, {
+      slackContextCompactionWatermarkTs: T0,
+      contextCompactedMessageCount: 1,
+    });
+    const { messages: result } = await applyRuntimeInjections(
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: "post-compaction question" }],
+        },
+      ],
+      { conversationId: FALLBACK_CONVERSATION_ID },
+    );
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    // The folded row stays in the summary; only the post-watermark tail is
+    // surfaced, and it replaces the default runMessages.
+    expect(allText).toContain("fresh post-compaction line");
+    expect(allText).not.toContain("folded pre-compaction line");
+    expect(allText).not.toContain("post-compaction question");
   });
 
   // ── Memory-injection carry-through on slack replacement ──────────────
@@ -2890,21 +3349,23 @@ describe("Slack channel chronological rendering — multi-thread", () => {
             type: "text",
             text: "<memory __injected>\nrecalled fact about the user\n</memory>",
           },
-          { type: "text", text: "hello there" },
+          { type: "text", text: "original turn text" },
         ],
       },
     ];
+    const rows: MessageRow[] = [
+      userRow({
+        id: "mem-1",
+        createdAt: 1700000000_000,
+        text: "recalled conversation line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {
-        channelCapabilities: slackCaps,
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: hello there" }],
-          },
-        ],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -2914,15 +3375,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).toContain("<memory __injected>");
     expect(allText).toContain("recalled fact about the user");
-    expect(allText).toContain("[19:55 alice]: hello there");
+    expect(allText).toContain("recalled conversation line");
     // Memory block must appear before the Slack transcript tail so the
     // model sees recalled context ahead of the conversation view.
     const memoryIdx = allText.indexOf("<memory __injected>");
-    const transcriptIdx = allText.indexOf("[19:55 alice]: hello there");
+    const transcriptIdx = allText.indexOf("recalled conversation line");
     expect(memoryIdx).toBeLessThan(transcriptIdx);
-    // The pre-replacement "hello there" text from the original runMessages
-    // must NOT leak through — only the Slack-rendered line appears.
-    expect(allText.match(/hello there/g)?.length).toBe(1);
+    // The pre-replacement inbound turn text must NOT leak through — only the
+    // carried memory prefix + the self-resolved transcript tail remain.
+    expect(allText).not.toContain("original turn text");
   });
 
   test("slack replacement preserves memory-image groups + text block", async () => {
@@ -2958,17 +3419,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
+    const rows: MessageRow[] = [
+      userRow({
+        id: "mem-img-1",
+        createdAt: 1700000000_000,
+        text: "recalled conversation line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       runMessagesWithMemory,
-      {
-        channelCapabilities: slackCaps,
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
-          },
-        ],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
@@ -2983,7 +3446,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("<memory_image __injected>");
     expect(allText).toContain("</memory_image>");
     expect(allText).toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 alice]: transcript line");
+    expect(allText).toContain("recalled conversation line");
     // The original turn text (before the Slack replacement) must NOT
     // leak through — only the memory prefix + transcript tail are kept.
     expect(allText).not.toContain("original turn text");
@@ -2997,17 +3460,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "im",
     };
+    const rows: MessageRow[] = [
+      userRow({
+        id: "no-prefix-1",
+        createdAt: 1700000000_000,
+        text: "only transcript line",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: { provenanceTrustClass: "guardian" },
+      }),
+    ];
+    seedSlackChannelConversationWithRows(slackCaps, rows);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
-      {
-        channelCapabilities: slackCaps,
-        slackChronologicalMessages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "[19:55 alice]: only transcript" }],
-          },
-        ],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const tail = result[result.length - 1];
     const allText = tail.content
@@ -3015,7 +3480,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).not.toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 alice]: only transcript");
+    expect(allText).toContain("only transcript line");
   });
 
   // ── transport_hints suppression for slack channels ────────────────────
@@ -3027,27 +3492,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const rows: MessageRow[] = [
-      userRow({
-        id: "m1",
-        createdAt: 1700000000_000,
-        text: "Original message",
-        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
-      }),
-    ];
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
-
+    seedChannelCapabilitiesConversation(slackChannelCaps, [
+      "thread context: ...",
+    ]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
-      {
-        channelCapabilities: slackChannelCaps,
-        slackChronologicalMessages,
-        transportHints: ["thread context: ..."],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
 
     const allText = result
@@ -3071,12 +3521,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "im",
     };
 
+    seedChannelCapabilitiesConversation(slackDmCaps, ["dm context: ..."]);
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
-      {
-        channelCapabilities: slackDmCaps,
-        transportHints: ["dm context: ..."],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
 
     const allText = result
@@ -3090,18 +3538,19 @@ describe("Slack channel chronological rendering — multi-thread", () => {
 
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
+    seedChannelCapabilitiesConversation(
+      {
+        channel: "telegram",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "private",
+      },
+      ["please answer concisely"],
+    );
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      {
-        channelCapabilities: {
-          channel: "telegram",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "private",
-        },
-        transportHints: ["please answer concisely"],
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -3398,10 +3847,72 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   // interleaved. The block is non-persisted: replays / re-injections strip
   // any prior `<active_thread>` blocks via `RUNTIME_INJECTION_PREFIXES`.
 
-  // Re-run a Slack-channel turn through the public assembly path with the
-  // active-thread focus block plumbed in (mirrors production wiring in
-  // conversation-agent-loop.ts).
-  async function runSlackChannelAssemblyWithFocus(rows: MessageRow[]): Promise<{
+  interface SeededCompactionState {
+    slackContextCompactionWatermarkTs?: string | null;
+    contextCompactedMessageCount?: number;
+  }
+
+  // Persist the Slack rows under the runtime-assembly fallback conversation and
+  // mirror the channel capabilities + trust class + compaction state onto its
+  // live registry entry, so `applyRuntimeInjections` self-resolves the
+  // `<active_thread>` focus block from the conversation's stored rows — the same
+  // way it does in production, where the injector reads the live conversation
+  // rather than receiving a pre-built block.
+  function seedSlackChannelConversationWithRows(
+    caps: ChannelCapabilities,
+    rows: MessageRow[],
+    compaction: SeededCompactionState = {},
+  ): void {
+    const db = getDb();
+    const now = Date.now();
+    db.delete(messages)
+      .where(eq(messages.conversationId, "runtime-assembly-fallback"))
+      .run();
+    db.insert(conversations)
+      .values({
+        id: "runtime-assembly-fallback",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    if (rows.length > 0) {
+      db.insert(messages)
+        .values(
+          rows.map((r) => ({
+            id: r.id,
+            conversationId: "runtime-assembly-fallback",
+            role: r.role,
+            content: r.content,
+            createdAt: r.createdAt,
+            metadata: r.metadata,
+          })),
+        )
+        .run();
+    }
+    setConversation("runtime-assembly-fallback", {
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      channelCapabilities: caps,
+      trustContext: { trustClass: "guardian" },
+      slackContextCompactionWatermarkTs:
+        compaction.slackContextCompactionWatermarkTs ?? null,
+      contextCompactedMessageCount:
+        compaction.contextCompactedMessageCount ?? 0,
+    } as never);
+  }
+
+  // Re-run a Slack-channel turn through the public assembly path. The
+  // active-thread focus block self-resolves inside `applyRuntimeInjections`
+  // from the seeded live conversation; `focusBlock` resolves it the same way
+  // (default DB loader, guardian trust + the seeded compaction state) for the
+  // expected-content assertions.
+  async function runSlackChannelAssemblyWithFocus(
+    rows: MessageRow[],
+    compaction: SeededCompactionState = {},
+  ): Promise<{
     messages: Message[];
     focusBlock: string | null;
   }> {
@@ -3412,24 +3923,23 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    const slackChronologicalMessages = loadSlackChronologicalMessages(
-      "conv-1",
-      slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
-    );
+    seedSlackChannelConversationWithRows(slackChannelCaps, rows, compaction);
     const focusBlock = loadSlackActiveThreadFocusBlock(
-      "conv-1",
+      "runtime-assembly-fallback",
       slackChannelCaps,
-      { loader: () => rows, trustClass: "guardian" },
+      {
+        trustClass: "guardian",
+        contextCompactedMessageCount: compaction.contextCompactedMessageCount,
+        slackContextCompactionWatermarkTs:
+          compaction.slackContextCompactionWatermarkTs,
+      },
     );
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
     const { messages } = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: slackChannelCaps,
-      slackChronologicalMessages,
-      slackActiveThreadFocusBlock: focusBlock,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
     return { messages, focusBlock };
   }
@@ -3646,14 +4156,143 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     }
   });
 
+  test("focus block self-resolves the live conversation's compaction watermark", async () => {
+    /**
+     * The watermark + compacted count live on the live `Conversation`, not in
+     * the injection options, so `applyRuntimeInjections` must read them off the
+     * live conversation to bound the self-resolved `<active_thread>` block.
+     */
+    // GIVEN a thread whose earliest rows were folded into a prior compaction
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000005_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000020_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    // WHEN the live conversation carries a Slack compaction watermark at T1
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+      {
+        slackContextCompactionWatermarkTs: T1,
+        contextCompactedMessageCount: 2,
+      },
+    );
+
+    // THEN the self-resolved focus block keeps only the post-watermark reply
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("live reply");
+    expect(focusBlock!).not.toContain("compacted root");
+    expect(focusBlock!).not.toContain("compacted reply");
+    // AND `applyRuntimeInjections` injected exactly that self-resolved block,
+    // proving it read the watermark + count off the live conversation.
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<active_thread>");
+    expect(allText).toContain(focusBlock!);
+  });
+
+  test("focus block bounds by the compacted count when there is no watermark", async () => {
+    /**
+     * Conversations compacted before the Slack watermark migration have no
+     * watermark, so the raw `contextCompactedMessageCount` is the sole boundary
+     * the self-resolved focus block uses to drop already-compacted rows.
+     */
+    // GIVEN a thread whose first two rows were folded into a prior compaction
+    const rows: MessageRow[] = [
+      userRow({
+        id: "thread-root",
+        createdAt: 1700000000_000,
+        text: "compacted root",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+      userRow({
+        id: "reply-before",
+        createdAt: 1700000005_000,
+        text: "compacted reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      userRow({
+        id: "reply-after",
+        createdAt: 1700000020_000,
+        text: "live reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "carol",
+        }),
+      }),
+    ];
+
+    // WHEN the live conversation has a compacted count of 2 and no watermark
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+      {
+        slackContextCompactionWatermarkTs: null,
+        contextCompactedMessageCount: 2,
+      },
+    );
+
+    // THEN the self-resolved focus block drops the two compacted rows and keeps
+    // only the live reply
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("live reply");
+    expect(focusBlock!).not.toContain("compacted root");
+    expect(focusBlock!).not.toContain("compacted reply");
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<active_thread>");
+    expect(allText).toContain(focusBlock!);
+  });
+
   test("focus block is dropped when injection is replayed (rebuilds re-derive it)", async () => {
     // Defensive: the `<active_thread>` block is a per-turn injection. When
     // overflow recovery / compaction re-runs `applyRuntimeInjections` on
     // already-injected messages, prior `<active_thread>` blocks must be
     // stripped so the rebuild's freshly-derived block is the only one
     // present. We simulate by building a Slack channel turn, then
-    // running the strip pipeline + applying injections again with a
-    // different focus block to confirm no duplication occurs.
+    // running the strip pipeline + applying injections again to confirm the
+    // rebuild re-derives the block and no duplication occurs.
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
@@ -3686,19 +4325,11 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(strippedTexts).not.toContain("<active_thread>");
 
-    // Re-run injection with a fresh focus block — only ONE
+    // Re-run injection on the stripped messages — the conversation is still
+    // seeded, so the rebuild re-derives the focus block; only ONE
     // `<active_thread>` block must end up in the result.
-    const slackChannelCaps: ChannelCapabilities = {
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "channel",
-    };
-    const newFocus = "<active_thread>\nnewly built\n</active_thread>";
     const { messages: reInjected } = await applyRuntimeInjections(stripped, {
-      channelCapabilities: slackChannelCaps,
-      slackActiveThreadFocusBlock: newFocus,
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
     const reInjectedTexts = reInjected
       .flatMap((m) => m.content)
@@ -3710,24 +4341,22 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(blockCount).toBe(1);
     expect(
       reInjectedTexts.find((t) => t.startsWith("<active_thread>")),
-    ).toContain("newly built");
+    ).toContain("Reply in thread A");
   });
 
-  test("non-slack conversations ignore slackActiveThreadFocusBlock", async () => {
-    // Defensive: the focus injection is gated on `slackChannel` (i.e.
-    // `isSlackChannelConversation`). Even if a caller mistakenly forwards
-    // a focus block on a non-Slack channel, it must NOT be appended.
+  test("non-slack conversations never get an active-thread focus block", async () => {
+    // The focus block is gated on a Slack *channel* conversation
+    // (`isSlackChannelConversation`). A non-Slack conversation must never
+    // self-resolve an `<active_thread>` block.
+    seedChannelCapabilitiesConversation({
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
-      {
-        channelCapabilities: {
-          channel: "vellum",
-          dashboardCapable: true,
-          supportsDynamicUi: true,
-          supportsVoiceInput: true,
-        },
-        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -3738,22 +4367,20 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("vellum question");
   });
 
-  test("slack DMs ignore slackActiveThreadFocusBlock", async () => {
+  test("slack DMs never get an active-thread focus block", async () => {
     // Same as above but for Slack DMs (chatType === "im"). The focus
     // injection is keyed on `isSlackChannelConversation` which excludes
     // DMs, so the block must not appear.
+    seedChannelCapabilitiesConversation({
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    });
     const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
-      {
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "im",
-        },
-        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
-      },
+      { conversationId: FALLBACK_CONVERSATION_ID },
     );
     const allText = result
       .flatMap((m) => m.content)
@@ -5100,11 +5727,16 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     },
   ];
 
+  // The reminder gate hinges on PKB content presence; clear it after each test
+  // so the "PKB inactive" case starts from an empty workspace pkb dir.
+  afterEach(clearPkbContent);
+
   test("captures exact reminder bytes when full mode and PKB active", async () => {
+    seedPkbContent();
     pkbSearchResults = [];
     pkbSearchThrows = null;
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 
@@ -5113,8 +5745,9 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
   });
 
   test("not captured in minimal mode", async () => {
+    seedPkbContent();
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "minimal",
     });
 
@@ -5123,7 +5756,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
 
   test("not captured when PKB inactive", async () => {
     const { blocks } = await applyRuntimeInjections(baseMessages, {
-      pkbActive: false,
+      conversationId: FALLBACK_CONVERSATION_ID,
       mode: "full",
     });
 

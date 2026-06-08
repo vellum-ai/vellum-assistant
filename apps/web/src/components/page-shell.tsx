@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { cn } from "@vellum/design-library";
+import { cn } from "@vellumai/design-library";
 
 /**
  * Shared rounded-overlay container for the assistant's main content pages

@@ -1,5 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import {
+  configGetQueryKey,
+  groupsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { ConfigGetData, GroupsGetData } from "@/generated/daemon/types.gen";
+
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
 export function avatarQueryKey(assistantId: string) {
@@ -19,10 +26,44 @@ export function archivedConversationsQueryKey(assistantId: string | null) {
   return [ARCHIVED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
 }
 
+export const BACKGROUND_CONVERSATIONS_QUERY_KEY =
+  "background-conversations" as const;
+
+export function backgroundConversationsQueryKey(assistantId: string | null) {
+  return [BACKGROUND_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+}
+
+export const SCHEDULED_CONVERSATIONS_QUERY_KEY =
+  "scheduled-conversations" as const;
+
+export function scheduledConversationsQueryKey(assistantId: string | null) {
+  return [SCHEDULED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+}
+
+/**
+ * Build the generated query key for conversation groups. Exported so that
+ * invalidation call sites (sync stream, loader, group actions) can target
+ * the same cache entry that `useConversationGroupsQuery` populates.
+ */
+export function conversationGroupsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof groupsGetQueryKey> {
+  return groupsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<GroupsGetData>);
+}
+
+/**
+ * Build the generated query key for the daemon config. All consumers —
+ * sync handler, service cards, imperative invalidation — share one cache
+ * entry via this key.
+ */
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["daemon-config", assistantId] as const;
+): ReturnType<typeof configGetQueryKey> {
+  return configGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<ConfigGetData>);
 }
 
 export function assistantSoundsConfigQueryKey(
@@ -52,6 +93,15 @@ export function assistantScheduleRunsQueryKey(
     : (["schedule-runs", assistantId] as const);
 }
 
+export function assistantScheduleUsageSummaryQueryKey(
+  assistantId: string | null | undefined,
+  tz?: string | null,
+) {
+  return tz
+    ? (["schedule-usage-summary", assistantId, tz] as const)
+    : (["schedule-usage-summary", assistantId] as const);
+}
+
 export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
 
 export const ASSISTANT_FLAG_VALUES_QUERY_KEY =
@@ -67,17 +117,14 @@ export function assistantIdentityQueryKey(assistantId: string | null) {
   return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
 }
 
-export const HOME_FEED_QUERY_KEY_PREFIX = "home-feed" as const;
+export const ASSISTANT_IDENTITY_INTRO_QUERY_KEY = "identity-intro" as const;
 
-export function homeFeedQueryKey(assistantId: string) {
-  return [HOME_FEED_QUERY_KEY_PREFIX, assistantId] as const;
+export function assistantIdentityIntroQueryKey(
+  assistantId: string | null | undefined,
+) {
+  return [ASSISTANT_IDENTITY_INTRO_QUERY_KEY, assistantId ?? ""] as const;
 }
 
-export const HOME_STATE_QUERY_KEY_PREFIX = "home-state" as const;
-
-export function homeStateQueryKey(assistantId: string) {
-  return [HOME_STATE_QUERY_KEY_PREFIX, assistantId] as const;
-}
 
 export function invalidateAssistantConfigQueries(
   queryClient: QueryClient,
@@ -112,5 +159,8 @@ export function invalidateAssistantSchedulesQueries(
   });
   void queryClient.invalidateQueries({
     queryKey: assistantScheduleRunsQueryKey(assistantId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
   });
 }

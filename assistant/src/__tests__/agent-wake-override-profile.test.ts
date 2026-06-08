@@ -48,8 +48,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { AgentLoopRunOptions } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -60,7 +61,6 @@ import type {
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
-  type WakeTarget,
 } from "../runtime/agent-wake.js";
 
 interface RunArgs {
@@ -69,43 +69,40 @@ interface RunArgs {
 }
 
 function makeTarget(): {
-  target: WakeTarget;
+  target: Conversation;
   runArgs: RunArgs[];
 } {
   const runArgs: RunArgs[] = [];
-  const history: Message[] = [
+  const messages: Message[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },
   ];
   let processing = false;
 
-  const target: WakeTarget = {
+  const target = {
     conversationId: "conv-wake-override",
     agentLoop: {
-      run: (async (
-        messages: Message[],
-        _onEvent: (event: AgentEvent) => void | Promise<void>,
-        options?: AgentLoopRunOptions,
-      ) => {
+      run: async (options: AgentLoopRunOptions) => {
         runArgs.push({
-          messages: [...messages],
+          messages: [...options.messages],
           options,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
-        return messages;
-      }) as WakeTarget["agentLoop"]["run"],
+        // Wake never yields at a checkpoint, so the pause-reason is null.
+        return { history: options.messages, exitReason: null };
+      },
     },
-    getMessages: () => history,
-    pushMessage: (msg) => {
-      history.push(msg);
-    },
-    emitAgentEvent: () => {},
+    messages,
+    getMessages: () => messages,
     isProcessing: () => processing,
-    markProcessing: (on) => {
+    setProcessing: (on: boolean) => {
       processing = on;
     },
-    persistTailMessage: async () => {},
+    setTrustContext: () => {},
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
+    drainQueue: async () => {},
   };
-  return { target, runArgs };
+  return { target: target as unknown as Conversation, runArgs };
 }
 
 beforeEach(() => {
@@ -155,7 +152,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // and routing layers would short-circuit and silently drop both the
     // call-site config and the pinned override profile.
     expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBe(150000);
+    expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
+      150000,
+    );
     // Sanity: the wake-source tag still propagates as requestId.
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
   });
@@ -180,7 +179,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // maxTokens, effort, etc.). Otherwise the wake silently runs under
     // workspace defaults regardless of any per-call-site configuration.
     expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBeGreaterThan(0);
+    expect(
+      runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens,
+    ).toBeGreaterThan(0);
   });
 });
 

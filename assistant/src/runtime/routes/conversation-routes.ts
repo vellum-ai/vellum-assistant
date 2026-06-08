@@ -10,6 +10,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import { ConversationMessageSchema } from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -46,7 +47,11 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
-import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import {
+  collectAttachmentRefs,
+  type HistoryAttachmentRef,
+  renderHistoryContent,
+} from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import {
@@ -105,10 +110,14 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -134,6 +143,10 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import {
+  collectPendingConfirmations,
+  enrichToolCallsWithConfirmation,
+} from "./tool-call-confirmation-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -142,6 +155,125 @@ const log = getLogger("conversation-routes");
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
+
+/** Rewrites a rendered `contentOrder` to reflect attachment alignment. */
+type ContentOrderRewrite = (contentOrder: string[]) => string[];
+
+interface AlignedAttachments {
+  /** Hydrated rows, reordered to match the inline file-block order. */
+  attachments: RuntimeAttachmentMetadata[];
+  /**
+   * Resolves a content-walk attachment ref index to its hydrated DB row,
+   * mirroring the inline placement `rewriteContentOrder` encodes. Refs with no
+   * inline placement (unmatched ids, count mismatch, no DB rows) are absent, so
+   * `renderHistoryContent` emits no `attachment` block for them — the row still
+   * ships via the flat `attachments` array.
+   */
+  refIndexToAttachment: Map<number, RuntimeAttachmentMetadata>;
+  rewriteContentOrder: ContentOrderRewrite;
+}
+
+/**
+ * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
+ * captured. When a file block was persisted with `_attachmentId` (user-message
+ * uploads) we join on that id to position the chip inline; DB rows without a
+ * matching ref go to the tail as orphan chips, and unmatched refs drop their
+ * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
+ * so when no ids match we fall back to positional alignment if the ref and row
+ * counts agree; otherwise we strip the markers and let chips fall to the tail.
+ */
+function alignAttachments(
+  attachmentRefs: HistoryAttachmentRef[],
+  attachments: RuntimeAttachmentMetadata[],
+): AlignedAttachments {
+  const refIndexToAttachment = new Map<number, RuntimeAttachmentMetadata>();
+  const identity: ContentOrderRewrite = (contentOrder) => contentOrder;
+  const stripAttachmentEntries: ContentOrderRewrite = (contentOrder) =>
+    contentOrder.filter((entry) => !ATTACHMENT_ENTRY_RE.test(entry));
+
+  if (attachmentRefs.length === 0) {
+    return { attachments, refIndexToAttachment, rewriteContentOrder: identity };
+  }
+  if (attachments.length === 0) {
+    // Refs were captured but no DB rows came back — drop the contentOrder
+    // entries to avoid out-of-bounds renders.
+    return {
+      attachments,
+      refIndexToAttachment,
+      rewriteContentOrder: stripAttachmentEntries,
+    };
+  }
+
+  const byId = new Map<string, number>();
+  attachments.forEach((att, idx) => {
+    if (att.id) byId.set(att.id, idx);
+  });
+  const consumed = new Set<number>();
+  const orderedRowIdx: Array<number | null> = attachmentRefs.map((ref) => {
+    if (!ref.attachmentId) return null;
+    const idx = byId.get(ref.attachmentId);
+    if (idx === undefined || consumed.has(idx)) return null;
+    consumed.add(idx);
+    return idx;
+  });
+  const matchedRows = orderedRowIdx.filter(
+    (idx): idx is number => idx !== null,
+  );
+
+  if (matchedRows.length > 0) {
+    const orphanRows: number[] = [];
+    for (let i = 0; i < attachments.length; i++) {
+      if (!consumed.has(i)) orphanRows.push(i);
+    }
+    const reordered = [
+      ...matchedRows.map((i) => attachments[i]),
+      ...orphanRows.map((i) => attachments[i]),
+    ];
+    const refToNewIdx = new Map<number, number>();
+    let nextIdx = 0;
+    orderedRowIdx.forEach((rowIdx, refIdx) => {
+      if (rowIdx !== null) {
+        refToNewIdx.set(refIdx, nextIdx);
+        refIndexToAttachment.set(refIdx, reordered[nextIdx]);
+        nextIdx++;
+      }
+    });
+    const rewriteContentOrder: ContentOrderRewrite = (contentOrder) =>
+      contentOrder
+        .map((entry) => {
+          const match = entry.match(ATTACHMENT_ENTRY_RE);
+          if (!match) return entry;
+          const remapped = refToNewIdx.get(Number(match[1]));
+          return remapped !== undefined ? `attachment:${remapped}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+    return {
+      attachments: reordered,
+      refIndexToAttachment,
+      rewriteContentOrder,
+    };
+  }
+
+  if (attachmentRefs.length !== attachments.length) {
+    // No ref carried an attachmentId we could match and the counts disagree, so
+    // positional mapping can't be trusted — strip any attachment:N entries so
+    // the client doesn't position attachments inline against a misaligned array
+    // (they fall to the tail instead).
+    return {
+      attachments,
+      refIndexToAttachment,
+      rewriteContentOrder: stripAttachmentEntries,
+    };
+  }
+
+  // No ref matched an id but the counts agree (the assistant-authored case):
+  // the Nth marker maps to the Nth row positionally, so the original
+  // contentOrder is left untouched.
+  attachmentRefs.forEach((_ref, refIdx) => {
+    refIndexToAttachment.set(refIdx, attachments[refIdx]);
+  });
+  return { attachments, refIndexToAttachment, rewriteContentOrder: identity };
+}
 
 /** Feature flag gating the self-intro first message (see first-greeting.ts). */
 const SELF_INTRO_GREETING_FLAG = "self-intro-greeting" as const;
@@ -509,6 +641,7 @@ export function handleListMessages({
         hasMore: false,
         oldestTimestamp: null,
         oldestMessageId: null,
+        seq: null,
       };
     }
     return { messages: [] };
@@ -547,7 +680,14 @@ export function handleListMessages({
   // assistant message has tool_use blocks but its matching user tool_result
   // is left visible, the result will render as a standalone orphan because
   // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
-  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+  //
+  // Only renderable roles reach this UI-facing transcript. `system` rows (a
+  // permitted `MessageRole`, e.g. skill-authored context) are agent-context
+  // scaffolding, never a displayed turn, so they are dropped here at the
+  // source rather than narrowed away per-client.
+  const visibleFilter = (m: MessageRow) =>
+    !isHiddenMessage(m.metadata) &&
+    (m.role === "user" || m.role === "assistant");
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -581,7 +721,10 @@ export function handleListMessages({
     mergeConsecutiveAssistantMessages(mergedMessages);
   const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
-  // Parse content blocks and extract text + tool calls
+  // Parse each row's stored content and per-message metadata. Rendering is
+  // deferred to the serializer pass below so it runs after attachment
+  // alignment, letting renderHistoryContent inline `attachment` blocks during
+  // its single content walk.
   const parsed = consolidatedMessages.map((msg) => {
     let content: unknown;
     try {
@@ -589,7 +732,6 @@ export function handleListMessages({
     } catch {
       content = msg.content;
     }
-    const rendered = renderHistoryContent(content);
 
     // Extract sentAt from metadata for display timestamps. When a message
     // was queued or its persistence was delayed (long assistant generation),
@@ -637,95 +779,52 @@ export function handleListMessages({
       },
     );
 
-    // Strip <no_response/> markers from assistant messages so web/API
-    // clients never see the raw sentinel. Only assistant messages produce
-    // this marker; user messages are left untouched.
-    if (msg.role === "assistant") {
-      const originalSegments = rendered.textSegments;
-      const keepIndices: number[] = [];
-      const filteredSegments: string[] = [];
-      for (let i = 0; i < originalSegments.length; i++) {
-        const cleaned = originalSegments[i]
-          .replace(NO_RESPONSE_INLINE_RE, "")
-          .trim();
-        if (cleaned.length > 0) {
-          keepIndices.push(i);
-          filteredSegments.push(cleaned);
-        }
-      }
-      // Remap contentOrder text:N indices to account for removed segments
-      const indexMap = new Map<number, number>();
-      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
-      const filteredContentOrder = rendered.contentOrder
-        .map((entry) => {
-          const m = entry.match(/^text:(\d+)$/);
-          if (!m) return entry;
-          const newIdx = indexMap.get(Number(m[1]));
-          return newIdx !== undefined ? `text:${newIdx}` : undefined;
-        })
-        .filter((e): e is string => e !== undefined);
-
-      return {
-        role: msg.role,
-        text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
-        timestamp: msg.createdAt,
-        sentAt,
-        toolCalls: rendered.toolCalls,
-        toolCallsBeforeText: rendered.toolCallsBeforeText,
-        textSegments: filteredSegments,
-        contentOrder: filteredContentOrder,
-        surfaces: rendered.surfaces,
-        attachmentRefs: rendered.attachments,
-        slackMessage,
-        ...(rendered.thinkingSegments.length > 0
-          ? { thinkingSegments: rendered.thinkingSegments }
-          : {}),
-        id: msg.id,
-        subagentNotification,
-      };
-    }
+    // `visibleFilter` has already dropped every non-renderable role, so the
+    // only values reaching here are `user` and `assistant`; narrow the raw DB
+    // `string` to the wire union.
+    const role: "user" | "assistant" =
+      msg.role === "assistant" ? "assistant" : "user";
 
     return {
-      role: msg.role,
-      text: rendered.text,
-      timestamp: msg.createdAt,
-      sentAt,
-      toolCalls: rendered.toolCalls,
-      toolCallsBeforeText: rendered.toolCallsBeforeText,
-      textSegments: rendered.textSegments,
-      contentOrder: rendered.contentOrder,
-      surfaces: rendered.surfaces,
-      attachmentRefs: rendered.attachments,
-      slackMessage,
-      ...(rendered.thinkingSegments.length > 0
-        ? { thinkingSegments: rendered.thinkingSegments }
-        : {}),
       id: msg.id,
+      role,
+      content,
+      createdAt: msg.createdAt,
+      sentAt,
       subagentNotification,
+      slackMessage,
+      clientMessageId: msg.clientMessageId ?? undefined,
     };
   });
 
+  // Confirmation context layered onto rendered tool calls at render time: the
+  // derived scope ladder for scope-aware tools, and any in-flight prompt read
+  // from the pending-interactions registry. Both are computed once per request
+  // and applied per message below.
+  const workspaceDir = getWorkspaceDir();
+  const pendingConfirmations = collectPendingConfirmations(
+    resolvedConversationId,
+  );
+
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
+
+    // Hydrate the row's attachments from the DB. A metadata-only query avoids
+    // loading large base64 blobs for non-image attachments (documents, audio);
+    // full data is fetched only for images so the client can generate
+    // thumbnails for inline display on history restore. Merged messages
+    // (consecutive assistant merge) are queried too so their attachments
+    // aren't lost before DB compaction relinks them.
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
-      // Use metadata-only query first to avoid loading large base64
-      // blobs for non-image attachments (documents, audio). Then
-      // selectively fetch full data only for images so the client can
-      // generate thumbnails for inline display on history restore.
-      // Also query attachments for any messages that were merged into
-      // this one (consecutive assistant merge), so their attachments
-      // aren't lost before DB compaction relinks them.
-      const idsToQuery = [m.id, ...(mergedIdMap.get(m.id) ?? [])];
+      const idsToQuery = [m.id, ...mergedMessageIds];
       const linked = idsToQuery.flatMap((id) =>
         getAttachmentMetadataForMessage(id),
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, {
-              hydrateFileData: true,
-            });
+            const full = getAttachmentById(a.id, { hydrateFileData: true });
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -752,114 +851,115 @@ export function handleListMessages({
       }
     }
 
-    // Align msgAttachments order with the file-block order captured by
-    // renderHistoryContent. When a file block was persisted with
-    // `_attachmentId` (user-message uploads), we join on that id to position
-    // the chip inline (the `attachment:N` entries in contentOrder index into
-    // msgAttachments). DB rows without a matching ref go to the tail as orphan
-    // chips; unmatched refs drop their contentOrder entry and trigger a remap.
-    // Assistant-authored file blocks carry no `_attachmentId`, so when no ids
-    // match we fall back to positional alignment if the ref and row counts
-    // agree; otherwise we strip the markers and let chips fall to the tail.
-    let alignedContentOrder = m.contentOrder;
-    if (
-      m.attachmentRefs.length > 0 &&
-      msgAttachments.length > 0 &&
-      m.contentOrder.length > 0
-    ) {
-      const byId = new Map<string, number>();
-      msgAttachments.forEach((att, idx) => {
-        if (att.id) byId.set(att.id, idx);
-      });
-      const consumed = new Set<number>();
-      const orderedRowIdx: Array<number | null> = m.attachmentRefs.map(
-        (ref) => {
-          if (!ref.attachmentId) return null;
-          const idx = byId.get(ref.attachmentId);
-          if (idx === undefined || consumed.has(idx)) return null;
-          consumed.add(idx);
-          return idx;
-        },
-      );
-      const matchedRows = orderedRowIdx.filter(
-        (idx): idx is number => idx !== null,
-      );
-      if (matchedRows.length > 0) {
-        const orphanRows: number[] = [];
-        for (let i = 0; i < msgAttachments.length; i++) {
-          if (!consumed.has(i)) orphanRows.push(i);
+    // Align the hydrated rows with the file-block refs, then render. Rendering
+    // after alignment lets renderHistoryContent inline each `attachment` block
+    // during its single content walk, so `contentBlocks` comes back ready to
+    // ship with no post-processing. The aligned reorder/rewrite keeps the
+    // legacy `attachments` array and `contentOrder` positions consistent.
+    const attachmentRefs = collectAttachmentRefs(m.content);
+    const aligned = alignAttachments(attachmentRefs, msgAttachments);
+    msgAttachments = aligned.attachments;
+    const attachmentBlocks = attachmentRefs.map(
+      (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
+    );
+    const rendered = renderHistoryContent(
+      m.content,
+      attachmentBlocks,
+      m.id ?? undefined,
+    );
+
+    const toolCalls = enrichToolCallsWithConfirmation(rendered.toolCalls, {
+      workspaceDir,
+      pendingConfirmations,
+    });
+
+    // Strip <no_response/> markers from assistant messages so web/API clients
+    // never see the raw sentinel. Only assistant messages produce it; user
+    // messages are untouched. The filter is applied consistently to the flat
+    // text, the segments, the contentOrder text refs, and the text blocks of
+    // contentBlocks.
+    let text = rendered.text;
+    let textSegments = rendered.textSegments;
+    let contentOrder = rendered.contentOrder;
+    let contentBlocks = rendered.contentBlocks;
+    if (m.role === "assistant") {
+      const keepIndices: number[] = [];
+      const filteredSegments: string[] = [];
+      for (let i = 0; i < rendered.textSegments.length; i++) {
+        const cleaned = rendered.textSegments[i]
+          .replace(NO_RESPONSE_INLINE_RE, "")
+          .trim();
+        if (cleaned.length > 0) {
+          keepIndices.push(i);
+          filteredSegments.push(cleaned);
         }
-        msgAttachments = [
-          ...matchedRows.map((i) => msgAttachments[i]),
-          ...orphanRows.map((i) => msgAttachments[i]),
-        ];
-        const refToNewIdx = new Map<number, number>();
-        let nextIdx = 0;
-        orderedRowIdx.forEach((rowIdx, refIdx) => {
-          if (rowIdx !== null) {
-            refToNewIdx.set(refIdx, nextIdx);
-            nextIdx++;
-          }
-        });
-        alignedContentOrder = m.contentOrder
-          .map((entry) => {
-            const match = entry.match(ATTACHMENT_ENTRY_RE);
-            if (!match) return entry;
-            const remapped = refToNewIdx.get(Number(match[1]));
-            return remapped !== undefined
-              ? `attachment:${remapped}`
-              : undefined;
-          })
-          .filter((e): e is string => e !== undefined);
-      } else if (m.attachmentRefs.length !== msgAttachments.length) {
-        // No ref carried an attachmentId we could match and the counts
-        // disagree, so positional mapping can't be trusted — strip any
-        // attachment:N entries so the client doesn't position attachments
-        // inline against a misaligned array (they fall to the tail instead).
-        alignedContentOrder = m.contentOrder.filter(
-          (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
-        );
       }
-      // Otherwise no ref matched an id but the counts agree (the
-      // assistant-authored case): the Nth marker maps to the Nth row
-      // positionally, so the original contentOrder is left untouched.
-    } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
-      // Refs were captured but no DB rows came back — drop the
-      // contentOrder entries to avoid out-of-bounds renders.
-      alignedContentOrder = m.contentOrder.filter(
-        (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
-      );
+      const indexMap = new Map<number, number>();
+      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+      contentOrder = rendered.contentOrder
+        .map((entry) => {
+          const tm = entry.match(/^text:(\d+)$/);
+          if (!tm) return entry;
+          const newIdx = indexMap.get(Number(tm[1]));
+          return newIdx !== undefined ? `text:${newIdx}` : undefined;
+        })
+        .filter((e): e is string => e !== undefined);
+      textSegments = filteredSegments;
+      text = rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim();
+      contentBlocks = rendered.contentBlocks
+        .map((block) =>
+          block.type === "text"
+            ? {
+                type: "text" as const,
+                text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+              }
+            : block,
+        )
+        .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    // Use sentAt (actual event time) for the display timestamp when
-    // available, falling back to createdAt (persistence time).
-    // Note: clients use this display timestamp as their pagination cursor
-    // after memory-pressure trimming, while server-side pagination filters
-    // on createdAt. The mismatch is benign — it may return slightly extra
-    // data on a page boundary but never loses messages.
-    const displayTimestamp = m.sentAt ?? m.timestamp;
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+
+    // Use sentAt (actual event time) for the display timestamp when available,
+    // falling back to createdAt (persistence time). Clients use this display
+    // timestamp as their pagination cursor after memory-pressure trimming,
+    // while server-side pagination filters on createdAt. The mismatch is
+    // benign — it may return slightly extra data on a page boundary but never
+    // loses messages.
+    const displayTimestamp = m.sentAt ?? m.createdAt;
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
+      ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
       role: m.role,
-      content: m.text,
+      // Flat plain-text body the legacy Swift client reads directly; see the
+      // `content` field on ConversationMessageSchema for why this must stay.
+      content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
-      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
-      ...(m.thinkingSegments?.length
-        ? { thinkingSegments: m.thinkingSegments }
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
+      ...(textSegments.length > 0 ? { textSegments } : {}),
+      ...(rendered.thinkingSegments.length > 0
+        ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
+      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
+
+  // Snapshot↔stream alignment token: the `seq` of the last event whose
+  // content is durably persisted for this conversation in the current
+  // daemon process. Returned on every resolved-conversation response so a
+  // client can apply only stream events with a higher `seq`. Null when
+  // nothing has been persisted in-process (cold/aged-out/post-restart).
+  const persistedSeq = getPersistedSeq(resolvedConversationId);
 
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
@@ -882,6 +982,7 @@ export function handleListMessages({
         hasMore,
         oldestTimestamp: oldestTimestamp ?? null,
         oldestMessageId: oldestMessageId ?? null,
+        seq: persistedSeq,
       };
     }
 
@@ -890,10 +991,11 @@ export function handleListMessages({
       hasMore,
       ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
       ...(oldestMessageId != null ? { oldestMessageId } : {}),
+      seq: persistedSeq,
     };
   }
 
-  return { messages };
+  return { messages, seq: persistedSeq };
 }
 
 /**
@@ -1267,6 +1369,11 @@ export async function handleSendMessage(
       mapping.conversationId,
       requestedInferenceProfile,
     );
+    conversation.applyInferenceProfileState({
+      profile: requestedInferenceProfile,
+      sessionId: null,
+      expiresAt: null,
+    });
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -1338,10 +1445,20 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
+  // Use the JWT-verified requester principal — not guardianPrincipalId,
+  // which is the workspace owner and would let a trusted contact's web
+  // turn match against the guardian's macOS client.
+  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1354,7 +1471,13 @@ export async function handleSendMessage(
   // lives in the skill-projection layer (which reads the `feature-flag:
   // app-control` declaration in SKILL.md frontmatter), so an attached proxy
   // is harmless when the flag resolves to off.
-  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
@@ -1367,7 +1490,11 @@ export async function handleSendMessage(
   // this message will be queued and preactivation is deferred to dequeue
   // time in drainQueueImpl to avoid mutating in-flight turn state.
   if (!conversation.isProcessing()) {
-    preactivateHostProxySkills(conversation, sourceInterface);
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating
@@ -1404,11 +1531,12 @@ export async function handleSendMessage(
   // user's behalf instead of the canned greeting, so the assistant generates a
   // real first response. Gated behind the `self-intro-greeting` flag (default
   // off); `undefined` (flag off or no names) falls back to the canned path.
-  const selfIntro =
+  const selfIntroGreetingEnabled =
     isWakeUp &&
-    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig())
-      ? buildSelfIntroMessage(body.onboarding ?? undefined)
-      : undefined;
+    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig());
+  const selfIntro = selfIntroGreetingEnabled
+    ? buildSelfIntroMessage(body.onboarding ?? undefined)
+    : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1417,7 +1545,7 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
-  } else if (isWakeUp && body.onboarding?.initialMessage) {
+  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
   } else if (isWakeUp && selfIntro) {
     // Rewrite to the self-introduction and fall through to real inference
@@ -1426,7 +1554,7 @@ export async function handleSendMessage(
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const rawContent = content ?? "";
@@ -1502,7 +1630,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "canned-greeting queue drain",
@@ -1518,8 +1646,8 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
@@ -1732,7 +1860,7 @@ export async function handleSendMessage(
   const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     let cleanupDeferred = false;
     try {
       const slashMeta = {
@@ -1813,7 +1941,7 @@ export async function handleSendMessage(
           persistedAssistant.id,
         );
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
 
@@ -1822,15 +1950,15 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
+      if (!cleanupDeferred && conversation.isProcessing()) {
+        conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }
 
   if (slashResult.kind === "compact") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
@@ -1850,12 +1978,12 @@ export async function handleSendMessage(
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
       throw err;
     }
     if (persisted.deduplicated) {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
       return {
         accepted: true,
@@ -1883,14 +2011,8 @@ export async function handleSendMessage(
           clientMessageId,
         });
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-        );
-        const result = await conversation.forceCompact({
-          targetInputTokensOverride: slashResult.targetInputTokensOverride,
-        });
+        conversation.emitActivityState("thinking", "context_compacting");
+        const result = await conversation.forceCompact();
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
@@ -1927,7 +2049,7 @@ export async function handleSendMessage(
           retryable: true,
         });
       } finally {
-        conversation.processing = false;
+        conversation.setProcessing(false);
         silentlyWithLog(
           conversation.drainQueue(),
           "compact-command queue drain",
@@ -1943,7 +2065,7 @@ export async function handleSendMessage(
   }
 
   if (slashResult.kind === "clean") {
-    conversation.processing = true;
+    conversation.setProcessing(true);
     const conversationId = mapping.conversationId;
     // Outer try/finally guarantees the processing flag is cleared (and the
     // queue drained) on every failure path — including a throw from the
@@ -2029,7 +2151,7 @@ export async function handleSendMessage(
         conversationId,
       };
     } finally {
-      conversation.processing = false;
+      conversation.setProcessing(false);
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
   }
@@ -2067,7 +2189,8 @@ export async function handleSendMessage(
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
-    .runAgentLoop(resolvedContent, messageId, broadcastMessage, {
+    .runAgentLoop(resolvedContent, messageId, {
+      onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
     })
@@ -2448,8 +2571,46 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return messages for a conversation, including attachments and interface file metadata.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        required: false,
+        description:
+          "Conversation UUID. One of conversationId or conversationKey is required.",
+      },
+      {
+        name: "conversationKey",
+        type: "string",
+        required: false,
+        description:
+          "Channel/external conversation key. One of conversationId or conversationKey is required.",
+      },
+      {
+        name: "page",
+        type: "string",
+        required: false,
+        description:
+          "When set to 'latest', returns the most recent page of messages with pagination metadata.",
+      },
+      {
+        name: "beforeTimestamp",
+        type: "integer",
+        required: false,
+        description:
+          "Return messages older than this timestamp (ms since epoch). Used for paging older history.",
+      },
+      {
+        name: "limit",
+        type: "integer",
+        required: false,
+        description: "Maximum number of messages to return.",
+      },
+    ],
     responseBody: z.object({
-      messages: z.array(z.unknown()).describe("Array of message objects"),
+      messages: z
+        .array(ConversationMessageSchema)
+        .describe("Array of message objects"),
       hasMore: z
         .boolean()
         .optional()
@@ -2466,6 +2627,13 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .optional()
         .describe("ID of the oldest message in this page"),
+      seq: z
+        .number()
+        .nullable()
+        .optional()
+        .describe(
+          "Global SSE `seq` of the last event whose content is durably persisted for this conversation in the current daemon process. A client can align this snapshot with the `/events` stream by applying only events with `seq` greater than this value. Null when no events have been persisted in this process (cold conversation, after a daemon restart, or when the conversation has aged out of the in-memory map) — clients should cold-start in that case. Absent on older daemons that predate this field.",
+        ),
     }),
     handler: (args) => handleListMessages(args),
   },
@@ -2483,17 +2651,66 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseStatus: "202",
     requestBody: z.object({
-      conversationKey: z.string().optional(),
+      conversationId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Internal conversation id (0.8.6+ strict lookup). Omit both id and key to mint a new conversation server-side.",
+        ),
+      conversationKey: z.string().nullable().optional(),
       content: z.string().describe("Message text content"),
       attachments: z
         .array(z.unknown())
-        .describe("Optional file attachments")
+        .describe("Optional inline file attachments")
         .optional(),
+      attachmentIds: z
+        .array(z.string())
+        .describe("Ids of previously uploaded attachments to attach")
+        .optional(),
+      sourceChannel: z
+        .string()
+        .describe('Originating channel id (e.g. "vellum")'),
+      interface: z
+        .string()
+        .describe('Originating interface id (e.g. "vellum")'),
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      clientMessageId: z
+        .string()
+        .describe(
+          "Client-generated idempotency nonce. Persisted on the row and echoed back on the message_echo event and the messages snapshot so the client can correlate its optimistic row by identity. Duplicate sends for the same (conversation, clientMessageId) are deduplicated server-side.",
+        )
+        .optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      onboarding: z
+        .object({
+          tools: z.array(z.string()),
+          tasks: z.array(z.string()),
+          tone: z.string(),
+          userName: z.string().optional(),
+          assistantName: z.string().optional(),
+          googleConnected: z.boolean().optional(),
+          googleScopes: z.array(z.string()).optional(),
+          priorAssistants: z.array(z.string()).optional(),
+          cohort: z.string().optional(),
+          websiteUrl: z.string().optional(),
+          contentSourceUrl: z.string().optional(),
+          bootstrapTemplate: z.string().optional(),
+          initialMessage: z.string().optional(),
+          skills: z.array(z.string()).optional(),
+        })
+        .describe("PreChat onboarding context, sent on the first message only")
+        .optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+      conversationId: z.string().optional(),
+      messageId: z.string().optional(),
+      queued: z.boolean().optional(),
+      requestId: z.string().optional(),
     }),
     handler: async (args) =>
       handleSendMessage(args, {

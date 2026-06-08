@@ -18,7 +18,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -34,10 +38,13 @@ import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
+  ChoiceSurfaceData,
   ConfirmationSurfaceData,
+  CopyBlockSurfaceData,
   DynamicPageSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
+  OAuthConnectSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -391,6 +398,107 @@ function normalizeTaskProgressCardPatch(
   return normalizedPatch;
 }
 
+function normalizeChoiceShowData(
+  rawData: Record<string, unknown>,
+): ChoiceSurfaceData {
+  const options = Array.isArray(rawData.options)
+    ? rawData.options
+        .filter((option): option is Record<string, unknown> =>
+          isPlainObject(option),
+        )
+        .map((option) => {
+          const id = typeof option.id === "string" ? option.id.trim() : "";
+          const title =
+            typeof option.title === "string"
+              ? option.title.trim()
+              : typeof option.label === "string"
+                ? option.label.trim()
+                : "";
+          if (!id || !title) return null;
+          return {
+            id,
+            title,
+            ...(typeof option.description === "string"
+              ? { description: option.description }
+              : {}),
+            ...(option.recommended === true ? { recommended: true } : {}),
+            ...(isPlainObject(option.data)
+              ? { data: option.data as Record<string, unknown> }
+              : {}),
+          };
+        })
+        .filter(
+          (option): option is NonNullable<typeof option> => option !== null,
+        )
+    : [];
+
+  return {
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    options,
+    selectionMode: rawData.selectionMode === "multiple" ? "multiple" : "single",
+    ...(typeof rawData.submitLabel === "string"
+      ? { submitLabel: rawData.submitLabel }
+      : {}),
+    ...(typeof rawData.commitOnSelect === "boolean"
+      ? { commitOnSelect: rawData.commitOnSelect }
+      : {}),
+  };
+}
+
+function normalizeCopyBlockShowData(
+  rawData: Record<string, unknown>,
+): CopyBlockSurfaceData {
+  return {
+    text: typeof rawData.text === "string" ? rawData.text : "",
+    ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
+    ...(typeof rawData.language === "string"
+      ? { language: rawData.language }
+      : {}),
+  };
+}
+
+function normalizeOAuthConnectShowData(
+  rawData: Record<string, unknown>,
+): OAuthConnectSurfaceData {
+  return {
+    providerKey:
+      typeof rawData.providerKey === "string" ? rawData.providerKey.trim() : "",
+    ...(typeof rawData.displayName === "string"
+      ? { displayName: rawData.displayName }
+      : {}),
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    ...(typeof rawData.logoUrl === "string" || rawData.logoUrl === null
+      ? { logoUrl: rawData.logoUrl }
+      : {}),
+  };
+}
+
+function buildChoiceActions(data: ChoiceSurfaceData): Array<{
+  id: string;
+  label: string;
+  style?: string;
+  data?: Record<string, unknown>;
+}> {
+  return data.options.map((option) => ({
+    id: option.id,
+    label: option.title,
+    style: option.recommended ? "primary" : "secondary",
+    data: {
+      choiceId: option.id,
+      choiceTitle: option.title,
+      selectedIds: [option.id],
+      selectedTitles: [option.title],
+      ...(option.description ? { choiceDescription: option.description } : {}),
+      ...(option.recommended ? { recommended: true } : {}),
+      ...(option.data ?? {}),
+    },
+  }));
+}
+
 function isTaskProgressCardData(data: SurfaceData | Record<string, unknown>) {
   return (data as Record<string, unknown>).template === "task_progress";
 }
@@ -504,6 +612,7 @@ export interface SurfaceConversationContext {
     }>;
     display?: string;
     persistent?: boolean;
+    toolCallId?: string;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1694,6 +1803,8 @@ export async function handleSurfaceAction(
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
   const ONE_SHOT_SURFACE_TYPES = [
+    "choice",
+    "oauth_connect",
     "form",
     "confirmation",
     "file_upload",
@@ -1849,12 +1960,27 @@ export function refreshSurfacesForApp(
   return refreshed;
 }
 
+/**
+ * Strip a leading "Connect "/"Connected " verb from an OAuth provider label so
+ * a supplied displayName like "Connect Gmail" doesn't double the verb when
+ * prefixed (e.g. avoids "Connected Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
+}
+
 export function buildCompletionSummary(
   surfaceType: string | undefined,
   actionId: string,
   data?: Record<string, unknown>,
   surfaceData?: Record<string, unknown>,
 ): string {
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
+
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
       const cancelLabel =
@@ -1887,6 +2013,47 @@ export function buildCompletionSummary(
   if (surfaceType === "form") {
     return "Submitted";
   }
+  if (surfaceType === "choice" && data) {
+    const choiceTitle =
+      typeof data.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return `User chose: "${choiceTitle}"`;
+    if (selectedTitles.length === 1)
+      return `User chose: "${selectedTitles[0]}"`;
+    if (selectedTitles.length > 1) {
+      return `User chose ${selectedTitles.length} options: ${selectedTitles
+        .map((title) => `"${title}"`)
+        .join(", ")}`;
+    }
+    return `User chose: ${actionId}`;
+  }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    // Strip the verb once so every branch (connected/cancelled/failed/
+    // fallback) is normalized — a displayName like "Connect Gmail" must not
+    // produce "Cancelled Connect Gmail connection".
+    const label = stripConnectVerb(providerLabel);
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return `Cancelled ${label} connection`;
+    }
+    if (data?.status === "error") {
+      return `${label} connection failed`;
+    }
+    return `${label} connection ${actionId}`;
+  }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
@@ -1917,6 +2084,11 @@ function buildUserFacingLabel(
   surfaceData?: Record<string, unknown>,
 ): string {
   const count = (data?.selectedIds as string[] | undefined)?.length;
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
 
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
@@ -1943,6 +2115,42 @@ function buildUserFacingLabel(
     return `Selected: ${actionId}`;
   }
   if (surfaceType === "form") return "Submitted";
+  if (surfaceType === "choice") {
+    const choiceTitle =
+      typeof data?.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return choiceTitle;
+    if (selectedTitles.length === 1) return selectedTitles[0];
+    if (selectedTitles.length > 1)
+      return `Selected ${selectedTitles.length} options`;
+    return "Selected";
+  }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    // Strip the verb once so every branch is normalized (e.g. a displayName
+    // like "Connect Gmail" must not produce "Connect Gmail connection failed").
+    const label = stripConnectVerb(providerLabel);
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return "Cancelled";
+    }
+    if (data?.status === "error") {
+      return `${label} connection failed`;
+    }
+    return `Selected: ${actionId}`;
+  }
 
   // Table / list selection actions
   if (count) {
@@ -1966,6 +2174,7 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  toolUseId?: string,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
@@ -2030,43 +2239,28 @@ export async function surfaceProxyResolver(
       if (rejection) return rejection;
     }
 
-    // Guard: require explicit targeting when multiple same-user CU-capable
-    // clients are connected. The tool schemas document target_client_id as
-    // "required when multiple clients support host_cu" but nothing enforced
-    // it at runtime until now. Without this guard, the request would
-    // broadcast to all capable clients simultaneously, causing the same CU
-    // action to execute on multiple machines. The filter mirrors
-    // HostFileProxy's auto-resolve: only same-user clients participate, so
-    // a cross-user client connected to the same daemon does not falsely
-    // trigger this ambiguity error.
-    //
-    // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
-    // guard additionally checks `transportInterface != null &&
-    // !supportsHostProxy(transportInterface)` and so only fires for non-host-
-    // proxy transports (web, Slack). For CU that check would be a no-op:
-    // every host_cu-capable client is host-proxy-capable by definition
-    // (host_cu only ships on macOS and the Chrome extension), so there is no
-    // host_cu-capable transport for which auto-routing-to-self would be
-    // appropriate. We therefore fire whenever there is genuine ambiguity.
+    // Untargeted CU must resolve to exactly one same-user capable client
+    // before dispatch. Otherwise the proxy would broadcast without a target
+    // actor binding, which is unsafe in shared runtimes.
     if (targetClientId == null) {
-      const allCuClients = assistantEventHub.listClientsByCapability("host_cu");
-      const sameUserCuClients = allCuClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserCuClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_cu",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_cu");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_cu").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
+          content:
+            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_cu clients are connected, we MUST auto-resolve
-      // to the unique same-user client (or fail explicitly) — otherwise the
-      // proxy would broadcast untargeted and the CU action would reach the
-      // cross-user client too. Setting targetClientId here forces the proxy
-      // to deliver only to that client, with the same-user check below as
-      // belt-and-suspenders.
-      if (sameUserCuClients.length === 1 && allCuClients.length > 1) {
-        targetClientId = sameUserCuClients[0].clientId;
       }
     }
 
@@ -2152,23 +2346,24 @@ export async function surfaceProxyResolver(
     }
 
     if (targetClientId == null) {
-      const allAcClients =
-        assistantEventHub.listClientsByCapability("host_app_control");
-      const sameUserAcClients = allAcClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserAcClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_app_control",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_app_control");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_app_control").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_app_control. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_app_control\` to see client IDs and labels.`,
+          content:
+            "App control is not available for the current actor. Connect a host_app_control-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_app_control clients are connected, auto-
-      // resolve to the unique same-user client. Otherwise the proxy would
-      // dispatch untargeted and the action could reach a cross-user
-      // client. Belt-and-suspenders: the proxy re-checks same-user.
-      if (sameUserAcClients.length === 1 && allAcClients.length > 1) {
-        targetClientId = sameUserAcClients[0].clientId;
       }
     }
 
@@ -2221,11 +2416,17 @@ export async function surfaceProxyResolver(
     const data = (
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
-        : surfaceType === "dynamic_page"
-          ? normalizeDynamicPageShowData(input, rawData)
-          : rawData
+        : surfaceType === "choice"
+          ? normalizeChoiceShowData(rawData)
+          : surfaceType === "copy_block"
+            ? normalizeCopyBlockShowData(rawData)
+            : surfaceType === "oauth_connect"
+              ? normalizeOAuthConnectShowData(rawData)
+              : surfaceType === "dynamic_page"
+                ? normalizeDynamicPageShowData(input, rawData)
+                : rawData
     ) as SurfaceData;
-    const actions = input.actions as
+    const inputActions = input.actions as
       | Array<{
           id: string;
           label: string;
@@ -2233,8 +2434,33 @@ export async function surfaceProxyResolver(
           data?: Record<string, unknown>;
         }>
       | undefined;
+    const actions =
+      surfaceType === "choice"
+        ? buildChoiceActions(data as ChoiceSurfaceData)
+        : inputActions;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
+    if (surfaceType === "choice" && !hasActions) {
+      return {
+        content:
+          "choice surfaces require at least one option with both id and title.",
+        isError: true,
+      };
+    }
+    const oauthProviderKey =
+      surfaceType === "oauth_connect"
+        ? (data as unknown as Record<string, unknown>).providerKey
+        : undefined;
+    if (
+      surfaceType === "oauth_connect" &&
+      (typeof oauthProviderKey !== "string" ||
+        oauthProviderKey.trim().length === 0)
+    ) {
+      return {
+        content: "oauth_connect surfaces require data.providerKey.",
+        isError: true,
+      };
+    }
     const isInteractive =
       surfaceType === "card"
         ? hasActions
@@ -2311,6 +2537,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -2322,6 +2549,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     if (awaitAction) {
@@ -2495,6 +2723,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       } as UiSurfaceShow);
 
       // Track for message persistence so the inline card survives history reload.
@@ -2504,6 +2733,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
@@ -2522,6 +2752,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as UiSurfaceShow);
 
     // Track surface for persistence
@@ -2530,6 +2761,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });

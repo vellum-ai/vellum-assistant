@@ -222,7 +222,9 @@ async function handleExport({
       }
     }
 
-    // --- Daemon log grep for conversationId ---
+    // --- Conversation-scoped daemon log slice ---
+    // Write a `conversation-filtered.jsonl` slice of the lines that mention the
+    // conversationId as a quick index into the full daily logs.
     if (conversationId && collectedLogFiles.length > 0) {
       const matchingLines: string[] = [];
       for (const logFile of collectedLogFiles) {
@@ -245,13 +247,22 @@ async function handleExport({
         );
       }
 
-      for (const logFile of collectedLogFiles) {
-        try {
-          rmSync(logFile, { force: true });
-        } catch {
-          // Best-effort removal
-        }
-      }
+      // We intentionally retain the full daily `assistant-*.log` and
+      // `daemon-stderr.log` files rather than removing them here. Agent-loop
+      // failures — stream aborts, stack traces, provider errors — are routinely
+      // logged without the conversationId, so the grep above drops exactly the
+      // lines needed to debug a failed turn. We cannot currently guarantee that
+      // every log line emitted while handling a conversation carries its
+      // conversationId; until we can, the full daily log must stay in the
+      // bundle. Re-enable the removal below only once that guarantee holds.
+      //
+      // for (const logFile of collectedLogFiles) {
+      //   try {
+      //     rmSync(logFile, { force: true });
+      //   } catch {
+      //     // Best-effort removal
+      //   }
+      // }
     }
 
     // --- Workspace allowlist ---
@@ -497,6 +508,10 @@ export const ROUTES: RouteDefinition[] = [
       "Export audit records, assistant logs, and config as a tar.gz archive.",
     tags: ["export"],
     requestBody: exportRequestBody,
+    responseBody: {
+      contentType: "application/gzip",
+      schema: { type: "string", format: "binary" },
+    },
     responseHeaders: {
       "Content-Type": "application/gzip",
       "Content-Disposition": 'attachment; filename="logs.tar.gz"',
@@ -521,6 +536,10 @@ export const ROUTES: RouteDefinition[] = [
       "Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.",
     tags: ["export"],
     requestBody: exportRequestBody,
+    responseBody: {
+      contentType: "application/gzip",
+      schema: { type: "string", format: "binary" },
+    },
     responseHeaders: {
       "Content-Type": "application/gzip",
       "Content-Disposition": 'attachment; filename="logs.tar.gz"',

@@ -4,6 +4,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { parseDrfFieldError } from "@/domains/account/parse-drf-field-error";
 
 export interface UserMe {
   id: string;
@@ -51,13 +52,13 @@ export async function fetchMe(): Promise<UserMe> {
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load profile.");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new ApiError(
       response.status,
       extractErrorMessage(error, response, "Failed to load profile."),
     );
   }
-  return data as UserMe;
+  return data;
 }
 
 export interface UpdateMePatch {
@@ -70,40 +71,7 @@ export type UpdateMeResult =
   | { kind: "invalid"; code: UsernameErrorCode | null; message: string }
   | { kind: "error"; message: string };
 
-function parseValidationError(body: unknown): {
-  code: UsernameErrorCode | null;
-  message: string;
-} {
-  if (body && typeof body === "object") {
-    const usernameErr = (body as Record<string, unknown>).username;
-    if (Array.isArray(usernameErr) && usernameErr.length > 0) {
-      const first = usernameErr[0];
-      if (typeof first === "string") {
-        return { code: null, message: first };
-      }
-      if (first && typeof first === "object") {
-        const codeRaw = (first as Record<string, unknown>).code;
-        const messageRaw =
-          (first as Record<string, unknown>).string ??
-          (first as Record<string, unknown>).message;
-        return {
-          code: (typeof codeRaw === "string" ? codeRaw : null) as
-            | UsernameErrorCode
-            | null,
-          message:
-            typeof messageRaw === "string"
-              ? messageRaw
-              : "Please choose a different handle.",
-        };
-      }
-    }
-    const detail = (body as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return { code: null, message: detail };
-    }
-  }
-  return { code: null, message: "Please choose a different handle." };
-}
+const DEFAULT_USERNAME_ERROR = "Please choose a different handle.";
 
 export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
   const { data, error, response } = await client.patch<UserMe, unknown>({
@@ -126,16 +94,21 @@ export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
   }
 
   if (response.status === 409) {
-    const body = error as Record<string, unknown> | undefined;
-    const message =
-      (body && typeof body.detail === "string" && body.detail) ||
-      USERNAME_ERROR_COPY.taken;
+    const { message } = parseDrfFieldError(
+      error,
+      "username",
+      USERNAME_ERROR_COPY.taken,
+    );
     return { kind: "taken", message };
   }
 
   if (response.status === 400) {
-    const { code, message } = parseValidationError(error);
-    return { kind: "invalid", code, message };
+    const { code, message } = parseDrfFieldError(
+      error,
+      "username",
+      DEFAULT_USERNAME_ERROR,
+    );
+    return { kind: "invalid", code: code as UsernameErrorCode | null, message };
   }
 
   return {

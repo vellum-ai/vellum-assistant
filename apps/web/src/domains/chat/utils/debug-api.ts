@@ -21,19 +21,17 @@
  * sub-objects off the same root without colliding.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
+import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
 } from "@/domains/chat/api/debug-api";
-import {
-  fetchConversationMessages as defaultFetchConversationMessages,
-  type RuntimeMessage,
-} from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
@@ -42,13 +40,14 @@ import type {
 } from "@/types/interaction-ui-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
-import { setProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import {
-  classifyScrollPosition,
-  type TranscriptHandle,
-} from "@/domains/chat/transcript/use-transcript-scroll";
+  setSeqGapDetectionEnabled,
+} from "@/lib/feature-flags/seq-gap-detection-flag";
+import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
@@ -114,9 +113,6 @@ export interface ChatDebugThinkingDoneSignal {
   /** Last terminal reason recorded by the reducer. `null` if the turn is
    *  still active or has never terminated since mount. */
   lastTerminalReason: TerminalReason;
-  /** Human-readable summary of the current lifecycle state — what we'd say
-   *  to a developer asking "why isn't this turn done?" or "why is it done?". */
-  explanation: string;
 }
 
 /**
@@ -147,6 +143,39 @@ export interface PendingInteractionsSnapshot {
   /** Tool-call id paired with the currently-rendered inline confirmation,
    *  or `null` when no inline confirmation is active. */
   inlineConfirmationToolCallId: string | null;
+}
+
+/**
+ * Avatar streaming-ring state block — answers "why is the spinning ring
+ * around the avatar showing (or stuck) — or not showing?".
+ *
+ * The ring renders in {@link ChatAvatar} for custom-image avatars iff
+ * `isStreaming || isProcessing` (see `chat-avatar.tsx`, and the props wired
+ * in `chat-route-content.tsx`). This mirrors those two gates so a developer
+ * can tell at a glance which one is keeping it lit — most usefully when the
+ * ring "hangs" after a turn ends, which means one gate is still latched on.
+ *
+ * Distinct from the transcript "thinking…" dots described by
+ * {@link ChatDebugThinkingIndicator}: the dots gate on the stricter
+ * {@link shouldShowThinkingIndicator} predicate (which tolerates a stale
+ * `activeConversationIsProcessing` snapshot via `hasPendingAssistantResponse`),
+ * whereas the ring trusts the coarse `isStreaming`/`isProcessing` OR directly.
+ */
+export interface ChatDebugStreamingRing {
+  /** Whether the ring would render this frame — `isStreaming || isProcessing`. */
+  visible: boolean;
+  /** The `isStreaming` prop `ChatAvatar` receives — the app's
+   *  `isAssistantStreaming` signal (`showThinking || hasStreamingAssistantMessage`,
+   *  i.e. {@link shouldShowThinkingIndicator} OR an open streaming bubble). */
+  isStreaming: boolean;
+  /** The `isProcessing` prop `ChatAvatar` receives — the OR of the local
+   *  optimistic processing set and the cached `conversation.isProcessing`
+   *  snapshot (`uiContext.activeConversationIsProcessing`). A `true` here
+   *  after the turn is done points at a stale cached snapshot. */
+  isProcessing: boolean;
+  /** Names of the gates currently keeping the ring visible. Empty when
+   *  `visible` is false. */
+  litBy: string[];
 }
 
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
@@ -249,6 +278,21 @@ export interface ChatDebugApi {
    */
   getTranscriptItems(): TranscriptItem[];
   /**
+   * Current turn phase — the `phase` field of the turn-store state
+   * machine (`useTurnStore`). One of `idle`, `queued`, `thinking`,
+   * `streaming`, `awaiting_user_input`, or `errored`.
+   *
+   * Console-callable mirror of the `useTurnStore.use.phase()` render hook:
+   * reads `useTurnStore.getState().phase` so it returns the live value
+   * without creating a subscription. Use it to answer "what phase is the
+   * turn in right now?" at a glance; for the full lifecycle picture
+   * (terminal signal, failing thinking-indicator clauses) use
+   * {@link thinkingIndicator}.
+   *
+   * Synchronous and side-effect-free.
+   */
+  getPhase(): TurnPhase;
+  /**
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
    *
@@ -264,6 +308,17 @@ export interface ChatDebugApi {
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
   /**
+   * Live evaluation of the avatar streaming-ring gates — answers "why is
+   * the spinning ring around the avatar showing (or stuck), or not
+   * showing?". See {@link ChatDebugStreamingRing}: `.litBy` names the gate
+   * keeping it lit, so a terminal turn with `litBy: ["isProcessing"]` is the
+   * signature of a stale `conversation.isProcessing` snapshot.
+   *
+   * Synchronous, side-effect-free; reads the same turn-store + UI-context
+   * snapshot the React render path reads.
+   */
+  streamingRing(): ChatDebugStreamingRing;
+  /**
    * [experimental] Imperatively trigger a reconcile of the active conversation
    * against `/v1/history`. Returns the same shape as the watchdog /
    * resume / cache-restore reconcile paths. Subject to change.
@@ -271,12 +326,14 @@ export interface ChatDebugApi {
   forceReconcile(): Promise<ReconcileActiveConversationResult>;
   /**
    * [experimental] Fetch `/v1/history` for the active assistant +
-   * conversation and return the raw server-side message list. Does
-   * not touch UI state — diff against `getClientMessages()` manually in
-   * the console when you need to declare drift. Throws if there's no
-   * active assistant/conversation context. Subject to change.
+   * conversation and return the raw server snapshot response — the
+   * message list plus the top-level `seq` watermark. Does not touch UI
+   * state — diff against `getClientMessages()` manually in the console
+   * when you need to declare drift, and read `seq` to compare against the
+   * applied frontier. Throws if there's no active assistant/conversation
+   * context. Subject to change.
    */
-  serverMessages(): Promise<RuntimeMessage[]>;
+  serverMessages(): Promise<MessagesGetResponse | undefined>;
   /**
    * Return the frontend-tracked pending interactions — the user prompts
    * currently rendered (or recently dismissed) by the chat UI, plus their
@@ -325,7 +382,6 @@ const FLAGS_NS = "flags";
  * current value at install time would freeze the API to the initial render.
  */
 export interface ChatDebugRefs {
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   /**
    * Post-`sanitizeDisplayMessages` snapshot. Populated by
    * `chat-route-content.tsx` and read by `getClientMessages()`.
@@ -343,12 +399,7 @@ export interface ChatDebugRefs {
    * from the DOM. `current` is null when no chat route is mounted.
    */
   transcriptRef: { current: TranscriptHandle | null };
-  streamContextRef: MutableRefObject<{
-    assistantId: string;
-    conversationId: string;
-  } | null>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
+
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -402,7 +453,7 @@ export interface ChatDebugRefs {
   historyFetcher?: (
     assistantId: string,
     conversationId: string,
-  ) => Promise<RuntimeMessage[]>;
+  ) => Promise<MessagesGetResponse | undefined>;
 }
 
 /**
@@ -430,6 +481,10 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return refs.transcriptItemsRef.current ?? [];
   }
 
+  function getPhase(): TurnPhase {
+    return refs.getTurnState().phase;
+  }
+
   function thinkingIndicator(): ChatDebugThinkingIndicator {
     const turnState = refs.getTurnState();
     const uiContext = refs.getUIContext();
@@ -439,8 +494,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       uiContext.hasPendingAssistantResponse === true;
 
     const conditions: ChatDebugThinkingConditions = {
-      isSending: isSending(turnState),
-      isThinking: isThinking(turnState),
+      isSending: isSending(turnState.phase),
+      isThinking: isThinking(turnState.phase),
       restoredProcessing,
       activeToolCallCount: turnState.activeToolCallCount,
       statusText: turnState.statusText,
@@ -491,7 +546,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       failingConditions.push("activeToolCallCount>0");
     }
 
-    const visible = shouldShowThinkingIndicator(turnState, uiContext);
+    const visible = shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext);
     // Cross-check: the failingConditions list should be empty iff visible is
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
@@ -508,21 +563,6 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       turnState.activeTurnId === null;
     const lastTerminalReason = turnState.lastTerminalReason;
 
-    let explanation: string;
-    if (terminal) {
-      explanation = lastTerminalReason
-        ? `terminal: phase=${phase}, lastTerminalReason=${lastTerminalReason}`
-        : `terminal: phase=${phase}, no prior turn this session`;
-    } else if (phase === "queued") {
-      explanation = `active: phase=queued, pending=${turnState.pendingQueuedCount}`;
-    } else if (turnState.activeToolCallCount > 0) {
-      explanation = `active: phase=${phase}, activeToolCallCount=${turnState.activeToolCallCount}`;
-    } else if (conditions.hasStreamingAssistantMessage) {
-      explanation = `active: phase=${phase}, streaming an assistant message`;
-    } else {
-      explanation = `active: phase=${phase}`;
-    }
-
     return {
       visible,
       turnState,
@@ -533,8 +573,36 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         terminal,
         phase,
         lastTerminalReason,
-        explanation,
       },
+    };
+  }
+
+  function streamingRing(): ChatDebugStreamingRing {
+    const turnState = refs.getTurnState();
+    const uiContext = refs.getUIContext();
+
+    // The ring renders in `ChatAvatar` for custom-image avatars iff
+    // `isStreaming || isProcessing`; mirror both gates so a stuck (or missing)
+    // ring points straight at the latched gate. `isStreaming` is the app's
+    // `isAssistantStreaming` (`showThinking || hasStreamingAssistantMessage`);
+    // `isProcessing` is the coarse `activeConversationIsProcessing` OR-signal.
+    const isStreaming =
+      shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext) ||
+      uiContext.hasStreamingAssistantMessage;
+    const isProcessing = uiContext.activeConversationIsProcessing === true;
+    const litBy: string[] = [];
+    if (isStreaming) {
+      litBy.push("isStreaming");
+    }
+    if (isProcessing) {
+      litBy.push("isProcessing");
+    }
+
+    return {
+      visible: isStreaming || isProcessing,
+      isStreaming,
+      isProcessing,
+      litBy,
     };
   }
 
@@ -553,12 +621,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  async function serverMessages(): Promise<RuntimeMessage[]> {
-    // Resolve context from `streamContextRef` first (matches what
-    // reconcile would use); fall back to assistantId +
-    // activeConversationId so the call still works during a brief
-    // conv-switch window where the stream context is transiently null.
-    const streamContext = refs.streamContextRef.current;
+  async function serverMessages(): Promise<MessagesGetResponse | undefined> {
+    // Resolve context from stream store first (matches what reconcile
+    // would use); fall back to assistantId + activeConversationId so
+    // the call still works during a brief conv-switch window where
+    // the stream context is transiently null.
+    const streamContext = useStreamStore.getState().streamContext;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
@@ -581,7 +649,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    const messages = refs.messagesRef.current ?? [];
+    const { messages } = useChatSessionStore.getState();
     const itemCount = messages.length;
     const pagination = refs.getScrollPagination();
 
@@ -659,11 +727,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "",
       "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
       "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts",
+      "  .getPhase()                current turn phase (idle/queued/thinking/streaming/awaiting_user_input/errored)",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
+      "  .streamingRing()           why the avatar ring is showing or stuck — .visible / .litBy",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
-      "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
+      "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
       "                              contact-request/question) and submission flags",
@@ -677,7 +747,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   return {
     getClientMessages,
     getTranscriptItems,
+    getPhase,
     thinkingIndicator,
+    streamingRing,
     forceReconcile,
     serverMessages,
     listPendingInteractions,
@@ -713,19 +785,19 @@ export interface VellumDebugFlagsApi {
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
 
-  /** Opt into the new avatar progress-badge UX. When off (default), the
-   *  chat shows the long-standing transcript "thinking…" dots; when on,
-   *  the dots are hidden and a small pulsing badge renders on the
-   *  assistant avatar instead. Persists to localStorage and reloads.
+  /** Opt into client-side seq gap detection. When enabled, the bus
+   *  subscriber tracks per-conversation seq cursors and triggers
+   *  reconcile on gaps or server restarts. Persists to localStorage
+   *  and reloads.
    *
-   *  - `toggleProgressBadge(true)`   — enable + reload.
-   *  - `toggleProgressBadge(false)`  — disable + reload.
-   *  - `toggleProgressBadge(null)`   — clear + reload (same as false).
-   *  - `toggleProgressBadge()`       — log + return current value
+   *  - `toggleSeqGapDetection(true)`   — enable + reload.
+   *  - `toggleSeqGapDetection(false)`  — disable + reload.
+   *  - `toggleSeqGapDetection(null)`   — clear + reload (same as false).
+   *  - `toggleSeqGapDetection()`       — log + return current value
    *    (no reload, no mutation).
    *
    *  Returns the value in effect after the call. */
-  toggleProgressBadge(value?: boolean | null): boolean;
+  toggleSeqGapDetection(value?: boolean | null): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -753,7 +825,7 @@ declare global {
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
  *   - `flags` — dev-toggleable feature flags
- *     (`impersonateVersion`, `toggleProgressBadge`).
+ *     (`impersonateVersion`, `toggleSeqGapDetection`).
  *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
@@ -817,17 +889,14 @@ export function installVellumDebugApi(
  */
 export function useChatDebugApi(refs: ChatDebugRefs): void {
   const latestRefs = useRef(refs);
-  latestRefs.current = refs;
+  useLayoutEffect(() => { latestRefs.current = refs; });
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
-      messagesRef: refs.messagesRef,
       sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,
-      streamContextRef: refs.streamContextRef,
-      streamRef: refs.streamRef,
-      streamEpochRef: refs.streamEpochRef,
+
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),
@@ -841,7 +910,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
-      toggleProgressBadge: setProgressBadgeEnabled,
+      toggleSeqGapDetection: setSeqGapDetectionEnabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

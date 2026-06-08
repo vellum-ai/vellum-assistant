@@ -21,16 +21,19 @@
  * as a gateway edge token — send it as `Authorization: Bearer <token>` on
  * subsequent runtime requests.
  *
- * Response body: `{ token, expiresAt, guardianId, assistantId }`
+ * Response body: `{ token, expiresAt, guardianId, assistantId }`. The
+ * device-bound path (a `deviceId` is supplied) additionally returns
+ * `{ refreshToken, refreshTokenExpiresAt, refreshAfter }` so the client can
+ * renew via `/v1/guardian/refresh` instead of re-pairing.
  */
 
+import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
-import { isLoopbackAddress } from "../../util/is-loopback-address.js";
-import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
 
 const log = getLogger("pair");
 
@@ -74,9 +77,7 @@ function checkRateLimit(peerIp: string): {
 
   if (entry.timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
     const oldestInWindow = entry.timestamps[0] ?? now;
-    const resetAt = Math.ceil(
-      (oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000,
-    );
+    const resetAt = Math.ceil((oldestInWindow + RATE_LIMIT_WINDOW_MS) / 1000);
     return {
       allowed: false,
       limit: RATE_LIMIT_MAX_REQUESTS,
@@ -98,37 +99,6 @@ export function resetPairRateLimiterForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Host header parsing
-// ---------------------------------------------------------------------------
-
-export function parseHostHeader(raw: string): string | null {
-  if (raw.length === 0) return null;
-  if (raw.startsWith("[")) {
-    const end = raw.indexOf("]");
-    if (end < 0) return null;
-    const after = raw.substring(end + 1);
-    if (after.length > 0 && !after.startsWith(":")) return null;
-    return raw.substring(1, end);
-  }
-  const firstColon = raw.indexOf(":");
-  if (firstColon < 0) return raw;
-  const secondColon = raw.indexOf(":", firstColon + 1);
-  if (secondColon >= 0) {
-    return raw;
-  }
-  return raw.substring(0, firstColon);
-}
-
-function isLoopbackHostHeader(host: string | null): boolean {
-  if (!host) return true;
-  const parsed = parseHostHeader(host);
-  if (parsed === null) return false;
-  const hostname = parsed.toLowerCase();
-  if (hostname === "localhost") return true;
-  return isLoopbackAddress(hostname);
-}
-
-// ---------------------------------------------------------------------------
 // Guardian resolution
 // ---------------------------------------------------------------------------
 
@@ -136,7 +106,7 @@ interface GuardianPrincipalRow {
   principalId: string | null;
 }
 
-async function resolveLocalGuardianPrincipalId(): Promise<string> {
+export async function resolveLocalGuardianPrincipalId(): Promise<string> {
   try {
     const rows = await assistantDbQuery<GuardianPrincipalRow>(
       `SELECT c.principal_id AS principalId
@@ -187,14 +157,6 @@ function auditDeny(
 // Handler
 // ---------------------------------------------------------------------------
 
-function errorResponse(
-  code: string,
-  message: string,
-  status: number,
-): Response {
-  return Response.json({ error: { code, message } }, { status });
-}
-
 function getExternalAssistantId(): string {
   return (
     process.env.VELLUM_ASSISTANT_NAME?.trim() || DAEMON_INTERNAL_ASSISTANT_ID
@@ -212,28 +174,10 @@ export async function handlePair(
     });
   }
 
-  // Defense-in-depth: reject Velay-bridged requests. The bridge injects this
-  // header on every forwarded request; it cannot be stripped by a Velay client.
-  if (req.headers.get(VELAY_FORWARDED_HEADER)) {
-    auditDeny(req, clientIp, "velay_bridged");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  if (!clientIp || !isLoopbackAddress(clientIp)) {
-    auditDeny(req, clientIp, "non_loopback_peer");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  const host = req.headers.get("host");
-  if (!isLoopbackHostHeader(host)) {
-    auditDeny(req, clientIp, "non_loopback_host_header");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  if (req.headers.get("x-forwarded-for")) {
-    auditDeny(req, clientIp, "x_forwarded_for_present");
-    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
+  // Loopback-only boundary (Velay/edge markers, peer IP, Host header,
+  // X-Forwarded-For) — shared with the other local-machine endpoints.
+  const guardError = enforceLoopbackOnly(req, clientIp, "pair");
+  if (guardError) return guardError;
 
   const rateResult = checkRateLimit(clientIp);
   if (!rateResult.allowed) {
@@ -273,6 +217,29 @@ export async function handlePair(
   const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
   const assistantId = getExternalAssistantId();
 
+  // Optionally, a client may supply a deviceId to receive a device-bound,
+  // DB-recorded, refreshable token pair (revocable per device) instead of the
+  // legacy stateless token. The body is optional — a malformed or absent body
+  // simply leaves deviceId undefined and preserves the stateless path.
+  let deviceId: string | undefined;
+  let bodyPlatform: string | undefined;
+  if ((req.headers.get("content-type") ?? "").includes("json")) {
+    try {
+      const body = (await req.json()) as {
+        deviceId?: unknown;
+        platform?: unknown;
+      };
+      if (typeof body.deviceId === "string" && body.deviceId.trim()) {
+        deviceId = body.deviceId.trim();
+      }
+      if (typeof body.platform === "string" && body.platform.trim()) {
+        bodyPlatform = body.platform.trim();
+      }
+    } catch {
+      // Ignore malformed/empty body — fall back to the stateless path.
+    }
+  }
+
   if (interfaceId === "chrome-extension") {
     // Require the request to originate from a known Vellum extension origin.
     //
@@ -298,6 +265,18 @@ export async function handlePair(
       );
     }
 
+    // Device-bound path: mint a recorded, per-device-revocable access token.
+    if (deviceId) {
+      return mintDeviceBoundPairResponse({
+        guardianPrincipalId,
+        assistantId,
+        deviceId,
+        platform: bodyPlatform ?? interfaceId,
+        interfaceId,
+        clientId,
+      });
+    }
+
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_SECONDS * 1000;
     const token = mintToken({
       aud: "vellum-gateway",
@@ -321,10 +300,93 @@ export async function handlePair(
     });
   }
 
+  // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
+  // device-bound token for another machine. The loopback / X-Forwarded-For /
+  // edge-marker guards above are the boundary. A deviceId is required — CLI
+  // pairing is always device-scoped (and thus revocable).
+  if (interfaceId === "cli") {
+    // A real `vellum pair` is a terminal process and never sends an Origin
+    // header; any Origin means a browser/WebView is calling (e.g. dynamic
+    // surface JS at https://<appId>.vellum.local). Reject it: combined with the
+    // gateway's WebView CORS allowance, such JS could otherwise mint and read
+    // back a broadly-scoped actor_client_v1 token. (A local non-browser process
+    // omitting Origin can still mint — that's the intentional loopback trust
+    // model; this guard closes the browser/WebView sandbox-escape vector.)
+    const origin = req.headers.get("origin");
+    if (origin) {
+      auditDeny(req, clientIp, "cli_browser_origin", { origin });
+      return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
+    }
+    if (!deviceId) {
+      return errorResponse(
+        "BAD_REQUEST",
+        "cli interface requires a deviceId",
+        400,
+      );
+    }
+    return mintDeviceBoundPairResponse({
+      guardianPrincipalId,
+      assistantId,
+      deviceId,
+      platform: bodyPlatform ?? "cli",
+      interfaceId,
+      clientId,
+    });
+  }
+
   auditDeny(req, clientIp, "unknown_interface", { interfaceId });
   return errorResponse(
     "BAD_REQUEST",
     `unsupported interface: '${interfaceId}'`,
     400,
   );
+}
+
+/**
+ * Mint a device-bound, recorded, per-device-revocable credential and build the
+ * pair response. Shared by the chrome-extension (deviceId) and cli pairing
+ * paths.
+ *
+ * Issues the standard access + long-lived device-scoped refresh token pair, so
+ * a paired client renews via `/v1/guardian/refresh` instead of re-pairing.
+ * Both are revocable per device on the hot path (actor-token revocation is
+ * enforced on live requests), and the refresh endpoint rejects revoked/rotated
+ * tokens — so revocation, not a short TTL, bounds a leaked token's reach. The
+ * access TTL matches what `/v1/guardian/refresh` mints on rotation, so it stays
+ * consistent across the token's life (rather than 24h at mint then 30d after
+ * the first refresh).
+ */
+function mintDeviceBoundPairResponse(opts: {
+  guardianPrincipalId: string;
+  assistantId: string;
+  deviceId: string;
+  platform: string;
+  interfaceId: string;
+  clientId: string | null;
+}): Response {
+  const pair = mintAndRecordDeviceBoundTokenPair({
+    guardianPrincipalId: opts.guardianPrincipalId,
+    deviceId: opts.deviceId,
+    platform: opts.platform,
+  });
+
+  log.info(
+    {
+      interfaceId: opts.interfaceId,
+      clientId: opts.clientId,
+      guardianPrincipalId: opts.guardianPrincipalId,
+      platform: opts.platform,
+    },
+    "Client paired successfully via loopback (device-bound)",
+  );
+
+  return Response.json({
+    token: pair.accessToken,
+    expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+    refreshToken: pair.refreshToken,
+    refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
+    refreshAfter: new Date(pair.refreshAfter).toISOString(),
+    guardianId: opts.guardianPrincipalId,
+    assistantId: opts.assistantId,
+  });
 }

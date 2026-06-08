@@ -158,7 +158,17 @@ export function AnimatedAvatar({
   const morphTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (reduce || isStreaming) return;
+    // Force eyes open whenever blinking is disabled (reduced-motion or
+    // streaming). A blink is a `setIsBlinking(true)` → 150ms → `false` pair;
+    // if `isStreaming` flips true mid-blink, this effect's cleanup cancels the
+    // pending "un-blink" timeout, so without this reset `isBlinking` freezes
+    // at `true` and the eyes stay squished (scaleY 0.1) until the component
+    // remounts (page refresh / conversation switch). Mirrors the twitch
+    // guard (`effectiveTwitchAngle = isStreaming ? 0 : twitchAngle`).
+    if (reduce || isStreaming) {
+      setIsBlinking(false);
+      return;
+    }
     let cancelled = false;
 
     function scheduleBlink() {
@@ -196,7 +206,14 @@ export function AnimatedAvatar({
   }, [reduce, isStreaming]);
 
   useEffect(() => {
-    if (reduce || isStreaming) return;
+    // Reset the body angle when twitching is disabled so a twitch interrupted
+    // mid-flight by streaming can't freeze the body rotated. (The render also
+    // guards this via `effectiveTwitchAngle`, but resetting the state keeps it
+    // correct after streaming ends without waiting for the next twitch cycle.)
+    if (reduce || isStreaming) {
+      setTwitchAngle(0);
+      return;
+    }
     let cancelled = false;
 
     function scheduleTwitch() {
@@ -252,6 +269,9 @@ export function AnimatedAvatar({
       : "avatar-breathe-kf 4s ease-in-out infinite";
 
   const effectiveTwitchAngle = isStreaming ? 0 : twitchAngle;
+  // Never squish the eyes while streaming — guards the one frame between
+  // `isStreaming` flipping true and the blink effect resetting `isBlinking`.
+  const effectiveBlinking = isBlinking && !isStreaming;
   const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
 
   return (
@@ -287,7 +307,7 @@ export function AnimatedAvatar({
 
       <g
         style={{
-          transform: isBlinking ? "scaleY(0.1)" : "scaleY(1)",
+          transform: effectiveBlinking ? "scaleY(0.1)" : "scaleY(1)",
           transformOrigin: `${eyeCenterOutputX}px ${eyeCenterOutputY}px`,
           transition: "transform 0.15s ease-in-out",
         }}

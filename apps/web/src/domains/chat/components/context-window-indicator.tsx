@@ -3,8 +3,8 @@ import { Brain } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { BottomSheet, Button } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet, Button } from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
   tokens: number;
@@ -146,14 +146,10 @@ function MobileSheetContent({
 }) {
   return (
     <>
-      <div className="flex flex-col items-center gap-5">
+      <div className="flex flex-col items-center gap-6">
         <span
           aria-hidden="true"
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
-          style={{
-            backgroundColor:
-              "color-mix(in oklab, var(--primary-base) 16%, transparent)",
-          }}
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-active)]"
         >
           <Brain className="h-7 w-7 text-[var(--primary-base)]" />
         </span>
@@ -161,7 +157,7 @@ function MobileSheetContent({
         <BottomSheet.Title className="justify-center">Context Window</BottomSheet.Title>
 
         <div className="w-full px-2">
-          <div className="relative h-3 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
+          <div className="relative h-4 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
             <div
               className="h-full rounded-full transition-[width] duration-250 ease-out"
               style={{
@@ -172,7 +168,7 @@ function MobileSheetContent({
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-1.5">
+        <div className="flex flex-col items-center gap-2">
           <span className="text-body-large-default text-[var(--content-default)]">
             {percentage}% full
             {maxTokens != null && (
@@ -190,7 +186,7 @@ function MobileSheetContent({
       </div>
 
       {onClearContext && (
-        <BottomSheet.Footer className="justify-center pt-4">
+        <BottomSheet.Footer className="justify-center pt-6">
           <Button
             variant="outlined"
             fullWidth
@@ -294,11 +290,11 @@ export function ContextWindowIndicator({
             />
           </button>
         </BottomSheet.Trigger>
-        <BottomSheet.Content aria-describedby={undefined}>
+        <BottomSheet.Content aria-describedby={undefined} className="max-h-[85dvh]">
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>Context Window</BottomSheet.Title>
           </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">
+          <BottomSheet.Body className="px-2 pt-8 pb-8">
             <MobileSheetContent
               percentage={percentage}
               ringColor={ringColor}

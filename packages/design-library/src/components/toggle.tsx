@@ -50,7 +50,7 @@ export function Toggle({
 
   const trackClasses = cn(
     "relative inline-flex h-6 w-9 shrink-0 items-center rounded-full transition-colors",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+    "keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-2",
     disabled
       ? "cursor-not-allowed bg-[var(--primary-disabled)]"
       : checked

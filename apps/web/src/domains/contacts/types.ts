@@ -1,115 +1,25 @@
-export type ContactChannelType = "slack" | "telegram" | "phone" | "email" | string;
+import type {
+  ChannelsAvailableGetResponse,
+  ChannelsReadinessGetResponse,
+  ContactsGetResponse,
+} from "@/generated/daemon/types.gen";
 
-export interface ChannelInfo {
-  id: string;
-  label: string;
-  subtitle: string;
-  /** Lucide icon name in kebab-case (e.g. "hash", "send", "message-square"). */
-  icon: string;
-  supportsVerification: boolean;
-  setupMessages: {
-    guardian: string;
-    contact: string;
-  };
-}
+// ---------------------------------------------------------------------------
+// Types derived from the generated daemon SDK
+// ---------------------------------------------------------------------------
 
-export interface ContactChannelPayload {
-  id: string;
-  type: ContactChannelType;
-  address: string;
-  isPrimary: boolean;
-  externalUserId?: string | null;
-  status: string;
-  policy: string;
-  verifiedAt?: number | null;
-  verifiedVia?: string | null;
-  lastSeenAt?: number | null;
-  interactionCount?: number | null;
-  lastInteraction?: number | null;
-  revokedReason?: string | null;
-  blockedReason?: string | null;
-}
+export type ContactPayload = ContactsGetResponse["contacts"][number];
+export type ContactChannelPayload = ContactPayload["channels"][number];
 
-export interface ContactPayload {
-  id: string;
-  displayName: string;
-  role: string;
-  notes?: string | null;
-  contactType?: string | null;
-  lastInteraction?: number | null;
-  interactionCount: number;
-  channels: ContactChannelPayload[];
-}
+export type ChannelInfo = ChannelsAvailableGetResponse["channels"][number];
 
-export interface ReadinessCheck {
-  name: string;
-  passed: boolean;
-  message?: string | null;
-}
+type ReadinessSnapshot = ChannelsReadinessGetResponse["snapshots"][number];
+export type ChannelReadinessSnapshot = ReadinessSnapshot;
+export type ReadinessCheck = NonNullable<ReadinessSnapshot["localChecks"]>[number];
 
-export interface ChannelReadinessSnapshot {
-  channel: "slack" | "telegram" | "phone" | string;
-  ready: boolean;
-  setupStatus?: "ready" | "incomplete" | "not_configured" | string | null;
-  channelHandle?: string | null;
-  localChecks?: ReadinessCheck[];
-  remoteChecks?: ReadinessCheck[];
-}
-
-export interface SlackChannelConfig {
-  hasBotToken?: boolean;
-  hasAppToken?: boolean;
-  connected?: boolean;
-  botUsername?: string | null;
-  botUserId?: string | null;
-  teamId?: string | null;
-  teamName?: string | null;
-}
-
-export interface NewContactChannelInput {
-  type: ContactChannelType;
-  address: string;
-  isPrimary?: boolean;
-}
-
-export interface CreateContactInput {
-  displayName: string;
-  notes?: string;
-  channels?: NewContactChannelInput[];
-}
-
-export interface TelegramConfig {
-  success: boolean;
-  hasBotToken: boolean;
-  botId?: string | null;
-  botUsername?: string | null;
-  connected: boolean;
-}
-
-export interface TwilioConfig {
-  success: boolean;
-  hasCredentials: boolean;
-  accountSid?: string;
-  phoneNumber?: string;
-}
-
-export interface TwilioPhoneNumber {
-  phoneNumber: string;
-  friendlyName: string;
-}
-
-export interface CreateA2AInviteResponse {
-  inviteId: string;
-  token: string;
-  expiresAt: number;
-}
-
-export interface RedeemA2AInviteResponse {
-  success: boolean;
-  alreadyConnected?: boolean;
-  error?: string;
-  errorCode?: string;
-}
+// ---------------------------------------------------------------------------
+// UI-only types (no daemon/gateway equivalent)
+// ---------------------------------------------------------------------------
 
 export type ContactSelection =
   | { kind: "assistant" }

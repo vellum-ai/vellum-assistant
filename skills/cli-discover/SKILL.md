@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔍"
   vellum:
+    category: "development"
     display-name: "CLI Discovery"
 ---
 
@@ -31,17 +32,17 @@ Use a 5-second timeout to avoid hanging on unresponsive CLIs.
 
 For CLIs that support authentication, check whether the user is logged in:
 
-| CLI | Auth check command |
-|-----|-------------------|
-| `gh` | `gh auth status` |
-| `aws` | `aws sts get-caller-identity` |
-| `gcloud` | `gcloud auth list --filter=status:ACTIVE --format=value(account)` |
-| `az` | `az account show` |
-| `vercel` | `vercel whoami` |
-| `netlify` | `netlify status` |
-| `fly` | `fly auth whoami` |
-| `heroku` | `heroku auth:whoami` |
-| `railway` | `railway whoami` |
+| CLI       | Auth check command                                                |
+| --------- | ----------------------------------------------------------------- |
+| `gh`      | `gh auth status`                                                  |
+| `aws`     | `aws sts get-caller-identity`                                     |
+| `gcloud`  | `gcloud auth list --filter=status:ACTIVE --format=value(account)` |
+| `az`      | `az account show`                                                 |
+| `vercel`  | `vercel whoami`                                                   |
+| `netlify` | `netlify status`                                                  |
+| `fly`     | `fly auth whoami`                                                 |
+| `heroku`  | `heroku auth:whoami`                                              |
+| `railway` | `railway whoami`                                                  |
 
 ## Common CLIs worth checking
 

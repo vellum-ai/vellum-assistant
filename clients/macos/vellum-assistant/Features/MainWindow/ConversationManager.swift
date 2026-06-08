@@ -427,6 +427,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.applyAssistantAttention(from: item, into: &conversation)
     }
 
+    func mergeConversationRow(from item: ConversationListResponseItem) {
+        listStore.mergeConversationRow(from: item)
+    }
+
     func handleSyncRoutes(_ routes: [SyncTagRoute]) {
         conversationRestorer.handleSyncRoutes(
             routes,
@@ -1484,36 +1488,53 @@ final class ConversationManager: ConversationRestorerDelegate {
     // MARK: - Conversation ID Resolution
 
     private func resolveConversationId(from syntheticId: String, to serverId: String) {
-        guard let index = listStore.conversations.firstIndex(where: { $0.conversationId == syntheticId }) else {
-            log.warning("resolveConversationId: no conversation found with synthetic ID \(syntheticId, privacy: .public)")
+        // Adopt the server id keyed by the view model's stable local UUID rather
+        // than the synthetic conversation id. The sidebar row is created at send
+        // time keyed by that local UUID with no conversation id yet, and
+        // conversation-list sync can later key it directly by the server id, so a
+        // lookup by the synthetic id misses and would strand the view model on the
+        // synthetic id forever. The minting view model still carries the synthetic
+        // id here, so resolve the local UUID through it.
+        guard let (localId, viewModel) = selectionStore.chatViewModels.first(where: { $0.value.conversationId == syntheticId }) else {
+            log.warning("resolveConversationId: no view model found with synthetic ID \(syntheticId, privacy: .public)")
             return
         }
-        listStore.conversations[index].conversationId = serverId
+        viewModel.conversationId = serverId
 
-        if let vm = selectionStore.chatViewModels.values.first(where: { $0.conversationId == syntheticId }) {
-            vm.conversationId = serverId
-        }
+        if let index = listStore.conversations.firstIndex(where: { $0.id == localId }) {
+            listStore.conversations[index].conversationId = serverId
 
-        // Migrate keyed state from the synthetic ID to the real server ID.
-        if let override = listStore.pendingAttentionOverrides.removeValue(forKey: syntheticId) {
-            listStore.pendingAttentionOverrides[serverId] = override
-        }
-        // Preserves the original archive timestamp across the synthetic → server id swap.
-        listStore.replaceArchivedKey(from: syntheticId, to: serverId)
-        if let idx = listStore.pendingSeenConversationIds.firstIndex(of: syntheticId) {
-            listStore.pendingSeenConversationIds[idx] = serverId
-        }
+            // Migrate keyed state from the synthetic ID to the real server ID.
+            if let override = listStore.pendingAttentionOverrides.removeValue(forKey: syntheticId) {
+                listStore.pendingAttentionOverrides[serverId] = override
+            }
+            // Preserves the original archive timestamp across the synthetic → server id swap.
+            listStore.replaceArchivedKey(from: syntheticId, to: serverId)
+            if let idx = listStore.pendingSeenConversationIds.firstIndex(of: syntheticId) {
+                listStore.pendingSeenConversationIds[idx] = serverId
+            }
 
-        listStore.sendReorderConversations()
+            listStore.sendReorderConversations()
 
-        let uuidKey = listStore.conversations[index].id
-        if let pendingTitle = listStore.pendingRenames.removeValue(forKey: uuidKey) {
-            Task { await listStore.conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
+            if let pendingTitle = listStore.pendingRenames.removeValue(forKey: localId) {
+                Task { await listStore.conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
+            }
         }
 
         // Clean up the SSE remapping entry now that the VM uses the server ID.
         // This prevents stale remapping and updates host-tool-request filtering.
         eventStreamClient.cleanupAfterConversationIdResolution(localId: syntheticId, serverId: serverId)
+
+        // A turn can complete on the server in the window between minting the
+        // synthetic id and adopting the server id — most notably the instant
+        // canned first greeting, whose terminal events are stamped with the server
+        // id and broadcast before the server→local remap is populated, so the
+        // still-synthetic view model drops them and the send spinner sticks. Now
+        // that the id is adopted, reconcile send state from authoritative history.
+        if viewModel.isAssistantBusy {
+            viewModel.prepareForConversationIdAdoptionReconciliation()
+            conversationRestorer.requestReconnectHistory(conversationId: serverId)
+        }
 
         log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")
     }
@@ -1713,12 +1734,24 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     // MARK: - Managed Key Reprovisioning
 
+    nonisolated static func shouldReprovisionAssistantKeyViaLocalBootstrap(for assistant: LockfileAssistant) -> Bool {
+        !assistant.isManaged && (!assistant.isRemote || assistant.isDocker)
+    }
+
     private func reprovisionManagedKey() async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Cannot reprovision — no connected assistant ID")
             return
         }
-        log.info("Managed API key invalid — attempting reprovision for \(assistantId, privacy: .public)")
+        guard let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.warning("Cannot reprovision assistant API key — active assistant \(assistantId, privacy: .public) is missing from the lockfile")
+            return
+        }
+        guard Self.shouldReprovisionAssistantKeyViaLocalBootstrap(for: assistant) else {
+            log.warning("Skipping local assistant API key reprovision for \(assistantId, privacy: .public) because local bootstrap is only valid for local or Docker assistants")
+            return
+        }
+        log.info("Assistant API key invalid — attempting local reprovision for \(assistantId, privacy: .public)")
         let credentialStorage = FileCredentialStorage()
         let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
         do {
@@ -1727,9 +1760,9 @@ final class ConversationManager: ConversationRestorerDelegate {
                 clientPlatform: "macos",
                 assistantVersion: connectionManager.assistantVersion
             )
-            log.info("Managed API key reprovisioned successfully")
+            log.info("Assistant API key reprovisioned successfully")
         } catch {
-            log.error("Failed to reprovision managed API key: \(error.localizedDescription)")
+            log.error("Failed to reprovision assistant API key: \(error.localizedDescription)")
         }
     }
 }

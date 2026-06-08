@@ -10,14 +10,20 @@
  * - `reconcileFromServer`: delegates to `reconcileMessages`,
  *   reports changed vs unchanged.
  * - `reconcileActiveConversation`: orchestrates fetch, reconciliation,
- *   turn-state dispatch (`POLL_RECONCILED`), and stale-`isStreaming` cleanup.
+ *   turn-state dispatch (`POLL_RECONCILED`), and stale tool-call cleanup.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { createElement } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -25,7 +31,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 // Mocks — module mocks MUST come before importing the subject under test.
 // ---------------------------------------------------------------------------
 
-let mockFetchResult: RuntimeMessage[] = [];
+let mockFetchResult: ConversationMessage[] = [];
+let mockFetchSeq: number | null = null;
 let mockFetchError: Error | null = null;
 let mockFetchSideEffect: (() => void) | null = null;
 let fetchCallCount = 0;
@@ -54,7 +61,7 @@ mock.module("@/domains/chat/api/messages", () => ({
     fetchCallCount++;
     if (mockFetchSideEffect) mockFetchSideEffect();
     if (mockFetchError) throw mockFetchError;
-    return mockFetchResult;
+    return { messages: mockFetchResult, seq: mockFetchSeq };
   },
   // Stubs for the rest of the real module's surface. Provided so dependent
   // test files that import these still get *something* under the global
@@ -70,9 +77,8 @@ mock.module("@/domains/chat/api/messages", () => ({
   ) =>
     toolCalls.map((tc, idx) => ({
       id: `tool-history-${messageId}-${idx}`,
-      toolName: tc.name,
+      name: tc.name,
       input: tc.input,
-      status: tc.isError ? "error" : tc.result === undefined ? "running" : "completed",
       ...(tc.result !== undefined ? { result: tc.result } : {}),
       ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
     })),
@@ -92,24 +98,6 @@ mock.module("@/domains/chat/api/messages", () => ({
     }
     return result.length > 0 ? result : undefined;
   },
-  normalizeTextSegments: (raw: unknown[] | undefined) => {
-    if (!raw || raw.length === 0) return undefined;
-    const result: Array<{ type: string; content: string }> = [];
-    for (const entry of raw) {
-      if (typeof entry === "string") {
-        result.push({ type: "text", content: entry });
-      } else if (entry && typeof entry === "object") {
-        const obj = entry as Record<string, unknown>;
-        if (typeof obj.content === "string") {
-          result.push({
-            type: typeof obj.type === "string" ? obj.type : "text",
-            content: obj.content,
-          });
-        }
-      }
-    }
-    return result.length > 0 ? result : undefined;
-  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -117,8 +105,13 @@ mock.module("@/domains/chat/api/messages", () => ({
 // ---------------------------------------------------------------------------
 
 import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 
+import {
+  makeServerMessage,
+  textBody,
+  wireTextBody,
+} from "@/domains/chat/utils/message-test-helpers";
 type HookReturn = ReturnType<typeof useMessageReconciliation>;
 
 // ---------------------------------------------------------------------------
@@ -126,10 +119,7 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
-  streamEpochRef: RefObject<number>;
-  initialPageOldestTsRef?: RefObject<number | null>;
+  latestPageOldestTimestamp?: number | null;
   collect: (result: HookReturn) => void;
 }
 
@@ -139,10 +129,7 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    setMessages: props.setMessages,
-    streamContextRef: props.streamContextRef,
-    streamEpochRef: props.streamEpochRef,
-    initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
+    latestPageOldestTimestamp: props.latestPageOldestTimestamp ?? null,
   });
   props.collect(result);
   return null;
@@ -152,12 +139,16 @@ function HookHarness(props: HarnessProps): null {
 // Shared state + helpers
 // ---------------------------------------------------------------------------
 
+/** Read/write proxy for the store's `messages` field. Tests assign to
+ *  `messages` before creating the harness (seeding), then read it after
+ *  reconciliation to check the result. Under the hood everything flows
+ *  through the store's real `setMessages` action — no custom override.
+ *  A store subscription keeps this variable in sync automatically. */
 let messages: DisplayMessage[] = [];
+let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
-function makeRef<T>(value: T): RefObject<T> {
-  return { current: value };
-}
+
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
@@ -169,14 +160,9 @@ function makeMessage(
 function createHarness(overrides?: {
   streamContext?: { assistantId: string; conversationId: string } | null;
   streamEpoch?: number;
-  streamEpochRef?: RefObject<number>;
   activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
-  const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
-    messages = typeof updater === "function" ? updater(messages) : updater;
-  };
-
   // Set turn state on the Zustand store before rendering
   const turnState = overrides?.turnState ?? INITIAL_TURN_STATE;
   useTurnStore.setState(turnState);
@@ -191,11 +177,26 @@ function createHarness(overrides?: {
   });
 
   let captured: HookReturn | null = null;
+  // Seed the store's messages field with the current test messages so the
+  // hook's `setMessages` updater reads the correct `prev` value.
+  useChatSessionStore.setState({ messages });
+
+  // Subscribe to keep the local `messages` variable in sync with the store.
+  // This allows existing test assertions (`expect(messages).toHaveLength(...)`)
+  // to work without changes — the store's `setMessages` action updates
+  // `state.messages`, and the subscription propagates it here.
+  if (unsubscribeMessages) unsubscribeMessages();
+  unsubscribeMessages = useChatSessionStore.subscribe((state) => {
+    messages = state.messages;
+  });
+
+  useStreamStore.setState({
+    streamContext: overrides?.streamContext ?? null,
+    streamEpoch: overrides?.streamEpoch ?? 0,
+  });
+
   renderToStaticMarkup(
     createElement(HookHarness, {
-      setMessages,
-      streamContextRef: makeRef(overrides?.streamContext ?? null),
-      streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       collect: (result) => { captured = result; },
     }),
   );
@@ -212,8 +213,14 @@ beforeEach(async () => {
   if (!hookModule) {
     hookModule = await import("./use-message-reconciliation");
   }
+  // Clean up any previous store subscription.
+  if (unsubscribeMessages) {
+    unsubscribeMessages();
+    unsubscribeMessages = null;
+  }
   messages = [];
   mockFetchResult = [];
+  mockFetchSeq = null;
   mockFetchError = null;
   mockFetchSideEffect = null;
   fetchCallCount = 0;
@@ -226,6 +233,18 @@ beforeEach(async () => {
     activeConversationId: null,
     editingConversationId: null,
   });
+  // Reset the chat session store to initial state.
+  useChatSessionStore.setState({
+    messages: [],
+    error: null,
+    isLoadingHistory: true,
+    streamingMessageIds: new Set(),
+    pendingQueuedMessageIds: [],
+    requestIdToMessageId: new Map(),
+    pendingLocalDeletions: new Set(),
+    confirmationToolCallMap: new Map(),
+    expandedToolCallIds: new Set(),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -235,58 +254,58 @@ beforeEach(async () => {
 describe("reconcileFromServer", () => {
   test("returns false for empty server messages", () => {
     const { reconcileFromServer } = createHarness();
-    expect(reconcileFromServer([])).toBe(false);
+    expect(reconcileFromServer([], "conv-1", null)).toBe(false);
   });
 
   test("returns true when messages change", () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "World" },
+    const serverMessages: ConversationMessage[] = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("World") }),
     ];
-    expect(reconcileFromServer(serverMessages)).toBe(true);
+    expect(reconcileFromServer(serverMessages, "conv-1", null)).toBe(true);
   });
 
   test("completes without error when server messages match local (smoke test)", () => {
-    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     messages = [msg];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
-      { id: "m1", role: "user", content: "Hello" },
+    const serverMessages: ConversationMessage[] = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
     // reconcileMessages rebuilds messages from server data, so the array
     // reference changes even when content is identical. This is a smoke
     // test that the round-trip completes without error.
-    const result = reconcileFromServer(serverMessages);
+    const result = reconcileFromServer(serverMessages, "conv-1", null);
     expect(typeof result).toBe("boolean");
   });
 
   test("updates messages state with reconciled result", () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+    const serverMessages: ConversationMessage[] = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
-    reconcileFromServer(serverMessages);
+    reconcileFromServer(serverMessages, "conv-1", null);
     expect(messages).toHaveLength(2);
-    expect(messages[1]).toMatchObject({ id: "m2", role: "assistant", content: "Response" });
+    expect(messages[1]).toMatchObject({ id: "m2", role: "assistant", ...textBody("Response") });
   });
 
   test("surfaces on server messages are preserved in reconciled messages", () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     const { reconcileFromServer } = createHarness();
-    const serverMessages: RuntimeMessage[] = [
-      { id: "m1", role: "user", content: "Hello" },
-      {
+    const serverMessages: ConversationMessage[] = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({
         id: "m2",
         role: "assistant",
-        content: "Here is a form",
+        ...wireTextBody("Here is a form"),
         surfaces: [{ surfaceId: "surf-1", surfaceType: "form", data: { field: "value" } }],
-      },
+      }),
     ];
-    reconcileFromServer(serverMessages);
+    reconcileFromServer(serverMessages, "conv-1", null);
     // Surfaces now live directly on messages, not in a separate Map
     const assistantMsg = messages.find((m) => m.id === "m2");
     expect(assistantMsg).toBeDefined();
@@ -312,10 +331,10 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("fetches messages and reconciles when context exists", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
@@ -332,10 +351,10 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("returns false when conversation key changed during fetch (stale guard)", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     // streamContext says "conv-1" but activeConversationId is now "conv-2"
     const { reconcileActiveConversation } = createHarness({
@@ -351,10 +370,10 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("calls onPollReconciled when messages changed and turn is stuck sending", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     const stuckTurnState: TurnState = {
       phase: "thinking",
@@ -387,10 +406,10 @@ describe("reconcileActiveConversation", () => {
     // last line of defense. If it only clears the turn-store but not the
     // processing key, `canStopGeneration` and the sidebar processing dot
     // stay "true" even though the assistant message has already rendered.
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     useConversationStore.setState({
       processingConversationIds: new Set(["conv-1"]),
@@ -426,17 +445,16 @@ describe("reconcileActiveConversation", () => {
     // does not fire, and the processing key must stay set — clearing
     // it would prematurely hide the sidebar processing dot while the
     // turn is still legitimately running.
-    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
-      content: "Working on it...",
-      isStreaming: true,
+      ...textBody("Working on it..."),
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Working on it..." },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Working on it...") }),
     ];
     useConversationStore.setState({
       processingConversationIds: new Set(["conv-1"]),
@@ -466,10 +484,10 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("does NOT call onPollReconciled when turnId is null", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     const noTurnIdState: TurnState = {
       phase: "thinking",
@@ -491,10 +509,10 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("does NOT call onPollReconciled when turn is already idle", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     const idleTurnState: TurnState = {
       phase: "idle",
@@ -547,22 +565,21 @@ describe("reconcileActiveConversation", () => {
     // → changed = true → assistantProgress = true → rescue fires.
     //
     // Note: this test deliberately uses a CONTENT MISMATCH between local
-    // and server, not just a stale `isStreaming: true` flag. With the
-    // fix that preserves client-owned `isStreaming` across reconcile,
-    // matching-content + isStreaming alone is no longer a stuckness
-    // signal (it's indistinguishable from a healthy mid-stream sync
-    // reconcile). The rescue requires positive structural evidence.
-    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    // and server. A live row that merely trails the latest user message is
+    // not a stuckness signal on its own (it's indistinguishable from a
+    // healthy mid-stream sync reconcile). The rescue requires positive
+    // structural evidence — the server holding longer assistant content
+    // than the client ever rendered.
+    const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
-      content: "Response in",
-      isStreaming: true,
+      ...textBody("Response in"),
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response in progress... and now done." },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response in progress... and now done.") }),
     ];
     const stuckTurnState: TurnState = {
       phase: "streaming",
@@ -587,22 +604,20 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled during a healthy mid-stream sync reconcile", async () => {
     // Regression guard for the bubble-split fix (PR #31866 / codex P1):
     // when a sync-tag reconcile lands during a healthy live stream, the
-    // local row is `isStreaming: true` and the server snapshot matches
-    // what local already has (server has caught up to the latest delta,
-    // no newer content yet). This must NOT fire the silent-stall rescue
-    // — doing so would force-idle the turn, clear isStreaming, and
+    // live row's content matches what local already has (server has caught
+    // up to the latest delta, no newer content yet). This must NOT fire
+    // the silent-stall rescue — doing so would force-idle the turn and
     // force-complete every running tool call, mid-stream.
-    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
-      content: "Working on it...",
-      isStreaming: true,
+      ...textBody("Working on it..."),
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Working on it..." },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Working on it...") }),
     ];
     const liveStreamingState: TurnState = {
       phase: "streaming",
@@ -627,10 +642,10 @@ describe("reconcileActiveConversation", () => {
     // User backgrounds during "thinking" (before first delta). Server
     // has the same messages from prior history. changed = false, so
     // no premature idle dispatch — the turn is legitimately active.
-    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const msg = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     messages = [msg];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
     const thinkingTurnState: TurnState = {
       phase: "thinking",
@@ -653,15 +668,15 @@ describe("reconcileActiveConversation", () => {
 
   test("does NOT call onPollReconciled when only optimistic user message id changes", async () => {
     messages = [
-      makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
+      makeMessage({ id: "m-old-a", role: "assistant", ...textBody("Prior response") }),
       // Optimistic user rows are explicitly flagged so the tail
       // content-match block in reconcileMessages can drop them in favor
       // of the server-assigned row.
-      makeMessage({ role: "user", content: "Continue the story", isOptimistic: true }),
+      makeMessage({ role: "user", ...textBody("Continue the story"), isOptimistic: true }),
     ];
     mockFetchResult = [
-      { id: "m-old-a", role: "assistant", content: "Prior response" },
-      { id: "m-user-1", role: "user", content: "Continue the story" },
+      makeServerMessage({ id: "m-old-a", role: "assistant", ...wireTextBody("Prior response") }),
+      makeServerMessage({ id: "m-user-1", role: "user", ...wireTextBody("Continue the story") }),
     ];
     const thinkingTurnState: TurnState = {
       phase: "thinking",
@@ -689,14 +704,14 @@ describe("reconcileActiveConversation", () => {
 
   test("does NOT call onPollReconciled when only older assistant history changes", async () => {
     messages = [
-      makeMessage({ id: "m-user-old", role: "user", content: "Start the story" }),
-      makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
-      makeMessage({ role: "user", content: "Continue the story" }),
+      makeMessage({ id: "m-user-old", role: "user", ...textBody("Start the story") }),
+      makeMessage({ id: "m-old-a", role: "assistant", ...textBody("Prior response") }),
+      makeMessage({ role: "user", ...textBody("Continue the story") }),
     ];
     mockFetchResult = [
-      { id: "m-user-old", role: "user", content: "Start the story" },
-      { id: "m-old-a", role: "assistant", content: "Prior response with more detail" },
-      { id: "m-user-1", role: "user", content: "Continue the story" },
+      makeServerMessage({ id: "m-user-old", role: "user", ...wireTextBody("Start the story") }),
+      makeServerMessage({ id: "m-old-a", role: "assistant", ...wireTextBody("Prior response with more detail") }),
+      makeServerMessage({ id: "m-user-1", role: "user", ...wireTextBody("Continue the story") }),
     ];
     const thinkingTurnState: TurnState = {
       phase: "thinking",
@@ -718,7 +733,7 @@ describe("reconcileActiveConversation", () => {
     expect(messages[1]).toMatchObject({
       id: "m-old-a",
       role: "assistant",
-      content: "Prior response with more detail",
+      ...textBody("Prior response with more detail"),
     });
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
@@ -726,13 +741,12 @@ describe("reconcileActiveConversation", () => {
   test("bails out when epoch changes during fetch", async () => {
     // Simulate the page going hidden while the fetch is in-flight:
     // the hidden handler bumps the epoch, so this reconciliation is stale.
-    const epochRef = makeRef(1);
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
-    mockFetchSideEffect = () => { epochRef.current = 2; };
+    mockFetchSideEffect = () => { useStreamStore.setState({ streamEpoch: 2 }); };
     const stuckTurnState: TurnState = {
       phase: "streaming",
       pendingQueuedCount: 0,
@@ -745,7 +759,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      streamEpochRef: epochRef,
+      streamEpoch: 1,
       activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
@@ -758,10 +772,10 @@ describe("reconcileActiveConversation", () => {
     // User starts a new turn while the visibility reconciliation fetch
     // is in-flight. The new turn has a different activeTurnId, so
     // wasStuck is false (turnId mismatch).
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchResult = [
-      { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
     ];
     // During fetch, a new turn starts with a different turnId
     mockFetchSideEffect = () => {
@@ -794,46 +808,14 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("clears stale isStreaming flags when turn is idle and fetch returns empty", async () => {
-    // When the server returns no messages, reconcileFromServer bails early
-    // (returns false) and does NOT update the messages array. The local
-    // messages — including their isStreaming flags — survive unchanged.
-    // The stale-cleanup branch then detects and clears those flags.
+  test("does NOT fire the silent-stall rescue when the turn is sending and the server returns empty", async () => {
+    // Empty server response + active turn → no POLL_RECONCILED, because we
+    // treat empty responses as "server hasn't caught up yet."
+    // reconcileFromServer bails early (returns false), so there is no
+    // assistant progress to rescue on.
     messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
-    ];
-    mockFetchResult = [];
-    const idleTurnState: TurnState = {
-      phase: "idle",
-      pendingQueuedCount: 0,
-      activeToolCallCount: 0,
-      activeTurnId: null,
-      lastTerminalReason: null,
-      statusText: null,
-      liveWebActivity: {},
-      autoRoutedProfileLabel: null,
-    };
-    const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationId: "conv-1",
-      turnState: idleTurnState,
-    });
-    const result = await reconcileActiveConversation();
-    expect(result.changed).toBe(false);
-    // The cleanup branch should have cleared the stale isStreaming flag
-    const streamingMessages = messages.filter((m) => m.isStreaming);
-    expect(streamingMessages).toHaveLength(0);
-    expect(messages[1]!.isStreaming).toBe(false);
-  });
-
-  test("does NOT clear isStreaming when turn is sending and server returns empty", async () => {
-    // Empty server response + active turn → neither POLL_RECONCILED nor
-    // isStreaming cleanup fires, because we treat empty responses as
-    // "server hasn't caught up yet."
-    messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
+      makeMessage({ id: "m2", role: "assistant", ...textBody("Response") }),
     ];
     mockFetchResult = [];
     const streamingTurnState: TurnState = {
@@ -852,32 +834,26 @@ describe("reconcileActiveConversation", () => {
       turnState: streamingTurnState,
     });
     await reconcileActiveConversation();
-    expect(messages[1]!.isStreaming).toBe(true);
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("returns no-change on fetch error", async () => {
+  test("rejects on fetch error so callers can distinguish failure from no-change", async () => {
     mockFetchError = new Error("Network error");
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationId: "conv-1",
     });
-    const result = await reconcileActiveConversation();
-    expect(result).toEqual({
-      changed: false,
-      messagesAdded: 0,
-      assistantProgress: false,
-    });
+    await expect(reconcileActiveConversation()).rejects.toThrow("Network error");
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
   test("calls onPollReconciled for all sending phases", async () => {
     const sendingPhases = ["queued", "thinking", "streaming", "awaiting_user_input"] as const;
     for (const phase of sendingPhases) {
-      messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+      messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
       mockFetchResult = [
-        { id: "m1", role: "user", content: "Hello" },
-        { id: "m2", role: "assistant", content: "Response" },
+        makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+        makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
       ];
       const turnState: TurnState = {
         phase,
@@ -907,7 +883,7 @@ describe("reconcileActiveConversation", () => {
 
 describe("reconcileActiveConversation — fetch failure", () => {
   test("does NOT call onPollReconciled when fetch fails, even if turn is stuck", async () => {
-    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
     mockFetchError = new Error("network timeout");
     const turnState: TurnState = {
       phase: "streaming",
@@ -924,8 +900,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       activeConversationId: "conv-1",
       turnState,
     });
-    const result = await reconcileActiveConversation();
-    expect(result.changed).toBe(false);
+    await expect(reconcileActiveConversation()).rejects.toThrow("network timeout");
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 });
@@ -960,10 +935,10 @@ describe("startReconciliationLoop", () => {
     globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
 
     try {
-      messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+      messages = [makeMessage({ id: "m1", role: "user", ...textBody("Hello") })];
       mockFetchResult = [
-        { id: "m1", role: "user", content: "Hello" },
-        { id: "m2", role: "assistant", content: "Response" },
+        makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+        makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
       ];
 
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
@@ -995,7 +970,7 @@ describe("startReconciliationLoop", () => {
       expect(messages[1]).toMatchObject({
         id: "m2",
         role: "assistant",
-        content: "Response",
+        ...textBody("Response"),
       });
 
       cancelReconciliation();
@@ -1025,14 +1000,18 @@ describe("startReconciliationLoop", () => {
     globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
 
     try {
-      const baseline: RuntimeMessage[] = [
-        { id: "m1", role: "user", content: "Hello" },
-        { id: "m2", role: "assistant", content: "Response" },
+      messages = [
+        makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
+        makeMessage({ id: "m2", role: "assistant", ...textBody("Response") }),
       ];
-      messages = baseline.map((m) =>
-        makeMessage({ id: m.id, role: m.role, content: m.content }),
-      );
-      mockFetchResult = baseline;
+      mockFetchResult = [
+        makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+        makeServerMessage({
+          id: "m2",
+          role: "assistant",
+          ...wireTextBody("Response"),
+        }),
+      ];
 
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
@@ -1075,14 +1054,13 @@ describe("startReconciliationLoop", () => {
 describe("reconcileActiveConversation — stale tool call cleanup", () => {
   test("force-completes stale running tool calls when turn is idle", async () => {
     messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
       makeMessage({
         id: "m2",
         role: "assistant",
-        content: "",
-        isStreaming: true,
+        ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1104,23 +1082,21 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     });
     await reconcileActiveConversation();
 
-    // Both isStreaming and running tool calls should be cleared
-    expect(messages[1]!.isStreaming).toBe(false);
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    // The running tool call should be force-completed once the turn is idle.
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
-  test("force-completes stale tool calls even when isStreaming is already false", async () => {
+  test("force-completes stale tool calls on a non-live assistant row", async () => {
     messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
       makeMessage({
         id: "m2",
         role: "assistant",
-        content: "partial",
-        isStreaming: false,
+        ...textBody("partial"),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
-          { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
+          { id: "tc-1", name: "web_search", input: {} },
+          { id: "tc-2", name: "bash", input: {}, completedAt: 1 },
         ],
       }),
     ];
@@ -1143,22 +1119,21 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // The running tool call should be force-completed
-    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![0]!)).toBe(true);
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
     // The already-completed tool call should be unchanged
-    expect(messages[1]!.toolCalls![1]!.status).toBe("completed");
+    expect(isToolCallCompleted(messages[1]!.toolCalls![1]!)).toBe(true);
   });
 
   test("does NOT force-complete tool calls when turn is still sending", async () => {
     messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
       makeMessage({
         id: "m2",
         role: "assistant",
-        content: "",
-        isStreaming: true,
+        ...textBody(""),
         toolCalls: [
-          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-1", name: "web_search", input: {} },
         ],
       }),
     ];
@@ -1181,7 +1156,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // Tool call should remain running since the turn is still active
-    expect(messages[1]!.isStreaming).toBe(true);
-    expect(messages[1]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(messages[1]!.toolCalls![0]!)).toBe(true);
   });
 });

@@ -52,7 +52,7 @@ to hide irrelevant sections.
 routes.tsx
   <App />            ← shared shell (nav, layout, providers)
     <Outlet />
-      <ChatPage />           ← mounts chat, streaming, messages
+      <ChatPage />           ← lifecycle guards → mounts ActiveChatView
       <LibraryPage />        ← library listing
       <SettingsTabPage />    ← mounts settings-specific state
 ```
@@ -65,9 +65,12 @@ context provider mounted in `<App />`.
 
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
-populate the header's center and right sections via the
-`useChatLayoutSlotsStore` setters. Register content in a `useEffect`
-and clear it on unmount:
+populate the header via `useChatLayoutSlotsStore`. The store exposes
+two categories of slots:
+
+**Display slots** (`topBarCenter`, `topBarRightSlot`) — accept
+`ReactNode` for simple route titles and right-side controls. Register
+in a `useEffect` and clear on unmount:
 
 ```ts
 const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
@@ -76,6 +79,14 @@ useEffect(() => {
   return () => { setTopBarCenter(null); };
 }, [setTopBarCenter]);
 ```
+
+**Data slots** (`headerSupplements`) — `ActiveChatView` contributes
+structured data (`ChatHeaderSupplements`) that `ChatLayout` renders
+directly. This keeps conversation-action callbacks in `ChatLayout`
+(which owns `useConversationActions`) instead of duplicating them in
+`ActiveChatView`. The supplements carry only the few chat-specific
+values the header menu needs (fork, analyze, inspect callbacks, slack
+label, `hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`
 sits between `ChatLayout` and gated routes — outlet context value
@@ -154,13 +165,83 @@ References:
 - [React Router — Lazy Loading (Data Mode)](https://reactrouter.com/start/data/custom#3-lazy-loading)
 - [React Router — `lazy` property](https://reactrouter.com/start/data/route-object#lazy)
 
+### Manual error reporting from imperative code
+
+For errors caught in `try/catch` blocks, `onError` callbacks, and other
+imperative code paths (as opposed to errors caught by error boundaries),
+use `captureError()` from `lib/sentry/capture-error.ts`:
+
+```ts
+import { captureError } from "@/lib/sentry/capture-error";
+
+captureError(err, { context: "my_operation" });
+// With additional indexed Sentry tags:
+captureError(err, { context: "my_operation", tags: { cause, platform } });
+```
+
+`captureError` handles: transient network-error filtering (via
+`isTransientNetworkError` in `utils/`), `console.error` logging, and
+Sentry capture with structured tags. `context` is always added as a tag;
+pass additional indexed tags via `tags` and unindexed metadata via `extra`.
+Toast/UI display stays at the call site — `captureError` never shows
+user-facing UI.
+
+For **best-effort background fetches** (imperative daemon calls that fire
+optimistically and have natural retry surfaces like SSE reconnect or
+navigation), pass `bestEffort: true`. This additionally filters expected
+daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
+400 org-header-not-ready) while still reporting unexpected errors (500,
+data-integrity, programming errors) to Sentry:
+
+```ts
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
+```
+
+**Do not use bare `Sentry.captureException`.** The only exceptions are
+framework-level integration points that need raw Sentry scope
+manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
+`LazyBoundary`.
+
+### Sentry telemetry: when to use what
+
+| Tool | Creates Sentry issue? | Use when |
+|------|-----------------------|----------|
+| `captureError(err, opts)` | Yes | Catching a real error that indicates a bug or degraded UX. |
+| `Sentry.captureMessage(msg)` | Yes | A non-error event where **every occurrence is individually actionable** (e.g., silent SSE event loss that left a user's turn stuck). |
+| `Sentry.addBreadcrumb(...)` | No — attaches to the next error event | Recording context that's useful for debugging nearby errors but isn't actionable on its own (e.g., watchdog fired, reconnect attempted). |
+| `recordDiagnostic` / `recordLifecycleDiagnostic` | No | Local diagnostics ring shipped via support bundles. |
+
+**Default to breadcrumb.** A `captureMessage` call that fires on normal
+operation (e.g., every iOS background/foreground cycle, every legacy URL
+redirect) creates a Sentry issue that never closes — it's noise that
+obscures real errors. If the event isn't individually actionable, use a
+breadcrumb so it attaches as context to real errors instead.
+
+Reserve `captureMessage` for events where you'd page someone or open a
+ticket if the count spiked — e.g., SSE terminal-event loss
+(`sse_poll_reconciled_rescue`), where every occurrence means a user saw a
+stuck turn.
+
+References:
+- [Sentry — Breadcrumbs](https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/)
+- [Sentry — `captureMessage`](https://docs.sentry.io/platforms/javascript/usage/#capturing-messages)
+
+**No bare `catch` blocks that discard errors.** Every `catch` must
+either report the error (toast + `captureError`) or re-throw it. A
+`catch { return; }` that silently swallows failures is a bug — the user
+gets no feedback and Sentry gets no telemetry. When a multi-step async
+function has per-step error handling, the outer catch may be silent only
+if every inner step already reports its own errors before re-throwing.
+
+Reference: [TanStack Query — Handling Mutation Errors](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
+
 ---
 
 ## Code organization
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, voice,
+Group code by what it does (chat, messages, onboarding,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -183,18 +264,20 @@ src/
       types.ts
       components/
         chat-body.tsx
-    conversations/                 # conversation CRUD, grouping, selection
-      conversation-queries.ts
-      use-conversation-loader.ts
-      types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
       turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
+    conversation-queries.ts        #   TanStack Query hooks for conversations/groups
+    use-conversation-sync.ts       #   SSE-driven metadata sync
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
+    conversation-cache.ts          #   low-level read/write over conversation caches
+    conversation-cache-mutations.ts #  domain-level cache mutation helpers
+    conversation-list-fetchers.ts  #   pure async fetch functions for conversation lists
+    conversation-transforms.ts     #   daemon → client field mapping
     format.ts
     browser.ts
   types/                           # cross-domain shared types (no owning module)
@@ -219,10 +302,10 @@ src/
 
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
-"settings") that contain multiple domains. `messages`,
-`conversations`, and `voice` are business domains with distinct
-data models and lifecycles — not features. `domains/` is more precise
-for a DDD-influenced architecture and signals that each folder
+"settings") that contain multiple domains. `messages` and
+`streaming` are business domains with distinct data models and
+lifecycles — not features. `domains/` is more precise for a
+DDD-influenced architecture and signals that each folder
 represents a bounded context.
 
 References:
@@ -233,7 +316,7 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/` has no routes of its own — it is composed by
+routes. `messages/` has no routes of its own — it is composed by
 page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
@@ -306,9 +389,9 @@ describe a similar one-feature/multi-feature rule that this
 codebase's convention is in the same spirit as.
 
 Examples of correct splits:
-- `messages/` vs `conversations/`: messages are created, streamed,
+- `messages/` vs `chat/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
-  CRUD and grouping.
+  routing, sidebar state, and session coordination.
 - `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
 - `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
@@ -387,7 +470,7 @@ owns it.
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below. | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
@@ -397,16 +480,16 @@ owns it.
 
 | | `lib/` | `utils/` |
 |---|---|---|
-| **Purpose** | Third-party SDK integrations, infrastructure wrappers, code with initialization or lifecycle | Pure helper functions with no side effects |
-| **Side effects?** | Yes — initializes SDKs, configures interceptors, manages consent/lifecycle | No — pure input→output, no global state, no I/O |
-| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, etc. | No — only standard library / language utilities |
-| **Subdirectories?** | Yes — each integration gets its own directory (e.g. `lib/sentry/`, `lib/auth/`, `lib/sync/`) | Flat — individual utility files at the top level |
-| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
+| **Purpose** | Infrastructure with side effects or lifecycle — third-party SDK wrappers AND app-internal primitives (registries, transports, interceptors, middlewares) | Pure helper functions with no side effects |
+| **Side effects?** | Yes — module-level state, listener registration, SDK init, interceptors, or pub/sub registries | No — pure input→output, no global state, no I/O |
+| **Third-party SDK dependency?** | Optional — third-party wrappers (`@sentry/react`, `@heyapi/client-fetch`) AND first-party infrastructure (`event-bus.ts`, `chunk-errors.ts`, `local-mode.ts`) both belong here | No — only standard library / language utilities |
+| **Subdirectories?** | When a single integration warrants multiple files (`lib/sentry/`, `lib/auth/`, `lib/sync/`); single-file infrastructure stays at the `lib/` top level (`lib/diagnostics.ts`, `lib/event-bus.ts`) | Flat — individual utility files at the top level |
+| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
 
-If the code configures an SDK instance, runs at startup, or manages a
-third-party service lifecycle, it belongs in `lib/`. If it's a pure
-function you could copy-paste into any project without installing a
-dependency, it belongs in `utils/`.
+If the code holds state at module scope, registers global listeners,
+configures an SDK, manages a session, or runs at startup, it belongs
+in `lib/`. If it's a pure function you could copy-paste into any
+project without installing a dependency, it belongs in `utils/`.
 
 Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
@@ -414,10 +497,12 @@ Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/
 
 Both contain infrastructure code, but they serve different purposes:
 
-- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, allauth). These are vendor integrations the app consumes.
+- **`lib/`** — third-party SDK wrappers (Sentry, HeyAPI, allauth) *and* app-internal infrastructure (event bus, diagnostics buffer, chunk-error recovery). The common thread: side effects, module-level state, or lifecycle ownership.
 - **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
 
-If the code imports a third-party SDK and configures it → `lib/`. If it bridges between the app and the native platform or framework runtime → `runtime/`.
+If the code bridges to the native platform / framework runtime →
+`runtime/`. Otherwise — whether it wraps a third-party SDK or owns
+app-internal infrastructure — `lib/`.
 
 ### No barrel files
 
@@ -499,7 +584,9 @@ Signs a hook needs decomposition:
 - A single `useCallback` with a switch/if-else over many cases
   -> extract cases into domain handler functions
 - Multiple unrelated `useEffect` blocks -> split into focused hooks
-- The file exceeds ~300 lines of non-test code
+- Inline business logic that could be a pure handler function
+  taking a context object (see "Pure handler functions over inline
+  logic" below)
 
 Reference: [React — Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks)
 
@@ -539,22 +626,31 @@ Reference: [React — Thinking in React: break the UI into a component hierarchy
 ### Stabilize external callbacks with refs
 
 When a hook receives callbacks that may not be memoized upstream, store
-them in refs to keep the consuming `useCallback` identity stable:
+them in refs to keep the consuming `useCallback` identity stable. **Sync
+the ref in `useLayoutEffect`**, not during render — React 19's
+concurrent features can abort renders, leaving refs pointing at values
+from uncommitted renders if written in the render phase:
 
 ```ts
 const callbackRef = useRef(onSomeEvent);
-callbackRef.current = onSomeEvent;
+useLayoutEffect(() => {
+  callbackRef.current = onSomeEvent;
+}, [onSomeEvent]);
 
 const stableHandler = useCallback(() => {
   callbackRef.current(/* args */);
 }, []);
 ```
 
-This is the standard workaround until
+Use `useLayoutEffect` (not `useEffect`) so the ref is updated before
+paint and before any `useEffect` that reads it. This is the standard
+workaround until
 [`useEffectEvent`](https://react.dev/learn/separating-events-from-effects#declaring-an-effect-event)
 ships as stable.
 
-Reference: [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
+References:
+- [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
+- [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
 
 ---
 
@@ -645,7 +741,7 @@ consumed as a `file:` dependency and resolved via its `exports` field
 in `package.json` — no Vite alias or tsconfig `paths` needed.
 
 ```ts
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 ```
 
 Design system components accept props and render UI. They must not
@@ -677,7 +773,7 @@ usage).
 
 ```ts
 // Domain wrapper — lives in domains/chat/components/chat-markdown-message.tsx
-import { MarkdownMessage } from "@vellum/design-library";
+import { MarkdownMessage } from "@vellumai/design-library";
 
 // OAuthAwareLink defined in the same file (or extracted to a lib file)
 export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
@@ -829,6 +925,247 @@ leave a `TODO` next to it pointing at the planned consolidation. The
 end state has a single native bridge interface (Capacitor today,
 Electron next) so app code shouldn't be branching on which shell is
 wrapping the SPA.
+
+---
+
+## Platform gating
+
+The web app can run in three auth/hosting configurations that affect
+which UI surfaces are available:
+
+| Signal | Where | What it means |
+|--------|-------|---------------|
+| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
+| `platformFeaturesInLocalMode` | feature flag store | Per-assistant flag (default `true`). When `false` in local mode, the API interceptor no-ops all platform client requests |
+
+### The five user states
+
+1. **Platform-hosted + logged in** — full access to everything
+2. **Platform-hosted + NOT logged in** — session expired; platform-dependent UI is *disabled* with a "log in" prompt
+3. **Self-hosted + platform features ON + logged in** — full access
+4. **Self-hosted + platform features ON + NOT logged in** — platform-dependent UI is *disabled*
+5. **Self-hosted + platform features OFF** — platform-dependent UI is *gated* (hidden entirely)
+
+### `usePlatformGate()` hook
+
+`src/hooks/use-platform-gate.ts` encapsulates the decision tree and
+returns one of three states:
+
+| Return value | Meaning | When |
+|-------------|---------|------|
+| `"full"` | Feature is fully functional | `hasPlatformSession` is `true` |
+| `"disabled"` | Show the UI but disable it (prompt re-login) | `hasPlatformSession` is `false`, platform features still enabled |
+| `"gated"` | Hide the UI entirely | Local mode AND `platformFeaturesInLocalMode` is `false` |
+
+Use this hook for any UI surface that depends on the Vellum platform
+API. The three actions map to concrete UI patterns:
+
+- **Full** — render normally.
+- **Disabled** — render the container/chrome but replace interactive
+  content with a `<Notice tone="info">` prompting platform login.
+  Disable platform API queries (`enabled: platformGate === "full"`).
+- **Gated** — don't render the component at all. If a parent container
+  (e.g. a settings card with a managed/your-own toggle) would be empty
+  without the gated content, render only the non-platform portion
+  without the toggle.
+
+### Platform-hosted-only features
+
+Some UI surfaces only make sense on platform-hosted assistants — plan
+management, machine sizing, release channels, sleep policy, system
+events. They have no meaningful behavior on a self-hosted assistant
+and should be hidden whenever the active assistant is self-hosted,
+regardless of platform login or the `platformFeaturesInLocalMode` flag.
+
+Pass `{ platformHostedOnly: true }` to `usePlatformGate` for these:
+
+```ts
+const gate = usePlatformGate({ platformHostedOnly: true });
+if (gate === "gated") return <Navigate replace to={routes.settings.general} />;
+if (gate === "disabled") return <PlatformLoginNotice />;
+// gate === "full" — render normally
+```
+
+**Whole-page gates redirect, section-level gates render null.** When a
+*page* is fully platform-hosted-only (notifications, billing, etc.),
+return `<Navigate replace />` to a reasonable sibling route — a
+bookmark or shared link to that page should land somewhere sensible
+on a self-hosted assistant. When a *section component* inside a mixed
+page (e.g. `AccessConsentSetting` inside `privacy-page.tsx`) is
+gated, return `null` and let the parent page render the rest.
+
+The decision is "is the **active assistant** self-hosted?" — not "is the
+app running in local mode?" Two cases this matters for:
+
+1. A **local-mode app** can be acting on a platform-hosted assistant
+   (lockfile entry with `cloud === "vellum"`). The platform billing /
+   plan UI for that assistant IS meaningful.
+2. A **platform-mode app** can be acting on a self-hosted assistant —
+   when the platform API returns `is_local: true`,
+   `resolveAssistantLifecycleState` projects `kind: "self_hosted"` and
+   the user is effectively connected to a daemon. The platform billing /
+   plan UI for that assistant is NOT meaningful.
+
+The reactive source is `useAssistantLifecycleStore.assistantState`. The
+gate fires `"gated"` when the lifecycle state is either:
+- `{ kind: "self_hosted" }` (API resolved with `is_local: true`), or
+- `{ kind: "active", isLocal: true }` (gateway-auth short-circuit fired
+  in local mode).
+
+Truth table when `platformHostedOnly` is `true`:
+
+| Active assistant            | Platform session | Result       |
+|-----------------------------|------------------|--------------|
+| platform-hosted             | yes              | `"full"`     |
+| platform-hosted             | no               | `"disabled"` |
+| self-hosted                 | any              | `"gated"`    |
+| none resolved (loading etc) | yes              | `"full"`     |
+| none resolved               | no               | `"disabled"` |
+
+The `platformFeaturesInLocalMode` flag and its hydration state do NOT
+apply to this branch — that flag gates the daemon-side API interceptor
+in local mode, which is orthogonal to "is this UI's target assistant
+platform-hosted?"
+
+#### Gating network fetches: pair the gate with `useActiveAssistantIsPlatformHosted`
+
+The truth table above shows `"full"` for *none resolved + platform
+session* on purpose: settings routes are NOT mounted under
+`<ActiveAssistantGate>`, so a fresh deep-link to a platform-hosted-only
+page renders with the lifecycle still in `{ kind: "loading" }`. We
+want the UI to render normally (no flicker), but we do NOT want to
+fire platform-API requests against a daemon that might later resolve
+to `self_hosted`.
+
+Pair the gate's `"full"` value with a strict "lifecycle positively
+resolved as platform-hosted" check on the query's `enabled`:
+
+```ts
+const platformGate = usePlatformGate({ platformHostedOnly: true });
+const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+
+const query = useQuery({
+  ...someOrgScopedOptions(),
+  enabled: platformGate === "full" && isPlatformHosted,
+});
+```
+
+`useActiveAssistantIsPlatformHosted` returns `true` only when the
+lifecycle has projected `{ kind: "platform_hosted" }` or
+`{ kind: "active", isLocal: false }` — `false` for `loading` and every
+other state. The rendering decision (gate) and the fetch decision
+(resolved) are intentionally split: render eagerly, fetch + interact
+strictly.
+
+#### Interactive controls: split `disabled` (strict) from `isResolving` (narrow)
+
+**A `useQuery` with `enabled: false` reports `isLoading: false`.** That
+means any `disabled` predicate that derives only from `isLoading` will
+evaluate to "enabled" during the resolution race — and a click on the
+control fires the mutation the gate exists to prevent. The fix needs
+two predicates, doing two different jobs:
+
+1. **`disabled` is strict** on `!isPlatformHosted` — it covers every
+   state where the mutation has no meaningful target, including both
+   the deep-link race window AND already-resolved non-hosted states
+   (`retired`, `error`, `awaiting_version_selection`, `self_hosted`).
+2. **`isResolving` is narrow** on `useActiveAssistantLifecycleIsLoading()`
+   — it covers ONLY the genuine `kind: "loading"` window. This is the
+   indicator used for *loading UX*: spinners, hide-during-race popovers,
+   deferred-action auto-close. Resolved-non-hosted states are not
+   "still loading" — they're decided, and the surface should fall
+   through to its empty / error state, not stick on a spinner.
+
+```ts
+const platformGate = usePlatformGate({ platformHostedOnly: true });
+const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+
+const disabled =
+  platformGate !== "full" ||
+  !isPlatformHosted ||           // strict — every non-hosted state
+  isLoading ||
+  isError ||
+  mutation.isPending;
+
+const isResolving = platformGate === "full" && isLifecycleLoading;
+
+// Hide whole sub-trees during the race window only (not in retired etc):
+{!isResolving && <MutationFiringPopoverTrigger />}
+
+// Surface loading state to the user so they know to wait — but only
+// during the genuine race:
+const showLoading = isResolving || isLoading;
+{showLoading ? <Spinner /> : <Content />}
+```
+
+The rule is: **`disabled` blocks the click; `isResolving` shows the
+UX cue for "we're working on it."** Conflating the two breaks UX in
+already-decided non-hosted states (permanent spinner, permanent
+disabled button with no explanation).
+
+This applies to every UI surface gated by `platformHostedOnly: true`:
+toggles, popover triggers, "mark all as read" buttons, etc. Mutation
+must be impossible while `!isPlatformHosted`; loading UX must reflect
+only the genuine `lifecycleIsLoading` window.
+
+##### Deferred-action UI: dialog/popover lifetime spans gate transitions
+
+Disabling only the **opener** isn't enough when the action is deferred
+behind a modal dialog or a persistent popover with its own confirm
+button. The dialog can be opened while the assistant is resolved as
+platform-hosted, the lifecycle can then drop back to `loading` (assistant
+switch, refresh), and the user can press Confirm during that window —
+firing the mutation against an assistant that may resolve as self-hosted.
+
+Two patterns, used together:
+
+```ts
+// 1. Close the dialog/popover when isResolving flips true. UX-correct:
+//    the user sees the dismiss, then the disabled button + spinner
+//    explain the state.
+useEffect(() => {
+  if (isResolving && confirmOpen) {
+    setConfirmOpen(false);
+  }
+}, [isResolving, confirmOpen]);
+
+// 2. Guard the action handler defensively for same-tick edge cases.
+<ConfirmDialog
+  onConfirm={() => {
+    if (isResolving) {
+      setConfirmOpen(false);
+      return;
+    }
+    mutation.mutate(...);
+  }}
+/>
+```
+
+**Auto-close trumps onclick-guard for UX**, but both belong. Auto-close
+handles the long window (user opens dialog, walks away, lifecycle
+changes); onclick-guard handles the millisecond edge where the click
+event arrives the same tick `isResolving` flips.
+
+### Daemon-owned endpoints routed through the platform proxy
+
+Many features use the platform API client but actually hit
+daemon-owned endpoints via `RuntimeProxyWildcardView` (the platform
+proxies `/v1/assistants/{id}/<path>` → daemon `/v1/<path>`). In local
+mode, the self-hosted ingress rewrite in `api-interceptors.ts` already
+reroutes these to the gateway directly — the
+`RUNTIME_PROXIED_FIRST_SEGMENTS` allowlist is skipped entirely in
+local mode. These features work in all five states with no gating
+needed. Examples: AI page (profiles, providers, models), Inspector,
+Home, Workspace, Contacts.
+
+### Organization store
+
+The organization store (`src/stores/organization-store.ts`) only
+fetches when `hasPlatformSession` is `true`. Organizations are a
+platform concept — in self-hosted mode the interceptor already strips
+the `Vellum-Organization-Id` header and uses bearer auth instead.
 
 ---
 

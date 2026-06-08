@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
   vellum:
+    category: "system"
     display-name: "Vellum Self-Knowledge"
     activation-hints:
       - "When the user asks what model the assistant is running on"

@@ -1,14 +1,14 @@
 /**
  * Tests for the Compaction Trail real fetcher.
  *
- * Spies on `client.get` rather than `mock.module`-ing the whole SDK,
- * matching the pattern in `apps/web/src/domains/chat/api/messages.test.ts`
- * — keeps the module registry clean for sibling test files.
+ * Spies on the daemon `client.get` rather than `mock.module`-ing the
+ * whole SDK — keeps the module registry clean for sibling test files.
+ * The generated `conversationsByIdCompactionGet` SDK function calls
+ * `client.get` under the hood.
  *
  * What's pinned:
  *   - URL pattern + path params + `callId` query reach the SDK
- *     exactly (the daemon route is hand-rolled, not generated, so
- *     drift here would silently 404).
+ *     exactly so drift here would silently 404.
  *   - The abort signal is forwarded so React Query can cancel
  *     in-flight requests when the tab unmounts.
  *   - HTTP failures raise `CompactionTrailRequestError` with the
@@ -26,13 +26,13 @@ import {
   test,
 } from "bun:test";
 
-import { client } from "@/generated/api/client.gen";
+import { client } from "@/generated/daemon/client.gen";
+import type { ConversationsByIdCompactionGetResponse } from "@/generated/daemon/types.gen";
 
 import {
   CompactionTrailRequestError,
   fetchCompactionTrail,
 } from "./compaction-trail-fetch";
-import type { CompactionTrailResponse } from "./compaction-trail-types";
 
 type CapturedGetOptions = {
   url: string;
@@ -45,7 +45,7 @@ let captured: CapturedGetOptions | null = null;
 let nextGetResult: { data: unknown; error: unknown; response: Response };
 const originalGet = client.get;
 
-const SAMPLE_RESPONSE: CompactionTrailResponse = {
+const SAMPLE_RESPONSE: ConversationsByIdCompactionGetResponse = {
   conversationId: "conv-abc",
   events: [
     {
@@ -92,11 +92,11 @@ describe("fetchCompactionTrail", () => {
 
     expect(captured).not.toBeNull();
     expect(captured!.url).toBe(
-      "/v1/assistants/{assistant_id}/conversations/{conversation_id}/compaction",
+      "/v1/assistants/{assistant_id}/conversations/{id}/compaction",
     );
     expect(captured!.path).toEqual({
       assistant_id: "assistant-1",
-      conversation_id: "conv-abc",
+      id: "conv-abc",
     });
     expect(captured!.query).toEqual({ callId: "call-32" });
   });

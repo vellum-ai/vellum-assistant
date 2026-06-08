@@ -1,33 +1,31 @@
-import * as Sentry from "@sentry/browser";
+import { captureError } from "@/lib/sentry/capture-error";
 import { EyeOff } from "lucide-react";
-import { useEffect, useId, useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useId, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Checkbox } from "@vellum/design-library/components/checkbox";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
-  emitOnboardingFunnelStepCompleted,
-  getOnboardingFunnelSessionId,
-  onboardingFunnelVariantFromCondensedFlag,
-  ONBOARDING_FUNNEL_STEPS,
-  resolveOnboardingFunnelVariant,
+    emitOnboardingFunnelStepCompleted,
+    getOnboardingFunnelSessionId,
+    ONBOARDING_FUNNEL_STEPS,
+    onboardingFunnelVariantFromExperiment,
+    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
-  readOnboardingCompleted,
-  useAiDataConsent,
-  useShareAnalytics,
-  useShareDiagnostics,
-  useTosAccepted,
+    useAiDataConsent,
+    useShareAnalytics,
+    useShareDiagnostics,
+    useTosAccepted,
 } from "@/domains/onboarding/prefs";
-import { markPrivacyConsent } from "@/domains/onboarding/signals";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { legalUrl, routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Checkbox } from "@vellumai/design-library/components/checkbox";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 function SettingRow({
   label,
@@ -60,60 +58,60 @@ function SettingRow({
   );
 }
 
+// Consent checkboxes mirror the primary button: the checked fill uses
+// --primary-base and the check uses --content-inset (the on-primary
+// foreground). This stays correct in every theme — dark fill + white check in
+// light mode, white fill + dark check in dark mode — whereas the design
+// library's hardcoded white check vanishes on the near-white dark-mode fill.
+const CONSENT_CHECKBOX_CLASS =
+  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
+
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
-  const condensedPrechatFlag =
-    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preChatExperimentArm =
+    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
-    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
+    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
-    if (!isNative && !isReplay) {
+    if (!isNative) {
       getOnboardingFunnelSessionId();
     }
-  }, [isNative, isReplay]);
-
-  useEffect(() => {
-    if (readOnboardingCompleted() && !isReplay) {
-      void navigate(routes.assistant, { replace: true });
-    }
-  }, [isReplay, navigate]);
+  }, [isNative]);
 
   const onStart = useCallback(() => {
     try {
       setShareAnalytics(shareAnalytics);
       setShareDiagnostics(shareDiagnostics);
     } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "onboarding_persist_share_prefs" },
-      });
+      captureError(err, { context: "onboarding_persist_share_prefs" });
     }
-    markPrivacyConsent(userId);
-    if (!isNative && !isReplay) {
+    if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
         variant,
       });
     }
-    void navigate(
-      isReplay
-        ? `${routes.onboarding.hatching}?replay=1`
-        : routes.onboarding.hatching,
-    );
+    // Preserve the hosting param (Local/Docker need it so hatching runs the
+    // local hatch instead of a platform hatch).
+    const hostingParam = searchParams.get("hosting");
+    const params = new URLSearchParams();
+    if (hostingParam) params.set("hosting", hostingParam);
+    const qs = params.toString();
+    void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     isNative,
-    isReplay,
     navigate,
     preferredFunnelVariant,
+    searchParams,
     setShareAnalytics,
     setShareDiagnostics,
     shareAnalytics,
@@ -207,6 +205,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setAiDataConsent(next === true)}
             label={aiConsentLabel}
             aria-label="I agree to the AI Data Sharing Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
@@ -216,6 +215,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setTosAccepted(next === true)}
             label={tosLabel}
             aria-label="I agree to the Terms of Service and Privacy Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 

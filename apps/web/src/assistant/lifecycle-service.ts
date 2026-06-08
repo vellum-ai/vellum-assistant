@@ -9,7 +9,7 @@
  *
  * Publishes its observable state — `assistantState` and
  * `activeAssistantId` — into the two Zustand stores
- * (`useAssistantLifecycleStore`, `useAssistantSelectionStore`),
+ * (`useAssistantLifecycleStore`, `useResolvedAssistantsStore`),
  * which is how the React tree reads it. Inputs from React (auth,
  * env, the navigate callback, the TanStack Query client) flow in
  * through `setInputs()`; `useAssistantLifecycle` is the thin
@@ -21,6 +21,7 @@
  */
 
 import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -38,8 +39,12 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import {
+  ASSISTANT_QUERY_KEY,
+  assistantQueryKey,
+  POLL_INTERVAL_MS,
+} from "@/assistant/queries";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AssistantState } from "@/assistant/types";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
@@ -49,13 +54,13 @@ import {
   isLocalMode,
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 const MAX_HATCH_RETRIES = 3;
 const MAX_INITIALIZING_RECOVERIES = 3;
 
 export interface LifecycleServiceInputs {
-  isLoggedIn: boolean;
-  isLoading: boolean;
+  sessionStatus: SessionStatus;
   isRetired: boolean;
   isNonProduction: boolean;
   hasPlatformSession: boolean;
@@ -72,6 +77,12 @@ export interface LifecycleServiceInputs {
   }) => string | null;
   /** The TanStack Query client owned by `RootLayout`'s provider. */
   queryClient: QueryClient;
+  /**
+   * The platform assistant the user has selected (multi-assistant). `null`
+   * resolves the default first-listed assistant — the pre-multi-assistant
+   * behavior. Optional so existing `setInputs` callers/tests need no change.
+   */
+  selectedPlatformAssistantId?: string | null;
 }
 
 const NOOP_REDIRECT = (_: string) => {};
@@ -104,14 +115,14 @@ class AssistantLifecycleService {
    */
   private ready = false;
   private inputs: LifecycleServiceInputs = {
-    isLoggedIn: false,
-    isLoading: true,
+    sessionStatus: "initializing",
     isRetired: false,
     isNonProduction: false,
     hasPlatformSession: false,
     onRedirect: NOOP_REDIRECT,
     resolveOnboardingRedirect: NOOP_RESOLVE,
     queryClient: null as unknown as QueryClient,
+    selectedPlatformAssistantId: null,
   };
 
   // ---------------------------------------------------------------------------
@@ -124,23 +135,44 @@ class AssistantLifecycleService {
   }
 
   /**
+   * Synchronously drop the selection + lifecycle state. Called from
+   * `auth-store.logout()` before `sessionStatus` leaves `authenticated`,
+   * so subscribers to either store don't observe a stale id in their
+   * first re-render after logout. The `respondToInputs` not-authenticated
+   * branch is the safety net for cases where auth flips without
+   * going through the explicit logout call (e.g. token expiry
+   * detected by an interceptor and surfaced as a state change
+   * rather than an action).
+   *
+   * Guarded resets avoid spurious subscriber wake-ups when the
+   * stores are already at defaults.
+   */
+  resetForLogout(): void {
+    if (useResolvedAssistantsStore.getState().activeAssistantId !== null) {
+      useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+    }
+    if (this.state.kind !== "loading") {
+      this.transition({ kind: "loading" });
+    }
+    // Drop the auto-greet one-shot too — otherwise a stale `true` set
+    // by the outgoing user's hatch path (but never consumed by
+    // ChatPage before logout) would seed the incoming user's first
+    // mount with a spurious "Connecting..." gate.
+    this.clearExpectingFirstMessage();
+  }
+
+  /**
    * Reconcile against the current inputs — drives initial bootstrap
    * (post-login `checkAssistant`), logout reset, and the local-mode
    * branches. Safe to call on every input change.
    */
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
-    if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
-      // Logout / pre-auth boot. Drop selection + lifecycle state
-      // so a returning login doesn't observe the previous user's id.
-      // Guarded resets avoid spurious subscriber wake-ups when the
-      // stores are already at defaults.
-      if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
-        useAssistantSelectionStore.getState().setActiveAssistantId(null);
-      }
-      if (this.state.kind !== "loading") {
-        this.transition({ kind: "loading" });
-      }
+    if (!isAuthenticated(this.inputs.sessionStatus)) {
+      // Logout / pre-auth boot — same reset as `resetForLogout` but
+      // reachable from the input-driven path for token-expiry style
+      // flips that don't call `logout()` explicitly.
+      this.resetForLogout();
       return;
     }
 
@@ -201,16 +233,17 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
+      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
       const result = await this.inputs.queryClient.fetchQuery({
-        queryKey: ASSISTANT_QUERY_KEY,
-        queryFn: () => getAssistant(),
+        queryKey: assistantQueryKey(selectedId),
+        queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
       if (generation !== this.generation) return;
       await this.applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
-      Sentry.captureException(err, { tags: { context: "check_assistant" } });
+      captureError(err, { context: "check_assistant" });
       if (generation !== this.generation) return;
       this.transition({
         kind: "error",
@@ -229,7 +262,29 @@ class AssistantLifecycleService {
   hatchVersion(version?: string): void {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
+    this.markExpectingFirstMessage();
     void this.hatchAndCheck(version);
+  }
+
+  /**
+   * Mark the chat surface as expecting an auto-greet. Called from
+   * every hatch path (vanilla auto-hatch and `hatchVersion` inside
+   * this service; the onboarding hatching screen, pre-chat-flow,
+   * and the chat-page mount-time pre-chat sessionStorage detector
+   * externally). React consumers subscribe via the
+   * `useAssistantLifecycleStore.use.expectingFirstMessage()` selector,
+   * so a mark fired from inside the ChatPage tree (e.g. the
+   * version-selection screen) triggers a re-render without needing
+   * a remount.
+   */
+  markExpectingFirstMessage(): void {
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
+  }
+
+  clearExpectingFirstMessage(): void {
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -253,6 +308,22 @@ class AssistantLifecycleService {
       }
     } else if (prevKind !== "initializing") {
       this.armInitializingWatchdog();
+    }
+    // Drop the auto-greet one-shot on any transition to a state
+    // where a greeting is no longer forthcoming. The only two
+    // states where the expectation still holds are `initializing`
+    // (hatch in progress) and `active` (greeting may have just
+    // arrived or be arriving via SSE). Everything else — error,
+    // retired, loading (logout), maintenance_mode, cleaning_up,
+    // self_hosted (different greeting path), and crucially
+    // `awaiting_version_selection` (a recoverable nonprod hatch
+    // failure can land back here, and the chat surface renders
+    // the "Connecting..." gate ahead of the version picker until
+    // this flag clears) — must drop the flag so chat doesn't show
+    // a stale gate. A subsequent retry that re-enters `auto_hatch`
+    // or `hatchVersion` re-marks the flag.
+    if (next.kind !== "initializing" && next.kind !== "active") {
+      this.clearExpectingFirstMessage();
     }
   }
 
@@ -286,7 +357,7 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(result.data.id);
     this.transition({
@@ -321,7 +392,7 @@ class AssistantLifecycleService {
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
     });
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(result.data.id);
     this.transition({ kind: "self_hosted" });
@@ -337,7 +408,7 @@ class AssistantLifecycleService {
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
     this.transition({ kind: "active", isLocal: true });
@@ -374,6 +445,11 @@ class AssistantLifecycleService {
         this.transition({ kind: "awaiting_version_selection" });
         return;
       }
+      // Vanilla auto-hatch: a new signup with no assistant lands
+      // here. Mark the auto-greet one-shot so the next `ChatPage`
+      // mount shows the loading gate until the server's greeting
+      // SSE arrives.
+      this.markExpectingFirstMessage();
       await this.hatchAndCheck();
       return;
     }
@@ -488,7 +564,7 @@ class AssistantLifecycleService {
       this.hatchRetryCount = 0;
     } catch (err) {
       this.hatchRetryCount += 1;
-      Sentry.captureException(err, { tags: { context: "hatch_assistant" } });
+      captureError(err, { context: "hatch_assistant" });
       if (generation !== this.generation) return;
       this.transition({ kind: "initializing" });
       // Network error during hatch behaves like a recoverable
@@ -593,14 +669,12 @@ class AssistantLifecycleService {
       }
 
       this.initializingAssistantId = null;
-      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+      useResolvedAssistantsStore.getState().setActiveAssistantId(null);
       this.hatching = false;
       await this.hatchAndCheck(this.hatchingVersion);
     } catch (err) {
       this.hatching = false;
-      Sentry.captureException(err, {
-        tags: { context: "recover_stuck_initializing_assistant" },
-      });
+      captureError(err, { context: "recover_stuck_initializing_assistant" });
       if (generation !== this.generation) return;
       this.transition(buildInitializingTimeoutError());
     }
@@ -609,7 +683,7 @@ class AssistantLifecycleService {
   /**
    * Reset all state to the post-import default. For tests only —
    * production code should never call this. (Use `respondToInputs`
-   * with `isLoggedIn: false` for logout reset.)
+   * with a non-authenticated `sessionStatus` for logout reset.)
    */
   __resetForTesting(): void {
     if (this.initializingTimeout) {
@@ -624,9 +698,9 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
-      isLoggedIn: false,
-      isLoading: true,
+      sessionStatus: "initializing",
       isRetired: false,
       isNonProduction: false,
       hasPlatformSession: false,
@@ -635,7 +709,7 @@ class AssistantLifecycleService {
       queryClient: null as unknown as QueryClient,
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });
-    useAssistantSelectionStore.setState({ activeAssistantId: null });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
   }
 }
 

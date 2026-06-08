@@ -3,29 +3,29 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Card } from "@vellum/design-library/components/card";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  fetchSoundsConfig,
-  listAvailableSounds,
-  saveSoundsConfig,
-  type AvailableSound,
+    fetchSoundsConfig,
+    listAvailableSounds,
+    saveSoundsConfig,
+    type AvailableSound,
 } from "@/domains/settings/api/sounds";
-import { getSoundManager } from "@/domains/settings/utils/sound-manager";
 import {
-  defaultSoundsConfig,
-  displayLabelForFilename,
-  SOUND_EVENT_DISPLAY_NAMES,
-  SOUND_EVENT_IDS,
-  type SoundEventConfig,
-  type SoundEventId,
-  type SoundsConfig,
+    defaultSoundsConfig,
+    displayLabelForFilename,
+    SOUND_EVENT_DISPLAY_NAMES,
+    SOUND_EVENT_IDS,
+    type SoundEventConfig,
+    type SoundEventId,
+    type SoundsConfig,
 } from "@/domains/settings/types/sounds";
+import { getSoundManager } from "@/domains/settings/utils/sound-manager";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
-  assistantSoundsAvailableQueryKey,
-  assistantSoundsConfigQueryKey,
+    assistantSoundsAvailableQueryKey,
+    assistantSoundsConfigQueryKey,
 } from "@/lib/sync/query-tags";
+import { Card } from "@vellumai/design-library/components/card";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 function ToggleRow({
   label,
@@ -200,8 +200,7 @@ function SoundEventRow({
 
 export function SoundsPage() {
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? "";
+  const assistantId = useActiveAssistantId();
 
   const configQueryKey = useMemo(
     () => assistantSoundsConfigQueryKey(assistantId),
@@ -215,13 +214,11 @@ export function SoundsPage() {
   const { data: rawConfig } = useQuery({
     queryKey: configQueryKey,
     queryFn: () => fetchSoundsConfig(assistantId),
-    enabled: Boolean(assistantId),
   });
 
   const { data: availableRaw } = useQuery({
     queryKey: availableQueryKey,
     queryFn: () => listAvailableSounds(assistantId),
-    enabled: Boolean(assistantId),
   });
 
   const config = rawConfig ?? defaultSoundsConfig();
@@ -229,7 +226,8 @@ export function SoundsPage() {
 
   const saveMutation = useMutation({
     mutationFn: (next: SoundsConfig) => saveSoundsConfig(assistantId, next),
-    onMutate: (next) => {
+    onMutate: async (next) => {
+      await queryClient.cancelQueries({ queryKey: configQueryKey });
       const previous = queryClient.getQueryData<SoundsConfig>(configQueryKey);
       queryClient.setQueryData(configQueryKey, next);
       return { previous };
@@ -327,7 +325,7 @@ export function SoundsPage() {
   };
 
   return (
-    <div className="max-w-[940px] space-y-6">
+    <div className="space-y-6">
       <Card>
         <ToggleRow
           label="Enable sound effects"

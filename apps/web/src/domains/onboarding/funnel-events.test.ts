@@ -4,19 +4,21 @@ import {
   __resetOnboardingFunnelEventsForTests,
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
-  onboardingFunnelVariantFromCondensedFlag,
+  onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VERSION,
   ONBOARDING_FUNNEL_VARIANTS,
   readOnboardingFunnelVariant,
   resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
+  useOnboardingStore.setState({ shareAnalytics: true });
   __resetOnboardingFunnelEventsForTests();
 });
 
@@ -25,9 +27,9 @@ afterEach(() => {
 });
 
 describe("onboarding funnel events", () => {
-  test("maps the boolean LaunchDarkly rollout to funnel variants", () => {
-    expect(onboardingFunnelVariantFromCondensedFlag(false)).toBe("control");
-    expect(onboardingFunnelVariantFromCondensedFlag(true)).toBe("pared_down");
+  test("maps experiment arms to funnel variants", () => {
+    expect(onboardingFunnelVariantFromExperiment("control")).toBe("control");
+    expect(onboardingFunnelVariantFromExperiment("variant-a")).toBe("pared_down");
   });
 
   test("builds the expected event shape with a stable session id", () => {
@@ -101,6 +103,7 @@ describe("onboarding funnel events", () => {
   });
 
   test("emits fire-and-forget telemetry payloads with the same session id", () => {
+    localStorage.setItem("device:share_analytics", "true");
     const fetchMock = mock(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response("{}", { status: 200 }),
@@ -140,5 +143,33 @@ describe("onboarding funnel events", () => {
       funnel_version: ONBOARDING_FUNNEL_VERSION,
       ab_variant: "pared_down",
     });
+  });
+
+  test("does not emit telemetry until analytics sharing is explicitly opted in", () => {
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+      userId: "user-123",
+      variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
+    });
+
+    localStorage.setItem("device:share_analytics", "false");
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
+      userId: "user-123",
+      variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
+    });
+
+    localStorage.setItem("device:share_analytics", "true");
+    useOnboardingStore.setState({ shareAnalytics: false });
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
+      userId: "user-123",
+      variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

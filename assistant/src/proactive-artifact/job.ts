@@ -31,6 +31,7 @@ import {
   extractText,
   getConfiguredProvider,
 } from "../providers/provider-send-message.js";
+import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { injectAuxAssistantMessage } from "./aux-message-injector.js";
 import {
@@ -160,6 +161,7 @@ export async function runProactiveArtifactJob(params: {
 
     if (artifactType === "app") {
       params.broadcastMessage({ type: "app_files_changed", appId: artifactId });
+      publishAppsChanged();
     }
 
     // ── Post-build message copy ─────────────────────────────────────
@@ -284,7 +286,7 @@ For apps, keep scope tight — single file or 2-3 files max, under ~300 lines. S
 
 Write the source code following the skill instructions, then compile via app_refresh.`;
 
-  await processMessage(conversation.id, prompt, undefined, {
+  await processMessage(conversation.id, prompt, {
     callSite: "proactiveArtifactBuild",
     trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
   });

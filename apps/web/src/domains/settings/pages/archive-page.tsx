@@ -1,18 +1,16 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useArchivedConversationListQuery } from "@/domains/conversations/conversation-queries";
-import {
-  archivedConversationsQueryKey,
-  conversationsQueryKey,
-} from "@/lib/sync/query-tags";
-import type { Conversation } from "@/types/conversation-types";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
-import { reportError } from "@/utils/error-report";
+import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
+import { captureError } from "@/lib/sentry/capture-error";
+import type { Conversation } from "@/types/conversation-types";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { toast } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
 
 function formatConversationDate(timestamp: number | undefined): string {
   if (timestamp == null) return "";
@@ -100,10 +98,7 @@ function ArchivedConversationRow({
 
 export function ArchivePage() {
   const queryClient = useQueryClient();
-  const { data: assistantList, isLoading: isAssistantLoading } = useQuery(
-    assistantsListOptions(),
-  );
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
+  const assistantId = useActiveAssistantId();
 
   const {
     conversations: archived,
@@ -126,18 +121,11 @@ export function ArchivePage() {
           throwOnError: true,
         });
         // Unarchiving moves a row from the archived list back into the active
-        // sidebar list, so invalidate both caches.
-        void queryClient.invalidateQueries({
-          queryKey: conversationsQueryKey(assistantId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: archivedConversationsQueryKey(assistantId),
-        });
+        // sidebar list, so invalidate all conversation caches.
+        void invalidateConversationQueries(queryClient, assistantId);
       } catch (error) {
-        reportError(error, {
-          context: "archive_settings_unarchive_conversation",
-          userMessage: "Failed to unarchive conversation.",
-        });
+        captureError(error, { context: "archive_settings_unarchive_conversation" });
+        toast.error("Failed to unarchive conversation.");
       } finally {
         setPendingUnarchiveId(null);
       }
@@ -145,11 +133,11 @@ export function ArchivePage() {
     [assistantId, queryClient],
   );
 
-  const isLoading = isAssistantLoading || isLoadingConversations;
+  const isLoading = isLoadingConversations;
 
   if (isLoading) {
     return (
-      <div className="max-w-[940px]">
+      <div className="w-full">
         <div className="flex min-h-[400px] items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--content-disabled)]" />
         </div>
@@ -159,7 +147,7 @@ export function ArchivePage() {
 
   if (isError) {
     return (
-      <div className="max-w-[940px]">
+      <div className="w-full">
         <Card>
           <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
@@ -187,14 +175,14 @@ export function ArchivePage() {
 
   if (archived.length === 0) {
     return (
-      <div className="max-w-[940px]">
+      <div className="w-full">
         <EmptyState />
       </div>
     );
   }
 
   return (
-    <div className="max-w-[940px]">
+    <div className="w-full">
       <Card noPadding className="px-4">
         {archived.map((conversation, index) => (
           <ArchivedConversationRow

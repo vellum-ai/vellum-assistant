@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 
 import { loadConfig } from "../../config/loader.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   getConversation,
   listActiveInferenceProfileSessions,
@@ -118,6 +119,11 @@ export async function setInferenceProfileSession({
       };
     }
     setConversationInferenceProfileSession(resolvedId, null, null, null);
+    findConversation(resolvedId)?.applyInferenceProfileState({
+      profile: null,
+      sessionId: null,
+      expiresAt: null,
+    });
     publishConversationInferenceProfileChanged(
       {
         conversationId: resolvedId,
@@ -188,6 +194,11 @@ export async function setInferenceProfileSession({
     newSessionId ?? null,
     newExpiresAt ?? null,
   );
+  findConversation(resolvedId)?.applyInferenceProfileState({
+    profile,
+    sessionId: newSessionId ?? null,
+    expiresAt: newExpiresAt ?? null,
+  });
 
   publishConversationInferenceProfileChanged(
     {

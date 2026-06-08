@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { renderHook } from "@testing-library/react";
 
-import { useAssistantSelectionStore } from "./selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useActiveAssistantId } from "./use-active-assistant-id";
 
 afterEach(() => {
-  useAssistantSelectionStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 describe("useActiveAssistantId", () => {
   test("returns the active id when the gate has resolved", () => {
-    useAssistantSelectionStore.getState().setActiveAssistantId("asst-1");
+    useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
     const { result } = renderHook(() => useActiveAssistantId());
     expect(result.current).toBe("asst-1");
   });

@@ -8,12 +8,23 @@ import {
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 
+const baseUsage = {
+  type: "usage_update",
+  conversationId: "conv-1",
+  inputTokens: 100,
+  outputTokens: 50,
+  totalInputTokens: 100,
+  totalOutputTokens: 50,
+  estimatedCost: 0.0021,
+  model: "claude-sonnet-4",
+} as const;
+
 describe("handleUsageUpdate", () => {
   it("computes fill ratio and updates context window usage", () => {
     const ctx = makeCtx();
     handleUsageUpdate(
       {
-        type: "usage_update",
+        ...baseUsage,
         contextWindowTokens: 5000,
         contextWindowMaxTokens: 10000,
       },
@@ -21,7 +32,7 @@ describe("handleUsageUpdate", () => {
     );
     expect(ctx.setContextWindowUsage).toHaveBeenCalled();
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
+      ctx.contextWindowUsageByConversation.get("conv-1"),
     ).toEqual({
       tokens: 5000,
       maxTokens: 10000,
@@ -31,18 +42,15 @@ describe("handleUsageUpdate", () => {
 
   it("returns early for non-finite token counts", () => {
     const ctx = makeCtx();
-    handleUsageUpdate(
-      { type: "usage_update", contextWindowTokens: undefined },
-      ctx,
-    );
+    handleUsageUpdate({ ...baseUsage, contextWindowTokens: undefined }, ctx);
     expect(ctx.setContextWindowUsage).not.toHaveBeenCalled();
   });
 
   it("sets fillRatio to null when maxTokens is missing", () => {
     const ctx = makeCtx();
-    handleUsageUpdate({ type: "usage_update", contextWindowTokens: 5000 }, ctx);
+    handleUsageUpdate({ ...baseUsage, contextWindowTokens: 5000 }, ctx);
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
+      ctx.contextWindowUsageByConversation.get("conv-1"),
     ).toEqual({
       tokens: 5000,
       maxTokens: null,
@@ -54,14 +62,14 @@ describe("handleUsageUpdate", () => {
     const ctx = makeCtx();
     handleUsageUpdate(
       {
-        type: "usage_update",
+        ...baseUsage,
         contextWindowTokens: 20000,
         contextWindowMaxTokens: 10000,
       },
       ctx,
     );
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1")?.fillRatio,
+      ctx.contextWindowUsageByConversation.get("conv-1")?.fillRatio,
     ).toBe(1);
   });
 });
@@ -92,5 +100,3 @@ describe("handleCompactionCircuitClosed", () => {
     expect(ctx.setCompactionCircuitOpenUntil).toHaveBeenCalledWith(null);
   });
 });
-
-

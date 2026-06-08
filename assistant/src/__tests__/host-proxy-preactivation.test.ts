@@ -108,10 +108,15 @@ function makeTarget(
 function setCapableClient(
   capability: HostProxyCapability,
   connected: boolean,
+  actorPrincipalId = "user-1",
 ): void {
   if (connected) {
     mockClientsByCapability.set(capability, [
-      { clientId: "mock-macos-client", capabilities: [capability] },
+      {
+        clientId: "mock-macos-client",
+        capabilities: [capability],
+        actorPrincipalId,
+      },
     ]);
   } else {
     mockClientsByCapability.delete(capability);
@@ -141,22 +146,37 @@ describe("shouldAttachHostProxyForCapability", () => {
 
     test("returns true for web source when a capable client is connected", () => {
       setCapableClient("host_cu", true);
-      expect(shouldAttachHostProxyForCapability("host_cu", "web")).toBe(true);
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "web", "user-1"),
+      ).toBe(true);
     });
 
     test("returns false for web source when no capable client is connected", () => {
       setCapableClient("host_cu", false);
-      expect(shouldAttachHostProxyForCapability("host_cu", "web")).toBe(false);
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "web", "user-1"),
+      ).toBe(false);
     });
 
     test("returns false for ios source when no capable client is connected", () => {
       setCapableClient("host_cu", false);
-      expect(shouldAttachHostProxyForCapability("host_cu", "ios")).toBe(false);
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "ios", "user-1"),
+      ).toBe(false);
     });
 
     test("returns true for ios source when a capable client is connected", () => {
       setCapableClient("host_cu", true);
-      expect(shouldAttachHostProxyForCapability("host_cu", "ios")).toBe(true);
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "ios", "user-1"),
+      ).toBe(true);
+    });
+
+    test("returns false for web source when only a different actor is capable", () => {
+      setCapableClient("host_cu", true, "user-other");
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "web", "user-1"),
+      ).toBe(false);
     });
 
     test("returns false for chrome-extension source even when a capable client is connected", () => {
@@ -177,14 +197,25 @@ describe("shouldAttachHostProxyForCapability", () => {
     test("returns true for web source when a capable client is connected", () => {
       setCapableClient("host_app_control", true);
       expect(
-        shouldAttachHostProxyForCapability("host_app_control", "web"),
+        shouldAttachHostProxyForCapability("host_app_control", "web", "user-1"),
       ).toBe(true);
     });
 
     test("returns false for web source when no capable client is connected", () => {
       setCapableClient("host_app_control", false);
       expect(
-        shouldAttachHostProxyForCapability("host_app_control", "web"),
+        shouldAttachHostProxyForCapability("host_app_control", "web", "user-1"),
+      ).toBe(false);
+    });
+
+    test("returns false for web source when only a different actor is capable", () => {
+      setCapableClient("host_app_control", true, "user-other");
+      expect(
+        shouldAttachHostProxyForCapability(
+          "host_app_control",
+          "web",
+          "user-1",
+        ),
       ).toBe(false);
     });
 
@@ -222,7 +253,7 @@ describe("preactivateHostProxySkills", () => {
     setCapableClient("host_cu", true);
     setCapableClient("host_app_control", true);
     const target = makeTarget();
-    preactivateHostProxySkills(target, "web");
+    preactivateHostProxySkills(target, "web", "user-1");
     expect(target.preactivatedSkillIds).toContain("computer-use");
     expect(target.preactivatedSkillIds).toContain("app-control");
   });
@@ -231,7 +262,7 @@ describe("preactivateHostProxySkills", () => {
     setCapableClient("host_cu", true);
     setCapableClient("host_app_control", false);
     const target = makeTarget();
-    preactivateHostProxySkills(target, "web");
+    preactivateHostProxySkills(target, "web", "user-1");
     expect(target.preactivatedSkillIds).toContain("computer-use");
     expect(target.preactivatedSkillIds).not.toContain("app-control");
   });
@@ -240,7 +271,7 @@ describe("preactivateHostProxySkills", () => {
     setCapableClient("host_cu", false);
     setCapableClient("host_app_control", false);
     const target = makeTarget();
-    preactivateHostProxySkills(target, "web");
+    preactivateHostProxySkills(target, "web", "user-1");
     expect(target.preactivatedSkillIds).toEqual([]);
   });
 
@@ -248,7 +279,15 @@ describe("preactivateHostProxySkills", () => {
     setCapableClient("host_cu", false);
     setCapableClient("host_app_control", false);
     const target = makeTarget();
-    preactivateHostProxySkills(target, "ios");
+    preactivateHostProxySkills(target, "ios", "user-1");
+    expect(target.preactivatedSkillIds).toEqual([]);
+  });
+
+  test("does not preactivate for web source when only different-actor clients are connected", () => {
+    setCapableClient("host_cu", true, "user-other");
+    setCapableClient("host_app_control", true, "user-other");
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "web", "user-1");
     expect(target.preactivatedSkillIds).toEqual([]);
   });
 
@@ -290,7 +329,7 @@ describe("evaluateHostProxyAttachment", () => {
 
   test("returns cross_client with clientCount when a capable client is connected", () => {
     setCapableClient("host_cu", true);
-    expect(evaluateHostProxyAttachment("host_cu", "web")).toEqual({
+    expect(evaluateHostProxyAttachment("host_cu", "web", "user-1")).toEqual({
       shouldAttach: true,
       reason: "cross_client",
       clientCount: 1,
@@ -299,7 +338,7 @@ describe("evaluateHostProxyAttachment", () => {
 
   test("returns denied_no_clients with clientCount 0 when no capable client is connected", () => {
     setCapableClient("host_cu", false);
-    expect(evaluateHostProxyAttachment("host_cu", "web")).toEqual({
+    expect(evaluateHostProxyAttachment("host_cu", "web", "user-1")).toEqual({
       shouldAttach: false,
       reason: "denied_no_clients",
       clientCount: 0,
@@ -357,7 +396,7 @@ describe("preactivateHostProxySkills logging", () => {
   test("log captures cross_client + clientCount when a web source has a connected host_cu client", () => {
     setCapableClient("host_cu", true);
     const target = makeTarget();
-    preactivateHostProxySkills(target, "web");
+    preactivateHostProxySkills(target, "web", "user-1");
 
     expect(loggedInfoCalls).toHaveLength(1);
     const decisions = loggedInfoCalls[0].fields.decisions as Record<

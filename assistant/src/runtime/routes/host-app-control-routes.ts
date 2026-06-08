@@ -14,7 +14,7 @@
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
   HostAppControlResultPayload,
   HostAppControlState,

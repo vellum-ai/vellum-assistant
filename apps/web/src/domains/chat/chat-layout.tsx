@@ -1,53 +1,76 @@
-import * as Sentry from "@sentry/react";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
+    lazy,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
 } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
 
-import { haptic } from "@/utils/haptics";
-import { getLocalBool, setLocalBool, getLocalNumber, setLocalNumber } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
-import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
+import { Button } from "@vellumai/design-library";
+import { ChevronDown } from "lucide-react";
+
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
-import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
+import { haptic } from "@/utils/haptics";
+import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
+import { routes } from "@/utils/routes";
+
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-
-import { useVellumCommands } from "@/runtime/vellum-commands";
-import { useConversationStore } from "@/stores/conversation-store";
-import { requestComposerFocus } from "./composer-focus";
+import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
-  conversationsQueryKey,
-  useConversationGroupsQuery,
-  useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
-import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
-import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
-import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useViewerStore } from "@/stores/viewer-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useAuthStore } from "@/stores/auth-store";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import type { Conversation } from "@/types/conversation-types";
+    chooseSidebarOpenAppDestination,
+    useOpenAppFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
+import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
+import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
+import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
+import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
+import {
+    useConversationGroupsQuery,
+    useConversationListQuery,
+} from "@/hooks/conversation-queries";
+import { openPopoutWindow } from "@/runtime/popout-window";
+import { useVellumCommands } from "@/runtime/vellum-commands";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import type { Conversation } from "@/types/conversation-types";
+import { patchConversation } from "@/utils/conversation-cache";
+import { requestComposerFocus } from "./composer-focus";
+
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { OfflineBanner } from "@/components/offline-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ChatLayoutHeader } from "./chat-layout-header";
+
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
@@ -123,13 +146,12 @@ interface SideMenuRenderArgs {
   width?: number;
   onWidthChange?: (width: number) => void;
   onClose?: () => void;
-  onSearch?: () => void;
 }
 
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
- * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
- * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
+ * keyboard shortcuts (Ctrl+\, Ctrl+[/], Ctrl+K), and the chat header
+ * bar. Reads the resolved assistant from `useResolvedAssistantsStore`,
  * the lifecycle phase from `useAssistantLifecycleStore`, and header
  * slot content from `useChatLayoutSlotsStore` (which child routes
  * write to from their own effects).
@@ -139,7 +161,14 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+
+  // Capture pop-out mode once at mount so it persists across in-window
+  // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
+  // persistent layout route — it stays mounted when child routes change, so
+  // this initial value remains stable for the window's lifetime.
+  const [isPopout] = useState(() => location.search.includes("popout=1"));
+
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -189,17 +218,6 @@ export function ChatLayout() {
     assistantStateKind,
   });
 
-  // Sync the browser favicon to the assistant's avatar across every
-  // chat-layout child route — not just ChatPage. Mounting this in the
-  // layout keeps the favicon live while the user is on identity,
-  // library, workspace, contacts, or home (where ChatPage isn't
-  // mounted). The hook is a no-op when assistantId is null.
-  const layoutAvatar = useAssistantAvatar(assistantId);
-  useDynamicFavicon(
-    layoutAvatar.customImageUrl,
-    layoutAvatar.components,
-    layoutAvatar.traits,
-  );
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
@@ -218,30 +236,37 @@ export function ChatLayout() {
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
   // nearest outlet) can register content without the lost-Provider
   // problem outlet context has across intermediate routes.
-  const topBarCenter = useChatLayoutSlotsStore.use.topBarCenter();
+  //
+  // ChatPage writes `headerSupplements` to signal it's active. When
+  // supplements are present and no explicit `topBarCenter` override
+  // exists, ChatLayout renders the self-contained ChatConversationHeader.
+  // Non-chat routes (e.g. HomePageRoute) write `null` to topBarCenter
+  // and never set supplements, so they get an empty center as before.
+  const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
+  const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
+  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? <ChatConversationHeader /> : null);
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const onSearchClick = useChatLayoutSlotsStore.use.onSearchClick();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
   const assistantVersion = useAssistantIdentityStore.use.version();
 
   // --- History tracking for back/forward nav ---
-  const historyIndexRef = useRef(0);
-  const maxHistoryIndexRef = useRef(0);
+  // These are state (not refs) because they influence rendering
+  // (canGoBack / canGoForward gate button enabled states).
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [maxHistoryIndex, setMaxHistoryIndex] = useState(0);
+  const [prevLocation, setPrevLocation] = useState(location);
 
-  const prevLocationRef = useRef(location);
-  if (prevLocationRef.current !== location) {
-    historyIndexRef.current = window.history.state?.idx ?? 0;
-    maxHistoryIndexRef.current = Math.max(
-      maxHistoryIndexRef.current,
-      historyIndexRef.current,
-    );
-    prevLocationRef.current = location;
+  if (prevLocation !== location) {
+    const idx = (window.history.state?.idx as number) ?? 0;
+    setPrevLocation(location);
+    setHistoryIndex(idx);
+    setMaxHistoryIndex((prev) => Math.max(prev, idx));
   }
 
-  const canGoBack = historyIndexRef.current > 0;
-  const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < maxHistoryIndex;
 
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
@@ -322,6 +347,18 @@ export function ChatLayout() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [toggleSidebar]);
+
+  // Ctrl/Cmd+K shortcut for command palette
+  useEffect(() => {
+    const toggle = useCommandPaletteStore.getState().toggle;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
+      event.preventDefault();
+      toggle();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, []);
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
@@ -423,21 +460,7 @@ export function ChatLayout() {
   // sidebar's action wiring stays live on every chat-layout child route
   // (home, library, contacts, identity) — not only inside a conversation
   // where ChatPage is mounted.
-  const queryClient = useQueryClient();
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
-
-  const refreshConversations = useCallback(async () => {
-    if (!assistantId) return;
-    try {
-      await queryClient.invalidateQueries({
-        queryKey: conversationsQueryKey(assistantId),
-      });
-    } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "refresh_conversations" },
-      });
-    }
-  }, [assistantId, queryClient]);
 
   // `useConversationActions.handleArchiveConversation` calls
   // `startNewConversation({ silent: true })` when the active conversation
@@ -464,22 +487,33 @@ export function ChatLayout() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
-    renameRequest,
-    submitRenameConversation,
-    cancelRenameConversation,
+    handleMarkAllReadInGroup,
+    handleArchiveAllInGroup,
   } = useConversationActions({
     assistantId: assistantId,
     activeConversationId,
     conversations,
-    refreshConversations,
     switchConversation: handleSelectConversation,
     startNewConversation,
     prePinGroupIdsRef,
   });
 
-  // Electron host commands (File menu / future global hotkeys). The hook
-  // is a no-op on the web host. Handlers close over the latest state via
-  // an internal ref, so we don't need to memoize them. Composer focus is
+  // -------------------------------------------------------------------------
+  // Command palette — sections, item dispatch
+  // -------------------------------------------------------------------------
+  const { commandPalette, mergedSections, handleItemSelect } =
+    useCommandPaletteOrchestrator({
+      assistantId,
+      assistantName: assistantName ?? undefined,
+      conversations,
+      activeConversationId: activeConversationId ?? undefined,
+      startNewConversation: () => startNewConversation(),
+      switchConversation: handleSelectConversation,
+    });
+
+  // Electron host commands (File menu / global hotkeys). The hook is a
+  // no-op on the web host. Handlers close over the latest state via an
+  // internal ref, so we don't need to memoize them. Composer focus is
   // routed via `requestComposerFocus` (see `./composer-focus.ts`) so it
   // works whether ChatPage is already mounted (event listener) or the
   // command comes from another `/assistant/*` route (pending flag drained
@@ -489,7 +523,9 @@ export function ChatLayout() {
       startNewConversation();
     },
     currentConversation: () => {
-      if (!activeConversationId) return;
+      if (!activeConversationId) {
+        return;
+      }
       const target = routes.conversation(activeConversationId);
       if (location.pathname !== target) {
         void navigate(target);
@@ -497,11 +533,52 @@ export function ChatLayout() {
       requestComposerFocus();
     },
     markCurrentUnread: () => {
-      if (!activeConversationId) return;
+      if (!activeConversationId) {
+        return;
+      }
       const conversation = conversations.find(
         (c) => c.conversationId === activeConversationId,
       );
-      if (conversation) handleMarkConversationUnread(conversation);
+      if (conversation) {
+        handleMarkConversationUnread(conversation);
+      }
+    },
+    markAllRead: () => {
+      void handleMarkAllReadInGroup(conversations);
+    },
+    find: () => {
+      useCommandPaletteStore.getState().toggle();
+    },
+    sidebarToggle: () => {
+      toggleSidebar();
+    },
+    home: () => {
+      void navigate(routes.home);
+    },
+    commandPalette: () => {
+      useCommandPaletteStore.getState().toggle();
+    },
+    previousConversation: () => {
+      if (!activeConversationId || conversations.length === 0) return;
+      const idx = conversations.findIndex(
+        (c) => c.conversationId === activeConversationId,
+      );
+      const prev = conversations[idx - 1];
+      if (prev) handleSelectConversation(prev.conversationId);
+    },
+    nextConversation: () => {
+      if (!activeConversationId || conversations.length === 0) return;
+      const idx = conversations.findIndex(
+        (c) => c.conversationId === activeConversationId,
+      );
+      const next = conversations[idx + 1];
+      if (next) handleSelectConversation(next.conversationId);
+    },
+    popOut: () => {
+      if (!activeConversationId) {
+        return;
+      }
+      void openPopoutWindow(activeConversationId);
     },
   });
 
@@ -510,6 +587,42 @@ export function ChatLayout() {
   }, [navigate]);
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
+
+  // Only highlight a conversation row in the sidebar when the user is
+  // actually viewing it. On non-conversation routes (Identity, Library,
+  // Home, etc.) no conversation row should appear active. The store value
+  // is intentionally left intact — many other consumers (SSE streams,
+  // attention tracking, message reconciliation) rely on it persisting
+  // across route changes.
+  const isOnConversationRoute =
+    location.pathname === routes.assistant ||
+    location.pathname === `${routes.assistant}/` ||
+    location.pathname.startsWith("/assistant/conversations/");
+  const sidebarActiveConversationId = isOnConversationRoute
+    ? (activeConversationId ?? undefined)
+    : undefined;
+
+  // Sidebar pinned-app open. The viewer panel only renders under ChatPage
+  // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
+  // pinned-app click from home / library / identity / inspector etc. would
+  // mutate the viewer store with no surface to display against. Navigate
+  // to a chat route first when off-chat, then run the shared open flow.
+  //
+  // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
+  // shared with the transcript / assets-pill open path.
+  const openAppFromChat = useOpenAppFromChat();
+  const activeAppId = useViewerStore.use.activeAppId();
+  const handleOpenAppFromSidebar = useCallback(
+    async (appId: string) => {
+      const dest = chooseSidebarOpenAppDestination(
+        location.pathname,
+        activeConversationId,
+      );
+      if (dest) void navigate(dest);
+      await openAppFromChat(appId);
+    },
+    [location.pathname, navigate, activeConversationId, openAppFromChat],
+  );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
@@ -537,7 +650,7 @@ export function ChatLayout() {
         onWidthChange={args.onWidthChange}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationId={activeConversationId ?? undefined}
+        activeConversationId={sidebarActiveConversationId}
         processingConversationIds={processingConversationIds}
         attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
@@ -546,6 +659,8 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        activeAppId={activeAppId ?? undefined}
+        onOpenApp={handleOpenAppFromSidebar}
         onPinConversation={handleTogglePinConversation}
         onRenameConversation={handleRenameConversation}
         onArchiveConversation={handleArchiveConversation}
@@ -556,6 +671,8 @@ export function ChatLayout() {
         onRemoveFromGroup={handleRemoveFromGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
+        onMarkAllReadInGroup={handleMarkAllReadInGroup}
+        onArchiveAllInGroup={handleArchiveAllInGroup}
         onInspect={showLlmInspector ? handleInspectConversation : undefined}
         footerAction={
           <PreferencesMenu
@@ -565,16 +682,16 @@ export function ChatLayout() {
           />
         }
         onClose={args.onClose}
-        onSearchClick={args.onSearch}
       />
     ),
     [
+      activeConversationId,
       assistantId,
       assistantName,
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationId,
+      sidebarActiveConversationId,
       processingConversationIds,
       attentionConversationIds,
       handleSelectConversation,
@@ -589,10 +706,14 @@ export function ChatLayout() {
       handleRemoveFromGroup,
       handleRenameGroup,
       handleDeleteGroup,
+      handleMarkAllReadInGroup,
+      handleArchiveAllInGroup,
       isIdentityActive,
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      activeAppId,
+      handleOpenAppFromSidebar,
       showLlmInspector,
       handleInspectConversation,
     ],
@@ -600,25 +721,26 @@ export function ChatLayout() {
 
   return (
     <>
-      <ChatLayoutHeader
-        isMobile={isMobile}
-        drawerOpen={drawerOpen}
-        collapsed={collapsed}
-        sidebarWidth={sidebarWidth}
-        toggleSidebar={toggleSidebar}
-        topBarCenter={topBarCenter}
-        topBarRightSlot={topBarRightSlot}
-        canGoBack={canGoBack}
-        canGoForward={canGoForward}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
-        onOpenHome={handleOpenHome}
-        isHomeActive={isHomeActive}
-        hasUnreadHome={hasUnreadHome}
-        onSearchClick={onSearchClick ?? undefined}
-      />
+      {!isPopout && (
+        <ChatLayoutHeader
+          isMobile={isMobile}
+          drawerOpen={drawerOpen}
+          collapsed={collapsed}
+          sidebarWidth={sidebarWidth}
+          toggleSidebar={toggleSidebar}
+          topBarCenter={topBarCenter}
+          topBarRightSlot={topBarRightSlot}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={handleGoBack}
+          onGoForward={handleGoForward}
+          onOpenHome={handleOpenHome}
+          isHomeActive={isHomeActive}
+          hasUnreadHome={hasUnreadHome}
+        />
+      )}
 
-      <OfflineBanner />
+      {!isPopout && <OfflineBanner />}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -651,11 +773,14 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
-                  onSearch: onSearchClick ?? undefined,
                 })}
               </aside>
             </div>
           ) : null}
+        </main>
+      ) : isPopout ? (
+        <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+          <Outlet />
         </main>
       ) : (
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
@@ -664,20 +789,268 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: onSearchClick ?? undefined })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet  />
+            <Outlet />
           </main>
         </div>
       )}
 
-      <RenameConversationDialog
-        open={renameRequest !== null}
-        currentTitle={renameRequest?.currentTitle ?? ""}
-        onSubmit={submitRenameConversation}
-        onCancel={cancelRenameConversation}
-      />
+      <RenameDialogFromStore assistantId={assistantId} />
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rename dialog — reads shared store, submits via the daemon SDK.
+// Extracted as a sub-component so the optimistic-update logic lives
+// alongside the dialog rather than threading callbacks through the
+// parent's 60-item dependency tree.
+// ---------------------------------------------------------------------------
+
+function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) {
+  const renameRequest = useRenameRequestStore.use.renameRequest();
+  const clearRename = useRenameRequestStore.use.clearRename();
+  const queryClient = useQueryClient();
+
+  const handleSubmit = useCallback(
+    async (newTitle: string) => {
+      if (!renameRequest || !assistantId) return;
+      const { conversationId, currentTitle } = renameRequest;
+      clearRename();
+
+      const trimmed = newTitle.trim();
+      if (!trimmed || trimmed === currentTitle) return;
+
+      patchConversation(queryClient, assistantId, conversationId, {
+        title: trimmed,
+      });
+
+      try {
+        await conversationsByIdNamePatch({
+          path: { assistant_id: assistantId, id: conversationId },
+          body: { name: trimmed },
+          throwOnError: true,
+        });
+      } catch (err) {
+        patchConversation(queryClient, assistantId, conversationId, {
+          title: currentTitle,
+        });
+        captureError(err, { context: "renameConversation" });
+      }
+    },
+    [assistantId, queryClient, renameRequest, clearRename],
+  );
+
+  return (
+    <RenameConversationDialog
+      open={renameRequest !== null}
+      currentTitle={renameRequest?.currentTitle ?? ""}
+      onSubmit={handleSubmit}
+      onCancel={clearRename}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChatConversationHeader — self-contained header center content.
+//
+// Renders "New conversation" when no conversation is active, or the
+// ConversationActionsMenu dropdown with the conversation title trigger.
+//
+// Primary actions (archive, pin, rename, mark-read) come from
+// useConversationActions, which this component calls directly —
+// eliminating the duplicate call that previously lived in ChatPage.
+// Secondary actions (fork, analyze, inspect) come from the
+// headerSupplements that ChatPage writes to the slot store.
+// ---------------------------------------------------------------------------
+
+function ChatConversationHeader() {
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
+  const navigate = useNavigate();
+
+  const shouldRenderChat =
+    assistantState.kind === "active" ||
+    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
+
+  const { conversations } = useConversationListQuery(assistantId, shouldRenderChat);
+  const { conversationGroups } = useConversationGroupsQuery(
+    assistantId,
+    shouldRenderChat && conversationGroupsUI,
+  );
+
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
+    [conversations, activeConversationId],
+  );
+
+  const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
+
+  const switchConversation = useCallback(
+    (key: string) => {
+      useSubagentStore.getState().reset();
+      void navigate(routes.conversation(key));
+    },
+    [navigate],
+  );
+
+  const startNewConversation = useCallback(
+    ({ silent }: { silent?: boolean } = {}) => {
+      if (!silent) haptic.light();
+      useViewerStore.getState().setMainView("chat");
+      useSubagentStore.getState().reset();
+      const draftId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftId);
+      void navigate(routes.conversation(draftId));
+      requestComposerFocus();
+    },
+    [navigate],
+  );
+
+  const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  const {
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleRenameConversation,
+  } = useConversationActions({
+    assistantId,
+    activeConversationId,
+    conversations,
+    switchConversation,
+    startNewConversation,
+    prePinGroupIdsRef,
+  });
+
+  if (!activeConversation) {
+    if (!assistantId) return null;
+    return (
+      <span className="text-sm font-medium text-[var(--content-default)]">
+        New conversation
+      </span>
+    );
+  }
+
+  const isReadonly = isChannelConversation(activeConversation);
+  const moveToGroups = buildMoveToGroupTargets(activeConversation, conversationGroups);
+  const isPinned = activeConversation.isPinned || activeConversation.groupId === "system:pinned";
+  const isArchived = activeConversation.archivedAt != null;
+
+  return (
+    <ConversationActionsMenu
+      variant="header"
+      isPinned={isPinned}
+      isArchived={isArchived}
+      isReadonly={isReadonly}
+      onPinToggle={() => handleTogglePinConversation(activeConversation)}
+      onRename={() => handleRenameConversation(activeConversation)}
+      onArchive={() => handleArchiveConversation(activeConversation)}
+      onUnarchive={() => handleUnarchiveConversation(activeConversation)}
+      onAnalyze={
+        !isReadonly && headerSupplements?.onAnalyze && activeConversation.conversationId
+          ? () => headerSupplements.onAnalyze!(activeConversation)
+          : undefined
+      }
+      onForkConversation={
+        !isReadonly && headerSupplements?.hasPersistedMessage && headerSupplements?.onForkConversation
+          ? headerSupplements.onForkConversation
+          : undefined
+      }
+      onOpenInNewWindow={
+        headerSupplements?.onOpenInNewWindow && activeConversation.conversationId
+          ? () => headerSupplements.onOpenInNewWindow!(activeConversation)
+          : undefined
+      }
+      onInspect={
+        showLlmInspector && headerSupplements?.onInspect && activeConversation.conversationId
+          ? () => headerSupplements.onInspect!(activeConversation)
+          : undefined
+      }
+      onCopyConversation={headerSupplements?.onCopyConversation ?? undefined}
+      onRefresh={
+        headerSupplements?.onRefresh && activeConversation.conversationId != null
+          ? headerSupplements.onRefresh
+          : undefined
+      }
+      moveToGroups={moveToGroups}
+      onMoveToGroup={(groupId) => handleMoveToGroup(activeConversation, groupId)}
+      onRemoveFromGroup={
+        activeConversation.groupId && !activeConversation.groupId.startsWith("system:")
+          ? () => handleRemoveFromGroup(activeConversation)
+          : undefined
+      }
+      onMarkUnread={
+        !isReadonly && activeConversation.hasUnseenLatestAssistantMessage === false
+          ? () => handleMarkConversationUnread(activeConversation)
+          : undefined
+      }
+      onMarkRead={
+        activeConversation.hasUnseenLatestAssistantMessage
+          ? () => handleMarkConversationRead(activeConversation)
+          : undefined
+      }
+      side="bottom"
+      align="center"
+      sideOffset={8}
+      trigger={
+        <Button
+          variant="ghost"
+          rightIcon={<ChevronDown />}
+          aria-haspopup="menu"
+          className="min-w-0"
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            {headerSupplements?.slackHeaderLabel ? (
+              <img
+                src="/images/integrations/slack.svg"
+                alt=""
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0"
+              />
+            ) : null}
+            <span className="min-w-0 max-w-[220px] truncate leading-6">
+              {isArchived && (
+                <span className="mr-1 text-[var(--content-tertiary)]">
+                  [Archived]
+                </span>
+              )}
+              {activeConversation.title ?? "Untitled"}
+            </span>
+            {headerSupplements?.slackHeaderLabel ? (
+              <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">
+                ({headerSupplements.slackHeaderLabel})
+              </span>
+            ) : null}
+          </span>
+        </Button>
+      }
+    />
   );
 }

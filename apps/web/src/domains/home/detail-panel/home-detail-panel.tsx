@@ -1,20 +1,24 @@
 import {
-  ArrowLeft,
-  CircleX,
-  Mail,
-  MailOpen,
-  MoreVertical,
-  RotateCcw,
-  Trash2,
-  X,
+    ArrowLeft,
+    CircleX,
+    Mail,
+    MailOpen,
+    MoreVertical,
+    RotateCcw,
+    Trash2,
+    X,
 } from "lucide-react";
 
-import { Button, Menu, Tag, Typography } from "@vellum/design-library";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
+import type {
+    FeedItem,
+    FeedItemCategory,
+    FeedItemStatus,
+} from "@vellumai/assistant-api";
+import { Button, Menu, Tag, Typography } from "@vellumai/design-library";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-import type { FeedItem, FeedItemCategory, FeedItemStatus } from "../types";
 
 function resolveCategoryStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {
@@ -58,7 +62,7 @@ export function HomeDetailPanel({
     return (
       <div className="flex h-full flex-col bg-[var(--surface-overlay)]">
         {/* Nav bar */}
-        <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+        <div className="relative flex shrink-0 items-center px-3 py-2">
           <Button
             variant="ghost"
             iconOnly={<ArrowLeft />}
@@ -69,37 +73,39 @@ export function HomeDetailPanel({
 
           <Typography
             variant="body-medium-default"
-            className="min-w-0 flex-1 text-center text-[var(--content-secondary)]"
+            className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-secondary)]"
           >
             Details
           </Typography>
 
-          <Button
-            variant="ghost"
-            iconOnly={isUnread ? <MailOpen /> : <Mail />}
-            onClick={() =>
-              onUpdateStatus(item.id, isUnread ? "seen" : "new")
-            }
-            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
-          />
-          {isDismissed ? (
+          <div className="ml-auto flex items-center gap-2">
             <Button
               variant="ghost"
-              iconOnly={<RotateCcw />}
-              onClick={() => onUpdateStatus(item.id, "seen")}
-              aria-label="Restore"
-              tooltip="Restore"
+              iconOnly={isUnread ? <MailOpen /> : <Mail />}
+              onClick={() =>
+                onUpdateStatus(item.id, isUnread ? "seen" : "new")
+              }
+              aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+              tooltip={isUnread ? "Mark as read" : "Mark as unread"}
             />
-          ) : (
-            <Button
-              variant="ghost"
-              iconOnly={<Trash2 />}
-              onClick={() => onDismiss(item.id)}
-              aria-label="Dismiss"
-              tooltip="Dismiss"
-            />
-          )}
+            {isDismissed ? (
+              <Button
+                variant="ghost"
+                iconOnly={<RotateCcw />}
+                onClick={() => onUpdateStatus(item.id, "seen")}
+                aria-label="Restore"
+                tooltip="Restore"
+              />
+            ) : (
+              <Button
+                variant="ghost"
+                iconOnly={<Trash2 />}
+                onClick={() => onDismiss(item.id)}
+                aria-label="Dismiss"
+                tooltip="Dismiss"
+              />
+            )}
+          </div>
         </div>
 
         {/* Detail header */}
@@ -125,7 +131,11 @@ export function HomeDetailPanel({
           >
             {item.title ?? item.summary}
           </Typography>
-          <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+          <Tag
+            tone="neutral"
+            className="shrink-0"
+            title={formatFullLocalDate(item.timestamp)}
+          >
             {formatRelativeDate(item.timestamp)}
           </Tag>
         </div>
@@ -185,7 +195,11 @@ export function HomeDetailPanel({
           {item.title ?? item.summary}
         </Typography>
 
-        <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+        <Tag
+          tone="neutral"
+          className="shrink-0"
+          title={formatFullLocalDate(item.timestamp)}
+        >
           {formatRelativeDate(item.timestamp)}
         </Tag>
 

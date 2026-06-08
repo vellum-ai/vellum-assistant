@@ -31,7 +31,8 @@ export type IconName =
   | "plug"
   | "sparkle"
   | "user-plus"
-  | "bolt";
+  | "bolt"
+  | "brain";
 
 /** Result of mapping a tool call to its carousel-header label. */
 export interface StepLabel {
@@ -225,5 +226,5 @@ export function deriveStepLabelFromName(
  * the unified card needs to label.
  */
 export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
-  return deriveStepLabelFromName(toolCall.toolName, toolCall.input);
+  return deriveStepLabelFromName(toolCall.name, toolCall.input);
 }

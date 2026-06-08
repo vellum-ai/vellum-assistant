@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
+import { Mutex } from "../util/mutex.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 
 const execFileAsync = promisify(execFile);
@@ -117,48 +118,6 @@ interface ExecError extends Error {
   killed?: boolean;
   signal?: string;
   code?: string | number;
-}
-
-/**
- * Simple mutex implementation for per-workspace git operation serialization.
- * Prevents concurrent git operations from corrupting the repository state.
- */
-class Mutex {
-  private locked = false;
-  private waitQueue: Array<() => void> = [];
-
-  async acquire(): Promise<void> {
-    if (!this.locked) {
-      this.locked = true;
-      return;
-    }
-    // Wait for the lock to be released
-    await new Promise<void>((resolve) => {
-      this.waitQueue.push(resolve);
-    });
-  }
-
-  release(): void {
-    const next = this.waitQueue.shift();
-    if (next) {
-      next();
-    } else {
-      this.locked = false;
-    }
-  }
-
-  /**
-   * Execute a function while holding the lock.
-   * Automatically releases the lock when done, even if the function throws.
-   */
-  async withLock<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
 }
 
 interface GitCommitMetadata {

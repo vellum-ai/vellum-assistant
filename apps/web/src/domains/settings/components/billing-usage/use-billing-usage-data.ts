@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
-import type { DateRange } from "@/components/charts/date-range-select";
-import { toLocalDateString } from "@/components/charts/format-date-label";
+import {
+  type DateRange,
+  DEFAULT_PRESET_DAYS,
+  computeRangeInTimezone,
+} from "@/components/charts/date-range-select";
 import {
   organizationsBillingUsageSeriesRetrieveOptions,
   organizationsBillingUsageTotalsRetrieveOptions,
@@ -10,21 +13,21 @@ import type {
   OrganizationsBillingUsageSeriesRetrieveData,
   OrganizationsBillingUsageTotalsRetrieveData,
 } from "@/generated/api/types.gen";
-import { getBrowserTimezone } from "@/utils/browser-timezone";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
   type LlmUsageDimension,
   toBillingGroupBy,
 } from "@/utils/llm-dimension";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
-export function getDefaultDateRange(): DateRange {
-  const today = new Date();
-  const from = new Date(today);
-  from.setDate(from.getDate() - 29);
-  return {
-    from: toLocalDateString(from),
-    to: toLocalDateString(today),
-  };
+/**
+ * Default date range (the `DEFAULT_PRESET_DAYS` preset), with calendar bounds
+ * computed in the effective timezone so they stay aligned with the `tz` sent to
+ * the billing backend.
+ */
+export function getDefaultDateRange(tz: string = getEffectiveTimezone()): DateRange {
+  return computeRangeInTimezone(DEFAULT_PRESET_DAYS, tz);
 }
 
 export type UsageChartState = {
@@ -57,7 +60,7 @@ export function getBillingUsageGroupBy(
 
 export function buildBillingUsageSeriesQuery(
   state: UsageChartState,
-  tz: string = getBrowserTimezone(),
+  tz: string = getEffectiveTimezone(),
 ): NonNullable<OrganizationsBillingUsageSeriesRetrieveData["query"]> {
   return {
     from: state.dateRange.from,
@@ -74,7 +77,7 @@ export function buildBillingUsageSeriesQuery(
 
 export function buildBillingUsageTotalsQuery(
   state: UsageChartState,
-  tz: string = getBrowserTimezone(),
+  tz: string = getEffectiveTimezone(),
 ): NonNullable<OrganizationsBillingUsageTotalsRetrieveData["query"]> {
   return {
     from: state.dateRange.from,
@@ -87,15 +90,17 @@ export function buildBillingUsageTotalsQuery(
 }
 
 export function useBillingUsageData(state: UsageChartState) {
+  const tz = useEffectiveTimezone();
+
   const seriesQuery = useQuery(
     organizationsBillingUsageSeriesRetrieveOptions({
-      query: buildBillingUsageSeriesQuery(state),
+      query: buildBillingUsageSeriesQuery(state, tz),
     }),
   );
 
   const totalsQuery = useQuery(
     organizationsBillingUsageTotalsRetrieveOptions({
-      query: buildBillingUsageTotalsQuery(state),
+      query: buildBillingUsageTotalsQuery(state, tz),
     }),
   );
 

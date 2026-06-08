@@ -8,6 +8,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
@@ -226,7 +227,7 @@ describe("renderHistoryContent", () => {
 
     expect(output.text).toBe("");
     expect(output.toolCalls).toEqual([
-      { name: "web_fetch", input: { url: "https://example.com" } },
+      { id: "tu_1", name: "web_fetch", input: { url: "https://example.com" } },
     ]);
     expect(output.toolCallsBeforeText).toBe(true);
   });
@@ -244,6 +245,7 @@ describe("renderHistoryContent", () => {
 
     expect(output.toolCalls).toEqual([
       {
+        id: "tu_1",
         name: "bash",
         input: { command: "ls" },
         result: "file1.txt\nfile2.txt",
@@ -265,11 +267,80 @@ describe("renderHistoryContent", () => {
 
     expect(output.toolCalls).toEqual([
       {
+        id: "tu_1",
         name: "bash",
         input: { command: "bad" },
         result: "command not found",
         isError: true,
       },
+    ]);
+  });
+
+  test("omits id when the tool_use block carries none", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", name: "bash", input: { command: "ls" } },
+    ]);
+
+    // No provider id on the block — emit the entry without an `id` rather than
+    // materializing an empty string, so clients fall back to a synthesized id.
+    expect(output.toolCalls).toEqual([
+      { name: "bash", input: { command: "ls" } },
+    ]);
+    expect(output.toolCalls[0]).not.toHaveProperty("id");
+  });
+
+  test("carries the provider id for server_tool_use blocks", () => {
+    const output = renderHistoryContent([
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "vellum" },
+      },
+    ]);
+
+    expect(output.toolCalls).toEqual([
+      { id: "srvtu_1", name: "web_search", input: { query: "vellum" } },
+    ]);
+  });
+
+  test("synthesizes a positional id when a tool_use lacks a provider id", () => {
+    const output = renderHistoryContent(
+      [
+        { type: "tool_use", name: "bash", input: { command: "ls" } },
+        { type: "tool_use", name: "bash", input: { command: "pwd" } },
+      ],
+      undefined,
+      "msg-1",
+    );
+
+    // Same positional scheme the web client used to synthesize, so snapshot and
+    // stream tool calls stay keyed consistently and the client can drop its own
+    // fallback once it no longer skews ahead of the daemon.
+    expect(output.toolCalls.map((tc) => tc.id)).toEqual([
+      "tool-history-msg-1-0",
+      "tool-history-msg-1-1",
+    ]);
+  });
+
+  test("keeps the provider id and only synthesizes for blocks missing one", () => {
+    const output = renderHistoryContent(
+      [
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "bash",
+          input: { command: "ls" },
+        },
+        { type: "tool_use", name: "bash", input: { command: "pwd" } },
+      ],
+      undefined,
+      "msg-1",
+    );
+
+    expect(output.toolCalls.map((tc) => tc.id)).toEqual([
+      "tu_1",
+      "tool-history-msg-1-1",
     ]);
   });
 
@@ -315,6 +386,79 @@ describe("renderHistoryContent", () => {
     expect(entry.riskDirectoryScopeOptions).toEqual(directoryScopeOptions);
   });
 
+  // ── Persisted tool activity (web_search / web_fetch) ────────────────────────
+
+  test("hydrates persisted _activityMetadata onto a tool_use block", () => {
+    // Mirrors what `annotatePersistedAssistantMessage` writes so the activity
+    // card survives a history reopen instead of degrading to plain text.
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "vellum docs",
+        provider: "brave",
+        resultCount: 1,
+        durationMs: 120,
+        results: [
+          {
+            rank: 1,
+            title: "Vellum",
+            url: "https://vellum.ai",
+            domain: "vellum.ai",
+          },
+        ],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "vellum docs" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("hydrates persisted _activityMetadata onto a server_tool_use block", () => {
+    const activityMetadata: ToolActivityMetadata = {
+      webSearch: {
+        query: "native search",
+        provider: "anthropic-native",
+        resultCount: 0,
+        durationMs: 80,
+        results: [],
+      },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "native search" },
+        _activityMetadata: activityMetadata,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  test("ignores non-object _activityMetadata annotations", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: "not an object",
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toBeUndefined();
+  });
+
   test("ignores non-array _risk*Options annotations", () => {
     // Defensive: a malformed persisted block should not throw or coerce.
     const output = renderHistoryContent([
@@ -353,6 +497,46 @@ describe("renderHistoryContent", () => {
     expect(entry.riskScopeOptions).toBeUndefined();
     expect(entry.riskAllowlistOptions).toBeUndefined();
     expect(entry.riskDirectoryScopeOptions).toBeUndefined();
+  });
+
+  test("reads back a persisted confirmation decision from the closed enum", () => {
+    // GIVEN a persisted tool_use block stamped with a recorded decision
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "rm file" },
+        _confirmationDecision: "denied",
+        _confirmationLabel: "Run Command",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the decision survives verbatim alongside its label
+    expect(entry.confirmationDecision).toBe("denied");
+    expect(entry.confirmationLabel).toBe("Run Command");
+  });
+
+  test("drops a _confirmationDecision outside the closed enum", () => {
+    // GIVEN a malformed persisted decision the daemon never writes
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "ls" },
+        _confirmationDecision: "bogus",
+      },
+    ]);
+
+    // WHEN it is rendered into a history tool call
+    const [entry] = output.toolCalls;
+
+    // THEN the unknown value is not surfaced on the wire
+    expect(entry.confirmationDecision).toBeUndefined();
   });
 
   test("handles mixed text and tool blocks", () => {
@@ -566,6 +750,135 @@ describe("renderHistoryContent", () => {
     expect(output.text).toBe("");
     expect(output.textSegments).toEqual([]);
     expect(output.contentOrder).toEqual([]);
+  });
+});
+
+describe("renderHistoryContent contentBlocks", () => {
+  test("builds an ordered block array while walking interleaved content", () => {
+    // GIVEN a turn that interleaves text, reasoning, a tool call, a surface,
+    // and trailing text in the raw model content
+    const output = renderHistoryContent([
+      { type: "text", text: "before tool" },
+      { type: "thinking", thinking: "reasoning", signature: "sig" },
+      { type: "tool_use", id: "t1", name: "run_command", input: { cmd: "ls" } },
+      { type: "tool_result", tool_use_id: "t1", content: "file.txt" },
+      {
+        type: "ui_surface",
+        surfaceId: "s1",
+        surfaceType: "ui_card",
+        data: {},
+      },
+      { type: "text", text: "after tool" },
+    ]);
+
+    // THEN contentBlocks mirrors the walk order
+    expect(output.contentBlocks.map((b) => b.type)).toEqual([
+      "text",
+      "thinking",
+      "tool_use",
+      "surface",
+      "text",
+    ]);
+    expect(output.contentBlocks[0]).toEqual({
+      type: "text",
+      text: "before tool",
+    });
+    expect(output.contentBlocks[1]).toEqual({
+      type: "thinking",
+      thinking: "reasoning",
+    });
+    expect(output.contentBlocks[4]).toEqual({
+      type: "text",
+      text: "after tool",
+    });
+    // AND the tool_use / surface blocks reuse the same objects the positional
+    // arrays hold, so the tool result paired in later is reflected here too
+    const toolBlock = output.contentBlocks[2];
+    expect(toolBlock.type === "tool_use" && toolBlock.toolCall).toBe(
+      output.toolCalls[0],
+    );
+    expect(output.toolCalls[0].result).toBe("file.txt");
+    const surfaceBlock = output.contentBlocks[3];
+    expect(surfaceBlock.type === "surface" && surfaceBlock.surface).toBe(
+      output.surfaces[0],
+    );
+    // AND no attachment block appears (this turn has no file blocks)
+    expect(output.contentBlocks.some((b) => b.type === "attachment")).toBe(
+      false,
+    );
+  });
+
+  const pdfBlock = {
+    type: "file",
+    source: {
+      type: "base64",
+      media_type: "application/pdf",
+      filename: "spec.pdf",
+      data: Buffer.from("hi").toString("base64"),
+    },
+  } as const;
+  const pdfAttachment = {
+    id: "att-1",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2,
+    kind: "file",
+  } as const;
+
+  test("inlines an attachment block when hydrated metadata is supplied", () => {
+    // GIVEN a turn with text, a file attachment, then more text, and the
+    // caller supplies the DB-hydrated metadata for that file block
+    const output = renderHistoryContent(
+      [
+        { type: "text", text: "see file" },
+        pdfBlock,
+        { type: "text", text: "thanks" },
+      ],
+      [pdfAttachment],
+    );
+
+    // THEN the attachment block is placed inline between the two text blocks
+    expect(output.contentBlocks).toEqual([
+      { type: "text", text: "see file" },
+      { type: "attachment", attachment: pdfAttachment },
+      { type: "text", text: "thanks" },
+    ]);
+  });
+
+  test("omits the file block from contentBlocks when no metadata is supplied", () => {
+    // GIVEN the same turn but no hydrated metadata (the file still ships via
+    // the positional attachments array, just not as an inline block)
+    const output = renderHistoryContent([
+      { type: "text", text: "see file" },
+      pdfBlock,
+      { type: "text", text: "thanks" },
+    ]);
+
+    expect(output.contentBlocks).toEqual([
+      { type: "text", text: "see file" },
+      { type: "text", text: "thanks" },
+    ]);
+    expect(output.attachments.length).toBe(1);
+  });
+
+  test("excludes the trailing attachment-description segment from blocks", () => {
+    // GIVEN an attachment-only turn (the legacy text body carries a synthetic
+    // attachment description segment for clients without attachment UI)
+    const output = renderHistoryContent([pdfBlock], [pdfAttachment]);
+
+    // THEN the only block is the inlined attachment — the synthetic text
+    // segment stays in textSegments but never pollutes contentBlocks
+    expect(output.contentBlocks).toEqual([
+      { type: "attachment", attachment: pdfAttachment },
+    ]);
+    expect(output.textSegments.length).toBe(1);
+  });
+
+  test("emits a single text block for the non-array fallback", () => {
+    expect(renderHistoryContent("raw string").contentBlocks).toEqual([
+      { type: "text", text: "raw string" },
+    ]);
+    expect(renderHistoryContent(null).contentBlocks).toEqual([]);
   });
 });
 

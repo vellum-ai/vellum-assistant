@@ -5,11 +5,10 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type {
   ChatDebugRefs,
@@ -24,8 +23,14 @@ import {
   type TurnState,
 } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
+import {
+  makeServerMessage,
+  textBody,
+  wireTextBody,
+} from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 //  Helpers
 // ---------------------------------------------------------------------------
@@ -34,21 +39,19 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
   return {
     id: "msg-1",
     role: "assistant",
-    content: "hello",
-    isStreaming: false,
+    ...textBody("hello"),
     timestamp: Date.now(),
     ...overrides,
   };
 }
 
-function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMessage {
-  return {
+function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
+  return makeServerMessage({
     id: "msg-1",
     role: "assistant",
-    content: "hello",
-    timestamp: Date.now(),
+    ...wireTextBody("hello"),
     ...overrides,
-  };
+  });
 }
 
 const DEFAULT_UI_CONTEXT: UIContext = {
@@ -98,16 +101,10 @@ function makeRefs(
     ...(pendingInteractions ?? {}),
   };
   return {
-    messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
-    streamContextRef: { current: null } as MutableRefObject<{
-      assistantId: string;
-      conversationId: string;
-    } | null>,
-    streamRef: { current: null } as MutableRefObject<ChatEventStream | null>,
-    streamEpochRef: { current: 0 } as MutableRefObject<number>,
+
     getAssistantId: () => "asst-1",
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
@@ -134,7 +131,7 @@ describe("createChatDebugApi.getClientMessages", () => {
   });
 
   test("returns the underlying DisplayMessage objects untouched", () => {
-    const message = fakeDisplayMessage({ content: "hello world" });
+    const message = fakeDisplayMessage({ ...textBody("hello world") });
     const sanitizedMessagesRef = {
       current: [message],
     } as MutableRefObject<DisplayMessage[]>;
@@ -198,15 +195,13 @@ describe("createChatDebugApi.getClientMessages", () => {
     expect(api.getClientMessages(Infinity)).toHaveLength(20);
   });
 
-  test("reads from sanitizedMessagesRef, NOT raw messagesRef", () => {
+  test("reads from sanitizedMessagesRef, NOT store messages", () => {
     // getClientMessages() is logic-free — it surfaces whatever the render path
-    // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
+    // already wrote to `sanitizedMessagesRef`. Store `messages` is
     // intentionally ignored so DevTools always mirrors the UI.
-    const rawOnly = fakeDisplayMessage({ id: "raw-only" });
     const sanitizedOnly = fakeDisplayMessage({ id: "sanitized-only" });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef: { current: [rawOnly] } as MutableRefObject<DisplayMessage[]>,
         sanitizedMessagesRef: {
           current: [sanitizedOnly],
         } as MutableRefObject<DisplayMessage[]>,
@@ -239,7 +234,6 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         message: fakeDisplayMessage({ id: "msg-a" }),
       },
       { kind: "thinking", key: "thinking", label: "Processing" },
-      { kind: "error", key: "error-notice", message: "Something failed" },
     ];
     const api = createChatDebugApi(
       makeRefs({
@@ -308,6 +302,34 @@ describe("createChatDebugApi.getTranscriptItems", () => {
 });
 
 // ---------------------------------------------------------------------------
+//  createChatDebugApi — getPhase
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.getPhase", () => {
+  test("returns the turn-store phase", () => {
+    const api = createChatDebugApi(
+      makeRefs({ turn: { ...INITIAL_TURN_STATE, phase: "streaming" } }),
+    );
+    expect(api.getPhase()).toBe("streaming");
+  });
+
+  test("defaults to idle for the initial turn state", () => {
+    const api = createChatDebugApi(makeRefs());
+    expect(api.getPhase()).toBe("idle");
+  });
+
+  test("reads through to getTurnState on every call (no caching)", () => {
+    let phase: TurnState["phase"] = "queued";
+    const api = createChatDebugApi(
+      makeRefs({ getTurnState: () => ({ ...INITIAL_TURN_STATE, phase }) }),
+    );
+    expect(api.getPhase()).toBe("queued");
+    phase = "thinking";
+    expect(api.getPhase()).toBe("thinking");
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  createChatDebugApi — thinkingIndicator
 // ---------------------------------------------------------------------------
 
@@ -334,7 +356,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(false);
     expect(snapshot.done.phase).toBe("thinking");
     expect(snapshot.done.lastTerminalReason).toBeNull();
-    expect(snapshot.done.explanation).toBe("active: phase=thinking");
   });
 
   test("initial state → hidden with notSendingAndNotRestoredProcessing flag and terminal=true", () => {
@@ -350,9 +371,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(true);
     expect(snapshot.done.phase).toBe("idle");
     expect(snapshot.done.lastTerminalReason).toBeNull();
-    expect(snapshot.done.explanation).toBe(
-      "terminal: phase=idle, no prior turn this session",
-    );
   });
 
   test("terminal phase=idle after MESSAGE_COMPLETE → done.lastTerminalReason=\"complete\"", () => {
@@ -370,9 +388,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.visible).toBe(false);
     expect(snapshot.done.terminal).toBe(true);
     expect(snapshot.done.lastTerminalReason).toBe("complete");
-    expect(snapshot.done.explanation).toBe(
-      "terminal: phase=idle, lastTerminalReason=complete",
-    );
   });
 
   test("streaming with assistant message in flight → hidden with streamingAssistantMessageActive", () => {
@@ -393,9 +408,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
       "streamingAssistantMessageActive",
     ]);
     expect(snapshot.done.terminal).toBe(false);
-    expect(snapshot.done.explanation).toBe(
-      "active: phase=streaming, streaming an assistant message",
-    );
   });
 
   test("active tool call suppresses indicator (activeToolCallCount>0)", () => {
@@ -414,9 +426,6 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.visible).toBe(false);
     expect(snapshot.failingConditions).toEqual(["activeToolCallCount>0"]);
     expect(snapshot.conditions.activeToolCallCount).toBe(1);
-    expect(snapshot.done.explanation).toBe(
-      "active: phase=thinking, activeToolCallCount=1",
-    );
   });
 
   test("each pending-prompt gate is reported individually", () => {
@@ -474,7 +483,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.terminal).toBe(true);
   });
 
-  test("queued phase reports queue depth in explanation", () => {
+  test("queued phase is visible and reported as non-terminal", () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -487,7 +496,8 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     const snapshot = api.thinkingIndicator();
 
     expect(snapshot.visible).toBe(true);
-    expect(snapshot.done.explanation).toBe("active: phase=queued, pending=2");
+    expect(snapshot.done.phase).toBe("queued");
+    expect(snapshot.done.terminal).toBe(false);
   });
 
   test("returns the same UIContext reference shape getUIContext provided", () => {
@@ -501,6 +511,71 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     const snapshot = api.thinkingIndicator();
     expect(snapshot.uiContext.hasUncompletedVisibleSurface).toBe(true);
     expect(snapshot.uiContext.hasPendingSecret).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — streamingRing
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.streamingRing", () => {
+  test("streamingRing is lit by isStreaming while the assistant is thinking", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "thinking",
+        activeTurnId: "turn-1",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const ring = api.streamingRing();
+
+    expect(ring.visible).toBe(true);
+    expect(ring.isStreaming).toBe(true);
+    expect(ring.isProcessing).toBe(false);
+    expect(ring.litBy).toEqual(["isStreaming"]);
+  });
+
+  test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "idle",
+        lastTerminalReason: "complete",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const ring = api.streamingRing();
+
+    expect(ring.visible).toBe(false);
+    expect(ring.litBy).toEqual([]);
+  });
+
+  test("streamingRing stays lit by isProcessing when the cached snapshot is stale after the turn ends", () => {
+    // The hang case: the local turn is terminal (idle, complete) but the
+    // cached `conversation.isProcessing` snapshot is still true, so the ring's
+    // `isProcessing` gate keeps it visible. `litBy: ["isProcessing"]` plus a
+    // terminal `done` is the signature of a stale-snapshot stuck ring.
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "idle",
+        lastTerminalReason: "complete",
+      },
+      uiContext: { activeConversationIsProcessing: true },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+    const ring = api.streamingRing();
+
+    expect(snapshot.done.terminal).toBe(true);
+    expect(ring.visible).toBe(true);
+    expect(ring.isStreaming).toBe(false);
+    expect(ring.isProcessing).toBe(true);
+    expect(ring.litBy).toEqual(["isProcessing"]);
   });
 });
 
@@ -519,39 +594,51 @@ describe("createChatDebugApi.serverMessages", () => {
     );
   });
 
-  test("returns raw RuntimeMessage[] from injected historyFetcher", async () => {
+  test("returns the full server snapshot response from injected historyFetcher", async () => {
+    // GIVEN an active conversation and a history fetcher returning a
+    // snapshot with both messages and a top-level seq watermark
     useConversationStore.setState({ activeConversationId: "conv-1" });
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
-    const historyFetcher = async () => serverList;
+    const snapshot = { messages: serverList, seq: 7 };
+    const historyFetcher = async () => snapshot;
     const api = createChatDebugApi(makeRefs({ historyFetcher }));
+
+    // WHEN serverMessages() is called
     const result = await api.serverMessages();
-    expect(result).toBe(serverList);
-    expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe("srv-1");
+
+    // THEN the full response is returned, not just the messages array
+    expect(result).toEqual(snapshot);
+    // AND the seq watermark survives alongside the messages
+    expect(result?.seq).toBe(7);
+    expect(result?.messages).toHaveLength(2);
+    expect(result?.messages[0]!.id).toBe("srv-1");
   });
 
-  test("prefers streamContextRef over conversation store + getAssistantId", async () => {
+  test("prefers stream store context over conversation store + getAssistantId", async () => {
     useConversationStore.setState({ activeConversationId: "conv-fallback" });
-    const streamContextRef = {
-      current: { assistantId: "asst-stream", conversationId: "conv-stream" },
-    } as MutableRefObject<{ assistantId: string; conversationId: string } | null>;
+    // Set stream context via the stream store.
+    const { useStreamStore } = await import("@/domains/chat/stream-store");
+    useStreamStore.setState({
+      streamContext: { assistantId: "asst-stream", conversationId: "conv-stream" },
+    });
     const seen: Array<{ assistantId: string; conversationId: string }> = [];
     const historyFetcher = async (assistantId: string, conversationId: string) => {
       seen.push({ assistantId, conversationId });
-      return [];
+      return { messages: [], seq: null };
     };
     const api = createChatDebugApi(
       makeRefs({
         getAssistantId: () => "asst-fallback",
-        streamContextRef,
         historyFetcher,
       }),
     );
     await api.serverMessages();
     expect(seen).toEqual([{ assistantId: "asst-stream", conversationId: "conv-stream" }]);
+    // Clean up.
+    useStreamStore.setState({ streamContext: null });
   });
 });
 
@@ -595,7 +682,9 @@ describe("createChatDebugApi.help", () => {
     const text = consoleSpy.logged.join("\n");
     expect(text).toContain(".getClientMessages(");
     expect(text).toContain(".getTranscriptItems(");
+    expect(text).toContain(".getPhase()");
     expect(text).toContain(".thinkingIndicator()");
+    expect(text).toContain(".streamingRing()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");
     expect(text).toContain("[experimental]");
@@ -699,7 +788,7 @@ type DebugWindow = Window & {
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
-      toggleProgressBadge?: (v?: boolean | null) => boolean;
+      toggleSeqGapDetection?: (v?: boolean | null) => boolean;
     };
     other?: unknown;
   };
@@ -707,7 +796,7 @@ type DebugWindow = Window & {
 
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
-  toggleProgressBadge: (_value?: boolean | null): boolean => false,
+  toggleSeqGapDetection: (_value?: boolean | null): boolean => false,
 });
 
 describe("installVellumDebugApi", () => {
@@ -721,7 +810,7 @@ describe("installVellumDebugApi", () => {
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
     expect(typeof root?.flags?.impersonateVersion).toBe("function");
-    expect(typeof root?.flags?.toggleProgressBadge).toBe("function");
+    expect(typeof root?.flags?.toggleSeqGapDetection).toBe("function");
     uninstall();
   });
 
@@ -862,12 +951,9 @@ describe("createChatDebugApi.getScrollState", () => {
     });
     // Non-empty conversation so classifyScrollPosition treats the
     // near-top position as load-older-eligible.
-    const messagesRef = {
-      current: [fakeDisplayMessage()],
-    } as MutableRefObject<DisplayMessage[]>;
+    useChatSessionStore.setState({ messages: [fakeDisplayMessage()] });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef,
         transcriptRef: { current: makeTranscriptHandle(el) },
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
@@ -916,22 +1002,21 @@ describe("createChatDebugApi.getScrollState", () => {
     expect(state.diagnosis).toContain("Already loading older");
   });
 
-  test("itemCount comes from messagesRef on the base API", () => {
+  test("itemCount comes from chat session store messages", () => {
     const el = makeScrollElement({
       scrollTop: 500,
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    const messagesRef = {
-      current: [
+    useChatSessionStore.setState({
+      messages: [
         fakeDisplayMessage({ id: "a" }),
         fakeDisplayMessage({ id: "b" }),
         fakeDisplayMessage({ id: "c" }),
       ],
-    } as MutableRefObject<DisplayMessage[]>;
+    });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef,
         transcriptRef: { current: makeTranscriptHandle(el) },
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),

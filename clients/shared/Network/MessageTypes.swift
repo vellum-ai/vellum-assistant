@@ -1040,7 +1040,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, category: category, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -1073,6 +1073,27 @@ public struct SkillsListResponseMessage: Codable, Sendable {
         self.categoryCounts = categoryCounts
         self.totalCount = totalCount
     }
+}
+
+/// A skill category definition fetched from the daemon.
+public struct SkillCategoryDef: Codable, Sendable, Identifiable {
+    public var id: String { slug }
+    public let slug: String
+    public let label: String
+    public let description: String
+    public let icon: String
+
+    public init(slug: String, label: String, description: String, icon: String) {
+        self.slug = slug
+        self.label = label
+        self.description = description
+        self.icon = icon
+    }
+}
+
+/// Response from the daemon's `GET /v1/skills/categories` endpoint.
+public struct SkillCategoriesResponse: Codable, Sendable {
+    public let categories: [SkillCategoryDef]
 }
 
 /// Response containing the full body of a specific skill.

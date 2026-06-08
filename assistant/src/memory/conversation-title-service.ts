@@ -10,7 +10,9 @@
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
+import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
+import { Mutex } from "../util/mutex.js";
 import {
   getConversation,
   getMessages,
@@ -93,8 +95,6 @@ export interface GenerateTitleParams {
   userMessage?: string;
   /** Assistant response text (first turn). */
   assistantResponse?: string;
-  /** Callback to emit title update events. */
-  onTitleUpdated?: (title: string) => void;
   /** Abort signal. */
   signal?: AbortSignal;
 }
@@ -106,14 +106,8 @@ export interface GenerateTitleParams {
 export async function generateAndPersistConversationTitle(
   params: GenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const {
-    conversationId,
-    context,
-    userMessage,
-    assistantResponse,
-    onTitleUpdated,
-    signal,
-  } = params;
+  const { conversationId, context, userMessage, assistantResponse, signal } =
+    params;
 
   // Check current title is replaceable
   const conversation = getConversation(conversationId);
@@ -127,7 +121,7 @@ export async function generateAndPersistConversationTitle(
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
     updateConversationTitle(conversationId, fallback, 1);
-    onTitleUpdated?.(fallback);
+    publishConversationTitleChanged(conversationId, fallback);
     return { title: fallback, updated: true };
   }
 
@@ -139,7 +133,7 @@ export async function generateAndPersistConversationTitle(
     tools: [],
     callSite: "conversationTitle",
     signal,
-    timeoutMs: 10_000,
+    timeoutMs: 15_000,
   });
   const title = normalizeTitle(result.text);
   if (title) {
@@ -150,7 +144,7 @@ export async function generateAndPersistConversationTitle(
     }
 
     updateConversationTitle(conversationId, title, 1);
-    onTitleUpdated?.(title);
+    publishConversationTitleChanged(conversationId, title);
     log.info({ conversationId, title }, "Auto-generated conversation title");
     return { title, updated: true };
   }
@@ -167,36 +161,61 @@ export async function generateAndPersistConversationTitle(
 
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
   updateConversationTitle(conversationId, fallback, 1);
-  onTitleUpdated?.(fallback);
+  publishConversationTitleChanged(conversationId, fallback);
   return { title: fallback, updated: true };
 }
+
+// ── Serial title-generation queue ────────────────────────────────────
+
+/**
+ * Each title generation makes an LLM call. Without serialization, burst
+ * conversation creation (e.g. 5 new chats in quick succession) fires N
+ * concurrent requests that can hit provider rate limits or contend for
+ * API capacity, causing later calls to time out and fall back to
+ * "Untitled Conversation".
+ *
+ * A serial queue ensures at most one title-generation LLM call is
+ * in-flight at a time. Each call is lightweight (~1–3 s for a ≤5-word
+ * title), so the added serial latency is modest and invisible to the
+ * user (the UI shows "Generating title…" as a placeholder during the
+ * wait). Both initial generation and second-pass regeneration share
+ * this queue since they hit the same provider.
+ */
+export const titleMutex = new Mutex();
 
 /**
  * Fire-and-forget wrapper for title generation. Failures are logged
  * but do not propagate. On failure, replaces loading placeholder with
  * a stable fallback title so loading state is never permanent.
+ *
+ * Calls are serialized via {@link titleMutex} so burst conversation
+ * creation does not overwhelm the LLM provider.
  */
 export function queueGenerateConversationTitle(
   params: GenerateTitleParams,
 ): void {
-  generateAndPersistConversationTitle(params).catch((err) => {
-    log.warn(
-      { err, conversationId: params.conversationId },
-      "Failed to generate conversation title (non-fatal)",
-    );
-    // Replace loading placeholder with stable fallback
-    try {
-      const conversation = getConversation(params.conversationId);
-      if (conversation && conversation.title === GENERATING_TITLE) {
-        const fallback =
-          deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
-        updateConversationTitle(params.conversationId, fallback);
-        params.onTitleUpdated?.(fallback);
+  void titleMutex
+    .withLock(async () => {
+      await generateAndPersistConversationTitle(params);
+    })
+    .catch((err) => {
+      log.warn(
+        { err, conversationId: params.conversationId },
+        "Failed to generate conversation title (non-fatal)",
+      );
+      // Replace loading placeholder with stable fallback
+      try {
+        const conversation = getConversation(params.conversationId);
+        if (conversation && conversation.title === GENERATING_TITLE) {
+          const fallback =
+            deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
+          updateConversationTitle(params.conversationId, fallback);
+          publishConversationTitleChanged(params.conversationId, fallback);
+        }
+      } catch {
+        // Best-effort
       }
-    } catch {
-      // Best-effort
-    }
-  });
+    });
 }
 
 // ── Title regeneration (second pass) ─────────────────────────────────
@@ -204,7 +223,6 @@ export function queueGenerateConversationTitle(
 export interface RegenerateTitleParams {
   conversationId: string;
   provider?: Provider;
-  onTitleUpdated?: (title: string) => void;
   signal?: AbortSignal;
 }
 
@@ -216,7 +234,7 @@ export interface RegenerateTitleParams {
 export async function regenerateConversationTitle(
   params: RegenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const { conversationId, onTitleUpdated, signal } = params;
+  const { conversationId, signal } = params;
 
   const conversation = getConversation(conversationId);
   if (!conversation || !conversation.isAutoTitle) {
@@ -249,7 +267,7 @@ export async function regenerateConversationTitle(
     tools: [],
     callSite: "conversationTitle",
     signal,
-    timeoutMs: 10_000,
+    timeoutMs: 15_000,
   });
   const title = normalizeTitle(result.text);
   if (title) {
@@ -260,7 +278,7 @@ export async function regenerateConversationTitle(
     }
 
     updateConversationTitle(conversationId, title, 1);
-    onTitleUpdated?.(title);
+    publishConversationTitleChanged(conversationId, title);
     log.info(
       { conversationId, title },
       "Re-generated conversation title (second pass)",
@@ -273,16 +291,22 @@ export async function regenerateConversationTitle(
 
 /**
  * Fire-and-forget wrapper for title regeneration.
+ *
+ * Serialized via the same {@link titleMutex} as initial generation.
  */
 export function queueRegenerateConversationTitle(
   params: RegenerateTitleParams,
 ): void {
-  regenerateConversationTitle(params).catch((err) => {
-    log.warn(
-      { err, conversationId: params.conversationId },
-      "Failed to regenerate conversation title (non-fatal)",
-    );
-  });
+  void titleMutex
+    .withLock(async () => {
+      await regenerateConversationTitle(params);
+    })
+    .catch((err) => {
+      log.warn(
+        { err, conversationId: params.conversationId },
+        "Failed to regenerate conversation title (non-fatal)",
+      );
+    });
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────

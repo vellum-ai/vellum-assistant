@@ -4,6 +4,9 @@ import Foundation
 
 public enum SurfaceType: String, Codable, Sendable {
     case card
+    case choice
+    case copyBlock = "copy_block"
+    case oauthConnect = "oauth_connect"
     case form
     case list
     case table
@@ -11,7 +14,9 @@ public enum SurfaceType: String, Codable, Sendable {
     case dynamicPage = "dynamic_page"
     case fileUpload = "file_upload"
     case documentPreview = "document_preview"
+    case taskPreferences = "task_preferences"
     case callSummary = "call_summary"
+    case workResult = "work_result"
 }
 
 public enum SurfaceActionStyle: String, Codable, Sendable {
@@ -255,6 +260,68 @@ public struct ListSurfaceData: Sendable, Equatable {
     }
 }
 
+public struct ChoiceOptionData: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let description: String?
+    public let recommended: Bool
+    public let data: [String: AnyCodable]?
+
+    public init(id: String, title: String, description: String? = nil, recommended: Bool = false, data: [String: AnyCodable]? = nil) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.recommended = recommended
+        self.data = data
+    }
+}
+
+public struct ChoiceSurfaceData: Sendable, Equatable {
+    public let description: String?
+    public let options: [ChoiceOptionData]
+    public let selectionMode: SelectionMode
+    public let commitOnSelect: Bool?
+    public let submitLabel: String?
+
+    public init(description: String? = nil, options: [ChoiceOptionData], selectionMode: SelectionMode = .single, commitOnSelect: Bool? = nil, submitLabel: String? = nil) {
+        self.description = description
+        self.options = options
+        self.selectionMode = selectionMode
+        self.commitOnSelect = commitOnSelect
+        self.submitLabel = submitLabel
+    }
+}
+
+public struct CopyBlockSurfaceData: Sendable, Equatable {
+    public let text: String
+    public let label: String?
+    public let language: String?
+
+    public init(text: String, label: String? = nil, language: String? = nil) {
+        self.text = text
+        self.label = label
+        self.language = language
+    }
+}
+
+public struct OAuthConnectSurfaceData: Sendable, Equatable {
+    public let providerKey: String
+    public let displayName: String?
+    public let description: String?
+    public let logoUrl: String?
+
+    public init(providerKey: String, displayName: String? = nil, description: String? = nil, logoUrl: String? = nil) {
+        self.providerKey = providerKey
+        self.displayName = displayName
+        self.description = description
+        self.logoUrl = logoUrl
+    }
+}
+
+public struct TaskPreferencesSurfaceData: Sendable, Equatable {
+    public init() {}
+}
+
 public struct ConfirmationSurfaceData: Sendable, Equatable {
     public let message: String
     public let detail: String?
@@ -494,8 +561,125 @@ public struct TableSurfaceData: Sendable, Equatable {
     }
 }
 
+public enum WorkResultStatus: String, Sendable, Equatable {
+    case completed
+    case partial
+    case failed
+    case inProgress = "in_progress"
+}
+
+public enum WorkResultTone: String, Sendable, Equatable {
+    case neutral
+    case positive
+    case warning
+    case negative
+}
+
+public enum WorkResultSectionType: String, Sendable, Equatable {
+    case items
+    case timeline
+    case diff
+    case artifacts
+    case warnings
+}
+
+public struct WorkResultMetric: Sendable, Equatable {
+    public let label: String
+    public let value: String
+    public let detail: String?
+    public let tone: WorkResultTone?
+
+    public init(label: String, value: String, detail: String? = nil, tone: WorkResultTone? = nil) {
+        self.label = label
+        self.value = value
+        self.detail = detail
+        self.tone = tone
+    }
+}
+
+public struct WorkResultMetadata: Sendable, Equatable {
+    public let label: String
+    public let value: String
+
+    public init(label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+}
+
+public struct WorkResultItem: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let description: String?
+    public let status: String?
+    public let tone: WorkResultTone?
+    public let metadata: [WorkResultMetadata]
+    public let href: String?
+
+    public init(id: String, title: String, description: String? = nil, status: String? = nil, tone: WorkResultTone? = nil, metadata: [WorkResultMetadata] = [], href: String? = nil) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.status = status
+        self.tone = tone
+        self.metadata = metadata
+        self.href = href
+    }
+}
+
+public struct WorkResultDiff: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let label: String?
+    public let before: String?
+    public let after: String?
+
+    public init(id: String, label: String? = nil, before: String? = nil, after: String? = nil) {
+        self.id = id
+        self.label = label
+        self.before = before
+        self.after = after
+    }
+}
+
+public struct WorkResultSection: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let description: String?
+    public let type: WorkResultSectionType
+    public let items: [WorkResultItem]
+    public let diffs: [WorkResultDiff]
+
+    public init(id: String, title: String, description: String? = nil, type: WorkResultSectionType = .items, items: [WorkResultItem] = [], diffs: [WorkResultDiff] = []) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.type = type
+        self.items = items
+        self.diffs = diffs
+    }
+}
+
+public struct WorkResultSurfaceData: Sendable, Equatable {
+    public let eyebrow: String?
+    public let status: WorkResultStatus?
+    public let summary: String?
+    public let metrics: [WorkResultMetric]
+    public let sections: [WorkResultSection]
+
+    public init(eyebrow: String? = nil, status: WorkResultStatus? = nil, summary: String? = nil, metrics: [WorkResultMetric] = [], sections: [WorkResultSection] = []) {
+        self.eyebrow = eyebrow
+        self.status = status
+        self.summary = summary
+        self.metrics = metrics
+        self.sections = sections
+    }
+}
+
 public enum SurfaceData: Sendable, Equatable {
     case card(CardSurfaceData)
+    case choice(ChoiceSurfaceData)
+    case copyBlock(CopyBlockSurfaceData)
+    case oauthConnect(OAuthConnectSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
     case table(TableSurfaceData)
@@ -503,7 +687,9 @@ public enum SurfaceData: Sendable, Equatable {
     case dynamicPage(DynamicPageSurfaceData)
     case fileUpload(FileUploadSurfaceData)
     case documentPreview(DocumentPreviewSurfaceData)
+    case taskPreferences(TaskPreferencesSurfaceData)
     case callSummary(CallSummaryData)
+    case workResult(WorkResultSurfaceData)
     /// Placeholder for data that was cleared during memory compaction.
     /// The surface can be re-fetched from the daemon if the user scrolls back.
     case stripped
@@ -674,6 +860,12 @@ public extension Surface {
         switch type {
         case .card:
             return parseCardData(dict).map { .card($0) }
+        case .choice:
+            return parseChoiceData(dict).map { .choice($0) }
+        case .copyBlock:
+            return parseCopyBlockData(dict).map { .copyBlock($0) }
+        case .oauthConnect:
+            return parseOAuthConnectData(dict).map { .oauthConnect($0) }
         case .form:
             return parseFormData(dict).map { .form($0) }
         case .list:
@@ -688,8 +880,12 @@ public extension Surface {
             return parseFileUploadData(dict).map { .fileUpload($0) }
         case .documentPreview:
             return parseDocumentPreviewData(dict).map { .documentPreview($0) }
+        case .taskPreferences:
+            return .taskPreferences(TaskPreferencesSurfaceData())
         case .callSummary:
             return parseCallSummaryData(dict).map { .callSummary($0) }
+        case .workResult:
+            return parseWorkResultData(dict).map { .workResult($0) }
         }
     }
 
@@ -702,6 +898,12 @@ public extension Surface {
         switch existing {
         case .card(let card):
             return .card(mergeCardData(existing: card, update: update))
+        case .choice(let choice):
+            return .choice(mergeChoiceData(existing: choice, update: update))
+        case .copyBlock(let copyBlock):
+            return .copyBlock(mergeCopyBlockData(existing: copyBlock, update: update))
+        case .oauthConnect(let oauthConnect):
+            return .oauthConnect(mergeOAuthConnectData(existing: oauthConnect, update: update))
         case .form(let form):
             return .form(mergeFormData(existing: form, update: update))
         case .list(let list):
@@ -716,8 +918,12 @@ public extension Surface {
             return .fileUpload(mergeFileUploadData(existing: fu, update: update))
         case .documentPreview(let dp):
             return .documentPreview(dp)
+        case .taskPreferences:
+            return .taskPreferences(TaskPreferencesSurfaceData())
         case .callSummary(let cs):
             return .callSummary(cs)
+        case .workResult(let workResult):
+            return .workResult(mergeWorkResultData(existing: workResult, update: update))
         case .stripped:
             return .stripped
         case .strippedFailed:
@@ -749,6 +955,56 @@ public extension Surface {
             ? (update["templateData"] as? [String: Any?]) : existing.templateData
 
         return CardSurfaceData(title: title, subtitle: subtitle, body: body, metadata: metadata, template: template, templateData: templateData)
+    }
+
+    private static func mergeChoiceData(existing: ChoiceSurfaceData, update: [String: Any?]) -> ChoiceSurfaceData {
+        let description: String? = update.keys.contains("description")
+            ? (update["description"] as? String)
+            : existing.description
+        let options: [ChoiceOptionData]
+        if let optionsArray = update["options"] as? [[String: Any?]] {
+            options = parseChoiceOptions(optionsArray)
+        } else {
+            options = existing.options
+        }
+        let selectionMode: SelectionMode
+        if let modeStr = update["selectionMode"] as? String,
+           let mode = SelectionMode(rawValue: modeStr) {
+            selectionMode = mode
+        } else {
+            selectionMode = existing.selectionMode
+        }
+        let commitOnSelect: Bool? = update.keys.contains("commitOnSelect")
+            ? (update["commitOnSelect"] as? Bool)
+            : existing.commitOnSelect
+        let submitLabel: String? = update.keys.contains("submitLabel")
+            ? (update["submitLabel"] as? String)
+            : existing.submitLabel
+
+        return ChoiceSurfaceData(
+            description: description,
+            options: options,
+            selectionMode: selectionMode,
+            commitOnSelect: commitOnSelect,
+            submitLabel: submitLabel
+        )
+    }
+
+    private static func mergeCopyBlockData(existing: CopyBlockSurfaceData, update: [String: Any?]) -> CopyBlockSurfaceData {
+        CopyBlockSurfaceData(
+            text: (update["text"] as? String) ?? existing.text,
+            label: update.keys.contains("label") ? (update["label"] as? String) : existing.label,
+            language: update.keys.contains("language") ? (update["language"] as? String) : existing.language
+        )
+    }
+
+    private static func mergeOAuthConnectData(existing: OAuthConnectSurfaceData, update: [String: Any?]) -> OAuthConnectSurfaceData {
+        OAuthConnectSurfaceData(
+            providerKey: (update["providerKey"] as? String) ?? existing.providerKey,
+            displayName: update.keys.contains("displayName") ? (update["displayName"] as? String) : existing.displayName,
+            description: update.keys.contains("description") ? (update["description"] as? String) : existing.description,
+            logoUrl: update.keys.contains("logoUrl") ? (update["logoUrl"] as? String) : existing.logoUrl
+        )
     }
 
     private static func mergeFormData(existing: FormSurfaceData, update: [String: Any?]) -> FormSurfaceData {
@@ -887,6 +1143,23 @@ public extension Surface {
         }
     }
 
+    private static func parseChoiceOptions(_ optionsArray: [[String: Any?]]) -> [ChoiceOptionData] {
+        optionsArray.compactMap { optionDict in
+            guard let id = optionDict["id"] as? String,
+                  let title = optionDict["title"] as? String else {
+                return nil
+            }
+            let rawData = optionDict["data"] as? [String: Any?]
+            return ChoiceOptionData(
+                id: id,
+                title: title,
+                description: optionDict["description"] as? String,
+                recommended: optionDict["recommended"] as? Bool ?? false,
+                data: rawData?.mapValues { AnyCodable($0) }
+            )
+        }
+    }
+
     // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
@@ -919,6 +1192,42 @@ public extension Surface {
             metadata: metadata,
             template: template,
             templateData: templateData
+        )
+    }
+
+    private static func parseChoiceData(_ dict: [String: Any?]) -> ChoiceSurfaceData? {
+        guard let optionsArray = dict["options"] as? [[String: Any?]] else {
+            return nil
+        }
+        let selectionModeStr = dict["selectionMode"] as? String ?? "single"
+        let selectionMode = SelectionMode(rawValue: selectionModeStr) ?? .single
+        return ChoiceSurfaceData(
+            description: dict["description"] as? String,
+            options: parseChoiceOptions(optionsArray),
+            selectionMode: selectionMode,
+            commitOnSelect: dict["commitOnSelect"] as? Bool,
+            submitLabel: dict["submitLabel"] as? String
+        )
+    }
+
+    private static func parseCopyBlockData(_ dict: [String: Any?]) -> CopyBlockSurfaceData? {
+        guard let text = dict["text"] as? String else { return nil }
+        return CopyBlockSurfaceData(
+            text: text,
+            label: dict["label"] as? String,
+            language: dict["language"] as? String
+        )
+    }
+
+    private static func parseOAuthConnectData(_ dict: [String: Any?]) -> OAuthConnectSurfaceData? {
+        guard let providerKey = dict["providerKey"] as? String, !providerKey.isEmpty else {
+            return nil
+        }
+        return OAuthConnectSurfaceData(
+            providerKey: providerKey,
+            displayName: dict["displayName"] as? String,
+            description: dict["description"] as? String,
+            logoUrl: dict["logoUrl"] as? String
         )
     }
 
@@ -1087,6 +1396,22 @@ public extension Surface {
         return TableSurfaceData(columns: columns, rows: rows, selectionMode: selectionMode, caption: caption)
     }
 
+    private static func mergeWorkResultData(existing: WorkResultSurfaceData, update: [String: Any?]) -> WorkResultSurfaceData {
+        WorkResultSurfaceData(
+            eyebrow: update.keys.contains("eyebrow") ? (update["eyebrow"] as? String) : existing.eyebrow,
+            status: update.keys.contains("status")
+                ? parseWorkResultStatus(rawValue(update, "status"))
+                : existing.status,
+            summary: update.keys.contains("summary") ? (update["summary"] as? String) : existing.summary,
+            metrics: update.keys.contains("metrics")
+                ? parseWorkResultMetrics(rawValue(update, "metrics"))
+                : existing.metrics,
+            sections: update.keys.contains("sections")
+                ? parseWorkResultSections(rawValue(update, "sections"))
+                : existing.sections
+        )
+    }
+
     private static func mergeTableData(existing: TableSurfaceData, update: [String: Any?]) -> TableSurfaceData {
         var columns = existing.columns
         if let columnsArray = update["columns"] as? [[String: Any?]] {
@@ -1167,10 +1492,123 @@ public extension Surface {
     /// Convert an untyped value to Double, accepting both Int and Double.
     /// AnyCodable decodes whole-number JSON numbers as Int before Double,
     /// so we need to handle both types.
+    private static func rawValue(_ dict: [String: Any?], _ key: String) -> Any? {
+        dict[key] ?? nil
+    }
+
     private static func asDouble(_ value: Any?) -> Double? {
         if let d = value as? Double { return d }
         if let i = value as? Int { return Double(i) }
         return nil
+    }
+
+    private static func asDisplayString(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let int = value as? Int { return String(int) }
+        if let double = value as? Double {
+            if double.rounded(.towardZero) == double && !double.isNaN && !double.isInfinite {
+                return String(Int(double))
+            }
+            return String(double)
+        }
+        return nil
+    }
+
+    private static func parseWorkResultStatus(_ value: Any?) -> WorkResultStatus? {
+        guard let raw = value as? String else { return nil }
+        return WorkResultStatus(rawValue: raw)
+    }
+
+    private static func parseWorkResultTone(_ value: Any?) -> WorkResultTone? {
+        guard let raw = value as? String else { return nil }
+        return WorkResultTone(rawValue: raw)
+    }
+
+    private static func parseWorkResultSectionType(_ value: Any?) -> WorkResultSectionType {
+        guard let raw = value as? String,
+              let type = WorkResultSectionType(rawValue: raw) else {
+            return .items
+        }
+        return type
+    }
+
+    private static func parseWorkResultMetadata(_ value: Any?) -> [WorkResultMetadata] {
+        guard let array = value as? [[String: Any?]] else { return [] }
+        return array.compactMap { item in
+            guard let label = item["label"] as? String,
+                  let value = asDisplayString(rawValue(item, "value")) else { return nil }
+            return WorkResultMetadata(label: label, value: value)
+        }
+    }
+
+    private static func parseWorkResultItems(_ value: Any?) -> [WorkResultItem] {
+        guard let array = value as? [[String: Any?]] else { return [] }
+        return array.enumerated().compactMap { index, item in
+            guard let title = item["title"] as? String else { return nil }
+            return WorkResultItem(
+                id: (item["id"] as? String) ?? "\(index)",
+                title: title,
+                description: item["description"] as? String,
+                status: item["status"] as? String,
+                tone: parseWorkResultTone(rawValue(item, "tone")),
+                metadata: parseWorkResultMetadata(rawValue(item, "metadata")),
+                href: item["href"] as? String
+            )
+        }
+    }
+
+    private static func parseWorkResultDiffs(_ value: Any?) -> [WorkResultDiff] {
+        guard let array = value as? [[String: Any?]] else { return [] }
+        return array.enumerated().compactMap { index, diff in
+            let before = diff["before"] as? String
+            let after = diff["after"] as? String
+            guard before != nil || after != nil else { return nil }
+            return WorkResultDiff(
+                id: (diff["id"] as? String) ?? "\(index)",
+                label: diff["label"] as? String,
+                before: before,
+                after: after
+            )
+        }
+    }
+
+    private static func parseWorkResultMetrics(_ value: Any?) -> [WorkResultMetric] {
+        guard let array = value as? [[String: Any?]] else { return [] }
+        return array.compactMap { metric in
+            guard let label = metric["label"] as? String,
+                  let value = asDisplayString(rawValue(metric, "value")) else { return nil }
+            return WorkResultMetric(
+                label: label,
+                value: value,
+                detail: metric["detail"] as? String,
+                tone: parseWorkResultTone(rawValue(metric, "tone"))
+            )
+        }
+    }
+
+    private static func parseWorkResultSections(_ value: Any?) -> [WorkResultSection] {
+        guard let array = value as? [[String: Any?]] else { return [] }
+        return array.enumerated().compactMap { index, section in
+            guard let title = section["title"] as? String else { return nil }
+            return WorkResultSection(
+                id: (section["id"] as? String) ?? "\(index)",
+                title: title,
+                description: section["description"] as? String,
+                type: parseWorkResultSectionType(rawValue(section, "type")),
+                items: parseWorkResultItems(rawValue(section, "items")),
+                diffs: parseWorkResultDiffs(rawValue(section, "diffs"))
+            )
+        }
+    }
+
+    private static func parseWorkResultData(_ dict: [String: Any?]) -> WorkResultSurfaceData? {
+        WorkResultSurfaceData(
+            eyebrow: dict["eyebrow"] as? String,
+            status: parseWorkResultStatus(rawValue(dict, "status")),
+            summary: dict["summary"] as? String,
+            metrics: parseWorkResultMetrics(rawValue(dict, "metrics")),
+            sections: parseWorkResultSections(rawValue(dict, "sections"))
+        )
     }
 
     private static func parseDocumentPreviewData(_ dict: [String: Any?]) -> DocumentPreviewSurfaceData? {

@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "@vellum/design-library/tokens.css";
-@source "../node_modules/@vellum/design-library/src/**/*.tsx";
+@import "@vellumai/design-library/tokens.css";
+@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
@@ -19,7 +19,10 @@ body {
 
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
+  /* End at `none` (not translateY(0)) so the filled-forwards transform does
+     not create a containing block — otherwise position:fixed descendants like
+     the Dropdown menu anchor to this element instead of the viewport. */
+  100% { transform: none; opacity: 1; }
 }
 
 @keyframes typing-dot-pulse {
@@ -50,7 +53,7 @@ body {
 
 /* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
- * ToolCallProgressCard for active/thinking phases. */
+ * ActivityRunCard for active/thinking phases. */
 @keyframes busy-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.3; transform: scale(0.85); }
@@ -58,6 +61,33 @@ body {
 
 .busy-indicator {
   animation: busy-pulse 1s ease-in-out infinite;
+}
+
+/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
+   edge and spins continuously while the assistant is streaming/loading. Used
+   only for custom uploaded-image avatars; character avatars convey streaming
+   through their own morph animation instead. Two adjacent borders are colored
+   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
+   so two adjacent borders make a 180° semicircle); the rest stay transparent,
+   and the whole ring rotates. Border thickness/inset are set inline so the
+   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
+@keyframes avatar-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+.avatar-streaming-ring {
+  border-style: solid;
+  border-radius: 50%;
+  border-color: transparent;
+  border-top-color: var(--border-active);
+  border-right-color: var(--border-active);
+  animation: avatar-ring-spin 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-streaming-ring {
+    animation: none;
+  }
 }
 
 /* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView

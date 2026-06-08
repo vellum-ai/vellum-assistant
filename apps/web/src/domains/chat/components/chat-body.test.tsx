@@ -58,7 +58,7 @@ mock.module(
   }),
 );
 
-mock.module("@vellum/design-library", () => ({
+mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,
@@ -82,6 +82,13 @@ mock.module(
   "@/domains/chat/refresh-feedback-pill",
   () => ({
     RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
+  }),
+);
+
+mock.module(
+  "@/domains/chat/components/question-prompt-slot",
+  () => ({
+    QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
   }),
 );
 

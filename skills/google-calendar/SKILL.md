@@ -3,8 +3,10 @@ name: google-calendar
 description: View, create, and manage Google Calendar events and check availability
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📅"
   vellum:
+    category: "calendar"
     display-name: "Google Calendar"
     user-invocable: true
 ---

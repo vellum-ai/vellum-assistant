@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💍"
   vellum:
+    category: "health"
     display-name: "Oura Ring"
     includes:
       - oura-setup
@@ -31,23 +32,24 @@ curl -s "https://api.ouraring.com/v2/usercollection/{endpoint}?start_date=YYYY-M
 ```
 
 Run via `bash` with:
+
 - `network_mode: "proxied"`
 - `credential_ids: ["<oura access_token credential_id>"]`
 
 ## Endpoints
 
-| Endpoint | What It Returns | Best For |
-|----------|----------------|----------|
-| `personal_info` | Age, weight, height, email | Connection test |
-| `daily_sleep` | Sleep score, duration, efficiency, stages | Morning check-in |
-| `sleep` | Detailed sleep periods — HR, HRV, movement, timestamps | Deep sleep analysis |
-| `daily_readiness` | Readiness score, HRV balance, recovery index | Morning readiness |
-| `daily_activity` | Steps, calories, movement, MET data, activity score | Daily activity summary |
-| `heartrate` | Continuous HR readings (uses `start_datetime`/`end_datetime` ISO format) | Workout HR, resting HR |
-| `workout` | Detected workouts — HR, calories, duration, type | Exercise tracking |
-| `daily_spo2` | Blood oxygen (SpO2) nightly average | Breathing/oxygen |
-| `daily_stress` | Stress score, recovery periods | Stress monitoring |
-| `ring_configuration` | Ring model, firmware, color, design | Ring info |
+| Endpoint             | What It Returns                                                          | Best For               |
+| -------------------- | ------------------------------------------------------------------------ | ---------------------- |
+| `personal_info`      | Age, weight, height, email                                               | Connection test        |
+| `daily_sleep`        | Sleep score, duration, efficiency, stages                                | Morning check-in       |
+| `sleep`              | Detailed sleep periods — HR, HRV, movement, timestamps                   | Deep sleep analysis    |
+| `daily_readiness`    | Readiness score, HRV balance, recovery index                             | Morning readiness      |
+| `daily_activity`     | Steps, calories, movement, MET data, activity score                      | Daily activity summary |
+| `heartrate`          | Continuous HR readings (uses `start_datetime`/`end_datetime` ISO format) | Workout HR, resting HR |
+| `workout`            | Detected workouts — HR, calories, duration, type                         | Exercise tracking      |
+| `daily_spo2`         | Blood oxygen (SpO2) nightly average                                      | Breathing/oxygen       |
+| `daily_stress`       | Stress score, recovery periods                                           | Stress monitoring      |
+| `ring_configuration` | Ring model, firmware, color, design                                      | Ring info              |
 
 ## Query Parameters
 
@@ -59,7 +61,9 @@ Run via `bash` with:
 ## Common Patterns
 
 ### Morning health check
+
 Pull sleep + readiness + activity for today:
+
 ```bash
 DATE=$(date +%Y-%m-%d)
 curl -s "https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=$DATE&end_date=$DATE"
@@ -67,6 +71,7 @@ curl -s "https://api.ouraring.com/v2/usercollection/daily_readiness?start_date=$
 ```
 
 ### Workout details with HR
+
 ```bash
 YESTERDAY=$(date -v-1d +%Y-%m-%d)
 TODAY=$(date +%Y-%m-%d)
@@ -74,6 +79,7 @@ curl -s "https://api.ouraring.com/v2/usercollection/workout?start_date=$YESTERDA
 ```
 
 ### Heart rate during a specific window
+
 ```bash
 # Adjust the datetime range as needed (ISO 8601 with timezone offset)
 curl -s "https://api.ouraring.com/v2/usercollection/heartrate?start_datetime=YYYY-MM-DDT23:00:00-05:00&end_datetime=YYYY-MM-DDT01:00:00-05:00"

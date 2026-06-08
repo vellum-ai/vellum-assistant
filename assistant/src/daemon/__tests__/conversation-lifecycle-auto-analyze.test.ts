@@ -165,6 +165,12 @@ function makeDisposeContext(
   const ctx = {
     conversationId: overrides.conversationId ?? "conv-1",
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController,
     prompter,
     secretPrompter,

@@ -154,15 +154,7 @@ export function parseActivator(raw: string | null): PTTActivator {
 // Keyboard event matching (runtime PTT listener)
 // ---------------------------------------------------------------------------
 
-interface KeyboardEventLike {
-  key: string;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-  metaKey: boolean;
-}
-
-function eventModifiers(event: KeyboardEventLike): PTTModifier[] {
+function eventModifiers(event: KeyboardEvent): PTTModifier[] {
   const mods: PTTModifier[] = [];
   if (event.ctrlKey) {
     mods.push("control");
@@ -213,7 +205,7 @@ function sameModifierSet(
  *   required modifiers are held.
  */
 export function eventActivatesPTT(
-  event: KeyboardEventLike,
+  event: KeyboardEvent,
   activator: PTTActivator,
 ): boolean {
   if (activator.kind === "off") {
@@ -247,7 +239,7 @@ export function eventActivatesPTT(
  * submit" behaviour of a physical PTT button.
  */
 export function eventDeactivatesPTT(
-  event: KeyboardEventLike,
+  event: KeyboardEvent,
   activator: PTTActivator,
 ): boolean {
   if (activator.kind === "off") {

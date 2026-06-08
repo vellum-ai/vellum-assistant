@@ -3,8 +3,10 @@ name: amazon
 description: Shop on Amazon and Amazon Fresh through your browser
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🛒"
   vellum:
+    category: "commerce"
     display-name: "Amazon"
     includes: ["vellum-browser-use"]
 ---

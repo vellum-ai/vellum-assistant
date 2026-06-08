@@ -1,10 +1,13 @@
 import { rmSync, writeFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
+  AgentLoopRunResult,
   CheckpointDecision,
   CheckpointInfo,
+  ExitReason,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -262,6 +265,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -326,12 +330,20 @@ interface PendingRun {
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
+  /**
+   * Pause-reason recorded from the most recent `onCheckpoint` call, mirroring
+   * how the production loop carries it back via {@link AgentLoopRunResult}.
+   * `resolve(history)` packages this into the run result so the orchestrator
+   * derives its handoff bookkeeping the same way it does against the real loop.
+   */
+  exitReason: ExitReason | null;
 }
 
 let pendingRuns: PendingRun[] = [];
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -342,23 +354,36 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-      options?: {
-        onCheckpoint?: (
-          checkpoint: CheckpointInfo,
-        ) => CheckpointDecision | Promise<CheckpointDecision>;
-      },
-    ): Promise<Message[]> {
-      return new Promise<Message[]>((resolve, reject) => {
-        pendingRuns.push({
-          resolve,
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void | Promise<void>;
+      onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
+      return new Promise<AgentLoopRunResult>((resolveResult, reject) => {
+        const pending: PendingRun = {
+          resolve: (history: Message[]) =>
+            resolveResult({
+              history,
+              exitReason: pending.exitReason,
+              appendedNewMessages: history.length > messages.length,
+              newMessages: history.slice(messages.length),
+            }),
           reject,
           messages,
           onEvent,
-          onCheckpoint: options?.onCheckpoint,
-        });
+          exitReason: null,
+          onCheckpoint: options?.onCheckpoint
+            ? async (checkpoint) => {
+                const decision = await options.onCheckpoint!(checkpoint);
+                pending.exitReason = decision === "continue" ? null : decision;
+                return decision;
+              }
+            : undefined,
+        };
+        pendingRuns.push(pending);
       });
     }
   },
@@ -422,9 +447,9 @@ function makeConversation(
     "conv-1",
     provider,
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     "/tmp",
+    { maxTokens: 4096 },
   );
   const conversationWithWorkspaceDeps =
     conversationObj as ConversationWithWorkspaceDeps;
@@ -1815,8 +1840,8 @@ describe("Conversation checkpoint handoff", () => {
       history: [],
     });
 
-    // Because there is a queued message, the callback should return 'yield'
-    expect(decision).toBe("yield");
+    // Because there is a queued message, the callback should yield for handoff
+    expect(decision).toEqual("handoff");
 
     // Complete the run so the conversation finishes cleanly
     await resolveRun(0);
@@ -1915,7 +1940,7 @@ describe("Conversation checkpoint handoff", () => {
       hasToolUse: true,
       history: [],
     });
-    expect(decision).toBe("yield");
+    expect(decision).toEqual("handoff");
 
     // Complete first run
     await resolveRun(0);
@@ -1965,7 +1990,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
-    // Because there is a queued message, the callback should return 'yield'.
+    // Because there is a queued message, the callback should yield for handoff.
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
 
@@ -1977,7 +2002,7 @@ describe("Conversation checkpoint handoff", () => {
       hasToolUse: true,
       history: [],
     });
-    expect(decision).toBe("yield");
+    expect(decision).toEqual("handoff");
 
     // Complete the run (AgentLoop resolves after yielding)
     await resolveRun(0);
@@ -2063,7 +2088,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toBe("yield");
+    ).toEqual("handoff");
     await resolveRun(0);
     await pA;
 
@@ -2080,7 +2105,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toBe("yield");
+    ).toEqual("handoff");
     await resolveRun(1);
     await waitForPendingRun(3);
 
@@ -2095,7 +2120,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toBe("yield");
+    ).toEqual("handoff");
     await resolveRun(2);
     await waitForPendingRun(4);
 
@@ -2555,7 +2580,7 @@ describe("Conversation attachment event payloads", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toBe("yield");
+    ).toEqual("handoff");
 
     const assistantMsg: Message = {
       role: "assistant",

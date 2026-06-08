@@ -521,6 +521,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
   "openai-compatible": "OpenAI-compatible",
+  minimax: "MiniMax",
 };
 
 /**
@@ -538,6 +539,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   fireworks: true,
   openrouter: false,
   "openai-compatible": false,
+  minimax: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;

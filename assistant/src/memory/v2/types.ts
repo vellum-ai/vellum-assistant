@@ -40,6 +40,7 @@ export const ConceptPageFrontmatterSchema = z
     ref_files: z.array(z.string()).default([]),
     ref_urls: z.array(z.string().url()).default([]),
     summary: z.string().optional(),
+    leaves: z.array(z.string()).optional(),
   })
   .strict();
 

@@ -3,15 +3,15 @@
  * event stream and triggers a refresh callback when comments change for
  * the specified surface.
  *
- * Wires the SSE event handlers from `document-comment-events.ts` (PR 9)
- * into the document viewer's comment panel (PR 8) via the
- * `refreshComments` callback. The hook subscribes to the global event
- * stream — it does not open its own SSE connection.
+ * Wires the SSE event handlers from `document-comment-events.ts` into
+ * the document viewer's comment panel via the `refreshComments` callback.
+ * The hook subscribes to the global event stream — it does not open its
+ * own SSE connection.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,15 +48,16 @@ export function useDocumentCommentEvents({
   surfaceId,
   enabled,
   onCommentsChanged,
-}: UseDocumentCommentEventsOptions): (event: AssistantEvent) => void {
+}: UseDocumentCommentEventsOptions): (envelope: AssistantEventEnvelope) => void {
   const callbackRef = useRef(onCommentsChanged);
-  useEffect(() => {
+  useLayoutEffect(() => {
     callbackRef.current = onCommentsChanged;
   }, [onCommentsChanged]);
 
   return useCallback(
-    (event: AssistantEvent) => {
+    (envelope: AssistantEventEnvelope) => {
       if (!enabled) return;
+      const event = envelope.message;
 
       switch (event.type) {
         case "document_comment_created":

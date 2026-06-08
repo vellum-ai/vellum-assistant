@@ -1,16 +1,16 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { cn, SegmentControl } from "@vellum/design-library";
+import { cn, SegmentControl } from "@vellumai/design-library";
 
+import {
+    applyThemePreference,
+    readStoredThemePreference,
+    type ThemePreference,
+    writeStoredThemePreference,
+} from "@/domains/settings/utils/theme-preferences";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
-import {
-  applyThemePreference,
-  readStoredThemePreference,
-  type ThemePreference,
-  writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;
@@ -61,7 +61,7 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 px-4 py-2 max-md:py-3",
+        "flex items-center justify-between gap-3 px-4 py-2",
         className,
       )}
     >
@@ -79,6 +79,7 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
         items={themeOptions.map(({ value, label, Icon }) => ({
           value,
           label,
+          // Mock glyph is ~14px (h-3.5 w-3.5 == 14px); bump to 16px on mobile.
           icon: <Icon className="h-3.5 w-3.5 max-md:h-4 max-md:w-4" />,
         }))}
       />

@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  fetchHomeFeed,
-  triggerFeedAction,
-  updateFeedItemStatus,
-} from "../api";
+  homeFeedByIdActionsByActionIdPost,
+  homeFeedByIdPatch,
+  homeFeedGet,
+} from "@/generated/daemon/sdk.gen";
+import {
+  homeFeedGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type {
-  FeedItem,
-  FeedItemStatus,
-  HomeFeedResponse,
-} from "../types";
-import { homeFeedQueryKey } from "@/lib/sync/query-tags";
-import { useEventBusStore } from "@/stores/event-bus-store";
+  HomeFeedGetResponse,
+  HomeFeedByIdPatchData,
+} from "@/generated/daemon/types.gen";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 /**
  * React Query hook for the home feed.
@@ -30,61 +31,75 @@ export function useHomeFeedQuery(assistantId: string | null) {
   const hiddenAtRef = useRef<number | null>(null);
   const timeAwaySecondsRef = useRef(0);
 
-  useEffect(() => {
-    const bus = useEventBusStore.getState();
+  // Stable query key — timeAwaySeconds is a fetch-time side-channel
+  // (passed via ref), not a cache dimension, so the key uses a fixed
+  // placeholder to keep a single cache entry per assistant.
+  const feedQueryKey = useMemo(
+    () =>
+      homeFeedGetQueryKey({
+        path: { assistant_id: assistantId ?? "" },
+        query: { timeAwaySeconds: 0 },
+      }),
+    [assistantId],
+  );
 
-    const unsubHidden = bus.subscribe("app.hidden", () => {
-      hiddenAtRef.current = Date.now();
-    });
+  useBusSubscription("app.hidden", () => {
+    hiddenAtRef.current = Date.now();
+  });
 
-    const unsubResume = bus.subscribe("app.resume", ({ signal }) => {
-      if (signal === "online") return;
-      if (hiddenAtRef.current === null) return;
-      const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
-      timeAwaySecondsRef.current = elapsed;
-      hiddenAtRef.current = null;
+  useBusSubscription("app.resume", ({ signal }) => {
+    if (signal === "online") return;
+    if (hiddenAtRef.current === null) return;
+    const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
+    timeAwaySecondsRef.current = elapsed;
+    hiddenAtRef.current = null;
 
-      if (assistantId) {
-        void queryClient.invalidateQueries({
-          queryKey: homeFeedQueryKey(assistantId),
-        });
-      }
-    });
+    if (assistantId) {
+      void queryClient.invalidateQueries({ queryKey: feedQueryKey });
+    }
+  });
 
-    return () => {
-      unsubHidden();
-      unsubResume();
-    };
-  }, [assistantId, queryClient]);
-
-  const query = useQuery<HomeFeedResponse>({
-    queryKey: homeFeedQueryKey(assistantId ?? ""),
-    queryFn: () =>
-      fetchHomeFeed(assistantId!, timeAwaySecondsRef.current),
+  const query = useQuery({
+    queryKey: feedQueryKey,
+    queryFn: async ({ signal }) => {
+      const { data } = await homeFeedGet({
+        path: { assistant_id: assistantId! },
+        query: { timeAwaySeconds: timeAwaySecondsRef.current },
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
     enabled: Boolean(assistantId),
     staleTime: 30_000,
   });
 
   const updateStatus = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       itemId,
       status,
     }: {
       itemId: string;
-      status: FeedItemStatus;
-    }) => updateFeedItemStatus(assistantId!, itemId, status),
+      status: HomeFeedByIdPatchData["body"]["status"];
+    }) => {
+      const { data } = await homeFeedByIdPatch({
+        path: { assistant_id: assistantId!, id: itemId },
+        body: { status },
+        throwOnError: true,
+      });
+      return data;
+    },
 
     onMutate: async ({ itemId, status }) => {
-      const key = homeFeedQueryKey(assistantId!);
-      await queryClient.cancelQueries({ queryKey: key });
+      await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
-      const previous = queryClient.getQueryData<HomeFeedResponse>(key);
+      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
-      queryClient.setQueryData<HomeFeedResponse>(key, (old) => {
+      queryClient.setQueryData<HomeFeedGetResponse>(feedQueryKey, (old) => {
         if (!old) return old;
         return {
           ...old,
-          items: old.items.map((item: FeedItem) =>
+          items: old.items.map((item) =>
             item.id === itemId ? { ...item, status } : item,
           ),
         };
@@ -94,43 +109,45 @@ export function useHomeFeedQuery(assistantId: string | null) {
     },
 
     onError: (_err, _vars, context) => {
-      if (context?.previous && assistantId) {
-        queryClient.setQueryData(
-          homeFeedQueryKey(assistantId),
-          context.previous,
-        );
+      if (context?.previous) {
+        queryClient.setQueryData(feedQueryKey, context.previous);
       }
     },
 
     onSettled: () => {
-      if (assistantId) {
-        void queryClient.invalidateQueries({
-          queryKey: homeFeedQueryKey(assistantId),
-        });
-      }
+      void queryClient.invalidateQueries({ queryKey: feedQueryKey });
     },
   });
 
   const triggerAction = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       itemId,
       actionId,
     }: {
       itemId: string;
       actionId: string;
-    }) => triggerFeedAction(assistantId!, itemId, actionId),
+    }) => {
+      const { data } = await homeFeedByIdActionsByActionIdPost({
+        path: {
+          assistant_id: assistantId!,
+          id: itemId,
+          actionId,
+        },
+        throwOnError: true,
+      });
+      return data;
+    },
 
     onMutate: async ({ itemId }) => {
-      const key = homeFeedQueryKey(assistantId!);
-      await queryClient.cancelQueries({ queryKey: key });
+      await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
-      const previous = queryClient.getQueryData<HomeFeedResponse>(key);
+      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
-      queryClient.setQueryData<HomeFeedResponse>(key, (old) => {
+      queryClient.setQueryData<HomeFeedGetResponse>(feedQueryKey, (old) => {
         if (!old) return old;
         return {
           ...old,
-          items: old.items.map((item: FeedItem) =>
+          items: old.items.map((item) =>
             item.id === itemId
               ? { ...item, status: "acted_on" as const }
               : item,
@@ -142,29 +159,20 @@ export function useHomeFeedQuery(assistantId: string | null) {
     },
 
     onError: (_err, _vars, context) => {
-      if (context?.previous && assistantId) {
-        queryClient.setQueryData(
-          homeFeedQueryKey(assistantId),
-          context.previous,
-        );
+      if (context?.previous) {
+        queryClient.setQueryData(feedQueryKey, context.previous);
       }
     },
 
     onSettled: () => {
-      if (assistantId) {
-        void queryClient.invalidateQueries({
-          queryKey: homeFeedQueryKey(assistantId),
-        });
-      }
+      void queryClient.invalidateQueries({ queryKey: feedQueryKey });
     },
   });
 
   const invalidate = useCallback(() => {
     if (!assistantId) return;
-    void queryClient.invalidateQueries({
-      queryKey: homeFeedQueryKey(assistantId),
-    });
-  }, [assistantId, queryClient]);
+    void queryClient.invalidateQueries({ queryKey: feedQueryKey });
+  }, [assistantId, queryClient, feedQueryKey]);
 
   return {
     ...query,

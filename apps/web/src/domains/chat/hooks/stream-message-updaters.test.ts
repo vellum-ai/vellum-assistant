@@ -4,6 +4,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   appendTextDelta,
+  appendThinkingDelta,
   applyToolResult,
   applyUserMessageEcho,
   attachSurface,
@@ -11,12 +12,20 @@ import {
   finalizeMessageComplete,
   finalizeOnIdle,
   handleConversationError,
-  stopStreaming,
+  liveAssistantRowId,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import {
+  isToolCallCompleted,
+  isToolCallRunning,
+} from "@/domains/chat/utils/tool-call-status";
+import {
+  messageText as text,
+  textBody as seg,
+} from "@/domains/chat/utils/message-test-helpers";
 
 function makeAssistantMsg(
   overrides: Partial<DisplayMessage> = {},
@@ -24,10 +33,7 @@ function makeAssistantMsg(
   return {
     id: "stable-1",
     role: "assistant",
-    content: "hello",
-    isStreaming: true,
-    textSegments: [{ type: "text", content: "hello" }],
-    contentOrder: [{ type: "text", id: "0" }],
+    ...seg("hello"),
     timestamp: 1000,
     ...overrides,
   };
@@ -36,7 +42,7 @@ function makeAssistantMsg(
 const userMsg: DisplayMessage = {
   id: "user-1",
   role: "user",
-  content: "hi",
+  ...seg("hi"),
   timestamp: 999,
 };
 
@@ -54,8 +60,8 @@ describe("createStreamingBubble", () => {
 
     const bubble = result[1]!;
     expect(bubble.role).toBe("assistant");
-    expect(bubble.isStreaming).toBe(true);
-    expect(bubble.content).toBe("Hello");
+    expect(liveAssistantRowId(result, true)).toBe(bubble.id);
+    expect(text(bubble)).toBe("Hello");
     expect(bubble.id).toBe("msg-1");
     expect(bubble.id).toBeDefined();
   });
@@ -64,7 +70,7 @@ describe("createStreamingBubble", () => {
     const result = createStreamingBubble([], "text");
     expect(result).toHaveLength(1);
     expect(result[0]!.role).toBe("assistant");
-    expect(result[0]!.isStreaming).toBe(true);
+    expect(liveAssistantRowId(result, true)).toBe(result[0]!.id);
   });
 
   it("preserves existing messages", () => {
@@ -81,25 +87,12 @@ describe("createStreamingBubble", () => {
 
 describe("appendTextDelta", () => {
   it("appends text to the last streaming assistant message", () => {
-    const msg = makeAssistantMsg({ content: "He" });
+    const msg = makeAssistantMsg(seg("He"));
     const result = appendTextDelta([userMsg, msg], "llo");
 
     expect(result).toHaveLength(2);
     const last = result[1]!;
-    expect(last.content).toBe("Hello");
-  });
-
-  it("creates a new streaming bubble when last message is a finalized assistant", () => {
-    // Old behavior was a no-op; new behavior opens a fresh bubble so the
-    // text-delta isn't dropped on the floor. This is the bubble-creation
-    // path that used to be gated by `needsNewBubbleRef`.
-    const finalized = makeAssistantMsg({ isStreaming: false });
-    const result = appendTextDelta([userMsg, finalized], "text");
-
-    expect(result).toHaveLength(3);
-    expect(result[2]!.role).toBe("assistant");
-    expect(result[2]!.isStreaming).toBe(true);
-    expect(result[2]!.content).toBe("text");
+    expect(text(last)).toBe("Hello");
   });
 
   it("creates a new streaming bubble when last message is a user message", () => {
@@ -109,8 +102,8 @@ describe("appendTextDelta", () => {
 
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
-    expect(result[1]!.isStreaming).toBe(true);
-    expect(result[1]!.content).toBe("text");
+    expect(liveAssistantRowId(result, true)).toBe(result[1]!.id);
+    expect(text(result[1]!)).toBe("text");
   });
 
   it("uses the supplied messageId when creating a new bubble", () => {
@@ -121,27 +114,22 @@ describe("appendTextDelta", () => {
   });
 
   it("does not mutate the original array", () => {
-    const msg = makeAssistantMsg({ content: "a" });
+    const msg = makeAssistantMsg(seg("a"));
     const prev = [msg];
     appendTextDelta(prev, "b");
-    expect(prev[0]!.content).toBe("a");
+    expect(text(prev[0]!)).toBe("a");
   });
 
   it("extends the matching row when messageId matches, regardless of tail position", () => {
-    // B3 invariant — every event in an LLM call carries the same
-    // `messageId`. The handler must land deltas in the row keyed by id,
-    // not the tail. This covers the reconcile race that produced the
-    // duplicate-row screenshot: a poll fetched the daemon's reserved row
-    // (empty content, no `isStreaming` flag) into local state ahead of
-    // the first delta. Before B5 the tail check returned false on the
-    // snapshot row and `createStreamingBubble` pushed a NEW row with the
-    // same id — two siblings, both with id=row-X.
+    // Every event in an LLM call carries the same `messageId`. The handler
+    // must land deltas in the row keyed by id, not the tail — otherwise a
+    // reconcile race (a poll fetches the daemon's reserved empty row into
+    // local state ahead of the first delta) opens a duplicate row sharing
+    // the same id.
     const reservedFromReconcile = makeAssistantMsg({
       id: "row-X",
-      content: "",
       textSegments: [],
       contentOrder: [],
-      isStreaming: false,
     });
     const result = appendTextDelta(
       [userMsg, reservedFromReconcile],
@@ -151,32 +139,81 @@ describe("appendTextDelta", () => {
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-X");
-    expect(result[1]!.content).toBe("Hello");
-    expect(result[1]!.isStreaming).toBe(true);
-    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
+    expect(text(result[1]!)).toBe("Hello");
+    expect(liveAssistantRowId(result, true)).toBe("row-X");
+    expect(result[1]!.textSegments).toEqual(["Hello"]);
   });
 
-  it("opens a new bubble when messageId is provided but no row matches", () => {
-    // Boundary between LLM calls in the same turn: call 1 was finalized
-    // by `message_complete` (`isStreaming: false`), call 2's first delta
-    // arrives with a new messageId. The fresh delta MUST open a new
-    // bubble, not extend the finalized one.
+  it("folds a later LLM call's delta into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A multi-LLM-call agent turn renders as one bubble: the second LLM
+     * call's first delta carries a fresh messageId, but it must fold into
+     * the current assistant run rather than open a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
-      content: "Hello",
-      textSegments: [{ type: "text", content: "Hello" }],
+      textSegments: ["Hello"],
       contentOrder: [{ type: "text", id: "0" }],
-      isStreaming: false,
     });
+
+    // WHEN the next LLM call's first delta arrives with a new messageId
     const result = appendTextDelta([userMsg, call1Final], " world", "row-B");
 
-    expect(result).toHaveLength(3);
-    expect(result[2]!.id).toBe("row-B");
-    expect(result[2]!.content).toBe(" world");
-    expect(result[2]!.isStreaming).toBe(true);
-    // Original row untouched.
+    // THEN it extends the existing bubble instead of opening a new one
+    expect(result).toHaveLength(2);
+    const tail = result[1]!;
+    expect(tail.id).toBe("row-A");
+    expect(text(tail)).toBe("Hello world");
+    expect(liveAssistantRowId(result, true)).toBe("row-A");
+
+    // AND the new messageId is recorded as an alias so later events for it
+    // (and the post-turn reconcile) resolve to this anchor
+    expect(tail.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("opens a new bubble when messageId is provided and the tail is a user row", () => {
+    /**
+     * A new agent turn always begins with a user row, so a delta whose id
+     * no row owns opens a fresh bubble when the tail is not assistant.
+     */
+
+    // GIVEN the tail is a user message (start of a new turn)
+    // WHEN the first delta of the assistant reply arrives
+    const result = appendTextDelta([userMsg], "text", "row-B");
+
+    // THEN a fresh streaming bubble opens, keyed by the messageId
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-B");
+    expect(text(result[1]!)).toBe("text");
+    expect(liveAssistantRowId(result, true)).toBe("row-B");
+    expect(result[1]!.mergedMessageIds).toBeUndefined();
+  });
+
+  it("folds a delta whose id the anchor already lists as a merged alias", () => {
+    /**
+     * The backend merge collapses a run of reserved rows onto the first
+     * row's id and lists the rest as aliases. A live delta carrying one of
+     * those alias ids must resolve to the anchor, not open a duplicate.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      textSegments: ["Hello"],
+      contentOrder: [{ type: "text", id: "0" }],
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a delta arrives stamped with the aliased id
+    const result = appendTextDelta([userMsg, anchor], " world", "row-B");
+
+    // THEN it extends the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("Hello");
+    expect(text(result[1]!)).toBe("Hello world");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
   });
 
   it("extends consecutive same-id deltas into a single row", () => {
@@ -189,7 +226,7 @@ describe("appendTextDelta", () => {
 
     expect(state).toHaveLength(2);
     expect(state[1]!.id).toBe("row-A");
-    expect(state[1]!.content).toBe("Hello world");
+    expect(text(state[1]!)).toBe("Hello world");
   });
 
 });
@@ -220,9 +257,8 @@ describe("finalizeMessageComplete", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("");
+    expect(text(result[1]!)).toBe("");
     expect(result[1]!.attachments).toHaveLength(1);
-    expect(result[1]!.isStreaming).toBeUndefined();
   });
 
   it("opens a new bubble with attachments when prev is empty", () => {
@@ -254,7 +290,7 @@ describe("finalizeMessageComplete", () => {
   });
 
   it("finalizes a streaming assistant tail and keeps tail.id (anchor preservation)", () => {
-    const msg = makeAssistantMsg({ id: "bubble-anchor", content: "hello world" });
+    const msg = makeAssistantMsg({ id: "bubble-anchor", ...seg("hello world") });
     const result = finalizeMessageComplete([userMsg, msg], {
       type: "message_complete",
       conversationId: "c-1",
@@ -263,18 +299,16 @@ describe("finalizeMessageComplete", () => {
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("bubble-anchor");
-    expect(result[1]!.isStreaming).toBe(false);
     // Bubble content stays whatever the text-delta accumulator left it as —
     // message_complete no longer carries body content on the wire.
-    expect(result[1]!.content).toBe("hello world");
+    expect(text(result[1]!)).toBe("hello world");
   });
 
   it("finalizes running tool calls when finalizing", () => {
     const toolCall: ChatMessageToolCall = {
       id: "t-1",
-      toolName: "bash",
+      name: "bash",
       input: { command: "ls" },
-      status: "running",
     };
     const msg = makeAssistantMsg({ id: "bubble-A", toolCalls: [toolCall] });
     const result = finalizeMessageComplete([msg], {
@@ -282,16 +316,15 @@ describe("finalizeMessageComplete", () => {
       conversationId: "c-1",
       messageId: "row-B",
     });
-    expect(result[0]!.toolCalls?.[0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   it("appends to a finalized assistant tail without overwriting its id (multi-LLM-call turn)", () => {
     // Second message_complete in the same agent turn — tail is the bubble
-    // from the previous call (isStreaming already false). Should keep id.
+    // from the previous call. Should keep id.
     const tail = makeAssistantMsg({
       id: "bubble-anchor",
-      content: "first call done",
-      isStreaming: false,
+      ...seg("first call done"),
     });
     const result = finalizeMessageComplete([userMsg, tail], {
       type: "message_complete",
@@ -303,7 +336,7 @@ describe("finalizeMessageComplete", () => {
     expect(result[1]!.id).toBe("bubble-anchor");
     // Tail content preserved across multi-call merge — message_complete no
     // longer brings its own content.
-    expect(result[1]!.content).toBe("first call done");
+    expect(text(result[1]!)).toBe("first call done");
   });
 
   it("adopts the server messageId for an optimistic streaming tail (first message_complete)", () => {
@@ -314,7 +347,7 @@ describe("finalizeMessageComplete", () => {
     // diverges from the bubble text reconciles to a duplicate row.
     const optimistic = makeAssistantMsg({
       id: "client-uuid",
-      content: "Spawning a researcher on this now.",
+      ...seg("Spawning a researcher on this now."),
       isOptimistic: true,
     });
     const result = finalizeMessageComplete([userMsg, optimistic], {
@@ -326,7 +359,6 @@ describe("finalizeMessageComplete", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("server-row-id");
     expect(result[1]!.isOptimistic).toBe(false);
-    expect(result[1]!.isStreaming).toBe(false);
   });
 
   it("keeps the optimistic id when message_complete carries no messageId", () => {
@@ -341,36 +373,6 @@ describe("finalizeMessageComplete", () => {
 
     expect(result[1]!.id).toBe("client-uuid");
     expect(result[1]!.isOptimistic).toBe(true);
-    expect(result[1]!.isStreaming).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stopStreaming
-// ---------------------------------------------------------------------------
-
-describe("stopStreaming", () => {
-  it("sets isStreaming to false on the last assistant message", () => {
-    const msg = makeAssistantMsg();
-    const result = stopStreaming([userMsg, msg]);
-
-    expect(result).toHaveLength(2);
-    expect(result[1]!.isStreaming).toBe(false);
-    expect(result[1]!.content).toBe("hello");
-  });
-
-  it("returns prev unchanged if last is not streaming", () => {
-    const msg = makeAssistantMsg({ isStreaming: false });
-    const prev = [msg];
-    const result = stopStreaming(prev);
-    expect(result).toBe(prev);
-  });
-
-  it("keeps tail.id — never stamps a different id onto the bubble", () => {
-    const msg = makeAssistantMsg({ id: "bubble-anchor" });
-    const result = stopStreaming([msg]);
-    expect(result[0]!.id).toBe("bubble-anchor");
-    expect(result[0]!.isStreaming).toBe(false);
   });
 });
 
@@ -379,17 +381,16 @@ describe("stopStreaming", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleConversationError", () => {
-  it("finalizes streaming and keeps message with content", () => {
-    const msg = makeAssistantMsg({ content: "partial response" });
+  it("finalizes the assistant tail and keeps message with content", () => {
+    const msg = makeAssistantMsg(seg("partial response"));
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(2);
-    expect(result[1]!.isStreaming).toBe(false);
-    expect(result[1]!.content).toBe("partial response");
+    expect(text(result[1]!)).toBe("partial response");
   });
 
   it("removes empty streaming bubble", () => {
-    const msg = makeAssistantMsg({ content: "", toolCalls: undefined });
+    const msg = makeAssistantMsg({ ...seg(""), toolCalls: undefined });
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(1);
@@ -398,24 +399,22 @@ describe("handleConversationError", () => {
 
   it("keeps message with tool calls but no text content", () => {
     const msg = makeAssistantMsg({
-      content: "",
+      ...seg(""),
       toolCalls: [
         {
           id: "tc-1",
-          toolName: "search",
+          name: "search",
           input: {},
-          status: "running",
         },
       ],
     });
     const result = handleConversationError([userMsg, msg]);
 
     expect(result).toHaveLength(2);
-    expect(result[1]!.isStreaming).toBe(false);
-    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 
-  it("returns prev unchanged if last is not streaming assistant", () => {
+  it("returns prev unchanged if last is not an assistant", () => {
     const prev = [userMsg];
     const result = handleConversationError(prev);
     expect(result).toBe(prev);
@@ -429,7 +428,7 @@ describe("handleConversationError", () => {
 describe("upsertToolCall", () => {
   const toolCall = {
     id: "tc-1",
-    toolName: "web_search",
+    name: "web_search",
     input: {} as Record<string, unknown>,
     status: "running" as const,
   };
@@ -441,30 +440,30 @@ describe("upsertToolCall", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.toolCalls).toHaveLength(1);
     expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
-    expect(result[1]!.toolCalls![0]!.toolName).toBe("web_search");
+    expect(result[1]!.toolCalls![0]!.name).toBe("web_search");
   });
 
   it("updates existing tool call by id", () => {
     const msg = makeAssistantMsg({
-      toolCalls: [{ id: "tc-1", toolName: "old_name", input: {}, status: "running" as const }],
+      toolCalls: [{ id: "tc-1", name: "old_name", input: {} }],
     });
-    const updatedTc = { id: "tc-1", toolName: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
+    const updatedTc = { id: "tc-1", name: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
     const result = upsertToolCall([msg], updatedTc);
 
     expect(result[0]!.toolCalls).toHaveLength(1);
-    expect(result[0]!.toolCalls![0]!.toolName).toBe("web_search");
+    expect(result[0]!.toolCalls![0]!.name).toBe("web_search");
   });
 
-  it("creates a new bubble when the tail is a finalized assistant", () => {
-    // Finalized assistant tail (isStreaming: false) → derivation says
-    // "open a fresh bubble" rather than extend the previous turn.
-    const finalized = makeAssistantMsg({ isStreaming: false });
-    const result = upsertToolCall([userMsg, finalized], toolCall);
+  it("folds into the assistant tail rather than opening a duplicate bubble", () => {
+    // Liveness is positional: a tool call arriving while an assistant row
+    // is the tail belongs to that same run (the consolidation invariant),
+    // so it folds in instead of spawning a sibling.
+    const tail = makeAssistantMsg({ toolCalls: undefined });
+    const result = upsertToolCall([userMsg, tail], toolCall);
 
-    expect(result).toHaveLength(3);
-    expect(result[2]!.role).toBe("assistant");
-    expect(result[2]!.isStreaming).toBe(true);
-    expect(result[2]!.toolCalls).toHaveLength(1);
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe(tail.id);
+    expect(result[1]!.toolCalls).toHaveLength(1);
   });
 
   it("creates a new bubble when no streaming assistant tail exists", () => {
@@ -489,8 +488,7 @@ describe("upsertToolCall", () => {
     // duplicate bubble.
     const anchor = makeAssistantMsg({
       id: "anchor-1",
-      content: "",
-      isStreaming: false,
+      ...seg(""),
       toolCalls: undefined,
       contentOrder: undefined,
     });
@@ -498,9 +496,58 @@ describe("upsertToolCall", () => {
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("anchor-1");
-    expect(result[1]!.isStreaming).toBe(true);
+    expect(liveAssistantRowId(result, true)).toBe("anchor-1");
     expect(result[1]!.toolCalls).toHaveLength(1);
     expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
+  });
+
+  it("folds a later LLM call's tool call into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A multi-LLM-call turn renders as one bubble: a tool call from a
+     * later call (fresh messageId) folds into the current assistant run
+     * instead of opening a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
+    const call1Final = makeAssistantMsg({
+      id: "row-A",
+      ...seg("Hello"),
+    });
+
+    // WHEN the next LLM call's tool_use_start arrives with a new messageId
+    const result = upsertToolCall([userMsg, call1Final], toolCall, "row-B");
+
+    // THEN it folds into the existing bubble and records the alias
+    expect(result).toHaveLength(2);
+    const tail = result[1]!;
+    expect(tail.id).toBe("row-A");
+    expect(liveAssistantRowId(result, true)).toBe("row-A");
+    expect(tail.toolCalls).toHaveLength(1);
+    expect(tail.toolCalls![0]!.id).toBe("tc-1");
+    expect(tail.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("folds a tool call whose id the anchor already lists as a merged alias", () => {
+    /**
+     * A tool_use_start carrying an id the backend merge already folded
+     * onto the anchor must resolve to the anchor, not open a duplicate.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      ...seg("Hello"),
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a tool call arrives stamped with the aliased id
+    const result = upsertToolCall([userMsg, anchor], toolCall, "row-B");
+
+    // THEN it folds into the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
   });
 
   it("adopts messageId as the row id when opening a new bubble (no isOptimistic flag)", () => {
@@ -538,7 +585,7 @@ describe("attachSurface", () => {
   };
 
   it("attaches to an id-matched assistant row when messageId is present", () => {
-    const target = makeAssistantMsg({ id: "anchor-1", isStreaming: false });
+    const target = makeAssistantMsg({ id: "anchor-1" });
     const result = attachSurface([userMsg, target], surface, "anchor-1");
 
     expect(result).toHaveLength(2);
@@ -547,8 +594,50 @@ describe("attachSurface", () => {
     expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
   });
 
-  it("falls back to the streaming-assistant tail when messageId is absent", () => {
-    const target = makeAssistantMsg({ id: "stream-1", isStreaming: true });
+  it("attaches to an assistant row that owns the messageId as a merged alias", () => {
+    /**
+     * The backend merge lists later LLM-call ids as aliases on the anchor.
+     * A surface stamped with such an id must resolve to the anchor rather
+     * than open a duplicate bubble.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a surface arrives stamped with the aliased id
+    const result = attachSurface([userMsg, anchor], surface, "row-B");
+
+    // THEN it attaches to the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("folds a later LLM call's surface into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A surface from a later LLM call (fresh messageId) folds into the
+     * current assistant run instead of opening a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
+    const call1Final = makeAssistantMsg({ id: "row-A" });
+
+    // WHEN the next LLM call's surface arrives with a new messageId
+    const result = attachSurface([userMsg, call1Final], surface, "row-B");
+
+    // THEN it attaches to the existing bubble and records the alias
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("falls back to the assistant tail when messageId is absent", () => {
+    const target = makeAssistantMsg({ id: "stream-1" });
     const result = attachSurface([userMsg, target], surface);
 
     expect(result).toHaveLength(2);
@@ -595,9 +684,8 @@ describe("attachSurface", () => {
 describe("applyToolResult — activityMetadata", () => {
   const baseToolCall: ChatMessageToolCall = {
     id: "tc-1",
-    toolName: "web_search",
+    name: "web_search",
     input: { query: "tigers" },
-    status: "running",
     startedAt: 1000,
   };
 
@@ -632,12 +720,12 @@ describe("applyToolResult — activityMetadata", () => {
       activityMetadata: metadata,
     });
     expect(result[0]!.toolCalls![0]!.activityMetadata).toEqual(metadata);
-    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
   it("preserves prior activityMetadata when re-applied without it", () => {
     const msg = makeAssistantMsg({
-      toolCalls: [{ ...baseToolCall, status: "running", activityMetadata: metadata }],
+      toolCalls: [{ ...baseToolCall, activityMetadata: metadata }],
       contentOrder: [{ type: "toolCall", id: "tc-1" }],
     });
     const result = applyToolResult([msg], {
@@ -653,83 +741,82 @@ describe("applyToolResult — activityMetadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("finalizeOnIdle", () => {
-  it("finalizes running tool calls across ALL streaming assistant messages", () => {
+  it("finalizes running tool calls across all assistant messages", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-1", name: "web_search", input: {} },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-1" }],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "some text",
+      ...seg("some text"),
       toolCalls: [
-        { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
+        { id: "tc-2", name: "web_fetch", input: {} },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-2" }],
     });
     const result = finalizeOnIdle([userMsg, msg1, msg2]);
 
     expect(result).toHaveLength(3);
-    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
     expect(result[1]!.toolCalls![0]!.completedAt).toBeDefined();
-    expect(result[2]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[2]!.toolCalls![0]!)).toBe(true);
     expect(result[2]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
-  it("returns prev unchanged when no streaming assistant messages exist", () => {
+  it("returns prev unchanged when no assistant messages have running tool calls", () => {
     const prev = [userMsg];
     const result = finalizeOnIdle(prev);
     expect(result).toBe(prev);
   });
 
-  it("flips isStreaming to false even when streaming messages have no running tool calls", () => {
-    // New behavior (replaces what `needsNewBubbleRef` used to carry): the
-    // tail must transition out of "streaming" state on idle regardless of
-    // tool-call presence, so the next chunk derives "open a new bubble".
+  it("is a no-op when assistant messages have only completed tool calls", () => {
+    // Idle only finalizes *running* tool calls; there is no per-row flag
+    // to flip, so a row whose tool calls are already complete is returned
+    // untouched.
     const msg = makeAssistantMsg({
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "completed" },
+        { id: "tc-1", name: "web_search", input: {}, completedAt: 1 },
       ],
     });
-    const result = finalizeOnIdle([msg]);
+    const prev = [msg];
+    const result = finalizeOnIdle(prev);
 
-    expect(result).toHaveLength(1);
-    expect(result[0]!.isStreaming).toBe(false);
-    // Already-completed tool calls remain untouched.
-    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+    expect(result).toBe(prev);
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 
-  it("flips isStreaming to false on a streaming assistant with no tool calls at all", () => {
+  it("is a no-op for an assistant row with no tool calls at all", () => {
     const msg = makeAssistantMsg({ toolCalls: undefined });
-    const result = finalizeOnIdle([msg]);
+    const prev = [msg];
+    const result = finalizeOnIdle(prev);
 
-    expect(result).toHaveLength(1);
-    expect(result[0]!.isStreaming).toBe(false);
+    expect(result).toBe(prev);
   });
 
-  it("does not modify non-streaming assistant messages", () => {
-    const finishedMsg = makeAssistantMsg({
-      id: "a-done",
-      isStreaming: false,
+  it("finalizes running tool calls on every assistant row on idle", () => {
+    // Idle clears the conversation's processing state, so any tool call
+    // still marked running is stale and gets finalized regardless of the
+    // row's position.
+    const msgA = makeAssistantMsg({
+      id: "a-1",
       toolCalls: [
-        { id: "tc-old", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-old", name: "bash", input: {} },
       ],
     });
-    const streamingMsg = makeAssistantMsg({
-      id: "a-stream",
+    const msgB = makeAssistantMsg({
+      id: "a-2",
       toolCalls: [
-        { id: "tc-new", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-new", name: "web_search", input: {} },
       ],
     });
-    const result = finalizeOnIdle([finishedMsg, streamingMsg]);
+    const result = finalizeOnIdle([msgA, msgB]);
 
-    // The non-streaming message's tool call should remain "running"
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
-    // The streaming message's tool call should be finalized
-    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
 });
 
@@ -743,17 +830,17 @@ describe("applyToolResult — cross-message matching", () => {
     // then tool_result arrives with toolUseId pointing to msg1's tool call.
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
-        { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-early", name: "web_search", input: {} },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-early" }],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "some later text",
+      ...seg("some later text"),
       toolCalls: [
-        { id: "tc-later", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-later", name: "bash", input: {} },
       ],
       contentOrder: [{ type: "toolCall", id: "tc-later" }],
     });
@@ -763,25 +850,25 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // msg1's tool call should be completed
-    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
     expect(result[1]!.toolCalls![0]!.result).toBe("search results");
     // msg2's tool call should remain running
-    expect(result[2]!.toolCalls![0]!.status).toBe("running");
+    expect(isToolCallRunning(result[2]!.toolCalls![0]!)).toBe(true);
   });
 
   it("falls back to last assistant message when toolUseId is not provided", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
-      content: "",
+      ...seg(""),
       toolCalls: [
-        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+        { id: "tc-1", name: "web_search", input: {} },
       ],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
-      content: "",
+      ...seg(""),
       toolCalls: [
-        { id: "tc-2", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-2", name: "bash", input: {} },
       ],
     });
     const result = applyToolResult([userMsg, msg1, msg2], {
@@ -789,14 +876,14 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // Without toolUseId, falls back to the last assistant message's last running tool call
-    expect(result[1]!.toolCalls![0]!.status).toBe("running");
-    expect(result[2]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallRunning(result[1]!.toolCalls![0]!)).toBe(true);
+    expect(isToolCallCompleted(result[2]!.toolCalls![0]!)).toBe(true);
   });
 
   it("falls back to last running tool call when toolUseId does not match any message", () => {
     const msg = makeAssistantMsg({
       toolCalls: [
-        { id: "tc-1", toolName: "bash", input: {}, status: "running" },
+        { id: "tc-1", name: "bash", input: {} },
       ],
     });
     const result = applyToolResult([msg], {
@@ -805,7 +892,7 @@ describe("applyToolResult — cross-message matching", () => {
     });
 
     // Should fall back and complete the last running tool call
-    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
   });
 });
 
@@ -829,7 +916,7 @@ describe("applyUserMessageEcho", () => {
     expect(result[1]).toEqual({
       id: "msg-server-1",
       role: "user",
-      content: "from another device",
+      ...seg("from another device"),
       timestamp: result[1]!.timestamp,
     });
   });
@@ -848,7 +935,7 @@ describe("applyUserMessageEcho", () => {
     // THEN an optimistic user row is appended
     expect(result).toHaveLength(1);
     expect(result[0]!.role).toBe("user");
-    expect(result[0]!.content).toBe("surface prompt");
+    expect(text(result[0]!)).toBe("surface prompt");
     expect(result[0]!.isOptimistic).toBe(true);
   });
 
@@ -860,7 +947,7 @@ describe("applyUserMessageEcho", () => {
      */
     // GIVEN an optimistic user row matching the echo text
     const prev: DisplayMessage[] = [
-      { id: "client-uuid", role: "user", content: "hello", isOptimistic: true, timestamp: 1 },
+      { id: "client-uuid", role: "user", ...seg("hello"), isOptimistic: true, timestamp: 1 },
     ];
 
     // WHEN the echo for that send arrives with a server id
@@ -882,7 +969,7 @@ describe("applyUserMessageEcho", () => {
      */
     // GIVEN a row already keyed by the server id
     const prev: DisplayMessage[] = [
-      { id: "msg-server-3", role: "user", content: "hello", timestamp: 1 },
+      { id: "msg-server-3", role: "user", ...seg("hello"), timestamp: 1 },
     ];
 
     // WHEN a duplicate echo for the same id arrives
@@ -905,7 +992,7 @@ describe("applyUserMessageEcho", () => {
       {
         id: "client-uuid",
         role: "user",
-        content: "hello",
+        ...seg("hello"),
         mergedMessageIds: ["msg-server-4"],
         timestamp: 1,
       },
@@ -919,5 +1006,87 @@ describe("applyUserMessageEcho", () => {
 
     // THEN the array is returned unchanged
     expect(result).toBe(prev);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendThinkingDelta
+// ---------------------------------------------------------------------------
+
+describe("appendThinkingDelta", () => {
+  it("opens a thinking bubble when the turn has no assistant row yet", () => {
+    // GIVEN a turn that has only the user message (reasoning-heavy models
+    // stream their chain of thought before any text delta)
+    // WHEN the first thinking delta arrives
+    const result = appendThinkingDelta([userMsg], "reason");
+
+    // THEN a new optimistic assistant bubble is opened carrying the thinking
+    expect(result).toHaveLength(2);
+    const bubble = result[1]!;
+    expect(bubble.role).toBe("assistant");
+    expect(bubble.thinkingSegments).toEqual(["reason"]);
+    expect(bubble.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+  });
+
+  it("coalesces consecutive thinking deltas into one trailing segment", () => {
+    // GIVEN an assistant row whose last content entry is thinking
+    const start = appendThinkingDelta([userMsg], "Hel", "row-A");
+    // WHEN a second thinking delta lands for the same row
+    const result = appendThinkingDelta(start, "lo", "row-A");
+
+    // THEN the trailing segment extends rather than opening a new block
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["Hello"]);
+    expect(row.contentOrder).toEqual([{ type: "thinking", id: "0" }]);
+  });
+
+  it("opens a fresh thinking block when reasoning resumes after text", () => {
+    // GIVEN an assistant row that has emitted thinking, then text
+    const afterThinking = appendThinkingDelta([userMsg], "first", "row-A");
+    const afterText = appendTextDelta(afterThinking, "answer", "row-A");
+
+    // WHEN reasoning resumes
+    const result = appendThinkingDelta(afterText, "second", "row-A");
+
+    // THEN a new thinking segment + content-order entry is appended after
+    // the text, preserving interleaving order
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["first", "second"]);
+    expect(row.contentOrder).toEqual([
+      { type: "thinking", id: "0" },
+      { type: "text", id: "0" },
+      { type: "thinking", id: "1" },
+    ]);
+  });
+
+  it("lands deltas on the row keyed by messageId regardless of tail position", () => {
+    // GIVEN a reserved assistant row pulled in by a reconcile race ahead of
+    // the first delta
+    const reserved = makeAssistantMsg({
+      id: "row-X",
+      textSegments: [],
+      contentOrder: [],
+    });
+
+    // WHEN a thinking delta arrives stamped with that row's id
+    const result = appendThinkingDelta([userMsg, reserved], "think", "row-X");
+
+    // THEN it extends that row rather than opening a duplicate bubble
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-X");
+    expect(result[1]!.thinkingSegments).toEqual(["think"]);
+  });
+
+  it("does not mutate the original array", () => {
+    // GIVEN an existing assistant row
+    const prev = appendThinkingDelta([userMsg], "a", "row-A");
+    const before = prev[1]!.thinkingSegments;
+
+    // WHEN another delta is applied
+    appendThinkingDelta(prev, "b", "row-A");
+
+    // THEN the prior row's segments are untouched
+    expect(prev[1]!.thinkingSegments).toBe(before);
+    expect(prev[1]!.thinkingSegments).toEqual(["a"]);
   });
 });

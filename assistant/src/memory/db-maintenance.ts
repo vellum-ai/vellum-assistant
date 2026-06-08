@@ -1,15 +1,16 @@
 import { statSync } from "node:fs";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { getLastUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 
 const log = getLogger("db-maintenance");
 
 const DB_MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
-const DB_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface DbStats {
   pageSize: number;
@@ -101,11 +102,26 @@ async function runDbMaintenance(): Promise<void> {
 }
 
 export async function maybeRunDbMaintenance(nowMs = Date.now()): Promise<void> {
+  const { intervalMs, quietPeriodMs } = getConfig().memory.maintenance;
+
   const lastRun = parseInt(
     getMemoryCheckpoint(DB_MAINTENANCE_CHECKPOINT_KEY) ?? "0",
     10,
   );
-  if (nowMs - lastRun < DB_MAINTENANCE_INTERVAL_MS) return;
+  if (nowMs - lastRun < intervalMs) return;
+
+  // VACUUM holds an exclusive lock on the database for its full duration —
+  // minutes on a multi-GB DB — during which every other write fails with
+  // SQLITE_BUSY ("database is locked"). Defer maintenance until the user has
+  // been quiet for `quietPeriodMs` so that lock never lands mid-conversation.
+  // The checkpoint below is only written once maintenance actually runs, so a
+  // deferred run is simply retried on a later (still-idle) worker tick.
+  if (quietPeriodMs > 0) {
+    const lastUserMessageAt = getLastUserMessageTimestamp();
+    if (lastUserMessageAt > 0 && nowMs - lastUserMessageAt < quietPeriodMs) {
+      return;
+    }
+  }
 
   try {
     await runDbMaintenance();

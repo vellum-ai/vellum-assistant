@@ -4,23 +4,21 @@
  * Detects silently stalled connections — notably on iOS WKWebView
  * (Capacitor), where the fetch promise can hold a streaming connection
  * open at the network layer with no bytes flowing and no error surfaced
- * to JavaScript. The daemon emits a heartbeat comment every ~30 s; this
+ * to JavaScript. The daemon emits a heartbeat comment every ~7 s; this
  * watchdog aborts the active fetch when no SSE traffic (events OR
  * heartbeat comments) arrives within a configurable window.
  *
- * Telemetry is recorded to both sessionStorage diagnostics (via
- * {@link recordDiagnostic}) and Sentry (breadcrumb + captureMessage)
- * so fleet-wide stall frequency can be measured without relying on
- * user-submitted diagnostic bundles.
+ * Telemetry is recorded to the durable lifecycle diagnostics ring
+ * (via {@link recordLifecycleDiagnostic}) and as a Sentry breadcrumb
+ * that attaches to any nearby error event for debugging context.
  *
  * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
- * @see https://docs.sentry.io/product/explore/discover-queries/
  */
 
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 
-import { recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
-import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import type { StreamReconnectCause } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -30,7 +28,6 @@ export interface StreamWatchdogConfig {
   /** Milliseconds of silence before the watchdog fires. */
   idleTimeoutMs: number;
   assistantId: string;
-  conversationId: string | undefined;
   /**
    * Snapshot whether the caller-owned turn state machine is currently
    * sending. Forwarded to Sentry as the `wasTurnSending` tag so
@@ -67,7 +64,7 @@ export interface StreamWatchdog {
    * Returns `null` if the watchdog has not fired since the last
    * consume (or ever).
    */
-  consumeLastAbortCause(): ChatStreamReconnectCause | null;
+  consumeLastAbortCause(): StreamReconnectCause | null;
 }
 
 /**
@@ -81,14 +78,13 @@ export interface StreamWatchdog {
 export function createStreamWatchdog(
   config: StreamWatchdogConfig,
 ): StreamWatchdog {
-  const { idleTimeoutMs, assistantId, conversationId, getActiveTurnSending } =
-    config;
+  const { idleTimeoutMs, assistantId, getActiveTurnSending } = config;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastSseAtMs: number | null = null;
   let keepalivesReceivedSinceConnect = 0;
   let dataFramesReceivedSinceConnect = 0;
-  let lastAbortCause: ChatStreamReconnectCause | null = null;
+  let lastAbortCause: StreamReconnectCause | null = null;
 
   const clear = () => {
     if (timer) {
@@ -120,9 +116,8 @@ export function createStreamWatchdog(
       const lastByteAgeMs =
         lastSseAtMs === null ? null : Date.now() - lastSseAtMs;
 
-      recordDiagnostic("sse_watchdog_fired", {
+      recordLifecycleDiagnostic("sse_watchdog_fired", {
         assistantId,
-        conversationId: conversationId ?? null,
         attempt,
         idleTimeoutMs,
         wasTurnSending,
@@ -131,11 +126,11 @@ export function createStreamWatchdog(
         dataFramesReceivedSinceConnect,
       });
 
-      // Mirror into Sentry for fleet-wide aggregation.
-      // sessionStorage diagnostics only ship when a user manually
-      // attaches a bundle, biasing toward broken-and-noisy cases.
-      // Sentry breadcrumbs + captureMessage give an aggregable count
-      // across all users.
+      // Breadcrumb-only: attaches to any nearby Sentry error event for
+      // debugging context. No captureMessage — watchdog fires are
+      // expected on iOS (background/foreground cycle) and generate
+      // noise as a standalone Sentry issue. Fleet-wide stall frequency
+      // belongs in an analytics pipeline, not Sentry issues.
       // @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
       Sentry.addBreadcrumb({
         category: "sse.watchdog",
@@ -143,33 +138,6 @@ export function createStreamWatchdog(
         message: "watchdog_fired",
         data: {
           assistantId,
-          attempt,
-          idleTimeoutMs,
-          wasTurnSending,
-          lastByteAgeMs,
-          keepalivesReceivedSinceConnect,
-          dataFramesReceivedSinceConnect,
-        },
-      });
-      Sentry.captureMessage("sse_watchdog_fired", {
-        level: "warning",
-        // `platform` distinguishes Capacitor iOS from Safari iOS —
-        // Sentry's auto-detected os.name does not, but the watchdog
-        // is iOS-specific so the L2/L3 decision needs the breakdown.
-        // `wasTurnSending` is promoted to a tag so the user-harming
-        // vs benign split is queryable in Discover without per-event
-        // drill-in.
-        // @see https://docs.sentry.io/concepts/key-terms/key-terms/#tags
-        tags: {
-          context: "sse_watchdog",
-          platform: resolvePlatformTag(),
-          attempt: String(attempt),
-          wasTurnSending:
-            wasTurnSending === null ? "unknown" : String(wasTurnSending),
-        },
-        extra: {
-          assistantId,
-          conversationId: conversationId ?? null,
           attempt,
           idleTimeoutMs,
           wasTurnSending,
@@ -198,7 +166,7 @@ export function createStreamWatchdog(
     lastSseAtMs = Date.now();
   };
 
-  const consumeLastAbortCause = (): ChatStreamReconnectCause | null => {
+  const consumeLastAbortCause = (): StreamReconnectCause | null => {
     const cause = lastAbortCause;
     lastAbortCause = null;
     return cause;

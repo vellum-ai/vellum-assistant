@@ -4,6 +4,7 @@ description: "Analyze and reduce LLM spend by mapping call-site overrides to man
 metadata:
   emoji: "💸"
   vellum:
+    category: "development"
     display-name: "LLM Cost Optimizer"
 ---
 

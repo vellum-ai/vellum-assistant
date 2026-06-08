@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
   vellum:
+    category: "messaging"
     display-name: "Slack App Setup"
     includes: ["guardian-verify-setup"]
 ---

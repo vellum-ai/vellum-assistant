@@ -1,10 +1,18 @@
 import { createRequire } from "node:module";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { LoopToolExecutor } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -60,6 +68,7 @@ mock.module("../config/loader.js", () => ({
     memory: { retrieval: { scratchpadInjection: { enabled: true } } },
     ui: mockUiConfig,
     compaction: { enabled: true, autoThreshold: 0.7 },
+    conversations: { skipAutoRetitling: true },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -70,17 +79,20 @@ mock.module("../config/loader.js", () => ({
 
 // Token estimator returns a small value by default (well within budget)
 // so preflight does not trigger unless the test overrides it. Both the
-// calibrated entry point (`estimatePromptTokens`, used in the convergence
-// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
-// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// calibrated entry point (`estimatePromptTokens`, which backs the preflight
+// overflow gate and the convergence path) and the raw entry point
+// (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
 // stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
   estimatePromptTokensRaw: () => mockEstimateTokens,
-  // Pass-through: the default plugin computes `toolTokenBudget` via this
-  // helper before delegating to the raw estimator. Return 0 so the mocked
-  // raw estimate is not perturbed.
+  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // must honor `mockEstimateTokens` too rather than fall through to the real
+  // implementation.
+  estimatePromptTokensWithTools: () => mockEstimateTokens,
+  // Pass-through: `estimatePromptTokensWithTools` computes `toolTokenBudget`
+  // via this helper. Return 0 so the mocked estimate is not perturbed.
   estimateToolsTokens: () => 0,
 }));
 
@@ -300,16 +312,14 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
-const buildUnifiedTurnContextBlockMock = mock(
-  (options: Record<string, unknown>) =>
-    `<turn_context>\ncurrent_time: ${String(options.timestamp)}\n</turn_context>`,
-);
-const applyRuntimeInjectionsMock = mock(
-  async (msgs: Message[], _options?: unknown) => ({
-    messages: msgs,
-    blocks: { ...mockInjectionBlocks },
-  }),
-);
+const defaultApplyRuntimeInjectionsImpl = async (
+  msgs: Message[],
+  _options?: unknown,
+) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+});
+const applyRuntimeInjectionsMock = mock(defaultApplyRuntimeInjectionsImpl);
 let mockSlackChronologicalContext: {
   renderedMessages: Array<{
     message: Message;
@@ -346,17 +356,7 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  buildUnifiedTurnContextBlock: buildUnifiedTurnContextBlockMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  findLastInjectedNowContent: () => null,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
-  getPkbAutoInjectList: () => [
-    "INDEX.md",
-    "essentials.md",
-    "threads.md",
-    "buffer.md",
-  ],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,
@@ -403,7 +403,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -533,52 +533,80 @@ mock.module("../proactive-artifact/index.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
+import { AgentLoop } from "../agent/loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
-  type AgentLoopConversationContext,
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import {
+  createMockProvider,
+  type ScriptedResponse,
+  textResponse,
+  toolUseResponse,
+} from "./helpers/mock-provider.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
-type AgentLoopRun = (
-  messages: Message[],
-  onEvent: (event: AgentEvent) => void | Promise<void>,
-  options?: AgentLoopRunOptions,
-) => Promise<Message[]>;
-
 function makeCtx(
-  overrides?: Partial<AgentLoopConversationContext> & {
-    agentLoopRun?: AgentLoopRun;
+  overrides?: Partial<Conversation> & {
+    providerResponses?: ScriptedResponse[];
+    loopProvider?: Provider;
+    loopTools?: ToolDefinition[];
+    toolExecutor?: LoopToolExecutor;
   },
-): AgentLoopConversationContext {
-  const agentLoopRun =
-    overrides?.agentLoopRun ??
-    (async (messages: Message[]) => [
-      ...messages,
-      {
-        role: "assistant" as const,
-        content: [{ type: "text" as const, text: "response" }],
-      },
-    ]);
+): Conversation {
+  const {
+    providerResponses,
+    loopProvider,
+    loopTools,
+    toolExecutor,
+    ...ctxOverrides
+  } = overrides ?? {};
+  const conversationId = ctxOverrides.conversationId ?? "test-conv";
+  let processing = true;
+
+  // Drive the real `AgentLoop` against a scripted provider, mocking only the
+  // provider HTTP boundary. The loop owns its mid-loop budget gate, inline
+  // compaction, and event emission, so these orchestrator tests exercise the
+  // real escalation/persistence path.
+  //
+  // Name the loop's provider after `ctx.provider` so the two stay in sync,
+  // mirroring production where the orchestrator hands the same provider to
+  // the loop. The loop stamps this name onto `usage.actualProvider` whenever
+  // a response omits its own, which is what the request-log fallback reads.
+  // Tests that need to introspect provider calls (or sequence a rejection)
+  // build their own `loopProvider` via `createMockProvider`.
+  const loopProviderName =
+    (ctxOverrides.provider as { name?: string } | undefined)?.name ??
+    "mock-provider";
+  const provider =
+    loopProvider ??
+    createMockProvider(
+      providerResponses ?? [textResponse("response")],
+      loopProviderName,
+    ).provider;
+  const agentLoop = new AgentLoop({
+    provider: provider,
+    systemPrompt: "system prompt",
+    conversationId,
+    tools: loopTools ?? [],
+    toolExecutor,
+  });
 
   return {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
     ] as Message[],
-    processing: true,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: new AbortController(),
     currentRequestId: "test-req",
 
-    agentLoop: {
-      run: agentLoopRun,
-      getToolTokenBudget: () => 0,
-      getResolvedTools: () => [],
-      // Tests here don't exercise calibration; returning undefined makes
-      // the estimator use the per-provider aggregate key.
-      getActiveModel: () => undefined,
-    } as unknown as AgentLoopConversationContext["agentLoop"],
+    agentLoop,
     provider: {
       name: "mock-provider",
       sendMessage: async () => ({
@@ -587,15 +615,24 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    contextCompactedMessageCount: 0,
-    contextCompactedAt: null,
+    } as unknown as Conversation["contextWindowManager"],
+    conversationType: mockConversationRow?.conversationType ?? undefined,
+    source: mockConversationRow?.source ?? undefined,
+    contextSummary: mockConversationRow?.contextSummary ?? null,
+    contextCompactedMessageCount:
+      mockConversationRow?.contextCompactedMessageCount ?? 0,
+    contextCompactedAt: mockConversationRow?.contextCompactedAt ?? null,
+    slackContextCompactionWatermarkTs:
+      mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
+    lastNotifiedInferenceProfile:
+      mockConversationRow?.lastNotifiedInferenceProfile ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
@@ -607,8 +644,6 @@ function makeCtx(
     currentTurnSurfaces: [],
 
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -618,15 +653,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -639,13 +674,12 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -671,10 +705,33 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+      recordPkbQueryVectors: () => {},
+    } as unknown as Conversation["graphMemory"],
 
+    ...ctxOverrides,
+  } as unknown as Conversation;
+}
+
+type CompactionResult = Parameters<typeof applyCompactionResult>[1];
+
+function makeCompactionResult(
+  overrides?: Partial<CompactionResult>,
+): CompactionResult {
+  return {
+    messages: [{ role: "user", content: [{ type: "text", text: "summary" }] }],
+    compactedPersistedMessages: 4,
+    previousEstimatedInputTokens: 12000,
+    estimatedInputTokens: 3000,
+    maxInputTokens: 100000,
+    thresholdTokens: 80000,
+    compactedMessages: 4,
+    summaryCalls: 1,
+    summaryInputTokens: 100,
+    summaryOutputTokens: 20,
+    summaryModel: "mock-model",
+    summaryText: "summary",
     ...overrides,
-  } as AgentLoopConversationContext;
+  };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -714,7 +771,9 @@ beforeEach(() => {
   setConversationHistoryStrippedAtMock.mockClear();
   setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
-  buildUnifiedTurnContextBlockMock.mockClear();
+  applyRuntimeInjectionsMock.mockImplementation(
+    defaultApplyRuntimeInjectionsImpl,
+  );
   resolveTurnTimezoneContextMock.mockClear();
   formatTurnTimestampMock.mockClear();
   mockSlackChronologicalContext = null;
@@ -727,11 +786,10 @@ beforeEach(() => {
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
   mockMessageById = null;
-  // Orchestrator pipelines (overflowReduce, persistence, …) run through the
-  // plugin registry; reset and re-register every default so the pipelines
-  // dispatch to middleware backed by the mocked collaborators these tests
-  // install (`reduceContextOverflow`, `syncMessageToDisk`, etc.) instead of
-  // hitting the bare terminals.
+  // The compaction pipeline runs through the plugin registry; reset and
+  // re-register every default so it dispatches to middleware backed by the
+  // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
+  // instead of hitting the bare terminal.
   resetPluginRegistryAndRegisterDefaults();
 });
 
@@ -755,7 +813,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("passes resolved canonical timezones into unified turn context", async () => {
+    test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -772,17 +830,25 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      expect(formatTurnTimestampMock).toHaveBeenCalledWith({
-        timeZone: "America/New_York",
-      });
-      expect(buildUnifiedTurnContextBlockMock).toHaveBeenCalled();
-      const turnContextOptions =
-        buildUnifiedTurnContextBlockMock.mock.calls[0]?.[0];
-      expect(turnContextOptions).toMatchObject({
-        configuredUserTimezone: "America/New_York",
+      // The turn-start client timezone and the long-absence gap are frozen on
+      // the conversation as `currentTurnTemporalSnapshot`; the live
+      // `clientTimezone` would otherwise be clobbered mid-turn. `current_time`
+      // is not frozen — it is computed fresh at each injection inside
+      // `applyRuntimeInjections`.
+      expect(ctx.currentTurnTemporalSnapshot).toEqual({
         clientTimezone: "America/Los_Angeles",
-        detectedTimezone: "America/Chicago",
+        timeSinceLastMessage: null,
       });
+      // Neither the timezones nor the long-absence gap are threaded through the
+      // options bag — `applyRuntimeInjections` sources the client timezone and
+      // gap from the snapshot and the config timezones from config
+      // (`ui.userTimezone`, `ui.detectedTimezone`).
+      const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
+      expect(injectionOptions).not.toHaveProperty("timestamp");
+      expect(injectionOptions).not.toHaveProperty("clientTimezone");
+      expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
+      expect(injectionOptions).not.toHaveProperty("detectedTimezone");
+      expect(injectionOptions).not.toHaveProperty("timeSinceLastMessage");
     });
   });
 
@@ -797,7 +863,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("proactive artifact trigger", () => {
-    test("suppresses proactive app build when the foreground turn used app tools", async () => {
+    test("does not start proactive artifact jobs after foreground user turns", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         id: "test-conv",
@@ -811,57 +877,28 @@ describe("session-agent-loop", () => {
       mockHasProactiveArtifactCompleted = false;
       mockTryClaimProactiveArtifactTrigger = true;
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor for LLM call 1 — production code
-        // emits this from `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "I'll build that app." }],
-          },
-        });
-        await onEvent({
-          type: "tool_use",
-          id: "tool-1",
-          name: "app_create",
-          input: { name: "Flow" },
-        });
-        await onEvent({
-          type: "tool_result",
-          toolUseId: "tool-1",
-          content: "{}",
-          isError: false,
-        });
-        await options?.onCheckpoint?.({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: messages,
-        });
-        // Prime the anchor again for LLM call 2 — multi-call agent turns
-        // reserve a fresh assistant row per LLM call.
-        await onEvent({ type: "llm_call_started" });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Done." }],
-          },
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text" as const, text: "Done." }],
-          },
-        ];
-      };
-
+      // A two-call agent turn: the model invokes `app_create`, then wraps up
+      // with a final text reply.
       const ctx = makeCtx({
         conversationId: "test-conv",
-        agentLoopRun,
+        providerResponses: [
+          {
+            content: [
+              { type: "text", text: "I'll build that app." },
+              {
+                type: "tool_use",
+                id: "tool-1",
+                name: "app_create",
+                input: { name: "Flow" },
+              },
+            ],
+            model: "mock-model",
+            usage: { inputTokens: 10, outputTokens: 5 },
+            stopReason: "tool_use",
+          },
+          textResponse("Done."),
+        ],
+        toolExecutor: async () => ({ content: "{}", isError: false }),
       });
       await runAgentLoopImpl(
         ctx,
@@ -874,16 +911,28 @@ describe("session-agent-loop", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(1);
-      expect(runProactiveArtifactJobMock.mock.calls[0]?.[0]).toMatchObject({
-        conversationId: "test-conv",
-        suppressAppBuild: true,
-      });
+      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(0);
     });
   });
 
   describe("disk pressure injection context", () => {
-    test("passes cleanup context into runtime injections for cleanup-mode turns", async () => {
+    // The loop sets `ctx.diskPressureCleanupModeActive` for the duration of the
+    // turn (the disk-pressure-warning injector reads it via the per-conversation
+    // registry) and resets it in the turn-end cleanup path. Snapshot the flag at
+    // each `applyRuntimeInjections` call so assertions observe its value while
+    // injection runs, not the post-turn reset.
+    function captureCleanupFlagDuringInjection(ctx: {
+      diskPressureCleanupModeActive?: boolean;
+    }): () => Array<boolean | undefined> {
+      const observed: Array<boolean | undefined> = [];
+      applyRuntimeInjectionsMock.mockImplementation(async (msgs: Message[]) => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+        return { messages: msgs, blocks: { ...mockInjectionBlocks } };
+      });
+      return () => observed;
+    }
+
+    test("sets the cleanup-mode flag on the conversation for cleanup-mode turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -904,8 +953,9 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -924,21 +974,16 @@ describe("session-agent-loop", () => {
           },
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("passes cleanup context into runtime injections for local-owner turns", async () => {
+    test("sets the cleanup-mode flag on the conversation for local-owner turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "local-owner",
       };
       const ctx = makeCtx();
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -950,16 +995,10 @@ describe("session-agent-loop", () => {
           trustContext: null,
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("keeps cleanup context on overflow recovery reinjection", async () => {
+    test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -979,20 +1018,16 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
       expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
-      for (const call of applyRuntimeInjectionsMock.mock.calls) {
-        const options = call[1] as {
-          diskPressureContext?: { cleanupModeActive: boolean } | null;
-        };
-        expect(options.diskPressureContext).toEqual({
-          cleanupModeActive: true,
-        });
-      }
+      const flags = cleanupFlagDuringInjection();
+      expect(flags.length).toBeGreaterThan(1);
+      expect(flags.every((flag) => flag === true)).toBe(true);
     });
 
     test("blocks policy-denied turns before runtime injection or model execution", async () => {
@@ -1001,9 +1036,6 @@ describe("session-agent-loop", () => {
         reason: "trusted-contact",
       };
       const events: ServerMessage[] = [];
-      const agentLoopRun = mock(async (_messages: Message[]) => {
-        throw new Error("agent loop should not run");
-      });
       const activityStates: unknown[][] = [];
       const traceEvents: unknown[][] = [];
       const ctx = makeCtx({
@@ -1014,19 +1046,18 @@ describe("session-agent-loop", () => {
           emit: (...args: unknown[]) => {
             traceEvents.push(args);
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
-      ctx.agentLoop.run = agentLoopRun as AgentLoopRun;
+      const runSpy = spyOn(ctx.agentLoop, "run");
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      expect(agentLoopRun).not.toHaveBeenCalled();
+      expect(runSpy).not.toHaveBeenCalled();
       expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
       expect(traceEvents[0]).toEqual([
         "request_error",
@@ -1081,15 +1112,14 @@ describe("session-agent-loop", () => {
       });
 
       expect(applyRuntimeInjectionsMock).not.toHaveBeenCalled();
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(drainQueue).toHaveBeenCalledWith("loop_complete");
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
     });
   });
@@ -1098,47 +1128,14 @@ describe("session-agent-loop", () => {
     test("error events from agent loop are classified and emitted", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        // Simulate tool_use + error during execution
-        onEvent({
-          type: "tool_use",
-          id: "tu-1",
-          name: "bash",
-          input: { cmd: "ls" },
-        });
-        onEvent({
-          type: "error",
-          error: new Error("Tool execution failed: permission denied"),
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "I encountered an error" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 200,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "I encountered an error" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // The model calls a tool whose executor throws, surfacing an `error`
+      // event from the loop's catch handler.
+      const ctx = makeCtx({
+        providerResponses: [toolUseResponse("tu-1", "bash", { cmd: "ls" })],
+        toolExecutor: async () => {
+          throw new Error("Tool execution failed: permission denied");
+        },
+      });
       await runAgentLoopImpl(ctx, "run ls", "msg-1", (msg) => events.push(msg));
 
       const conversationError = events.find(
@@ -1150,34 +1147,9 @@ describe("session-agent-loop", () => {
     test("non-error agent loop completion does not emit conversation_error", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "All good" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "All good" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      const ctx = makeCtx({
+        providerResponses: [textResponse("All good")],
+      });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const conversationError = events.find(
@@ -1213,38 +1185,20 @@ describe("session-agent-loop", () => {
         },
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hi there." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 12,
-          outputTokens: 3,
-          model: "gpt-4.1-2026-03-01",
-          actualProvider: "fireworks",
-          providerDurationMs: 45,
-          rawRequest,
-          rawResponse,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // The provider response carries its own `actualProvider`, so the logged
+      // row should record that name rather than the runtime provider.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "fireworks",
+            rawRequest,
+            rawResponse,
+          },
+        ],
         provider: {
           name: "openrouter",
           sendMessage: async () => ({
@@ -1253,7 +1207,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1281,37 +1235,19 @@ describe("session-agent-loop", () => {
         ],
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hi there." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 12,
-          outputTokens: 3,
-          model: "gpt-4.1-2026-03-01",
-          providerDurationMs: 45,
-          rawRequest,
-          rawResponse,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // The provider response omits `actualProvider`, so the loop stamps the
+      // runtime provider name onto the usage event and the row records it.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            rawRequest,
+            rawResponse,
+          },
+        ],
         provider: {
           name: "openrouter",
           sendMessage: async () => ({
@@ -1320,7 +1256,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1366,38 +1302,18 @@ describe("session-agent-loop", () => {
         status: "completed",
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hi there." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 12,
-          outputTokens: 3,
-          model: "gpt-5.4",
-          actualProvider: "openai",
-          providerDurationMs: 45,
-          rawRequest,
-          rawResponse,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
-          },
-        ];
-      };
-
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-5.4",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "openai",
+            rawRequest,
+            rawResponse,
+          },
+        ],
         provider: {
           name: "openai",
           sendMessage: async () => ({
@@ -1406,7 +1322,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1437,37 +1353,17 @@ describe("session-agent-loop", () => {
         attrs: Record<string, unknown>;
       }> = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({ type: "text_delta", text: "Hi." });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hi." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 2,
-          model: "gpt-5.5-2026-04-23",
-          actualProvider: "openai",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Hi." }] as ContentBlock[],
-          },
-        ];
-      };
-
       const ctx = makeCtx({
-        agentLoopRun,
+        // The loop replays the text block as a `text_delta` before `usage`.
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi." }],
+            model: "gpt-5.5-2026-04-23",
+            usage: { inputTokens: 10, outputTokens: 2 },
+            stopReason: "end_turn",
+            actualProvider: "openai",
+          },
+        ],
         // Provider name matches actualProvider so both paths agree.
         provider: {
           name: "openai",
@@ -1477,7 +1373,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1488,7 +1384,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1515,31 +1411,18 @@ describe("session-agent-loop", () => {
         attrs: Record<string, unknown>;
       }> = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        // No text_delta — pure tool-call response
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 2,
-          model: "gpt-5.5-2026-04-23",
-          actualProvider: "openai",
-          providerDurationMs: 100,
-        });
-        return messages;
-      };
-
       const ctx = makeCtx({
-        agentLoopRun,
+        // An empty-content response: no text block fires `text_delta`, so the
+        // started event falls back to the resolved usage provider name.
+        providerResponses: [
+          {
+            content: [],
+            model: "gpt-5.5-2026-04-23",
+            usage: { inputTokens: 10, outputTokens: 2 },
+            stopReason: "end_turn",
+            actualProvider: "openai",
+          },
+        ],
         provider: {
           name: "anthropic",
           sendMessage: async () => ({
@@ -1548,7 +1431,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1559,7 +1442,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1581,52 +1464,32 @@ describe("session-agent-loop", () => {
     test("records the actual provider for usage accounting", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hi there." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 12,
-          outputTokens: 3,
-          model: "gpt-4.1-2026-03-01",
-          actualProvider: "fireworks",
-          providerDurationMs: 45,
-          rawRequest: {
-            model: "gpt-4.1",
-            messages: [{ role: "user", content: "Hello" }],
-          },
-          rawResponse: {
-            model: "gpt-4.1-2026-03-01",
-            choices: [
-              {
-                finish_reason: "stop",
-                message: {
-                  role: "assistant",
-                  content: "Hi there.",
-                },
-              },
-            ],
-          },
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
-          },
-        ];
-      };
-
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "fireworks",
+            rawRequest: {
+              model: "gpt-4.1",
+              messages: [{ role: "user", content: "Hello" }],
+            },
+            rawResponse: {
+              model: "gpt-4.1-2026-03-01",
+              choices: [
+                {
+                  finish_reason: "stop",
+                  message: {
+                    role: "assistant",
+                    content: "Hi there.",
+                  },
+                },
+              ],
+            },
+          },
+        ],
         provider: {
           name: "openrouter",
           sendMessage: async () => ({
@@ -1635,7 +1498,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1696,27 +1559,9 @@ describe("session-agent-loop", () => {
         },
       });
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // After the orchestrator's preflight compaction runs, the loop completes
+      // the turn normally.
+      const ctx = makeCtx({ providerResponses: [textResponse("recovered")] });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const compactorCall = recordUsageMock.mock.calls.find(
@@ -1755,7 +1600,6 @@ describe("session-agent-loop", () => {
 
     test("convergence loop applies reducer and retries when context-too-large is detected", async () => {
       const events: ServerMessage[] = [];
-      let callCount = 0;
       let reducerCalled = false;
 
       // Configure reducer to succeed on first call — return reduced messages
@@ -1789,63 +1633,26 @@ describe("session-agent-loop", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        if (callCount === 1) {
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return messages;
-        }
-        // Second call (after reducer): succeed
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
+      // The provider rejects the first call with a context-too-large error,
+      // then succeeds once the orchestrator has reduced the context.
+      const { provider, calls } = createMockProvider([
+        new Error("context_length_exceeded"),
+        textResponse("recovered"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       expect(reducerCalled).toBe(true);
-      expect(callCount).toBe(2);
+      expect(calls.length).toBe(2);
       const compactEvent = events.find((e) => e.type === "context_compacted");
       expect(compactEvent).toBeDefined();
     });
@@ -1853,24 +1660,12 @@ describe("session-agent-loop", () => {
     test("emits conversation_error when context stays too large after all recovery attempts", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        onEvent({
-          type: "error",
-          error: new Error("context_length_exceeded"),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 50,
-        });
-        return messages;
-      };
-
+      // The provider rejects every call with a context-too-large error, so the
+      // orchestrator exhausts its recovery attempts.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
@@ -1890,7 +1685,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 200,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1903,7 +1698,6 @@ describe("session-agent-loop", () => {
 
     test("bounded convergence loop applies reducer tiers and recovers", async () => {
       const events: ServerMessage[] = [];
-      let callCount = 0;
       let reducerCalls = 0;
 
       // Reducer: succeed on first call, returning reduced messages
@@ -1921,65 +1715,26 @@ describe("session-agent-loop", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        if (callCount === 1) {
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return messages;
-        }
-        // After reducer runs, succeed
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered via convergence" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "recovered via convergence" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // The provider rejects the first call with a context-too-large error,
+      // then succeeds once the orchestrator has reduced the context.
+      const { provider, calls } = createMockProvider([
+        new Error("context_length_exceeded"),
+        textResponse("recovered via convergence"),
+      ]);
 
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       expect(reducerCalls).toBeGreaterThanOrEqual(1);
-      expect(callCount).toBe(2);
+      expect(calls.length).toBe(2);
       const conversationError = events.find(
         (e) => e.type === "conversation_error",
       );
@@ -1990,7 +1745,6 @@ describe("session-agent-loop", () => {
 
     test("non-interactive auto-compress continues without approval prompt", async () => {
       const events: ServerMessage[] = [];
-      let callCount = 0;
 
       // Reducer exhausts all tiers
       mockReducerStepFn = (msgs: Message[]) => ({
@@ -2011,56 +1765,17 @@ describe("session-agent-loop", () => {
 
       mockOverflowAction = "auto_compress_latest_turn";
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        if (callCount <= 2) {
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return messages;
-        }
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "auto-recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "auto-recovered" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
-
+      // The provider rejects the first two calls with context-too-large errors,
+      // then succeeds after the emergency auto-compress runs.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          new Error("context_length_exceeded"),
+          new Error("context_length_exceeded"),
+          textResponse("auto-recovered"),
+        ],
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -2079,7 +1794,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -2105,7 +1820,6 @@ describe("session-agent-loop", () => {
       // `budget_yield_unrecovered` so the inspector and dashboards can
       // attribute the silent stall.
       const events: ServerMessage[] = [];
-      let callCount = 0;
 
       // Reducer exhausts all 4 tiers on first call so the convergence
       // loop runs exactly one iteration before falling through to
@@ -2136,45 +1850,33 @@ describe("session-agent-loop", () => {
       // call). 90k satisfies both so the path reaches call 3.
       mockEstimateTokens = 90_000;
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        callCount++;
-        if (callCount <= 2) {
-          // Calls 1 (initial) and 2 (convergence rerun): error so
-          // `state.contextTooLargeDetected` stays true through
-          // convergence exit and we enter the auto_compress branch.
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return messages;
-        }
-        // Call 3: the auto_compress_latest_turn rerun. Invoke
-        // onCheckpoint so the orchestrator's mid-loop budget check
-        // flips `yieldedForBudget` to true, then return without
-        // finishing — mirroring what AgentLoop.run does when its
-        // checkpoint returns "yield".
-        if (options?.onCheckpoint) {
-          await options.onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-        }
-        return messages;
-      };
-
+      // Calls 1 (initial) and 2 (convergence rerun) reject with
+      // context-too-large so `contextTooLargeDetected` stays true through the
+      // convergence exit and the orchestrator enters the auto_compress branch.
+      // Call 3 (the auto_compress rerun) is a tool turn: the loop runs it
+      // without a compaction hook, so when its mid-loop budget gate trips on
+      // the still-oversized estimate it yields `exitReason = "budget"` rather
+      // than recovering — the silent-stall path under test.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          new Error("context_length_exceeded"),
+          new Error("context_length_exceeded"),
+          toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+        ],
+        loopTools: [
+          {
+            name: "read_file",
+            description: "Read a file",
+            input_schema: {
+              type: "object",
+              properties: { path: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => ({ content: "data", isError: false }),
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -2193,7 +1895,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -2255,27 +1957,15 @@ describe("session-agent-loop", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        onEvent({
-          type: "error",
-          error: new Error("context_length_exceeded"),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 50,
-        });
-        return messages;
-      };
-
+      // The provider rejects every call with a context-too-large error, so the
+      // orchestrator keeps retrying until it hits the attempt ceiling.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -2287,7 +1977,6 @@ describe("session-agent-loop", () => {
     test("preflight budget evaluation invokes reducer before provider call", async () => {
       const events: ServerMessage[] = [];
       let reducerCalls = 0;
-      let agentLoopCalls = 0;
 
       // Set token estimate above budget (100000 * 0.95 = 95000)
       mockEstimateTokens = 96000;
@@ -2306,48 +1995,24 @@ describe("session-agent-loop", () => {
         };
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        agentLoopCalls++;
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "ok" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "ok" }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // After the preflight reducer brings the estimate under budget, the loop
+      // completes the turn in a single provider call.
+      const { provider, calls } = createMockProvider([textResponse("ok")]);
       const ctx = makeCtx({
-        agentLoopRun,
+        loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // Reducer should have been called during preflight
       expect(reducerCalls).toBeGreaterThanOrEqual(1);
-      // Agent loop should still succeed
-      expect(agentLoopCalls).toBe(1);
+      // Agent loop should still succeed in a single provider call
+      expect(calls.length).toBe(1);
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
@@ -2356,78 +2021,28 @@ describe("session-agent-loop", () => {
   describe("provider ordering error retry", () => {
     test("retries with deep repair when ordering error is detected", async () => {
       const events: ServerMessage[] = [];
-      let callCount = 0;
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        callCount++;
-        if (callCount === 1) {
-          onEvent({
-            type: "error",
-            error: new Error("messages ordering error"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return messages;
-        }
-        // Retry succeeds
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "fixed" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "fixed" }] as ContentBlock[],
-          },
-        ];
-      };
+      // The provider rejects the first call with an ordering error, then
+      // succeeds once the orchestrator's deep repair re-sends the turn.
+      const { provider, calls } = createMockProvider([
+        new Error("messages ordering error"),
+        textResponse("fixed"),
+      ]);
 
-      const ctx = makeCtx({ agentLoopRun });
+      const ctx = makeCtx({ loopProvider: provider });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      expect(callCount).toBe(2);
+      expect(calls.length).toBe(2);
     });
 
     test("emits deferred ordering error when retry also fails", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        onEvent({
-          type: "error",
-          error: new Error("messages ordering error"),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 50,
-        });
-        return messages;
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // The provider rejects every call with an ordering error, so even the
+      // deep-repair retry fails and the orchestrator surfaces the error.
+      const ctx = makeCtx({
+        providerResponses: [new Error("messages ordering error")],
+      });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const conversationError = events.find(
@@ -2441,64 +2056,20 @@ describe("session-agent-loop", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        // Simulate tool use followed by checkpoint
-        onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "file content",
-          isError: false,
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "partial" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        if (options?.onCheckpoint) {
-          const decision = await options.onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-          if (decision === "yield") {
-            return [
-              ...messages,
-              {
-                role: "assistant" as const,
-                content: [{ type: "text", text: "partial" }] as ContentBlock[],
-              },
-            ];
-          }
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "partial" }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // A tool turn drives the loop to its first mid-loop checkpoint, where the
+      // orchestrator yields for a queued handoff.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
         canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2513,54 +2084,23 @@ describe("session-agent-loop", () => {
     test("continues when canHandoffAtCheckpoint returns false", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "content",
-          isError: false,
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "done" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        if (options?.onCheckpoint) {
-          await options.onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "done" }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // The tool turn reaches a checkpoint, but with handoff disabled the loop
+      // continues to the next turn and completes normally.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          toolUseResponse("tu-1", "file_read", {}),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "content", isError: false }),
         canHandoffAtCheckpoint: () => false,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2580,36 +2120,18 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
       const abortController = new AbortController();
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "partial" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        // Simulate abort after processing
-        abortController.abort();
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "partial" }] as ContentBlock[],
-          },
-        ];
+      // The provider completes its response but the user cancels mid-turn, so
+      // the orchestrator observes the aborted signal once the loop returns.
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort();
+          return textResponse("partial");
+        },
       };
 
-      const ctx = makeCtx({ agentLoopRun, abortController });
+      const ctx = makeCtx({ loopProvider: provider, abortController });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
@@ -2620,13 +2142,16 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
       const abortController = new AbortController();
 
-      const agentLoopRun: AgentLoopRun = async () => {
-        abortController.abort();
-        const err = new DOMException("The operation was aborted", "AbortError");
-        throw err;
+      // The provider rejects with an AbortError after the user cancels.
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage() {
+          abortController.abort();
+          throw new DOMException("The operation was aborted", "AbortError");
+        },
       };
 
-      const ctx = makeCtx({ agentLoopRun, abortController });
+      const ctx = makeCtx({ loopProvider: provider, abortController });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
@@ -2643,36 +2168,17 @@ describe("session-agent-loop", () => {
       const abortController = new AbortController();
       resolveAssistantAttachmentsMock.mockClear();
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`.
-        await onEvent({ type: "llm_call_started" });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "partial" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        // Simulate abort after processing
-        abortController.abort();
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "partial" }] as ContentBlock[],
-          },
-        ];
+      // The provider completes its response but the user cancels mid-turn.
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort();
+          return textResponse("partial");
+        },
       };
 
-      const ctx = makeCtx({ agentLoopRun, abortController });
+      const ctx = makeCtx({ loopProvider: provider, abortController });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
@@ -2684,96 +2190,50 @@ describe("session-agent-loop", () => {
 
   describe("finally block cleanup", () => {
     test("increments turnCount after successful run", async () => {
-      const ctx = makeCtx({
-        agentLoopRun: async (messages, onEvent) => {
-          // Prime the assistant row anchor — production code emits this from
-          // `AgentLoop.run` just before `provider.sendMessage`.
-          await onEvent({ type: "llm_call_started" });
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: "hi" }],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 10,
-            outputTokens: 5,
-            model: "test",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "hi" }] as ContentBlock[],
-            },
-          ];
-        },
-      });
+      // GIVEN a real loop that answers in a single text turn
+      const ctx = makeCtx({ providerResponses: [textResponse("hi")] });
       expect(ctx.turnCount).toBe(0);
 
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
+      // THEN the finally block increments the turn count
       expect(ctx.turnCount).toBe(1);
     });
 
     test("clears processing state and abort controller", async () => {
-      const ctx = makeCtx({
-        agentLoopRun: async (messages, onEvent) => {
-          // Prime the assistant row anchor — production code emits this from
-          // `AgentLoop.run` just before `provider.sendMessage`.
-          await onEvent({ type: "llm_call_started" });
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: "hi" }],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 10,
-            outputTokens: 5,
-            model: "test",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "hi" }] as ContentBlock[],
-            },
-          ];
-        },
-      });
+      // GIVEN a real loop that answers in a single text turn
+      const ctx = makeCtx({ providerResponses: [textResponse("hi")] });
 
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(ctx.processing).toBe(false);
+      // THEN the finally block clears all per-turn processing state
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
     });
 
-    test("clears state even when agent loop throws", async () => {
+    test("clears state and surfaces a processing error when the provider call fails", async () => {
+      // GIVEN a real loop whose provider rejects with an unexpected error
       const events: ServerMessage[] = [];
       const ctx = makeCtx({
-        agentLoopRun: async () => {
-          throw new Error("unexpected crash");
-        },
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("unexpected crash");
+          },
+        } as unknown as Provider,
       });
 
+      // WHEN the orchestrator runs the turn
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
-      expect(ctx.processing).toBe(false);
+      // THEN the finally block clears per-turn state and the failure is
+      // surfaced as a processing-failed conversation error
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
-      expect(events.find((event) => event.type === "error")).toMatchObject({
-        type: "error",
-        code: "CONVERSATION_PROCESSING_FAILED",
-        errorCategory: "processing_failed",
-      });
       expect(
         events.find((event) => event.type === "conversation_error"),
       ).toMatchObject({
@@ -2784,46 +2244,19 @@ describe("session-agent-loop", () => {
     });
 
     test("drains queue after completion", async () => {
+      // GIVEN a real loop that answers in a single text turn
       let drainReason: string | undefined;
       const ctx = makeCtx({
-        agentLoopRun: async (
-          messages: Message[],
-          onEvent: (event: AgentEvent) => void | Promise<void>,
-        ) => {
-          // Prime the assistant row anchor — production code emits this from
-          // `AgentLoop.run` just before `provider.sendMessage`. Must be
-          // awaited so the assistant row is reserved before message_complete
-          // tries to write into it.
-          await onEvent({ type: "llm_call_started" });
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: "ok" }],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 10,
-            outputTokens: 5,
-            model: "test",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "ok" }] as ContentBlock[],
-            },
-          ];
-        },
+        providerResponses: [textResponse("ok")],
         drainQueue: (reason: string) => {
           drainReason = reason;
         },
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
+      // THEN the queue is drained with the loop-complete reason
       expect(drainReason).toBe("loop_complete");
     });
   });
@@ -2942,7 +2375,7 @@ describe("session-agent-loop", () => {
         isUserMessage: true,
       });
 
-      expect(ctx.processing).toBe(false);
+      expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
     });
@@ -3052,24 +2485,17 @@ describe("session-agent-loop", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Emit a non-ordering, non-context-too-large error that sets providerErrorUserMessage
-        onEvent({
-          type: "error",
-          error: new Error("Internal processing failure"),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 50,
-        });
-        // Return same messages (no assistant message appended)
-        return messages;
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop whose provider rejects with a generic error
+      // (non-ordering, non-context-too-large) so the loop emits `error` and
+      // the orchestrator sets `providerErrorUserMessage`.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Internal processing failure");
+          },
+        } as unknown as Provider,
+      });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // The error should be sent as a conversation_error (not as an
@@ -3093,26 +2519,19 @@ describe("session-agent-loop", () => {
       // sweep would wrong-attach this row to the wrong assistant message.
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // 1) handleProviderError -> writes an `llm_request_logs` row with
-        //    messageId=null (the orphan we are trying to link).
-        onEvent({
-          type: "provider_error",
-          error: new Error("upstream 500"),
-          rawRequest: { model: "gpt-4.1", messages: [] },
-          actualProvider: "openai",
-        });
-        // 2) handleError -> sets `state.providerErrorUserMessage`, which
-        //    activates the synthetic-message branch below the loop.
-        onEvent({
-          type: "error",
-          error: new Error("upstream 500"),
-        });
-        // Provider returned no assistant content — same messages back.
-        return messages;
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop whose provider rejects: the loop emits
+      // `provider_error` (writing an `llm_request_logs` row with
+      // messageId=null — the orphan we link) then `error` (which sets
+      // `state.providerErrorUserMessage`, activating the synthetic-message
+      // branch below the loop).
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // The orphan was written with messageId=undefined.
@@ -3159,39 +2578,10 @@ describe("session-agent-loop", () => {
       // observe the sync-invalidation publish path on the same turn.
       projectAssistantMessageMock.mockImplementationOnce(() => true);
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // `message_complete` is awaited so `handleMessageComplete` (and its
-        // async indexer + projector chain) completes before the next event
-        // or before the loop returns. Without the await the projector's
-        // synchronous call still races against the test's assertion phase
-        // because the indexer's `await` yields microtasks.
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "indexed reply" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "indexed reply" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop that answers with a single finalized assistant turn
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // Indexer fired with the reserved row's id + the finalized content.
@@ -3254,34 +2644,8 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // See sibling test — `message_complete` must be awaited so the
-        // projector call lands before the assertion phase.
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "quiet" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 1,
-          outputTokens: 1,
-          model: "test",
-          providerDurationMs: 1,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "quiet" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop that answers with a single finalized assistant turn
+      const ctx = makeCtx({ providerResponses: [textResponse("quiet")] });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
@@ -3306,40 +2670,34 @@ describe("session-agent-loop", () => {
       // Indexer/projector mocks default to no-op; no finalized row in this
       // test, so `mockMessageById` stays null.
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // First LLM call: reserve msg-strand-A, never finalize.
-        await onEvent({ type: "llm_call_started" });
-        // Second LLM call: should delete msg-strand-A before reserving
-        // msg-strand-B.
-        await onEvent({ type: "llm_call_started" });
-        // Finalize the second one so the loop has a valid assistant message
-        // and exits cleanly.
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "retry succeeded" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 5,
-          outputTokens: 3,
-          model: "test",
-          providerDurationMs: 25,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "retry succeeded" },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+      // A single reducer tier converges the oversized context so the
+      // orchestrator re-enters the loop after the first call fails.
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5000,
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop whose first call rejects with context-too-large
+      // (reserving msg-strand-A but never finalizing it), then recovers via
+      // convergence on re-entry. The re-entry's `llm_call_started` must
+      // delete the stranded msg-strand-A before reserving msg-strand-B.
+      const ctx = makeCtx({
+        providerResponses: [
+          new Error("context_length_exceeded"),
+          textResponse("retry succeeded"),
+        ],
+        contextWindowManager: {
+          updateConfig: () => {},
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as Conversation["contextWindowManager"],
+      });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // Exactly one delete fires — for msg-strand-A, before the second
@@ -3367,27 +2725,20 @@ describe("session-agent-loop", () => {
         id: "msg-orphaned-reservation",
       }));
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        // Reserve the orphan.
-        await onEvent({ type: "llm_call_started" });
-        // Provider rejects — writes the llm_request_log row and arms
-        // `state.providerErrorUserMessage` via `handleError`.
-        onEvent({
-          type: "provider_error",
-          error: new Error("upstream 500"),
-          rawRequest: { model: "gpt-4.1", messages: [] },
-          actualProvider: "openai",
-        });
-        onEvent({
-          type: "error",
-          error: new Error("upstream 500"),
-        });
-        // No assistant message in the result — the synthetic-error branch
-        // below the agent loop fires.
-        return messages;
-      };
-
-      const ctx = makeCtx({ agentLoopRun });
+      // GIVEN a real loop that reserves an assistant row at
+      // `llm_call_started`, then whose provider rejects: the loop emits
+      // `provider_error` (writing the llm_request_log row) and `error`
+      // (arming `state.providerErrorUserMessage`), exiting with no
+      // `message_complete` so the synthetic-error branch below the loop
+      // fires.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // The orphan was deleted exactly once, before the synthetic error
@@ -3443,40 +2794,23 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // Two small deltas — well under the 1024-char size gate — should
-        // schedule a single debounced flush.
-        onEvent({ type: "text_delta", text: "Hello, " });
-        onEvent({ type: "text_delta", text: "world." });
-        // Wait long enough for the 250ms debounce to fire.
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Hello, world." }],
+      // GIVEN a real loop whose provider streams two small deltas (each under
+      // the 1024-char size gate) then holds the turn open past the 250ms
+      // debounce window before completing, so a single debounced partial
+      // flush lands before `message_complete`.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage(_messages, options) {
+            options?.onEvent?.({ type: "text_delta", text: "Hello, " });
+            options?.onEvent?.({ type: "text_delta", text: "world." });
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            return textResponse("Hello, world.");
           },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [
-              { type: "text", text: "Hello, world." },
-            ] as ContentBlock[],
-          },
-        ];
-      };
+        },
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // Exactly two `updateContent` calls land:
@@ -3512,70 +2846,38 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // No text delta — only a tool_use. If `handleToolUse` were
-        // flushing, this would land a partial write before
-        // `message_complete`.
-        onEvent({
-          type: "tool_use",
-          id: "tu-no-flush",
-          name: "file_read",
-          input: { path: "/foo" },
-        });
-        // Yield a microtask so any (incorrectly) fire-and-forget
-        // pipeline call has a chance to land before message_complete.
-        await new Promise((resolve) => setImmediate(resolve));
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-no-flush",
-          content: "ok",
-          isError: false,
-        });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [
-              {
-                type: "tool_use",
-                id: "tu-no-flush",
-                name: "file_read",
-                input: { path: "/foo" },
-              },
-            ],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        return [
-          ...messages,
+      // GIVEN a real loop that runs one tool turn — the loop emits `tool_use`
+      // strictly AFTER `message_complete` — and then answers with a final
+      // text turn. The tool executor returns immediately.
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tu-no-flush", "file_read", { path: "/foo" }),
+          textResponse("done"),
+        ],
+        loopTools: [
           {
-            role: "assistant" as const,
-            content: [
-              {
-                type: "tool_use",
-                id: "tu-no-flush",
-                name: "file_read",
-                input: { path: "/foo" },
-              },
-            ] as ContentBlock[],
+            name: "file_read",
+            description: "Read a file",
+            input_schema: {
+              type: "object",
+              properties: { path: { type: "string" } },
+            },
           },
-        ];
-      };
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Only the authoritative final flush from `handleMessageComplete`
-      // lands. A partial flush from `handleToolUse` would have made this
-      // 2; that's the regression this test guards against.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+      // Four authoritative writes land and no stray partial flush:
+      //   - one final flush per `message_complete` (the tool turn and the final
+      //     text turn), plus
+      //   - two grouped tool-result user-row writes (persist-on-arrival and the
+      //     turn-boundary finalize).
+      // `handleToolUse` contributes no partial flush of its own; one would make
+      // this 5. That stray flush is the regression this test guards against.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
     });
 
     test("handleMessageComplete clears any pending debounce timer before the final flush", async () => {
@@ -3588,45 +2890,53 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // Short delta — schedules a debounce timer but does NOT trip the
-        // size gate. message_complete then arrives immediately after,
-        // before the 250ms timer can fire.
-        onEvent({ type: "text_delta", text: "Quick reply." });
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "Quick reply." }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        // Wait past the original debounce window to prove a late timer
-        // does NOT fire a stray partial flush.
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        return [
-          ...messages,
+      // GIVEN a real loop whose first turn streams a short delta (scheduling a
+      // debounce timer) and completes as a tool turn — so `message_complete`
+      // arrives before the 250ms timer and clears it. The tool executor then
+      // holds the loop open well past the original debounce window, proving a
+      // late timer does NOT fire a stray partial flush, before a final text
+      // turn ends the run.
+      const ctx = makeCtx({
+        providerResponses: [
           {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "Quick reply." }] as ContentBlock[],
+            content: [
+              { type: "text", text: "Quick reply." },
+              {
+                type: "tool_use",
+                id: "tu-keep-alive",
+                name: "file_read",
+                input: {},
+              },
+            ],
+            model: "mock-model",
+            usage: { inputTokens: 10, outputTokens: 5 },
+            stopReason: "tool_use",
           },
-        ];
-      };
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1100));
+          return { content: "ok", isError: false };
+        },
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Only the final flush from `handleMessageComplete` lands. The
-      // debounced partial would have fired around T+250ms; the timer-clear
-      // at the top of `handleMessageComplete` cancels it.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+      // Four authoritative writes land: one final flush per `message_complete`
+      // (the tool turn and the final text turn) plus two grouped tool-result
+      // user-row writes (persist-on-arrival and the turn-boundary finalize).
+      // The debounced partial would have fired around T+250ms — during the tool
+      // executor's hold — but the timer-clear at the top of
+      // `handleMessageComplete` cancels it, so no stray fifth flush appears.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
     });
 
     test("partial flushes never trigger the indexer or attention projector", async () => {
@@ -3639,54 +2949,29 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        onEvent({ type: "text_delta", text: "hello world" });
-        // Wait past the 250ms debounce so the partial flush definitely
-        // lands BEFORE message_complete fires.
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        // Snapshot the indexer/projector call counts AFTER the partial
-        // flush has run but BEFORE message_complete. They must be zero.
-        const indexerCallsBeforeComplete =
-          indexMessageNowMock.mock.calls.length;
-        const projectorCallsBeforeComplete =
-          projectAssistantMessageMock.mock.calls.length;
-        // Stash on a side channel the assertion phase can read.
-        (
-          ctx as unknown as { __partialSnapshot?: [number, number] }
-        ).__partialSnapshot = [
-          indexerCallsBeforeComplete,
-          projectorCallsBeforeComplete,
-        ];
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "hello world" }],
+      // GIVEN a real loop whose provider streams a delta then holds the turn
+      // open past the 250ms debounce window so the partial flush lands BEFORE
+      // `message_complete`. The indexer/projector counts are snapshotted at
+      // that mid-turn point (after the partial flush, before completion).
+      let snapshot: [number, number] | undefined;
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage(_messages, options) {
+            options?.onEvent?.({ type: "text_delta", text: "hello world" });
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            snapshot = [
+              indexMessageNowMock.mock.calls.length,
+              projectAssistantMessageMock.mock.calls.length,
+            ];
+            return textResponse("hello world");
           },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "hello world" }] as ContentBlock[],
-          },
-        ];
-      };
+        },
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      const snapshot = (
-        ctx as unknown as { __partialSnapshot?: [number, number] }
-      ).__partialSnapshot;
       expect(snapshot).toBeDefined();
       // Indexer + projector were both ZERO during the mid-turn partial
       // flush — they only fire from `handleMessageComplete` after the
@@ -3714,35 +2999,21 @@ describe("session-agent-loop", () => {
       const ghToken = "ghp_" + "a".repeat(36);
       const payload = "Here's the key: " + ghToken + " enjoy.";
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        onEvent({ type: "text_delta", text: payload });
-        // Wait past the 250ms debounce so the partial flush lands.
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        await onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: payload }],
+      // GIVEN a real loop whose provider streams the PAT-bearing payload as a
+      // delta then holds the turn open past the 250ms debounce window so the
+      // partial flush lands before `message_complete`.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage(_messages, options) {
+            options?.onEvent?.({ type: "text_delta", text: payload });
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            return textResponse(payload);
           },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 5,
-          model: "test",
-          providerDurationMs: 50,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: payload }] as ContentBlock[],
-          },
-        ];
-      };
+        },
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
@@ -3766,26 +3037,21 @@ describe("session-agent-loop", () => {
         id: "msg-orphan-with-partial",
       }));
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        await onEvent({ type: "llm_call_started" });
-        // A debounced delta lands a partial flush BEFORE the provider
-        // error fires.
-        onEvent({ type: "text_delta", text: "hello world" });
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        onEvent({
-          type: "provider_error",
-          error: new Error("upstream 500"),
-          rawRequest: { model: "gpt-4.1", messages: [] },
-          actualProvider: "openai",
-        });
-        onEvent({
-          type: "error",
-          error: new Error("upstream 500"),
-        });
-        return messages;
-      };
+      // GIVEN a real loop whose provider streams a delta — landing a debounced
+      // partial flush on the reserved row — then rejects, so the loop emits
+      // `provider_error` and `error` and exits with no `message_complete`.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage(_messages, options) {
+            options?.onEvent?.({ type: "text_delta", text: "hello world" });
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            throw new Error("upstream 500");
+          },
+        },
+      });
 
-      const ctx = makeCtx({ agentLoopRun });
+      // WHEN the orchestrator runs the turn
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // Partial flush fired exactly once (before the provider error).
@@ -3892,7 +3158,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("Slack compaction watermarks", () => {
-    test("start-of-turn Slack compaction derives and persists watermark from rendered context", async () => {
+    test("first-call compaction runs in the loop and drops the Slack watermark", async () => {
       const renderedSlackMessages: Message[] = [
         {
           role: "user",
@@ -3920,8 +3186,12 @@ describe("session-agent-loop", () => {
         })),
         compactableStartIndex: 0,
       };
-      const shouldCompactInputs: Message[][] = [];
       const maybeCompactInputs: Message[][] = [];
+
+      // Sits above the loop's mid-loop threshold (~80.75k) but below the
+      // preflight-overflow budget (95k), so the loop's first-call gate — not
+      // the orchestrator — owns the turn-start compaction.
+      mockEstimateTokens = 90_000;
 
       const ctx = makeCtx({
         channelCapabilities: {
@@ -3934,18 +3204,19 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
-          shouldCompact: (messages: Message[]) => {
-            shouldCompactInputs.push(messages);
-            return { needed: true, estimatedTokens: 95_000 };
-          },
+          updateConfig: () => {},
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
+            // Drop back under budget so the post-compaction provider call
+            // proceeds.
+            mockEstimateTokens = 1000;
             return {
               compacted: true,
               messages: [
@@ -3953,10 +3224,10 @@ describe("session-agent-loop", () => {
                   role: "user",
                   content: [{ type: "text", text: "summary" }],
                 },
-                messages[2]!,
+                messages[messages.length - 1]!,
               ],
               compactedPersistedMessages: 2,
-              previousEstimatedInputTokens: 95_000,
+              previousEstimatedInputTokens: 90_000,
               estimatedInputTokens: 5_000,
               maxInputTokens: 100_000,
               thresholdTokens: 80_000,
@@ -3969,27 +3240,24 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
-      await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
+      await runAgentLoopImpl(
+        ctx,
+        "next reply",
+        "user-msg-first-call",
+        () => {},
+      );
 
-      expect(shouldCompactInputs[0]).toBe(renderedSlackMessages);
-      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
-      expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
-        mockSlackChronologicalContext,
-        2,
-      );
-      expect(updateConversationSlackContextWatermarkMock).toHaveBeenCalledWith(
-        "test-conv",
-        "1700000020.000000",
-        expect.any(Number),
-      );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
+      // The loop compacts its own stripped working history, never the loaded
+      // Slack transcript array, so provenance cannot be projected and the
+      // watermark is left untouched — matching mid-loop compaction.
+      expect(maybeCompactInputs.length).toBeGreaterThan(0);
+      expect(maybeCompactInputs[0]).not.toBe(renderedSlackMessages);
+      expect(
+        updateConversationSlackContextWatermarkMock,
+      ).not.toHaveBeenCalled();
     });
 
     test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
@@ -4071,15 +3339,16 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-overflow", () => {});
@@ -4093,168 +3362,6 @@ describe("session-agent-loop", () => {
         "1700000020.000000",
         expect.any(Number),
       );
-      const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
-        (call) => {
-          const options = call[1] as {
-            slackChronologicalMessages?: Message[] | null;
-          };
-          return options.slackChronologicalMessages === null;
-        },
-      )?.[1] as { slackChronologicalMessages?: Message[] | null } | undefined;
-      expect(reinjectionOptions?.slackChronologicalMessages).toBeNull();
-    });
-
-    test("same-turn Slack compaction updates watermark from projected provenance", async () => {
-      const renderedSlackMessages: Message[] = [
-        {
-          role: "user",
-          content: [{ type: "text", text: "first rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "second rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "third rendered Slack row" }],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "retained Slack row" }],
-        },
-      ];
-      mockSlackChronologicalContext = {
-        messages: renderedSlackMessages,
-        renderedMessages: renderedSlackMessages.map((message, index) => ({
-          message,
-          sourceChannelTs: [
-            "1700000010.000000",
-            "1700000020.000000",
-            "1700000030.000000",
-            "1700000040.000000",
-          ][index]!,
-          tagLineProvenance: "none",
-        })),
-        compactableStartIndex: 0,
-      };
-
-      const firstSummaryMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: "first summary" }],
-      };
-      const firstCompactedMessages: Message[] = [
-        firstSummaryMessage,
-        renderedSlackMessages[2]!,
-        renderedSlackMessages[3]!,
-      ];
-      const secondSummaryMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: "second summary" }],
-      };
-      const secondCompactedMessages: Message[] = [
-        secondSummaryMessage,
-        renderedSlackMessages[3]!,
-      ];
-      const reducerInputs: Message[][] = [];
-      mockEstimateTokens = 120_000;
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerInputs.push(msgs);
-        mockEstimateTokens = 1000;
-        return {
-          messages: secondCompactedMessages,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 5_000,
-          compactionResult: {
-            compacted: true,
-            messages: secondCompactedMessages,
-            compactedPersistedMessages: 1,
-            previousEstimatedInputTokens: 120_000,
-            estimatedInputTokens: 5_000,
-            maxInputTokens: 100_000,
-            thresholdTokens: 80_000,
-            compactedMessages: 1,
-            summaryCalls: 1,
-            summaryInputTokens: 100,
-            summaryOutputTokens: 20,
-            summaryModel: "mock-model",
-            summaryText: "second summary",
-            summaryFailed: false,
-          },
-        };
-      };
-
-      const ctx = makeCtx({
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-          chatType: "channel",
-        },
-        trustContext: {
-          sourceChannel: "slack",
-          trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
-        getTurnChannelContext: () => ({
-          userMessageChannel: "slack" as const,
-          assistantMessageChannel: "slack" as const,
-        }),
-        contextWindowManager: {
-          shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
-          maybeCompact: async (messages: Message[]) => {
-            expect(messages).toBe(renderedSlackMessages);
-            return {
-              compacted: true,
-              messages: firstCompactedMessages,
-              compactedPersistedMessages: 2,
-              previousEstimatedInputTokens: 120_000,
-              estimatedInputTokens: 60_000,
-              maxInputTokens: 100_000,
-              thresholdTokens: 80_000,
-              compactedMessages: 2,
-              summaryCalls: 1,
-              summaryInputTokens: 100,
-              summaryOutputTokens: 20,
-              summaryModel: "mock-model",
-              summaryText: "first summary",
-              summaryFailed: false,
-            };
-          },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
-      });
-
-      await runAgentLoopImpl(ctx, "next reply", "user-msg-repeat", () => {});
-
-      expect(reducerInputs[0]).toBe(firstCompactedMessages);
-      expect(getSlackCompactionWatermarkForPrefixMock.mock.calls).toEqual([
-        [mockSlackChronologicalContext, 2],
-        [
-          {
-            renderedMessages: [
-              {
-                message: firstSummaryMessage,
-                sourceChannelTs: null,
-                tagLineProvenance: "none",
-              },
-              mockSlackChronologicalContext!.renderedMessages[2],
-              mockSlackChronologicalContext!.renderedMessages[3],
-            ],
-            messages: firstCompactedMessages,
-            compactableStartIndex: 1,
-          },
-          1,
-        ],
-      ]);
-      expect(updateConversationSlackContextWatermarkMock.mock.calls).toEqual([
-        ["test-conv", "1700000020.000000", expect.any(Number)],
-        ["test-conv", "1700000030.000000", expect.any(Number)],
-      ]);
-      expect(loadSlackChronologicalContextMock).toHaveBeenCalledTimes(1);
     });
 
     test("mid-loop Slack compaction does not persist watermark from mismatched loaded context", async () => {
@@ -4286,48 +3393,32 @@ describe("session-agent-loop", () => {
         compactableStartIndex: 0,
       };
 
-      const rawMidLoopBasis: Message[] = [
-        {
-          role: "user",
-          content: [{ type: "text", text: "fresh DB basis user row" }],
-        },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "partial assistant response" }],
-        },
-      ];
       const maybeCompactInputs: Message[][] = [];
-      let runCount = 0;
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        _onEvent,
-        options,
-      ) => {
-        runCount++;
-        if (runCount === 1) {
-          mockEstimateTokens = 90_000;
-          const decision = await options?.onCheckpoint?.({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-          mockEstimateTokens = 1000;
-          if (decision === "yield") {
-            return rawMidLoopBasis;
-          }
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text" as const, text: "final response" }],
-          },
-        ];
-      };
 
+      // AND a real loop that runs one tool turn and then a final text turn.
+      // The tool executor raises the token estimate above the mid-loop budget
+      // threshold so the loop compacts in place at the post-tool checkpoint —
+      // over its own in-loop history, which does not match the loaded Slack
+      // rows.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          toolUseResponse("tu-mid-loop", "file_read", { path: "/foo" }),
+          textResponse("final response"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: {
+              type: "object",
+              properties: { path: { type: "string" } },
+            },
+          },
+        ],
+        toolExecutor: async () => {
+          mockEstimateTokens = 90_000;
+          return { content: "ok", isError: false };
+        },
         channelCapabilities: {
           channel: "slack",
           dashboardCapable: false,
@@ -4338,32 +3429,19 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
-            if (messages === renderedSlackMessages) {
-              return {
-                compacted: false,
-                messages,
-                compactedPersistedMessages: 0,
-                previousEstimatedInputTokens: 1000,
-                estimatedInputTokens: 1000,
-                maxInputTokens: 100_000,
-                thresholdTokens: 80_000,
-                compactedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-              };
-            }
+            // The mid-loop gate compacted its in-loop basis; drop the estimate
+            // back under budget so the post-compaction provider call proceeds.
+            mockEstimateTokens = 1000;
             return {
               compacted: true,
               messages: [
@@ -4386,13 +3464,16 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-mid-loop", () => {});
 
-      expect(maybeCompactInputs[0]).toBe(renderedSlackMessages);
-      expect(maybeCompactInputs[1]).toBe(rawMidLoopBasis);
+      // The mid-loop gate compacts the loop's own in-loop history, never the
+      // loaded Slack rows — the mismatch this test guards against. No
+      // start-of-turn compaction runs, so this is the turn's only compaction.
+      expect(maybeCompactInputs).toHaveLength(1);
+      expect(maybeCompactInputs[0]).not.toBe(renderedSlackMessages);
       expect(getSlackCompactionWatermarkForPrefixMock).toHaveBeenCalledWith(
         null,
         2,
@@ -4402,7 +3483,7 @@ describe("session-agent-loop", () => {
       ).not.toHaveBeenCalled();
     });
 
-    test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
+    test("next inbound Slack turn loads chronological context using the persisted watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted Slack context",
@@ -4462,7 +3543,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -4481,26 +3562,9 @@ describe("session-agent-loop", () => {
           trustClass: "guardian",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBe(
-        mockSlackChronologicalContext.messages,
-      );
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted Slack context");
-      expect(rendered).toContain("after watermark reply");
-      expect(rendered).not.toContain("before watermark");
     });
 
-    test("subsequent Slack turn keeps long-thread compaction summary and filtered tail", async () => {
+    test("subsequent Slack turn loads chronological context using the persisted long-thread watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted long Slack thread",
@@ -4570,7 +3634,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -4593,21 +3657,6 @@ describe("session-agent-loop", () => {
           slackContextCompactionWatermarkTs: "1700000080.000000",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted long Slack thread");
-      expect(rendered).toContain("reply after compaction");
-      expect(rendered).not.toContain("pre-compaction");
-      expect(rendered).not.toContain("original root");
     });
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
@@ -4649,6 +3698,59 @@ describe("session-agent-loop", () => {
         true,
       );
     });
+
+    test("applyCompactionResult advances the persisted count from the trusted in-context boundary", async () => {
+      // Trusted views slice past the already-compacted prefix, so a further
+      // compaction advances the persisted count from the mirrored DB boundary.
+
+      // GIVEN a trusted (guardian) conversation that has already compacted 5
+      // persisted messages, so its in-context history starts past that prefix
+      const ctx = makeCtx({
+        contextCompactedMessageCount: 5,
+        trustContext: {
+          trustClass: "guardian",
+        } as Conversation["trustContext"],
+      });
+
+      // WHEN a turn compacts 4 more in-context messages
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult({ compactedPersistedMessages: 4 }),
+        () => {},
+        "req-1",
+      );
+
+      // THEN the persisted count advances from the prior boundary (5 + 4)
+      expect(ctx.contextCompactedMessageCount).toBe(9);
+    });
+
+    test("applyCompactionResult resets the persisted count to the unsliced boundary for untrusted views", async () => {
+      // Untrusted views render history unsliced (boundary 0), so a compaction
+      // must record only the new summary's prefix instead of adding to the raw
+      // mirror — otherwise future loads slice past unsummarized rows.
+
+      // GIVEN an untrusted view of a conversation whose raw DB count mirrors a
+      // 5-message compacted prefix — but untrusted views render that history
+      // unsliced (boundary 0), so the compactor operates on the full list
+      const ctx = makeCtx({
+        contextCompactedMessageCount: 5,
+        trustContext: {
+          trustClass: "unknown",
+        } as Conversation["trustContext"],
+      });
+
+      // WHEN that turn compacts 4 in-context messages
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult({ compactedPersistedMessages: 4 }),
+        () => {},
+        "req-1",
+      );
+
+      // THEN the persisted count reflects only the new summary's prefix (0 + 4)
+      // rather than double-counting the raw mirror (which would yield 9)
+      expect(ctx.contextCompactedMessageCount).toBe(4);
+    });
   });
 
   describe("compaction-strip marker persistence", () => {
@@ -4665,67 +3767,33 @@ describe("session-agent-loop", () => {
         estimatedTokens: 5000,
       });
 
-      let callCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        callCount++;
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        if (callCount === 1) {
-          // Trigger convergence path: error + appended assistant message so
-          // updatedHistory.length > preRunHistoryLength at the strip site.
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "partial" }] as ContentBlock[],
-            },
-          ];
-        }
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // GIVEN a real loop that appends a tool turn (so the run reports
+      // `appendedNewMessages`) and then rejects with a context-too-large
+      // error on the following call — the orchestrator strips that appended
+      // history during its bounded convergence path before a final call
+      // recovers.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          toolUseResponse("t1", "file_read", {}),
+          new Error("context_length_exceeded"),
+          textResponse("recovered"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
+      // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
       const stripCalls = setConversationHistoryStrippedAtMock.mock.calls.filter(
@@ -4750,63 +3818,29 @@ describe("session-agent-loop", () => {
         estimatedTokens: 5000,
       });
 
-      let callCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        callCount++;
-        // Prime the assistant row anchor — production code emits this from
-        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
-        // need this on every invocation: each agent-loop iteration reserves
-        // its own row.
-        await onEvent({ type: "llm_call_started" });
-        if (callCount === 1) {
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "partial" }] as ContentBlock[],
-            },
-          ];
-        }
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
-
+      // GIVEN a real loop that appends a tool turn and then rejects with a
+      // context-too-large error on the following call, driving the
+      // convergence strip whose marker-write helper is stubbed to throw,
+      // before a final call recovers.
       const ctx = makeCtx({
-        agentLoopRun,
+        providerResponses: [
+          toolUseResponse("t1", "file_read", {}),
+          new Error("context_length_exceeded"),
+          textResponse("recovered"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       // Must not throw — the strip-site marker write is wrapped in try/catch.

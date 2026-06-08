@@ -1,19 +1,19 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Notice } from "@vellum/design-library/components/notice";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
 import {
-  organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
-  organizationsBillingAutoTopUpRetrieveOptions,
-  organizationsBillingAutoTopUpRetrieveQueryKey,
+    organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
+    organizationsBillingAutoTopUpRetrieveOptions,
+    organizationsBillingAutoTopUpRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DISABLED_CONFIG } from "@/domains/settings/components/auto-top-up-card";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";

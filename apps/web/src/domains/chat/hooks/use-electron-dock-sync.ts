@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
 
 import { setDockBadge, setDockSignedIn } from "@/runtime/dock";
-import { useAuthStore } from "@/stores/auth-store";
+import { setMenuPlatformSession } from "@/runtime/menu";
+import { useHasPlatformSession, useIsAuthenticated } from "@/stores/auth-store";
 import type { Conversation } from "@/types/conversation-types";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 
@@ -27,7 +28,8 @@ import { contributesToUnreadCount } from "@/utils/conversation-predicates";
  * a stale count on the Dock.)
  */
 export function useElectronDockSync(conversations: Conversation[]): void {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
+  const hasPlatformSession = useHasPlatformSession();
 
   const unreadCount = useMemo(
     () =>
@@ -39,10 +41,14 @@ export function useElectronDockSync(conversations: Conversation[]): void {
   );
 
   useEffect(() => {
-    void setDockBadge(unreadCount);
+    setDockBadge(unreadCount);
   }, [unreadCount]);
 
   useEffect(() => {
-    void setDockSignedIn(isLoggedIn);
-  }, [isLoggedIn]);
+    setDockSignedIn(isAuthenticated);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void setMenuPlatformSession(hasPlatformSession);
+  }, [hasPlatformSession]);
 }

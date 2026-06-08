@@ -8,7 +8,7 @@
  * two or more domains belongs at the top level.
  *
  * Server-derived state (conversations, conversation groups) lives in
- * TanStack Query — see `@/domains/conversations/conversation-queries.ts`.
+ * TanStack Query — see `@/hooks/conversation-queries.ts`.
  * This store owns only state that has no server counterpart:
  *
  * - `activeConversationId` — URL/navigation-local selection
@@ -24,7 +24,7 @@
  * - `attentionConversationIds` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
- * @see @/domains/conversations/conversation-queries.ts for the server-state half
+ * @see @/hooks/conversation-queries.ts for the server-state half
  */
 
 import { create } from "zustand";

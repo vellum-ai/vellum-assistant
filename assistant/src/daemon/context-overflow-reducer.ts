@@ -173,7 +173,6 @@ async function applyForcedCompaction(
   const compactionOptions: ContextWindowCompactOptions = {
     force: true,
     minKeepRecentUserTurns: 0,
-    targetInputTokensOverride: config.targetTokens,
   };
 
   const result = await compactFn(messages, signal, compactionOptions);

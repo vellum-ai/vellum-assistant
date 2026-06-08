@@ -11,7 +11,6 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-  SDK_BASE_OPTIONS,
 } from "@/utils/api-errors";
 
 export interface GlobalThresholds {
@@ -23,15 +22,20 @@ export interface GlobalThresholds {
 export async function getGlobalThresholds(
   assistantId: string,
 ): Promise<GlobalThresholds> {
-  const { data, error, response } = await client.get<GlobalThresholds, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/permissions/thresholds",
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
+  const { data, error, response } = await client.get<GlobalThresholds, unknown>(
+    {
+      url: "/v1/assistants/{assistant_id}/permissions/thresholds",
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    },
+  );
   assertHasResponse(response, error, "Failed to fetch global thresholds.");
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to fetch global thresholds.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to fetch global thresholds.",
+    );
     throw new ApiError(response.status, msg);
   }
   const result = data as GlobalThresholds;
@@ -46,17 +50,22 @@ export async function setGlobalThresholds(
   assistantId: string,
   thresholds: { interactive?: string; autonomous?: string; headless?: string },
 ): Promise<GlobalThresholds> {
-  const { data, error, response } = await client.put<GlobalThresholds, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/permissions/thresholds",
-    path: { assistant_id: assistantId },
-    body: thresholds,
-    headers: { "Content-Type": "application/json" },
-    throwOnError: false,
-  });
+  const { data, error, response } = await client.put<GlobalThresholds, unknown>(
+    {
+      url: "/v1/assistants/{assistant_id}/permissions/thresholds",
+      path: { assistant_id: assistantId },
+      body: thresholds,
+      headers: { "Content-Type": "application/json" },
+      throwOnError: false,
+    },
+  );
   assertHasResponse(response, error, "Failed to update global thresholds.");
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to update global thresholds.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to update global thresholds.",
+    );
     throw new ApiError(response.status, msg);
   }
   const result = data as GlobalThresholds;
@@ -75,7 +84,6 @@ export async function getConversationOverride(
     { threshold: string | null },
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
@@ -88,7 +96,11 @@ export async function getConversationOverride(
   if (response?.status === 404) {
     return null;
   }
-  assertHasResponse(response, error, "Failed to fetch conversation threshold override.");
+  assertHasResponse(
+    response,
+    error,
+    "Failed to fetch conversation threshold override.",
+  );
   if (!response.ok) {
     const msg = extractErrorMessage(
       error,
@@ -107,14 +119,17 @@ export async function setConversationOverride(
   threshold: string,
 ): Promise<void> {
   const { error, response } = await client.put<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
     body: { threshold },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to set conversation threshold override.");
+  assertHasResponse(
+    response,
+    error,
+    "Failed to set conversation threshold override.",
+  );
   if (!response.ok) {
     const msg = extractErrorMessage(
       error,
@@ -130,12 +145,15 @@ export async function deleteConversationOverride(
   conversationId: string,
 ): Promise<void> {
   const { error, response } = await client.delete<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to delete conversation threshold override.");
+  assertHasResponse(
+    response,
+    error,
+    "Failed to delete conversation threshold override.",
+  );
   if (!response.ok && response.status !== 204) {
     const msg = extractErrorMessage(
       error,

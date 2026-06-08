@@ -1,10 +1,10 @@
 import { type ReactNode } from "react";
 
-import { Card } from "@vellum/design-library";
+import { Card } from "@vellumai/design-library";
 
 import {
-  aggregateSkillLoads,
-  type SkillLoad,
+    aggregateSkillLoads,
+    type SkillLoad,
 } from "@/domains/chat/inspector/skill-load-aggregator";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 

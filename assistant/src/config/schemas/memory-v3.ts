@@ -33,6 +33,14 @@ export const MemoryV3ConfigSchema = z
     workingSet: MemoryV3WorkingSetSchema.default(
       MemoryV3WorkingSetSchema.parse({}),
     ),
+    l2Concurrency: z
+      .number({ error: "memory.v3.l2Concurrency must be a number" })
+      .int("memory.v3.l2Concurrency must be an integer")
+      .positive("memory.v3.l2Concurrency must be a positive integer")
+      .default(16)
+      .describe(
+        "Bounded fan-out for the per-leaf L2 selection (number of leaf selector calls in flight at once).",
+      ),
   })
   .describe("Memory v3 — topic-tree routing with a carry-forward working set");
 

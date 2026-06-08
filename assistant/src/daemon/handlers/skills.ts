@@ -31,7 +31,10 @@ import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
-import { getCatalog } from "../../skills/catalog-cache.js";
+import {
+  getCachedCatalogSync,
+  getCatalog,
+} from "../../skills/catalog-cache.js";
 import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,
@@ -48,7 +51,6 @@ import {
   installSkillLocally,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
-import { inferCategory } from "../../skills/category-inference.js";
 import type { ClawhubInspectResult } from "../../skills/clawhub.js";
 import {
   clawhubCheckUpdates,
@@ -285,6 +287,25 @@ function postInstallSkill(skillId: string): void {
   refreshSkillCapabilityMemories(getConfig());
 }
 
+// ─── Catalog category lookup ────────────────────────────────────────────────
+
+let _catalogCategoryMap: Map<string, string> | null = null;
+let _catalogCategoryRef: readonly CatalogSkill[] | null = null;
+
+function getCatalogCategoryMap(): Map<string, string> {
+  const catalog = getCachedCatalogSync();
+  if (_catalogCategoryMap && _catalogCategoryRef === catalog) {
+    return _catalogCategoryMap;
+  }
+  _catalogCategoryMap = new Map();
+  for (const s of catalog) {
+    const cat = s.metadata?.vellum?.category;
+    if (cat) _catalogCategoryMap.set(s.id, cat);
+  }
+  _catalogCategoryRef = catalog;
+  return _catalogCategoryMap;
+}
+
 // ─── Kind / origin / status derivation ───────────────────────────────────────
 
 /** Map the old `source` field to the new `kind` axis. */
@@ -328,13 +349,16 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
+  const category = getCatalogCategoryMap().get(summary.id) ?? "system";
   const base = {
     id: summary.id,
     name: summary.displayName,
     description: summary.description,
+    icon: summary.icon,
     emoji: summary.emoji,
     kind,
     status,
+    category,
   } as const;
 
   switch (origin) {
@@ -393,14 +417,20 @@ export function listSkills(): SlimSkillResponse[] {
  * Installed skills take precedence when deduplicating by ID.
  */
 async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
-  const installed = listSkills();
-  const installedIds = new Set(installed.map((s) => s.id));
-
+  // Warm the catalog cache before converting installed skills so
+  // getCatalogCategoryMap() in toSlimSkillResponse() sees real categories
+  // instead of falling back to "system" on a cold cache.
   let catalogSkills: CatalogSkill[];
   try {
     catalogSkills = await getCatalog();
   } catch {
-    // If catalog fetch fails, return installed-only
+    catalogSkills = [];
+  }
+
+  const installed = listSkills();
+  const installedIds = new Set(installed.map((s) => s.id));
+
+  if (catalogSkills.length === 0) {
     return installed;
   }
 
@@ -511,16 +541,13 @@ export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
   // Compute category counts BEFORE applying the category filter
   const categoryCounts: Record<string, number> = {};
   for (const s of skills) {
-    const cat = inferCategory(s.name, s.description);
-    categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+    categoryCounts[s.category] = (categoryCounts[s.category] ?? 0) + 1;
   }
   const totalCount = skills.length;
 
   // Apply category filter
   if (filter.category) {
-    skills = skills.filter(
-      (s) => inferCategory(s.name, s.description) === filter.category,
-    );
+    skills = skills.filter((s) => s.category === filter.category);
   }
 
   // Sort: installed first, community origins before core within installed,
@@ -606,10 +633,12 @@ export async function getSkill(
       id: slim.id,
       name: slim.name,
       description: slim.description,
+      icon: slim.icon,
       emoji: slim.emoji,
       kind: slim.kind,
       origin: slim.origin,
       status: slim.status,
+      category: slim.category,
       slug: slim.slug,
       author: slim.author,
       stars: slim.stars,
@@ -645,10 +674,12 @@ export async function getSkill(
       id: slim.id,
       name: slim.name,
       description: slim.description,
+      icon: slim.icon,
       emoji: slim.emoji,
       kind: slim.kind,
       origin: slim.origin,
       status: slim.status,
+      category: slim.category,
       slug: slim.slug,
       sourceRepo: slim.sourceRepo,
       installs: slim.installs,
@@ -675,10 +706,12 @@ export async function getSkill(
     id: slim.id,
     name: slim.name,
     description: slim.description,
+    icon: slim.icon,
     emoji: slim.emoji,
     kind: slim.kind,
     origin: slim.origin,
     status: slim.status,
+    category: slim.category,
   };
   return { skill: detail };
 }
@@ -1363,10 +1396,12 @@ export async function searchSkills(
         id: s.id,
         name: s.displayName,
         description: s.description,
+        icon: s.icon,
         emoji: s.emoji,
         kind: "catalog" as const,
         origin: "vellum" as const,
         status: "available" as const,
+        category: getCatalogCategoryMap().get(s.id) ?? "system",
       };
     });
 
@@ -1385,6 +1420,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "clawhub" as const,
         status: "available" as const,
+        category: "integrations",
         slug: s.slug,
         author: s.author,
         stars: s.stars,
@@ -1411,6 +1447,7 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "skillssh" as const,
         status: "available" as const,
+        category: "integrations",
         slug: r.id,
         sourceRepo: r.source,
         installs: r.installs,

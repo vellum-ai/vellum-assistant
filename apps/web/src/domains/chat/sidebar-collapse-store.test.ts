@@ -7,6 +7,8 @@ function resetStore() {
     assistantId: null,
     openCategories: [],
     openCustomGroups: [],
+    backgroundActivated: false,
+    scheduledActivated: false,
   });
 }
 
@@ -120,5 +122,101 @@ describe("SidebarCollapseStore", () => {
       "scheduled",
     ]);
     expect(localStorage.length).toBe(0);
+  });
+});
+
+describe("SidebarCollapseStore — independent lazy-section activation", () => {
+  test("both activation flags default to false", () => {
+    const state = useSidebarCollapseStore.getState();
+    expect(state.backgroundActivated).toBe(false);
+    expect(state.scheduledActivated).toBe(false);
+  });
+
+  test("activateBackground reveals Background without activating Scheduled", () => {
+    /**
+     * The Background and Scheduled lists are separate lazy queries;
+     * revealing one must never trigger the other's fetch.
+     */
+
+    // WHEN only the Background section is revealed
+    useSidebarCollapseStore.getState().activateBackground();
+
+    // THEN Background is activated and Scheduled stays dormant
+    const state = useSidebarCollapseStore.getState();
+    expect(state.backgroundActivated).toBe(true);
+    expect(state.scheduledActivated).toBe(false);
+  });
+
+  test("activateScheduled reveals Scheduled without activating Background", () => {
+    /**
+     * The mirror case: revealing Scheduled leaves Background dormant.
+     */
+
+    // WHEN only the Scheduled section is revealed
+    useSidebarCollapseStore.getState().activateScheduled();
+
+    // THEN Scheduled is activated and Background stays dormant
+    const state = useSidebarCollapseStore.getState();
+    expect(state.scheduledActivated).toBe(true);
+    expect(state.backgroundActivated).toBe(false);
+  });
+
+  test("expanding the Background category activates only Background", () => {
+    /**
+     * Expanding a section in the full sidebar counts as a reveal, but it
+     * must activate that section's query alone.
+     */
+
+    // GIVEN an assistant is selected
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+
+    // WHEN the Background category is expanded
+    useSidebarCollapseStore.getState().setOpenCategories(["background"]);
+
+    // THEN only Background is activated
+    const state = useSidebarCollapseStore.getState();
+    expect(state.backgroundActivated).toBe(true);
+    expect(state.scheduledActivated).toBe(false);
+  });
+
+  test("setAssistantId hydrates each activation flag from persisted categories independently", () => {
+    /**
+     * A persisted open section counts as a reveal on load, but only for
+     * the section that was actually left open.
+     */
+
+    // GIVEN only Scheduled was persisted as open for this assistant
+    localStorage.setItem(
+      "vellum:sidebar-open-categories:asst-1",
+      JSON.stringify(["scheduled"]),
+    );
+
+    // WHEN the assistant is selected
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+
+    // THEN Scheduled activates from storage and Background stays dormant
+    const state = useSidebarCollapseStore.getState();
+    expect(state.scheduledActivated).toBe(true);
+    expect(state.backgroundActivated).toBe(false);
+  });
+
+  test("switching assistant resets activation flags for the new assistant", () => {
+    /**
+     * Activation is per session and per assistant: a section revealed on
+     * one assistant must not leak its lazy fetch onto the next.
+     */
+
+    // GIVEN Background was revealed on the first assistant
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarCollapseStore.getState().activateBackground();
+    expect(useSidebarCollapseStore.getState().backgroundActivated).toBe(true);
+
+    // WHEN switching to a second assistant with nothing persisted
+    useSidebarCollapseStore.getState().setAssistantId("asst-2");
+
+    // THEN both activation flags reset for the new assistant
+    const state = useSidebarCollapseStore.getState();
+    expect(state.backgroundActivated).toBe(false);
+    expect(state.scheduledActivated).toBe(false);
   });
 });

@@ -1,27 +1,27 @@
 import {
-  ArrowUp,
-  Ellipsis,
-  Globe,
-  Pin,
-  PinOff,
-  Trash2,
+    ArrowUp,
+    Ellipsis,
+    Globe,
+    Pin,
+    PinOff,
+    Trash2,
 } from "lucide-react";
 import { type MouseEvent, useCallback, useState } from "react";
 
+import { AppPreviewThumbnail } from "@/components/app-card";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
-import { shareApp } from "@/utils/share-app";
-import { AppPreviewThumbnail } from "@/components/app-card";
-import {
-  BottomSheet,
-  Button,
-  Menu,
-  PanelItem,
-  toast,
-} from "@vellum/design-library";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { cn } from "@/utils/misc";
 import { formatFriendlyDate } from "@/utils/format-date";
+import { cn } from "@/utils/misc";
+import { shareApp } from "@/utils/share-app";
+import {
+    BottomSheet,
+    Button,
+    Menu,
+    PanelItem,
+    toast,
+} from "@vellumai/design-library";
 
 interface LibraryAppCardProps {
   app: AppSummary;

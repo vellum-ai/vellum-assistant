@@ -1,19 +1,7 @@
-import { client } from "@/generated/api/client.gen";
+import { suggestionGet } from "@/generated/daemon/sdk.gen";
+import type { SuggestionGetResponse } from "@/generated/daemon/types.gen";
 
-// `/v1/assistants/{id}/suggestion` is not yet in the OpenAPI schema, so we
-// fall through to the low-level HeyAPI client until it's generated.
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-export interface SuggestionResult {
-  suggestion: string | null;
-  messageId: string | null;
-  source: "llm" | "none";
-}
-
-const EMPTY: SuggestionResult = {
+const EMPTY: SuggestionGetResponse = {
   suggestion: null,
   messageId: null,
   source: "none",
@@ -24,11 +12,9 @@ export async function fetchSuggestion(
   conversationId: string,
   messageId?: string,
   signal?: AbortSignal,
-): Promise<SuggestionResult> {
+): Promise<SuggestionGetResponse> {
   try {
-    const { data, response } = await client.get<SuggestionResult, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/suggestion",
+    const { data, response } = await suggestionGet({
       path: { assistant_id: assistantId },
       query: {
         conversationId,
@@ -37,8 +23,8 @@ export async function fetchSuggestion(
       throwOnError: false,
       signal,
     });
-    if (!response || !response.ok) return EMPTY;
-    return data as SuggestionResult;
+    if (!response || !response.ok || !data) return EMPTY;
+    return data;
   } catch {
     return EMPTY;
   }

@@ -1,5 +1,7 @@
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallRank } from "@/domains/chat/utils/tool-call-status";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;
@@ -9,14 +11,12 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     if (
       am.id !== bm.id ||
       am.role !== bm.role ||
-      am.content !== bm.content ||
-      !!am.isStreaming !== !!bm.isStreaming ||
       am.timestamp !== bm.timestamp ||
       JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
-      JSON.stringify(am.metadata) !== JSON.stringify(bm.metadata) ||
+      JSON.stringify(am.thinkingSegments) !== JSON.stringify(bm.thinkingSegments) ||
       JSON.stringify(am.slackMessage) !== JSON.stringify(bm.slackMessage) ||
       JSON.stringify(am.toolCalls) !== JSON.stringify(bm.toolCalls) ||
       JSON.stringify(am.attachments) !== JSON.stringify(bm.attachments)
@@ -29,12 +29,10 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "id",
       "mergedMessageIds",
       "role",
-      "content",
-      "isStreaming",
       "surfaces",
       "textSegments",
       "contentOrder",
-      "metadata",
+      "thinkingSegments",
       "slackMessage",
       "toolCalls",
       "attachments",
@@ -87,11 +85,8 @@ export function mergeToolCall(
   current: ChatMessageToolCall,
   incoming: ChatMessageToolCall,
 ): ChatMessageToolCall {
-  const statusRank = { running: 0, completed: 1, error: 2 } as const;
   const preferred =
-    statusRank[incoming.status] >= statusRank[current.status]
-      ? incoming
-      : current;
+    toolCallRank(incoming) >= toolCallRank(current) ? incoming : current;
   const secondary = preferred === incoming ? current : incoming;
   return {
     ...secondary,
@@ -180,10 +175,13 @@ function mergeStringArrays(
 }
 
 function messageScore(message: DisplayMessage): number {
-  let score = message.isStreaming ? 0 : 1_000_000;
-  score += message.content.length;
+  // Rank duplicate rows by how much rendered content they carry so the
+  // more-complete version wins the merge — whether that's a live row with
+  // the latest streamed deltas or a server snapshot with finalized state.
+  let score = segmentsToPlainText(message.textSegments).length;
   score += (message.textSegments?.length ?? 0) * 100;
   score += (message.contentOrder?.length ?? 0) * 100;
+  score += (message.thinkingSegments?.length ?? 0) * 100;
   score += (message.toolCalls?.length ?? 0) * 100;
   score += (message.surfaces?.length ?? 0) * 50;
   score += (message.attachments?.length ?? 0) * 50;
@@ -202,10 +200,6 @@ export function mergeDuplicateMessages(
     ...secondary,
     ...preferred,
   };
-
-  if (current.isStreaming || incoming.isStreaming) {
-    merged.isStreaming = Boolean(current.isStreaming && incoming.isStreaming);
-  }
 
   if (merged.timestamp == null) {
     merged.timestamp = current.timestamp ?? incoming.timestamp;
@@ -229,13 +223,6 @@ export function mergeDuplicateMessages(
   );
   if (attachments) merged.attachments = attachments;
 
-  if (current.metadata || incoming.metadata) {
-    merged.metadata = {
-      ...(current.metadata ?? {}),
-      ...(incoming.metadata ?? {}),
-      ...(preferred.metadata ?? {}),
-    };
-  }
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }
@@ -251,6 +238,9 @@ export function mergeDuplicateMessages(
   if (!merged.textSegments) {
     merged.textSegments = current.textSegments ?? incoming.textSegments;
   }
+  if (!merged.thinkingSegments) {
+    merged.thinkingSegments = current.thinkingSegments ?? incoming.thinkingSegments;
+  }
 
   return merged;
 }
@@ -264,26 +254,54 @@ function pickMoreCompleteArray<T>(
   return incoming.length >= current.length ? incoming : current;
 }
 
+/**
+ * Merge locally-accumulated thinking segments with the server's snapshot,
+ * keeping the longer text at each position and appending any extra trailing
+ * segments from either side.
+ *
+ * The live SSE stream is normally ahead of the server's periodic snapshot, so
+ * reconciliation defaults to the local copy. But thinking deltas that arrive
+ * while the stream is torn down (e.g. the tab is backgrounded and the stream
+ * reconnects mid-turn) are never replayed, leaving the local block truncated.
+ * Picking the longer text per index lets the local copy stay ahead during
+ * normal streaming while healing a truncated block once the server's snapshot
+ * carries the fuller reasoning. Position alignment is preserved so the row's
+ * `contentOrder` thinking ids keep resolving to the right segment.
+ */
+export function mergeThinkingSegments(
+  local: string[] | undefined,
+  server: string[] | undefined,
+): string[] | undefined {
+  if (!local || local.length === 0) return server;
+  if (!server || server.length === 0) return local;
+  const length = Math.max(local.length, server.length);
+  const merged: string[] = [];
+  for (let i = 0; i < length; i++) {
+    const localSegment = local[i];
+    const serverSegment = server[i];
+    if (localSegment == null) {
+      merged.push(serverSegment!);
+    } else if (serverSegment == null) {
+      merged.push(localSegment);
+    } else {
+      merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
+    }
+  }
+  return merged;
+}
+
 export function mergeLatestHistoryMessage(
   current: DisplayMessage,
   incoming: DisplayMessage,
 ): DisplayMessage {
-  const currentHasMoreText = current.content.length > incoming.content.length;
-  const preferredText = currentHasMoreText ? current : incoming;
+  const currentHasMoreText =
+    segmentsToPlainText(current.textSegments).length >
+    segmentsToPlainText(incoming.textSegments).length;
   const merged: DisplayMessage = {
     ...current,
     ...incoming,
-    content: preferredText.content,
   };
 
-  // `isStreaming` is a client-owned, live-only flag. Server snapshots
-  // (history pages, reconcile fetches) never carry it, so we must never
-  // let the merge clear it based on `incoming.isStreaming` being absent.
-  // The previous `else if (!incoming.isStreaming)` branch caused the
-  // live assistant bubble to flip to "completed" mid-turn when a sync
-  // tag fired a history merge during the stream — splitting the bubble
-  // on the next `tool_use_start`. Always preserve the current value.
-  merged.isStreaming = current.isStreaming;
   if (currentHasMoreText) {
     merged.textSegments = current.textSegments ?? incoming.textSegments;
   }
@@ -327,12 +345,12 @@ export function mergeLatestHistoryMessage(
     : pickMoreCompleteArray(current.textSegments, incoming.textSegments);
   if (textSegments) merged.textSegments = textSegments;
 
-  if (current.metadata || incoming.metadata) {
-    merged.metadata = {
-      ...(current.metadata ?? {}),
-      ...(incoming.metadata ?? {}),
-    };
-  }
+  const thinkingSegments = pickMoreCompleteArray(
+    current.thinkingSegments,
+    incoming.thinkingSegments,
+  );
+  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
+
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }
@@ -393,6 +411,7 @@ function remapAdjacentContentOrder(
     attachment: number;
     toolCall: number;
     surface: number;
+    thinking: number;
   },
 ): Array<{ type: string; id: string }> | undefined {
   if (!entries || entries.length === 0) return entries;
@@ -400,7 +419,8 @@ function remapAdjacentContentOrder(
     offsets.text === 0 &&
     offsets.attachment === 0 &&
     offsets.toolCall === 0 &&
-    offsets.surface === 0
+    offsets.surface === 0 &&
+    offsets.thinking === 0
   ) {
     return entries;
   }
@@ -424,6 +444,7 @@ function pickContentOrderOffset(
     attachment: number;
     toolCall: number;
     surface: number;
+    thinking: number;
   },
 ): number {
   if (entryType === "text") return offsets.text;
@@ -432,6 +453,7 @@ function pickContentOrderOffset(
   // — `transcript-message-body.tsx` treats them as the same entry kind.
   if (entryType === "tool" || entryType === "toolCall") return offsets.toolCall;
   if (entryType === "surface") return offsets.surface;
+  if (entryType === "thinking") return offsets.thinking;
   return 0;
 }
 
@@ -440,10 +462,6 @@ function canFoldAdjacentAssistant(
   donor: DisplayMessage,
 ): boolean {
   if (survivor.role !== "assistant" || donor.role !== "assistant") return false;
-  // The streaming bubble owns its own identity until message_complete
-  // lands — folding it onto an older sibling would lose the SSE-event
-  // accumulation slot keyed by id.
-  if (survivor.isStreaming || donor.isStreaming) return false;
   // Optimistic ids are client UUIDs not yet echoed by the server; the
   // tail content-match swap in `reconcileMessages` needs them to stay
   // standalone until the server snapshot lands.
@@ -467,6 +485,7 @@ function foldAdjacentAssistant(
     attachment: survivor.attachments?.length ?? 0,
     toolCall: survivor.toolCalls?.length ?? 0,
     surface: survivor.surfaces?.length ?? 0,
+    thinking: survivor.thinkingSegments?.length ?? 0,
   };
 
   const textSegments = concatOptionalArrays(
@@ -492,6 +511,10 @@ function foldAdjacentAssistant(
     survivor.attachments,
     donor.attachments,
   );
+  const thinkingSegments = concatOptionalArrays(
+    survivor.thinkingSegments,
+    donor.thinkingSegments,
+  );
 
   // Donor's id becomes a merged alias on the survivor so subsequent
   // reconcile / SSE lookups by donor id still resolve to the survivor.
@@ -502,20 +525,15 @@ function foldAdjacentAssistant(
     ),
   );
 
-  const content =
-    survivor.content && donor.content
-      ? `${survivor.content}${donor.content}`
-      : survivor.content || donor.content;
-
   const merged: DisplayMessage = {
     ...survivor,
-    content,
   };
   if (textSegments) merged.textSegments = textSegments;
   if (contentOrder) merged.contentOrder = contentOrder;
   if (toolCalls) merged.toolCalls = toolCalls;
   if (surfaces) merged.surfaces = surfaces;
   if (attachments) merged.attachments = attachments;
+  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
   if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
@@ -538,8 +556,8 @@ function foldAdjacentAssistant(
  * gap: identical to what the backend would have produced if it had all
  * the rows in one query.
  *
- * Skipped (conservatively) for streaming / optimistic / subagent-
- * notification rows — see `canFoldAdjacentAssistant` for why.
+ * Skipped (conservatively) for optimistic / subagent-notification rows —
+ * see `canFoldAdjacentAssistant` for why.
  *
  * Returns the input array unchanged when no run exists, so referential
  * equality short-circuits downstream memos.

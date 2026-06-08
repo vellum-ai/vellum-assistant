@@ -52,6 +52,7 @@ const VellumMetadataSchema = z
 
 const SkillMetadataSchema = z
   .object({
+    icon: z.string().optional(),
     emoji: z.string().optional(),
     vellum: VellumMetadataSchema.optional(),
   })
@@ -210,6 +211,7 @@ interface ParsedFrontmatter {
   displayName: string;
   description: string;
   body: string;
+  icon?: string;
   emoji?: string;
   includes?: string[];
   featureFlag?: string;
@@ -253,6 +255,7 @@ function parseFrontmatter(
   }
 
   // metadata is already a parsed object from YAML — validate with Zod schema
+  let icon: string | undefined;
   let emoji: string | undefined;
   let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
   let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
@@ -271,6 +274,7 @@ function parseFrontmatter(
       if (zodResult.success) {
         parsedMeta = zodResult.data;
         vellum = parsedMeta.vellum;
+        icon = parsedMeta.icon;
         emoji = vellum?.emoji ?? parsedMeta.emoji;
       } else {
         // Zod validation failed — fall back to raw parsed object so we don't
@@ -284,6 +288,9 @@ function parseFrontmatter(
         const raw = metadataRaw as Record<string, unknown>;
         parsedMeta = raw as z.infer<typeof SkillMetadataSchema>;
         vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
+        if (typeof parsedMeta?.icon === "string") {
+          icon = parsedMeta.icon;
+        }
         if (vellum && typeof vellum === "object") {
           emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
         }
@@ -337,6 +344,7 @@ function parseFrontmatter(
     displayName,
     description,
     body: strippedBody,
+    icon,
     emoji,
     includes,
     featureFlag,
@@ -489,6 +497,7 @@ function readSkillFromDirectory(
       directoryPath,
       skillFilePath,
       body: parsed.body,
+      icon: parsed.icon,
       emoji: parsed.emoji,
 
       source,
@@ -540,6 +549,7 @@ function readBundledSkillFromDirectory(
       skillFilePath,
       body: parsed.body,
       bundled: true,
+      icon: parsed.icon,
       emoji: parsed.emoji,
 
       source: "bundled",
@@ -599,6 +609,7 @@ function loadBundledSkills(): SkillSummary[] {
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       bundled: true,
+      icon: skill.icon,
       emoji: skill.emoji,
 
       source: "bundled",
@@ -649,6 +660,7 @@ function skillSummaryFromDefinition(
     directoryPath: skill.directoryPath,
     skillFilePath: skill.skillFilePath,
     bundled: skill.bundled,
+    icon: skill.icon,
     emoji: skill.emoji,
     source,
     toolManifest: skill.toolManifest,
@@ -836,6 +848,7 @@ export function loadSkillCatalog(
           description: parsed.description,
           directoryPath: directory,
           skillFilePath,
+          icon: parsed.icon,
           emoji: parsed.emoji,
 
           source: "workspace",

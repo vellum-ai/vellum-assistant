@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  getThinkingStatusText,
   shouldShowThinkingIndicator,
-  shouldShowAssistantBubble,
   canStopGeneration,
   isSendDisabled,
   type UIContext,
@@ -54,11 +52,11 @@ describe("INITIAL_TURN_STATE", () => {
   });
 
   test("isSending is false in initial state", () => {
-    expect(isSending(INITIAL_TURN_STATE)).toBe(false);
+    expect(isSending(INITIAL_TURN_STATE.phase)).toBe(false);
   });
 
   test("isThinking is false in initial state", () => {
-    expect(isThinking(INITIAL_TURN_STATE)).toBe(false);
+    expect(isThinking(INITIAL_TURN_STATE.phase)).toBe(false);
   });
 });
 
@@ -74,8 +72,8 @@ describe("USER_SEND_REQUESTED", () => {
     });
     expect(state.phase).toBe("thinking");
     expect(state.activeTurnId).toBe("turn-1");
-    expect(isSending(state)).toBe(true);
-    expect(isThinking(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
+    expect(isThinking(state.phase)).toBe(true);
   });
 
   test("clears lastTerminalReason", () => {
@@ -145,8 +143,8 @@ describe("USER_SEND_ACCEPTED", () => {
     expect(state.phase).toBe("thinking");
     expect(state.activeTurnId).toBe("turn-NEW");
     expect(state.lastTerminalReason).toBeNull();
-    expect(isSending(state)).toBe(true);
-    expect(isThinking(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
+    expect(isThinking(state.phase)).toBe(true);
   });
 
   test("restores thinking phase from errored as well", () => {
@@ -192,8 +190,8 @@ describe("ASSISTANT_TEXT_DELTA", () => {
     });
     const state = turnReducer(thinking, { type: "ASSISTANT_TEXT_DELTA" });
     expect(state.phase).toBe("streaming");
-    expect(isSending(state)).toBe(true);
-    expect(isThinking(state)).toBe(false);
+    expect(isSending(state.phase)).toBe(true);
+    expect(isThinking(state.phase)).toBe(false);
   });
 
   test("does NOT re-activate from idle when activeTurnId is null", () => {
@@ -540,33 +538,6 @@ describe("ACTIVITY_STATE_THINKING", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getThinkingStatusText selector
-// ---------------------------------------------------------------------------
-
-describe("getThinkingStatusText", () => {
-  test("returns null for initial state", () => {
-    expect(getThinkingStatusText(INITIAL_TURN_STATE)).toBeNull();
-  });
-
-  test("returns statusText when set", () => {
-    const state = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ACTIVITY_STATE_THINKING", statusText: "Compacting context" },
-    ]);
-    expect(getThinkingStatusText(state)).toBe("Compacting context");
-  });
-
-  test("returns null after terminal event", () => {
-    const state = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ACTIVITY_STATE_THINKING", statusText: "Processing" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
-    expect(getThinkingStatusText(state)).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // UI_SURFACE_* events
 // ---------------------------------------------------------------------------
 
@@ -685,7 +656,7 @@ describe("interruption events", () => {
     const state = turnReducer(streaming, { type: "QUESTION_REQUEST" });
     expect(state.phase).toBe("awaiting_user_input");
     expect(state.activeTurnId).toBe("t-1");
-    expect(isSending(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
   });
 
   test("QUESTION_REQUEST when idle with null activeTurnId is a no-op", () => {
@@ -715,7 +686,7 @@ describe("MESSAGE_COMPLETE", () => {
     expect(state.activeTurnId).toBeNull();
     expect(state.activeToolCallCount).toBe(0);
     expect(state.lastTerminalReason).toBe("complete");
-    expect(isSending(state)).toBe(false);
+    expect(isSending(state.phase)).toBe(false);
   });
 });
 
@@ -1005,7 +976,7 @@ describe("multi-event sequences", () => {
     ]);
     expect(state.phase).toBe("idle");
     expect(state.lastTerminalReason).toBe("complete");
-    expect(isSending(state)).toBe(false);
+    expect(isSending(state.phase)).toBe(false);
   });
 
   test("send -> tool use -> tool result -> stream -> complete", () => {
@@ -1041,7 +1012,7 @@ describe("multi-event sequences", () => {
       { type: "SECRET_REQUEST" },
     ]);
     expect(state.phase).toBe("awaiting_user_input");
-    expect(isSending(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
 
     // After secret submission, assistant resumes with text
     state = applyEvents(state, [
@@ -1087,17 +1058,17 @@ describe("multi-event sequences", () => {
       { type: "UI_SURFACE_SHOW", interactive: true },
     ]);
     expect(state.phase).toBe("awaiting_user_input");
-    expect(isSending(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
 
     // Surface completes — should exit awaiting_user_input
     state = turnReducer(state, { type: "UI_SURFACE_COMPLETE" });
     expect(state.phase).toBe("thinking");
-    expect(isSending(state)).toBe(true);
+    expect(isSending(state.phase)).toBe(true);
 
     // MESSAGE_COMPLETE arrives — turn is done
     state = turnReducer(state, { type: "MESSAGE_COMPLETE" });
     expect(state.phase).toBe("idle");
-    expect(isSending(state)).toBe(false);
+    expect(isSending(state.phase)).toBe(false);
   });
 
   test("surface-only interaction: input is re-enabled after surface complete + MESSAGE_COMPLETE", () => {
@@ -1108,7 +1079,7 @@ describe("multi-event sequences", () => {
       { type: "MESSAGE_COMPLETE" },
     ]);
     expect(state.phase).toBe("idle");
-    expect(isSendDisabled(state, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 
   test("stream error mid-stream", () => {
@@ -1119,7 +1090,7 @@ describe("multi-event sequences", () => {
     ]);
     expect(state.phase).toBe("idle");
     expect(state.lastTerminalReason).toBe("error");
-    expect(isSending(state)).toBe(false);
+    expect(isSending(state.phase)).toBe(false);
   });
 
   test("poll reconciled as fallback for missed terminal SSE", () => {
@@ -1251,21 +1222,21 @@ describe("shouldShowThinkingIndicator", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    expect(shouldShowThinkingIndicator(thinking, defaultCtx)).toBe(true);
+    expect(shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, defaultCtx)).toBe(true);
   });
 
   test("fallback: visible in streaming phase when no streaming message exists yet", () => {
-    // ASSISTANT_TEXT_DELTA moves phase to "streaming", but the
-    // DisplayMessage with isStreaming may not exist yet (brief race).
-    // The fallback !hasStreamingAssistantMessage keeps the dots visible.
+    // ASSISTANT_TEXT_DELTA moves phase to "streaming", but the live
+    // assistant row may not exist yet (brief race). The fallback
+    // !hasStreamingAssistantMessage keeps the dots visible.
     const streaming = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED" },
       { type: "ASSISTANT_TEXT_DELTA" },
     ]);
     expect(streaming.phase).toBe("streaming");
-    expect(isThinking(streaming)).toBe(false);
+    expect(isThinking(streaming.phase)).toBe(false);
     expect(
-      shouldShowThinkingIndicator(streaming, {
+      shouldShowThinkingIndicator(streaming.phase, streaming.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: false,
       }),
@@ -1278,7 +1249,7 @@ describe("shouldShowThinkingIndicator", () => {
       { type: "ASSISTANT_TEXT_DELTA" },
     ]);
     expect(
-      shouldShowThinkingIndicator(streaming, {
+      shouldShowThinkingIndicator(streaming.phase, streaming.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
       }),
@@ -1293,7 +1264,7 @@ describe("shouldShowThinkingIndicator", () => {
       type: "USER_SEND_REQUESTED",
     });
     expect(
-      shouldShowThinkingIndicator(thinking, {
+      shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
       }),
@@ -1305,7 +1276,7 @@ describe("shouldShowThinkingIndicator", () => {
       { type: "USER_SEND_REQUESTED" },
       { type: "TOOL_USE_START" },
     ]);
-    expect(shouldShowThinkingIndicator(withTools, defaultCtx)).toBe(false);
+    expect(shouldShowThinkingIndicator(withTools.phase, withTools.activeToolCallCount, defaultCtx)).toBe(false);
   });
 
   test("hidden during awaiting_user_input when the matching pending flag is set (secret/confirmation/question/contact/surface)", () => {
@@ -1315,31 +1286,31 @@ describe("shouldShowThinkingIndicator", () => {
     ]);
     expect(awaiting.phase).toBe("awaiting_user_input");
     expect(
-      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingSecret: true }),
+      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingSecret: true }),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingConfirmation: true }),
+      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingConfirmation: true }),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingQuestion: true }),
+      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingQuestion: true }),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingContactRequest: true }),
+      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingContactRequest: true }),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasUncompletedVisibleSurface: true }),
+      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasUncompletedVisibleSurface: true }),
     ).toBe(false);
   });
 
   test("hidden when idle", () => {
-    expect(shouldShowThinkingIndicator(INITIAL_TURN_STATE, defaultCtx)).toBe(
+    expect(shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, defaultCtx)).toBe(
       false,
     );
   });
 
   test("shows after switching back to a processing conversation that has no assistant response yet", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE, {
+      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
         ...defaultCtx,
         activeConversationIsProcessing: true,
         hasPendingAssistantResponse: true,
@@ -1349,7 +1320,7 @@ describe("shouldShowThinkingIndicator", () => {
 
   test("does not show restored processing dots once the conversation has assistant progress", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE, {
+      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
         ...defaultCtx,
         activeConversationIsProcessing: true,
         hasPendingAssistantResponse: false,
@@ -1371,7 +1342,7 @@ describe("shouldShowThinkingIndicator", () => {
     ]);
     expect(afterTool.phase).toBe("thinking");
     expect(
-      shouldShowThinkingIndicator(afterTool, {
+      shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
       }),
@@ -1380,7 +1351,7 @@ describe("shouldShowThinkingIndicator", () => {
 
   test("restored processing dots do not compete with pending interaction UI", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE, {
+      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
         ...defaultCtx,
         activeConversationIsProcessing: true,
         hasPendingAssistantResponse: true,
@@ -1392,15 +1363,12 @@ describe("shouldShowThinkingIndicator", () => {
 
 describe("isSendDisabled", () => {
   test("enabled when sending (daemon queues messages)", () => {
-    const thinking = turnReducer(INITIAL_TURN_STATE, {
-      type: "USER_SEND_REQUESTED",
-    });
-    expect(isSendDisabled(thinking, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 
   test("disabled when hasPendingSecret", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasPendingSecret: true,
       }),
@@ -1409,7 +1377,7 @@ describe("isSendDisabled", () => {
 
   test("disabled when hasPendingConfirmation", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasPendingConfirmation: true,
       }),
@@ -1418,7 +1386,7 @@ describe("isSendDisabled", () => {
 
   test("enabled when hasUncompletedVisibleSurface (sending implicitly dismisses)", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasUncompletedVisibleSurface: true,
       }),
@@ -1426,7 +1394,7 @@ describe("isSendDisabled", () => {
   });
 
   test("enabled when idle with no competing UI", () => {
-    expect(isSendDisabled(INITIAL_TURN_STATE, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 });
 
@@ -1435,12 +1403,12 @@ describe("canStopGeneration", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    expect(canStopGeneration(thinking, defaultCtx)).toBe(true);
+    expect(canStopGeneration(thinking.phase, defaultCtx)).toBe(true);
   });
 
   test("visible for an externally-originated streaming assistant message", () => {
     expect(
-      canStopGeneration(INITIAL_TURN_STATE, {
+      canStopGeneration(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
       }),
@@ -1449,7 +1417,7 @@ describe("canStopGeneration", () => {
 
   test("visible after switching back to a processing conversation", () => {
     expect(
-      canStopGeneration(INITIAL_TURN_STATE, {
+      canStopGeneration(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
         activeConversationIsProcessing: true,
       }),
@@ -1462,157 +1430,8 @@ describe("canStopGeneration", () => {
       { type: "CONFIRMATION_REQUEST" },
     ]);
     expect(
-      canStopGeneration(awaiting, {
+      canStopGeneration(awaiting.phase, {
         ...defaultCtx,
-        hasPendingConfirmation: true,
-      }),
-    ).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// shouldShowAssistantBubble
-// ---------------------------------------------------------------------------
-
-describe("shouldShowAssistantBubble", () => {
-  test("shows bubble when no active surfaces", () => {
-    expect(shouldShowAssistantBubble(INITIAL_TURN_STATE, defaultCtx)).toBe(true);
-  });
-
-  test("shows bubble during streaming with no surfaces", () => {
-    const streaming = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-    ]);
-    expect(shouldShowAssistantBubble(streaming, defaultCtx)).toBe(true);
-  });
-
-  test("hides bubble when active inline surfaces are present and uncompleted", () => {
-    const streaming = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-    ]);
-    expect(
-      shouldShowAssistantBubble(streaming, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("hides bubble in awaiting_user_input with active surfaces", () => {
-    const awaiting = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-    ]);
-    expect(
-      shouldShowAssistantBubble(awaiting, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("shows bubble after all surfaces complete", () => {
-    // Surfaces were active but are now all completed (removed from active map)
-    const afterComplete = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "UI_SURFACE_COMPLETE" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
-    expect(
-      shouldShowAssistantBubble(afterComplete, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: false,
-      }),
-    ).toBe(true);
-  });
-
-  test("shows bubble when no uncompleted visible surfaces", () => {
-    expect(
-      shouldShowAssistantBubble(INITIAL_TURN_STATE, {
-        ...defaultCtx,
-        hasUncompletedVisibleSurface: false,
-      }),
-    ).toBe(true);
-  });
-
-  test("shows bubble when idle after error with no surfaces", () => {
-    const afterError = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "STREAM_ERROR" },
-    ]);
-    expect(shouldShowAssistantBubble(afterError, defaultCtx)).toBe(true);
-  });
-
-  test("multi-message handoff: bubble visible between handoffs when no surfaces", () => {
-    const afterHandoff = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-    ]);
-    expect(shouldShowAssistantBubble(afterHandoff, defaultCtx)).toBe(true);
-  });
-
-  test("multi-message handoff: bubble hidden when surface appears during second chunk", () => {
-    const withSurface = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-    ]);
-    expect(
-      shouldShowAssistantBubble(withSurface, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("multi-message handoff: bubble reappears after surface completes", () => {
-    const surfaceDone = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "UI_SURFACE_COMPLETE" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
-    expect(
-      shouldShowAssistantBubble(surfaceDone, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: false,
-      }),
-    ).toBe(true);
-  });
-
-  test("hides bubble during secret request with active surface", () => {
-    const withSecret = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "SECRET_REQUEST" },
-    ]);
-    expect(
-      shouldShowAssistantBubble(withSecret, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: true,
-        hasPendingSecret: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("hides bubble during confirmation request with active surface", () => {
-    const withConf = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "CONFIRMATION_REQUEST" },
-    ]);
-    expect(
-      shouldShowAssistantBubble(withConf, {
-        ...defaultCtx,
-              hasUncompletedVisibleSurface: true,
         hasPendingConfirmation: true,
       }),
     ).toBe(false);

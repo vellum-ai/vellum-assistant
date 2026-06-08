@@ -7,7 +7,11 @@
  * read from the exact same on-disk format.
  */
 
-import { client } from "@/generated/api/client.gen";
+import {
+  workspaceFileContentGet,
+  workspaceTreeGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
 import {
@@ -27,25 +31,11 @@ export interface AvailableSound {
   filename: string;
 }
 
-interface WorkspaceTreeEntry {
-  name?: string;
-  path?: string;
-  type?: string;
-  size?: number;
-  mimeType?: string;
-  modifiedAt?: string;
-}
-
-interface WorkspaceTreeResponse {
-  entries?: WorkspaceTreeEntry[];
-}
-
 export async function fetchSoundsConfig(
   assistantId: string,
 ): Promise<SoundsConfig> {
   try {
-    const { data, error, response } = await client.get<Blob, unknown>({
-      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+    const { data, error, response } = await workspaceFileContentGet({
       path: { assistant_id: assistantId },
       query: { path: CONFIG_PATH },
       parseAs: "blob",
@@ -80,11 +70,9 @@ export async function saveSoundsConfig(
   const payload = JSON.stringify(config, null, 2);
   const base64 = btoa(unescape(encodeURIComponent(payload)));
 
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/workspace/write/",
+  const { error, response } = await workspaceWritePost({
     path: { assistant_id: assistantId },
     body: { path: CONFIG_PATH, content: base64, encoding: "base64" },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to save sounds config");
@@ -97,11 +85,7 @@ export async function listAvailableSounds(
   assistantId: string,
 ): Promise<AvailableSound[]> {
   try {
-    const { data, error, response } = await client.get<
-      WorkspaceTreeResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/workspace/tree/",
+    const { data, error, response } = await workspaceTreeGet({
       path: { assistant_id: assistantId },
       query: { path: SOUNDS_DIR, showHidden: "true" },
       throwOnError: false,
@@ -137,8 +121,7 @@ export async function fetchSoundFile(
     return null;
   }
   try {
-    const { data, error, response } = await client.get<Blob, unknown>({
-      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+    const { data, error, response } = await workspaceFileContentGet({
       path: { assistant_id: assistantId },
       query: { path: `${SOUNDS_DIR}/${filename}` },
       parseAs: "blob",

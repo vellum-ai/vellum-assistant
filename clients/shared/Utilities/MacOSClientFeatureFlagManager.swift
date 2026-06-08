@@ -52,10 +52,12 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         loadRegistry()
     }
 
-    /// Load client-scope flag definitions from the bundled registry.
+    /// Load client-scope boolean flag definitions from the bundled registry.
+    /// String-typed flags (experiments) are excluded — the macOS UI only
+    /// supports boolean toggles.
     private func loadRegistry() {
         if let registry = loadFeatureFlagRegistry() {
-            flagDefinitions = registry.clientScopeFlags()
+            flagDefinitions = registry.clientBooleanFlags()
         } else {
             log.warning("Failed to load feature flag registry from bundle — falling back to empty definitions")
             flagDefinitions = []
@@ -70,25 +72,25 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         if let override = overrides[Self.normalize(key)] {
             return override
         }
-        // Fall back to registry default
         if let def = flagDefinitions.first(where: { Self.normalize($0.key) == Self.normalize(key) }) {
-            return def.defaultEnabled
+            return def.defaultEnabled.boolValue ?? false
         }
         return false
     }
 
-    /// Return the resolved state of all client-scope flag definitions for UI display.
+    /// Return the resolved state of all client-scope boolean flag definitions for UI display.
     public func allFlagStates() -> [MacOSFeatureFlagState] {
         lock.lock()
         defer { lock.unlock() }
-        return flagDefinitions.map { def in
-            let enabled = overrides[Self.normalize(def.key)] ?? def.defaultEnabled
+        return flagDefinitions.compactMap { def in
+            guard let defaultBool = def.defaultEnabled.boolValue else { return nil }
+            let enabled = overrides[Self.normalize(def.key)] ?? defaultBool
             return MacOSFeatureFlagState(
                 id: def.id,
                 key: def.key,
                 label: def.label,
                 description: def.description,
-                defaultEnabled: def.defaultEnabled,
+                defaultEnabled: defaultBool,
                 enabled: enabled
             )
         }

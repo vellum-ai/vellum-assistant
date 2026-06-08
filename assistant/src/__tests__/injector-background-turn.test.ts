@@ -22,16 +22,12 @@ mock.module("../config/loader.js", () => ({
 
 import {
   DEFAULT_INJECTOR_ORDER,
-  defaultInjectorsPlugin,
-} from "../plugins/defaults/injectors.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+  defaultInjectors,
+} from "../plugins/defaults/memory-retrieval/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectorsPlugin.injectors?.find(
+  const injector = defaultInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
@@ -57,18 +53,14 @@ const DEFAULT_INJECTION_TEXT =
 
 describe("background-turn injector", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
-    registerPlugin(defaultInjectorsPlugin);
     configBackgroundInjection = DEFAULT_INJECTION_TEXT;
   });
 
   test("returns null when isBackgroundConversation is false", async () => {
     const result = await backgroundInjector.produce(
       makeContext({
-        injectionInputs: {
-          isBackgroundConversation: false,
-          isNonInteractive: true,
-        },
+        isBackgroundConversation: false,
+        isNonInteractive: true,
       }),
     );
     expect(result).toBeNull();
@@ -76,7 +68,7 @@ describe("background-turn injector", () => {
 
   test("returns null when isBackgroundConversation is unset", async () => {
     const result = await backgroundInjector.produce(
-      makeContext({ injectionInputs: { isNonInteractive: true } }),
+      makeContext({ isNonInteractive: true }),
     );
     expect(result).toBeNull();
   });
@@ -84,10 +76,8 @@ describe("background-turn injector", () => {
   test("returns null when the guardian is actively connected (interactive turn)", async () => {
     const result = await backgroundInjector.produce(
       makeContext({
-        injectionInputs: {
-          isBackgroundConversation: true,
-          isNonInteractive: false,
-        },
+        isBackgroundConversation: true,
+        isNonInteractive: false,
       }),
     );
     expect(result).toBeNull();
@@ -95,7 +85,7 @@ describe("background-turn injector", () => {
 
   test("returns null when isNonInteractive is unset", async () => {
     const result = await backgroundInjector.produce(
-      makeContext({ injectionInputs: { isBackgroundConversation: true } }),
+      makeContext({ isBackgroundConversation: true }),
     );
     expect(result).toBeNull();
   });
@@ -103,10 +93,8 @@ describe("background-turn injector", () => {
   test("wraps configured text in <background_turn> tags when active and non-interactive", async () => {
     const block = await backgroundInjector.produce(
       makeContext({
-        injectionInputs: {
-          isBackgroundConversation: true,
-          isNonInteractive: true,
-        },
+        isBackgroundConversation: true,
+        isNonInteractive: true,
       }),
     );
 
@@ -125,10 +113,8 @@ describe("background-turn injector", () => {
 
     const result = await backgroundInjector.produce(
       makeContext({
-        injectionInputs: {
-          isBackgroundConversation: true,
-          isNonInteractive: true,
-        },
+        isBackgroundConversation: true,
+        isNonInteractive: true,
       }),
     );
     expect(result).toBeNull();
@@ -139,10 +125,8 @@ describe("background-turn injector", () => {
 
     const block = await backgroundInjector.produce(
       makeContext({
-        injectionInputs: {
-          isBackgroundConversation: true,
-          isNonInteractive: true,
-        },
+        isBackgroundConversation: true,
+        isNonInteractive: true,
       }),
     );
 

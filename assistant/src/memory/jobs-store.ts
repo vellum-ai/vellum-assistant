@@ -44,6 +44,7 @@ export type MemoryJobType =
   | "memory_v2_migrate"
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
+  | "memory_v3_maintain"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
@@ -71,12 +72,17 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "generate_conversation_starters",
   "memory_v2_sweep",
   "memory_v2_consolidate",
-  "memory_v3_consolidate",
+  "memory_v3_maintain",
   "memory_v2_migrate",
   "memory_retrospective",
   "backfill",
   "graph_bootstrap",
 ];
+
+export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
+  automatic: "automatic",
+  manual: "manual",
+} as const;
 
 /** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
 export function isMemoryEnabled(): boolean {
@@ -334,6 +340,34 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
       )
       .get() != null
   );
+}
+
+export function isAutomaticConsolidationJob(job: MemoryJob): boolean {
+  return job.payload.trigger !== MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.manual;
+}
+
+export function cancelPendingAutomaticConsolidationJobs(): number {
+  const db = getDb();
+  db.update(memoryJobs)
+    .set({
+      status: "failed",
+      lastError: "automatic_consolidation_disabled",
+      updatedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_v2_consolidate"),
+        eq(memoryJobs.status, "pending"),
+        or(
+          sql`json_extract(${memoryJobs.payload}, '$.trigger') = ${MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.automatic}`,
+          // Legacy rows predate trigger markers and are indistinguishable from
+          // automatic enqueues, so disabling the schedule treats them as auto.
+          sql`json_extract(${memoryJobs.payload}, '$.trigger') IS NULL`,
+        ),
+      ),
+    )
+    .run();
+  return rawChanges();
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {

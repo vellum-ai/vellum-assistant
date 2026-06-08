@@ -8,9 +8,9 @@
  *  4. Untargeted (no targetClientId, no header) → 200 accepted (regression)
  *
  * Resolution goes through conversation.hostCuProxy?.resolve(...). The
- * conversation store is mocked to return a controlled conversation object.
+ * conversation registry is mocked to return a controlled conversation object.
  *
- * Note: host-cu-routes.ts has a deep import chain (conversation-store →
+ * Note: host-cu-routes.ts has a deep import chain (conversation-registry →
  * conversation.ts → ces-client → service-contracts) that requires mocking
  * before the module loads. We use dynamic imports to ensure all mocks are
  * registered before the route module is evaluated.
@@ -75,7 +75,7 @@ const conversationStore = new Map<
   { hostCuProxy?: { processObservation: (...args: unknown[]) => void } }
 >();
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) =>
     conversationStore.get(conversationId),
 }));

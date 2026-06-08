@@ -122,7 +122,8 @@ export function runStorageMigrations(): void {
   // onboarding. → vellum:onboarding:
   migrateKey("onboarding.tosAccepted", "vellum:onboarding:tosAccepted");
   migrateKey("onboarding.aiDataConsent", "vellum:onboarding:aiDataConsent");
-  migrateKey("onboarding.completed", "vellum:onboarding:completed");
+  removeKey("onboarding.completed");
+  removeKey("vellum:onboarding:completed");
   migrateKey("onboarding.selectedVersion", "vellum:onboarding:selectedVersion");
 
   // vellum:skillsTabTipDismissed → vellum:skills:tipDismissed (consistent naming)

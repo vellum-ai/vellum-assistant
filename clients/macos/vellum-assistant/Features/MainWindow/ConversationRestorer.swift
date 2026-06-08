@@ -50,6 +50,10 @@ protocol ConversationRestorerDelegate: AnyObject {
         from item: ConversationListResponseItem,
         into conversation: inout ConversationModel
     )
+    /// Patch a single already-loaded conversation row from a server item,
+    /// used for narrow per-conversation metadata sync tags so the client
+    /// avoids refetching the entire paginated list.
+    func mergeConversationRow(from item: ConversationListResponseItem)
 }
 
 /// Handles daemon conversation restoration: fetching the conversation list on connect,
@@ -77,6 +81,7 @@ final class ConversationRestorer {
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
+    private let conversationDetailClient: any ConversationDetailClientProtocol
     private var disconnectObservationTask: Task<Void, Never>?
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
@@ -104,12 +109,14 @@ final class ConversationRestorer {
         connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
         conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
-        conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+        conversationListClient: any ConversationListClientProtocol = ConversationListClient(),
+        conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient()
     ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
         self.conversationListClient = conversationListClient
+        self.conversationDetailClient = conversationDetailClient
     }
 
     deinit {
@@ -294,11 +301,22 @@ final class ConversationRestorer {
         for route in routes {
             switch route {
             case .conversationList:
+                // Shape change (created / deleted / reordered): the *set* of
+                // rows changed, so the paginated list must be refetched.
                 shouldRefetchConversationList = true
-            case .conversationMetadata:
-                shouldRefetchConversationList = true
+            case .conversationMetadata(let conversationId):
+                // Content-only change to one existing row (seen / rename /
+                // attention). Patch just that row via a single
+                // `GET /v1/conversations/:id` instead of draining the full
+                // paginated list (3 parallel streams over every conversation),
+                // which is what otherwise exhausts the daemon's per-client
+                // request budget and 429s the app. Mirrors web's single-row
+                // GET-and-patch.
+                refreshConversationRow(conversationId: conversationId)
             case .conversationMessages(let conversationId):
-                shouldRefetchConversationList = true
+                // A messages-only change doesn't alter the list shape, so it
+                // must not trigger a full list refetch — only the active
+                // conversation needs its history reconciled.
                 guard activeConversationId == conversationId else { continue }
                 requestReconnectHistory(conversationId: conversationId)
             case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds, .assistantSchedules:
@@ -308,6 +326,20 @@ final class ConversationRestorer {
 
         if shouldRefetchConversationList {
             scheduleInvalidationRefetch()
+        }
+    }
+
+    /// Fetch a single conversation and patch its sidebar row in place. Used for
+    /// narrow `conversation:<id>:metadata` sync tags so a content-only change
+    /// to one row costs one request instead of a full paginated list drain.
+    /// No-ops silently when the fetch fails or the row isn't loaded locally —
+    /// a subsequent shape-changing `conversations:list` tag or cold restore
+    /// reconciles anything missed.
+    private func refreshConversationRow(conversationId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let item = await self.conversationDetailClient.fetchConversation(conversationId: conversationId) else { return }
+            self.delegate?.mergeConversationRow(from: item)
         }
     }
 
@@ -644,8 +676,10 @@ final class ConversationRestorer {
 
     /// Trailing-edge debounce for `conversation_list_invalidated` events.
     /// Cancels any pending refetch and schedules a new one after 250 ms,
-    /// reusing the existing page-1 fetch + merge path so that selection,
-    /// scroll position, and per-conversation history are preserved.
+    /// then does a cheap page-1-only refetch (`refetchRecentConversations`)
+    /// that merges into the loaded list, preserving selection, scroll
+    /// position, and per-conversation history. This deliberately does NOT
+    /// re-drain the full paginated list — see `refetchRecentConversations`.
     /// If pagination is in flight, defers the refetch until pagination settles
     /// to avoid misrouting the page-1 response through the append path.
     func scheduleInvalidationRefetch() {
@@ -663,13 +697,19 @@ final class ConversationRestorer {
                 guard !Task.isCancelled else { return }
             }
             self.fetchConversationListTask?.cancel()
-            self.fetchConversationList()
+            self.refetchRecentConversations()
         }
     }
 
     // MARK: - Private
 
-    private func fetchConversationList() {
+    /// Full cold-start drain: fetches **every** conversation across the three
+    /// streams (foreground/background/archived), each paginated to exhaustion.
+    /// Used only on first connect and reconnect (see `startObserving`). The
+    /// frequent invalidation path uses `refetchRecentConversations` instead —
+    /// this drain is ~`pages × 3` requests and must not run on every
+    /// `conversation_list_invalidated` event.
+    func fetchConversationList() {
         fetchConversationListTask = Task { [weak self] in
             guard let self else { return }
             // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
@@ -732,6 +772,67 @@ final class ConversationRestorer {
             }
             log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
             self.delegate?.restoreLastActiveConversation()
+        }
+    }
+
+    /// Cheap refetch for `conversation_list_invalidated` events: fetches only
+    /// **page 1** of each stream (foreground/background/archived) — three
+    /// requests, no pagination loop — and merges into the loaded list.
+    ///
+    /// This relies on `handleConversationListResponse` being a merge (not a
+    /// replace) for an established user: it updates matched rows in place by
+    /// daemon id, prepends only brand-new rows, and keeps every already-loaded
+    /// row that isn't in the response. New conversations (the dominant shape
+    /// change) are most-recent and therefore on page 1, so they're picked up;
+    /// reorders/renames within the recent window are refreshed too.
+    ///
+    /// Pagination state is deliberately preserved: the merged response carries
+    /// `hasMore: nil` (so `hasMoreConversations` is not clobbered) and
+    /// `updateServerOffset: false` (so the "load more" cursor is untouched).
+    ///
+    /// Accepted tradeoff: a conversation deleted or reordered on another device
+    /// that sits OUTSIDE page 1 of all three streams won't be reflected until
+    /// the next cold-start/reconnect full drain (`fetchConversationList`).
+    /// That's fine — creation lands on page 1, single deletes are usually
+    /// optimistic-local on the deleting client, and reconnect re-drains fully.
+    private func refetchRecentConversations() {
+        fetchConversationListTask = Task { [weak self] in
+            guard let self else { return }
+            let pageSize = Self.conversationListPageSize
+            async let foregroundResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: nil, archiveStatus: nil
+            )
+            async let backgroundResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: "background", archiveStatus: nil
+            )
+            async let archivedResult = self.conversationListClient.fetchConversationList(
+                offset: 0, limit: pageSize, conversationType: nil, archiveStatus: "archived"
+            )
+            let foreground = await foregroundResult
+            let background = await backgroundResult
+            let archived = await archivedResult
+
+            // Best-effort: if the foreground page fails, leave the loaded list
+            // untouched. A subsequent invalidation or reconnect will retry.
+            guard let foreground else { return }
+
+            // Same dedup as the full drain: foreground ids win, then filter
+            // background/archived against them so overlapping rows from daemons
+            // that ignore the query params don't duplicate.
+            var seenIds = Set(foreground.conversations.map(\.id))
+            let uniqueBackground = (background?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
+            }
+            let uniqueArchived = (archived?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
+            }
+            let merged = ConversationListResponse(
+                type: foreground.type,
+                conversations: foreground.conversations + uniqueBackground + uniqueArchived,
+                hasMore: nil,
+                groups: foreground.groups
+            )
+            self.handleConversationListResponse(merged, updateServerOffset: false)
         }
     }
 

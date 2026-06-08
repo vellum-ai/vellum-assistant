@@ -76,7 +76,12 @@ afterEach(() => {
 
 function makePage(
   slug: string,
-  opts: { edges?: string[]; summary?: string; body?: string } = {},
+  opts: {
+    edges?: string[];
+    summary?: string;
+    body?: string;
+    leaves?: string[];
+  } = {},
 ): ConceptPage {
   return {
     slug,
@@ -85,6 +90,7 @@ function makePage(
       ref_files: [],
       ref_urls: [],
       ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
+      ...(opts.leaves !== undefined ? { leaves: opts.leaves } : {}),
     },
     body: opts.body ?? "",
   };
@@ -228,6 +234,36 @@ describe("getPageIndex", () => {
     const alice = idx.bySlug.get("alice")!;
     const bob = idx.bySlug.get("bob")!;
     expect(alice.edges).toEqual([bob.id]);
+  });
+
+  test("exposes frontmatter leaves in the index entry", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("alice", {
+        summary: "A",
+        leaves: ["page-a", "domain-a/topic-x"],
+      }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("alice")?.leaves).toEqual([
+      "page-a",
+      "domain-a/topic-x",
+    ]);
+  });
+
+  test("defaults leaves to an empty array when the field is absent", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "A" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("alice")?.leaves).toEqual([]);
+  });
+
+  test("seeded skill entries carry an empty leaves list", async () => {
+    skillState.entries = [{ id: "browser", content: "Drive a browser." }];
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("skills/browser")?.leaves).toEqual([]);
   });
 
   test("falls back to body when frontmatter.summary is absent", async () => {

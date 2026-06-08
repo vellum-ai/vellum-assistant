@@ -6,86 +6,36 @@
  * composer, and interaction-handler modules within the chat domain.
  */
 
-import type { Surface } from "@/domains/chat/types/types";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type {
-  AllowlistOption,
-  DirectoryScopeOption,
+  ConversationMessageToolCall,
   QuestionEntry,
   QuestionRequestEvent,
-  ScopeOption,
 } from "@vellumai/assistant-api";
 
-/** Data needed to render an inline permission prompt inside a ToolCallChip. */
-export interface PendingToolConfirmation {
-  requestId: string;
-  title?: string;
-  description?: string;
-  toolName?: string;
-  riskLevel?: string;
-  riskReason?: string;
-  input?: Record<string, unknown>;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  persistentDecisionsAllowed?: boolean;
-}
-
-export interface ChatMessageToolCall {
-  id: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  status: "running" | "completed" | "error";
-  result?: string;
-  isError?: boolean;
-  riskLevel?: string;
-  riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown". */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum for client display). */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  pendingConfirmation?: PendingToolConfirmation | null;
-  workingDir?: string;
-  /** ms since epoch, set locally when tool_use_start SSE event arrives */
-  startedAt?: number;
-  /** ms since epoch, set locally when tool_result SSE event arrives */
-  completedAt?: number;
-  /** Explicit decision made during the confirmation flow ("approved" | "denied" | "timed_out"). */
-  confirmationDecision?: "approved" | "denied" | "timed_out";
+/**
+ * A tool call as rendered in the transcript. Extends the canonical wire
+ * `ConversationMessageToolCall` (carrying `name`, `input`, `result`, the
+ * risk/approval fields, the `risk*Options` rule-editor ladders, the
+ * `confirmationDecision` outcome, the activity metadata, the confirmation
+ * `scopeOptions`, and — as of daemon v0.8.8 — the in-flight
+ * `pendingConfirmation` read from the pending-interactions registry at render
+ * time). The client clears `pendingConfirmation` by setting it back to
+ * `undefined` once a prompt resolves, matching the wire's optional shape.
+ * Execution state (`running`/`completed`/`error`) is not stored: derive it on
+ * demand from `isError`/`result`/`completedAt` via the predicates in
+ * `tool-call-status.ts` (`isToolCallRunning`/`isToolCallCompleted`).
+ */
+export interface ChatMessageToolCall extends ConversationMessageToolCall {
   /**
-   * Structured tool activity metadata (e.g. web_search, web_fetch) persisted
-   * alongside the tool call so the `WebSearchProgressCard` can keep
-   * rendering after the active turn ends and the live `liveWebActivity`
-   * map is cleared. Set by `applyToolResult` when the `tool_result` event
-   * carries `activityMetadata`. Absent on historical reopens that arrive
-   * via reconcile (the server snapshot doesn't carry this field). See
-   * `web-activity-types.ts`.
+   * Stable tool-call id, required for the client's keying (React keys, the
+   * `expandedToolCallIds` set, the `liveWebActivity` map, reconcile's
+   * snapshot/stream match). The daemon guarantees an id on every wire tool call
+   * as of v0.8.8 (the provider tool-use id, or a synthesized positional id), so
+   * this narrows the inherited optional wire `id` to required at the ingest
+   * boundary — `mapRuntimeToolCalls` only re-synthesizes for daemons `< 0.8.8`.
+   * Drop this narrowing once the wire `id` graduates to non-optional.
    */
-  activityMetadata?: ToolActivityMetadata;
-}
-
-export interface ChatMessage {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  surfaces?: Surface[];
-  textSegments?: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }>;
-  contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
-  toolCalls?: ChatMessageToolCall[];
-  /** Server-provided timestamp in milliseconds since epoch. */
-  timestamp?: number;
+  id: string;
 }
 
 // ---------------------------------------------------------------------------

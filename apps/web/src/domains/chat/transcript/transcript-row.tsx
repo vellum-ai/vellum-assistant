@@ -1,47 +1,41 @@
 
 import { memo, type ReactNode } from "react";
 
-import { Notice } from "@vellum/design-library";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
+import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
+import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
+import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
- * component for its `kind`. Never forks the component — the per-kind JSX
- * mirrors the corresponding block in `AssistantPageClient.tsx`.
+ * component for its `kind`.
  *
- * `renderPendingSecret` / `renderPendingConfirmation` are render-prop slots:
- * the pending-prompt cards (`SecretPromptCard`, `ConfirmationPromptCard`)
- * currently live inside `AssistantPageClient.tsx` and depend on local state
- * (submitting, saved, etc). PR 7 passes those renderers in; until then we
- * fall back to a minimal built-in prompt that exercises the public callbacks
- * so the Transcript still produces something sensible in isolation.
+ * Interaction prompt items (`pendingSecret`, `pendingConfirmation`,
+ * `pendingContactRequest`) render focused row components that read
+ * interaction-store directly — no render-prop relay from the parent.
  */
 export interface TranscriptRowProps {
   item: TranscriptItem;
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
-  onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
-  /** Render-prop override for `kind: "pendingSecret"`. */
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "pendingConfirmation"`. */
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "pendingContactRequest"`. */
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
-  /** Render-prop override for `kind: "onboardingChoice"`. */
+  /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
+   *  props from the parent (sendMessage, didOnboarding, etc.) and has a
+   *  different lifecycle than interaction prompts, so it stays as a render-prop
+   *  for now. */
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
@@ -54,14 +48,13 @@ export interface TranscriptRowProps {
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -71,6 +64,10 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** True when this row belongs to the actively-streaming turn. Forwarded to
+   *  `TranscriptMessageBody` so the streaming message's last tool-call group
+   *  defaults open. History rows leave it `false`. */
+  isStreaming?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -78,28 +75,22 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
-  onSecretSubmit,
-  onConfirmationDecision,
-  onRetryError,
   onForkConversation,
   onInspectMessage,
-  renderPendingSecret,
-  renderPendingConfirmation,
-  renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -109,21 +100,21 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantDisplayName={assistantDisplayName}
           expandedToolCallIds={expandedToolCallIds}
           expandedCardIds={expandedCardIds}
+          expandedThinkingKeys={expandedThinkingKeys}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
           onInspectMessage={onInspectMessage}
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}
           onDismissUnknownNudge={onDismissUnknownNudge}
-          isSubmittingConfirmation={isSubmittingConfirmation}
           onConfirmationSubmit={onConfirmationSubmit}
           onAllowAndCreateRule={onAllowAndCreateRule}
-          pendingConfirmationToolCallId={pendingConfirmationToolCallId}
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
           onSubagentClick={onSubagentClick}
           onStopSubagent={onStopSubagent}
+          isStreaming={isStreaming}
         />
       );
 
@@ -135,6 +126,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
+          assistantDisplayName={assistantDisplayName}
         />
       );
 
@@ -175,51 +167,13 @@ export const TranscriptRow = memo(function TranscriptRow({
       );
 
     case "pendingSecret":
-      if (renderPendingSecret) {
-        return <>{renderPendingSecret(item.requestId)}</>;
-      }
-      return (
-        <MinimalSecretPrompt
-          requestId={item.requestId}
-          onSubmit={onSecretSubmit}
-        />
-      );
+      return <PendingSecretRow />;
 
     case "pendingConfirmation":
-      if (renderPendingConfirmation) {
-        return <>{renderPendingConfirmation(item.requestId)}</>;
-      }
-      return (
-        <MinimalConfirmationPrompt
-          requestId={item.requestId}
-          onDecision={onConfirmationDecision}
-        />
-      );
+      return <PendingConfirmationRow />;
 
     case "pendingContactRequest":
-      if (renderPendingContactRequest) {
-        return <>{renderPendingContactRequest(item.requestId)}</>;
-      }
-      // Minimal fallback — full UI provided via renderPendingContactRequest in AssistantPageClient.
-      return (
-        // typography: off-scale — compact card fallback, not prose
-         
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--surface-secondary)] p-4 text-sm text-[var(--content-secondary)]">
-          {item.label ?? "Enter contact info"}
-        </div>
-      );
-
-    case "error":
-      // Mirrors the `{error && <Notice tone="error">{error}</Notice>}` from
-      // AssistantPageClient.tsx. `onRetryError` is wired as the dismiss
-      // handler so the user has a visible retry/ack affordance; the legacy
-      // path elides the close button, which is acceptable here because the
-      // error item is synthesized only after retries are exhausted.
-      return (
-        <Notice tone="error" onDismiss={onRetryError}>
-          {item.message}
-        </Notice>
-      );
+      return <PendingContactRequestRow />;
 
     case "onboardingChoice":
       if (renderOnboardingChoice) {
@@ -235,77 +189,3 @@ export const TranscriptRow = memo(function TranscriptRow({
     }
   }
 });
-
-// ---------------------------------------------------------------------------
-// Minimal built-in prompts. These are intentionally bare-bones — PR 7 passes
-// the real `SecretPromptCard` / `ConfirmationPromptCard` via render props.
-// ---------------------------------------------------------------------------
-
-function MinimalSecretPrompt({
-  requestId,
-  onSubmit,
-}: {
-  requestId: string;
-  onSubmit: (requestId: string, value: string) => void;
-}) {
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const form = e.currentTarget;
-        const input = form.elements.namedItem("secret");
-        if (input instanceof HTMLInputElement) {
-          onSubmit(requestId, input.value);
-        }
-      }}
-      className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3"
-    >
-      <input
-        type="password"
-        name="secret"
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-         
-        className="flex-1 rounded-md border border-[var(--border-base)] bg-white px-2 py-1 text-sm"
-      />
-      <button
-        type="submit"
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-         
-        className="rounded-md bg-[var(--primary-base)] px-3 py-1 text-sm font-medium text-[var(--content-inset)]"
-      >
-        Save
-      </button>
-    </form>
-  );
-}
-
-function MinimalConfirmationPrompt({
-  requestId,
-  onDecision,
-}: {
-  requestId: string;
-  onDecision: (requestId: string, decision: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-3">
-      <button
-        type="button"
-        onClick={() => onDecision(requestId, "allow")}
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-         
-        className="rounded-md bg-[var(--system-positive-strong)] px-3 py-1 text-sm font-medium text-white"
-      >
-        Allow
-      </button>
-      <button
-        type="button"
-        onClick={() => onDecision(requestId, "deny")}
-        // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-         
-        className="rounded-md border border-[var(--system-negative-strong)] px-3 py-1 text-sm font-medium text-[var(--system-negative-strong)]"
-      >
-        Deny
-      </button>
-    </div>
-  );
-}

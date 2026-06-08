@@ -12,9 +12,14 @@
 
 import { create } from "zustand";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
 import { isActiveStatus } from "@/utils/subagent-status";
+import { fetchSubagentDetail } from "./fetch-subagent-detail";
+import { mapDetailEvents } from "./map-detail-events";
 
 // ---------------------------------------------------------------------------
 // State
@@ -96,6 +101,13 @@ export interface SubagentState {
    * re-render.
    */
   byToolUseId: Map<string, string>;
+  /**
+   * Tracks which subagents have had their detail fetched, keyed by
+   * subagentId → spawnedAt at fetch time. Prevents redundant network
+   * requests while still allowing re-fetches when store rebuilds
+   * (e.g. background TanStack Query refetches) produce a new spawnedAt.
+   */
+  fetchedAt: Map<string, number>;
 }
 
 /** Stable empty array returned for parent ids with no spawned subagents.
@@ -154,7 +166,7 @@ export interface SubagentActions {
    * so those entries are reachable under the server id after the parent
    * message reconciles. No-op when stableId === messageId, when no entry
    * matches, or when the entry already carries that parentMessageId. Strengthens
-   * the positional/byParent fallback; the toolUseId anchor (PR 2/3) is primary.
+   * the positional/byParent fallback; the toolUseId anchor is primary.
    */
   reanchorToMessage: (params: { stableId: string; messageId: string }) => void;
 
@@ -164,6 +176,21 @@ export interface SubagentActions {
     outputTokens: number;
     estimatedCost: number;
   }) => void;
+
+  /**
+   * Fetch detail from the daemon for a single subagent if not already
+   * fetched (or if the entry was rebuilt with a newer spawnedAt).
+   * Dedup state lives in the store so it survives component lifecycle.
+   * Clears the marker on failure or empty events so callers can retry.
+   */
+  fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
+
+  /**
+   * Best-effort abort of a running subagent. Reads `assistantId` and
+   * `activeConversationId` from their respective stores via `.getState()`
+   * so callers don't need to pass or close over those values.
+   */
+  abortSubagent: (subagentId: string) => Promise<void>;
 
   reset: () => void;
 }
@@ -180,6 +207,7 @@ const INITIAL_STATE: SubagentState = {
   terminalUsageIds: new Set<string>(),
   byParent: new Map<string, SubagentEntry[]>(),
   byToolUseId: new Map<string, string>(),
+  fetchedAt: new Map<string, number>(),
 };
 
 /** Parent-id keys an entry contributes to in the `byParent` index. */
@@ -541,6 +569,65 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
+  fetchDetailIfNeeded: async (assistantId, subagentId) => {
+    const { byId, fetchedAt } = get();
+    const entry = byId[subagentId];
+    if (!entry?.conversationId) return;
+    if (entry.events.length > 0) return;
+
+    const prev = fetchedAt.get(subagentId);
+    if (prev !== undefined && prev >= entry.spawnedAt) return;
+
+    // Mark as fetched before the await to prevent concurrent duplicates.
+    const nextFetchedAt = new Map(fetchedAt);
+    nextFetchedAt.set(subagentId, entry.spawnedAt);
+    set({ fetchedAt: nextFetchedAt });
+
+    const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+
+    const clearMarker = () => {
+      const next = new Map(get().fetchedAt);
+      next.delete(subagentId);
+      set({ fetchedAt: next });
+    };
+
+    if (!detail) {
+      clearMarker();
+      return;
+    }
+
+    const events = mapDetailEvents(detail.events);
+
+    if (events.length === 0) {
+      clearMarker();
+    }
+
+    get().loadDetail({
+      subagentId,
+      status: detail.status,
+      objective: detail.objective,
+      inputTokens: detail.usage?.inputTokens,
+      outputTokens: detail.usage?.outputTokens,
+      totalCost: detail.usage?.estimatedCost,
+      events,
+    });
+  },
+
+  abortSubagent: async (subagentId) => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    const activeConversationId = useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) return;
+    try {
+      await subagentsByIdAbortPost({
+        path: { assistant_id: assistantId, id: subagentId },
+        body: { conversationId: activeConversationId },
+        throwOnError: true,
+      });
+    } catch {
+      // Best-effort — the daemon may have already completed
+    }
+  },
+
   reset: () =>
     set({
       byId: {},
@@ -548,6 +635,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       terminalUsageIds: new Set<string>(),
       byParent: new Map<string, SubagentEntry[]>(),
       byToolUseId: new Map<string, string>(),
+      fetchedAt: new Map<string, number>(),
     }),
 }));
 

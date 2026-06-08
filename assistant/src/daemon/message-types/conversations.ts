@@ -2,10 +2,12 @@
 
 import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
+import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
 import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
 import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
+import type { UsageUpdateEvent } from "../../api/events/usage-update.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -423,19 +425,6 @@ export interface UndoComplete {
   conversationId?: string;
 }
 
-export interface UsageUpdate {
-  type: "usage_update";
-  conversationId: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  estimatedCost: number;
-  model: string;
-  contextWindowTokens?: number;
-  contextWindowMaxTokens?: number;
-}
-
 /**
  * Emitted after each LLM call with per-call token deltas and estimated cost.
  * Clients accumulate these additively for live-updating usage metrics.
@@ -508,53 +497,6 @@ export interface ContextCompacted {
  * `ChatViewModel`.
  */
 
-export type ConversationErrorCode =
-  | "PROVIDER_NETWORK"
-  | "PROVIDER_RATE_LIMIT"
-  | "MANAGED_USAGE_LIMIT"
-  | "PROVIDER_OVERLOADED"
-  | "PROVIDER_API"
-  | "IMAGE_TOO_LARGE"
-  | "PROVIDER_BILLING"
-  | "PROVIDER_ORDERING"
-  | "PROVIDER_WEB_SEARCH"
-  | "PROVIDER_NOT_CONFIGURED"
-  | "PROVIDER_INVALID_KEY"
-  | "MANAGED_KEY_INVALID"
-  | "CONTEXT_TOO_LARGE"
-  | "BUDGET_YIELD_UNRECOVERED"
-  | "MAX_TOKENS_REACHED"
-  | "CONVERSATION_ABORTED"
-  | "CONVERSATION_PROCESSING_FAILED"
-  | "DISK_SPACE_CRITICAL"
-  | "REGENERATE_FAILED"
-  | "UNKNOWN";
-
-export interface ConversationErrorMessage {
-  type: "conversation_error";
-  conversationId: string;
-  code: ConversationErrorCode;
-  userMessage: string;
-  retryable: boolean;
-  debugDetails?: string;
-  /** Machine-readable error category for log report metadata and triage. */
-  errorCategory?: string;
-  /**
-   * Name of the `provider_connections` row in play when the error occurred.
-   * Surfaced by the macOS chat banner so users know which connection to fix
-   * (e.g. an invalid API key on `my-anthropic`). Optional because some
-   * errors fire before a connection is resolved.
-   */
-  connectionName?: string;
-  /**
-   * Name of the resolved profile (`llm.activeProfile` or per-call override)
-   * in play when the error occurred. Lets the macOS chat banner point
-   * users at the right profile even when the connection name is generic.
-   * Optional because some errors fire before a profile is resolved.
-   */
-  profileName?: string;
-}
-
 /** Server push — broadcast when a schedule creates a conversation. */
 export interface ScheduleConversationCreated {
   type: "schedule_conversation_created";
@@ -607,13 +549,13 @@ export type _ConversationsServerMessages =
   | ModelInfo
   | HistoryResponse
   | UndoComplete
-  | UsageUpdate
+  | UsageUpdateEvent
   | UsageProgress
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent
-  | ConversationErrorMessage
+  | ConversationErrorEvent
   | ConversationInfo
   | ConversationTitleUpdatedEvent
   | ConversationListResponse

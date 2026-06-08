@@ -79,6 +79,13 @@ export interface RunLongMemEvalV2UnitInput {
   sessionId?: string;
   /** Optional human-readable session label. */
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`.
+   * Forwarded onto every `RunMetadata` so the report UI can show the
+   * exact command that produced the run. Undefined when invoked
+   * programmatically.
+   */
+  cliArgv?: string[];
   /** Caller's progress reporter. We tee every event to disk + heartbeat. */
   progress?: EvalProgressReporter;
   /**
@@ -175,6 +182,7 @@ export async function runLongMemEvalV2Unit(
 ): Promise<EvalRunResult> {
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
+  const cliArgv = input.cliArgv;
 
   // Shared with `runEvalOnce` — wrapped reporter + 5s heartbeat ticker.
   // `dispose()` in the `finally` below stops the ticker (idempotent).
@@ -206,6 +214,7 @@ export async function runLongMemEvalV2Unit(
       runId: input.runId,
       sessionId,
       sessionLabel,
+      cliArgv,
       profileId: input.profile.id,
       testId: input.item.questionId,
       status: "running",

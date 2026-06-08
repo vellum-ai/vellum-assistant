@@ -1,41 +1,47 @@
 import {
-  AlertTriangle,
-  Bell,
-  BellOff,
-  Check,
-  CheckCheck,
-  Loader2,
-  Moon,
+    AlertTriangle,
+    Bell,
+    BellOff,
+    Check,
+    CheckCheck,
+    Loader2,
+    Moon,
 } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { BottomSheet } from "@vellum/design-library/components/bottom-sheet";
-import { Input } from "@vellum/design-library/components/input";
-import { Menu } from "@vellum/design-library/components/menu";
-import { Notice } from "@vellum/design-library/components/notice";
-import { PanelItem } from "@vellum/design-library/components/panel-item";
-import { Popover } from "@vellum/design-library/components/popover";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  organizationsNotificationsAcknowledgeCreateMutation,
-  organizationsNotificationsListOptions,
-  organizationsNotificationsListQueryKey,
-  organizationsNotificationsPauseRulesCreateMutation,
-  organizationsNotificationsPauseRulesDestroyMutation,
-  organizationsNotificationsSnoozeCreateMutation,
-  organizationsNotificationsSummaryRetrieveQueryKey,
+    SNOOZE_OPTIONS,
+    formatRelativeDate,
+    invalidateNotificationQueries,
+    isSnoozed,
+} from "@/domains/settings/utils/notification";
+import {
+    organizationsNotificationsAcknowledgeCreateMutation,
+    organizationsNotificationsListOptions,
+    organizationsNotificationsPauseRulesCreateMutation,
+    organizationsNotificationsPauseRulesDestroyMutation,
+    organizationsNotificationsSnoozeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  NotificationList,
-  PauseRuleRead,
+    NotificationList,
+    PauseRuleRead,
 } from "@/generated/api/types.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-  SNOOZE_OPTIONS,
-  formatRelativeDate,
-  isSnoozed,
-} from "@/domains/settings/utils/notification";
+    useActiveAssistantIsPlatformHosted,
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { routes } from "@/utils/routes";
+import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
+import { Input } from "@vellumai/design-library/components/input";
+import { Menu } from "@vellumai/design-library/components/menu";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { PanelItem } from "@vellumai/design-library/components/panel-item";
+import { Popover } from "@vellumai/design-library/components/popover";
 
 interface SnoozeMenuProps {
   notificationId: string;
@@ -55,14 +61,7 @@ function SnoozeMenu({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  };
+  const invalidate = () => invalidateNotificationQueries(queryClient);
 
   const handleSnooze = async (hours: number) => {
     const now = new Date();
@@ -174,14 +173,7 @@ function PauseAlertsContent({
   );
   const [reason, setReason] = useState("");
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  };
+  const invalidate = () => invalidateNotificationQueries(queryClient);
 
   const handleCreate = async () => {
     const now = new Date();
@@ -406,6 +398,26 @@ function NotificationCard({
 type StatusFilter = "open" | "resolved";
 
 export function NotificationsPage() {
+  // platformHostedOnly: the standard gate would still resolve to "full" for
+  // a logged-in platform session pointed at a self-hosted assistant (i.e.
+  // platform-mode app + `is_local: true` API response → lifecycle
+  // `kind: "self_hosted"`), which is exactly the case we need to hide.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so a
+  // fresh deep-link to this page renders with the lifecycle still in
+  // `{ kind: "loading" }`. The gate above returns `"full"` during that
+  // window (no UI flicker on the page chrome), but firing the org
+  // notifications request before lifecycle resolves to platform-hosted
+  // would still hit a self-hosted assistant in the race window. Pair
+  // the gate value with a strict "positively resolved as platform-hosted"
+  // check in the query's `enabled`.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Race-window indicator for UX (showLoading, pause-popover auto-close).
+  // Narrow to the genuine lifecycle-loading window: in already-resolved
+  // non-hosted states (`retired`, `error`, `awaiting_version_selection`)
+  // the query is disabled (above), `data` is undefined → notifications
+  // = []; the empty-state branch should render, not a stuck spinner.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -413,13 +425,71 @@ export function NotificationsPage() {
   const [pauseOpen, setPauseOpen] = useState(false);
   const [pauseRules, setPauseRules] = useState<PauseRuleRead[]>([]);
 
-  const { data, isLoading, isError, refetch } = useQuery(
-    organizationsNotificationsListOptions({
+  // Notifications are an organization-scoped platform concept — they have no
+  // meaningful behavior when the active assistant is self-hosted. The query
+  // requires BOTH (a) `platformGate === "full"` (UI is rendering the live
+  // surface, not chrome+notice) AND (b) lifecycle positively resolved as
+  // platform-hosted (so we never fire during the `loading` window on a
+  // deep-link to settings).
+  const {
+    data,
+    isLoading: queryIsLoading,
+    isError: queryIsError,
+    refetch,
+  } = useQuery({
+    ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
-  );
+    enabled: platformGate === "full" && isPlatformHosted,
+  });
 
-  const notifications = data?.results ?? [];
+  // `useQuery` with `enabled: false` reports `isLoading: false`, so during
+  // the lifecycle-loading race we need to compute "still loading"
+  // ourselves — otherwise the render falls through to the empty state
+  // ("No open notifications") AND mutation-firing controls (pause-rules
+  // popover) render interactively. Treat the lifecycle-loading window
+  // as loading: hide / disable mutation triggers, show the loading
+  // spinner. After the lifecycle resolves (any kind), this falls back
+  // to the query's own `isLoading` signal.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
+  const isLoading = isPlatformHosted ? queryIsLoading : false;
+  const showLoading = isResolving || isLoading;
+
+  // The pause-alerts trigger is unmounted whenever `!isPlatformHosted`
+  // (below) — that covers both the race window AND already-resolved
+  // non-hosted states like `retired` / `error` / `awaiting_version_selection`,
+  // where the org-scoped pause-rules mutation has no valid target. Reset
+  // `pauseOpen` on the same condition so the popover doesn't re-mount
+  // with stale `open={true}` when `isPlatformHosted` flips back true
+  // (assistant switch back to hosted, etc.). The structural unmount
+  // already closes the popover; this keeps the state honest.
+  useEffect(() => {
+    if (!isPlatformHosted && pauseOpen) {
+      setPauseOpen(false);
+    }
+  }, [isPlatformHosted, pauseOpen]);
+
+  // The `useQuery` is `enabled: false` in any non-hosted state, but React
+  // Query keeps the observer state alive: `data`, `isError`, and the
+  // `refetch()` action all survive (and `refetch()` *bypasses* `enabled`
+  // by design — manual triggers always fire). If the user loaded
+  // notifications while hosted and the lifecycle then moved to a resolved
+  // non-hosted state (`retired`, `error`, `awaiting_version_selection`,
+  // `self_hosted`) in the same session, ANY surviving query status can
+  // render an interactive control whose handler fires an org-scoped
+  // request against an org with no platform-hosted target:
+  //
+  //   - cached `data`  → notification cards render → "Mark all as read"
+  //                      / per-row ack / SnoozeMenu mutations.
+  //   - cached error   → "Failed to load notifications. Retry" button
+  //                      renders → click → manual `refetch()` GET.
+  //
+  // Mirror the `enabled` predicate at the derivation layer for *every*
+  // piece of query state we render. One source of truth (`isPlatformHosted`)
+  // collapses both leak surfaces into a single gate without scattering
+  // `isPlatformHosted &&` checks across the render tree.
+  const isError = isPlatformHosted ? queryIsError : false;
+  const notifications = isPlatformHosted ? (data?.results ?? []) : [];
   const unreadOpen = notifications.filter(
     (n) => !n.is_read && !n.is_resolved,
   );
@@ -430,14 +500,10 @@ export function NotificationsPage() {
   const [ackingIds, setAckingIds] = useState<Set<string>>(new Set());
   const [markingAll, setMarkingAll] = useState(false);
 
-  const invalidateLists = useCallback(() => {
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsListQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
-    });
-  }, [queryClient]);
+  const invalidateLists = useCallback(
+    () => invalidateNotificationQueries(queryClient),
+    [queryClient],
+  );
 
   const handleAck = async (id: string, acknowledged: boolean) => {
     setAckingIds((prev) => new Set(prev).add(id));
@@ -496,8 +562,40 @@ export function NotificationsPage() {
     />
   );
 
+  // The page is fully platform-routed (organization-scoped notifications and
+  // pause-rule APIs). On a self-hosted assistant the page is meaningless,
+  // so redirect to the general settings page instead of rendering null —
+  // a bookmark or shared link should land somewhere reasonable. (Sidebar
+  // entry is already filtered out in `settings-layout.tsx`, so the most
+  // likely way to reach this state is a deep link or browser back/forward.)
+  // Render the page chrome with a login notice when logged out.
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
+
+  if (platformGate === "disabled") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
+          <div className="flex-1">
+            <h2 className="text-title-medium text-[var(--content-default)]">
+              Notifications
+            </h2>
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              Platform alerts and status notifications
+            </p>
+          </div>
+        </div>
+        <Notice tone="info">
+          Log in to the Vellum platform to view notifications.
+        </Notice>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-[940px] space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
         <div className="flex-1">
@@ -508,37 +606,55 @@ export function NotificationsPage() {
             Platform alerts and status notifications
           </p>
         </div>
-        {isMobile ? (
-          <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
-            <BottomSheet.Content>
-              <BottomSheet.Header>
-                <BottomSheet.Title>Pause alerts</BottomSheet.Title>
-              </BottomSheet.Header>
-              <BottomSheet.Body>
-                <PauseAlertsContent
-                  existingRules={pauseRules}
-                  onClose={() => setPauseOpen(false)}
-                  onPauseCreated={(rule) =>
-                    setPauseRules((prev) => [...prev, rule])
-                  }
-                  onPauseDeleted={(ruleId) =>
-                    setPauseRules((prev) =>
-                      prev.filter((r) => r.id !== ruleId),
-                    )
-                  }
-                  hideTitle
-                />
-              </BottomSheet.Body>
-            </BottomSheet.Content>
-          </BottomSheet.Root>
-        ) : (
-          <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
-            <Popover.Content align="end" className="w-72">
-              {pauseContent}
-            </Popover.Content>
-          </Popover.Root>
+        {/*
+          Hide the pause-alerts trigger unless the lifecycle is positively
+          resolved as platform-hosted. The popover content fires
+          `createRule` mutations against the organization — those have no
+          valid target during the race window OR in already-resolved
+          non-hosted states (`retired`, `error`,
+          `awaiting_version_selection`). Re-renders when `isPlatformHosted`
+          flips, so the control appears as soon as we know it's safe.
+          (Other mutation-firing controls on this page — "Mark all as
+          read", per-row ack, snooze — are gated by data-availability:
+          `notifications` is explicitly forced to `[]` when
+          `!isPlatformHosted` (see derivation above), which covers both
+          the disabled-query case AND the surviving-cache case where the
+          user loaded notifications while hosted then transitioned to a
+          resolved non-hosted state in the same session.)
+        */}
+        {isPlatformHosted && (
+          isMobile ? (
+            <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
+              <BottomSheet.Content>
+                <BottomSheet.Header>
+                  <BottomSheet.Title>Pause alerts</BottomSheet.Title>
+                </BottomSheet.Header>
+                <BottomSheet.Body>
+                  <PauseAlertsContent
+                    existingRules={pauseRules}
+                    onClose={() => setPauseOpen(false)}
+                    onPauseCreated={(rule) =>
+                      setPauseRules((prev) => [...prev, rule])
+                    }
+                    onPauseDeleted={(ruleId) =>
+                      setPauseRules((prev) =>
+                        prev.filter((r) => r.id !== ruleId),
+                      )
+                    }
+                    hideTitle
+                  />
+                </BottomSheet.Body>
+              </BottomSheet.Content>
+            </BottomSheet.Root>
+          ) : (
+            <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
+              <Popover.Content align="end" className="w-72">
+                {pauseContent}
+              </Popover.Content>
+            </Popover.Root>
+          )
         )}
       </div>
 
@@ -585,7 +701,7 @@ export function NotificationsPage() {
         )}
       </div>
 
-      {isLoading ? (
+      {showLoading ? (
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading notifications…

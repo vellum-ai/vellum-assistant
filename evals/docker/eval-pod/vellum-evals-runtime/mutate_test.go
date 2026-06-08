@@ -457,3 +457,43 @@ func TestMutateConfig_RealisticConfig(t *testing.T) {
 		t.Errorf("process.noNewPrivileges lost: %v", process["noNewPrivileges"])
 	}
 }
+
+// ---- opt-in gate (mitmOptIn) ----
+
+// TestMitmOptIn verifies the create-path gate: only a spec whose
+// ai.vellum.evals.mitm annotation is truthy authorizes the rewrite; every
+// other shape (missing annotation, false/empty value, no annotations block,
+// invalid JSON) is treated as "not opted in" so the container is left alone.
+func TestMitmOptIn(t *testing.T) {
+	// GIVEN a table of OCI config.json shapes and the opt-in verdict each
+	// should produce
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"annotation = 1", `{"annotations": {"ai.vellum.evals.mitm": "1"}}`, true},
+		{"annotation = true", `{"annotations": {"ai.vellum.evals.mitm": "true"}}`, true},
+		{"annotation = TRUE (case-insensitive)", `{"annotations": {"ai.vellum.evals.mitm": "TRUE"}}`, true},
+		{"annotation = true with whitespace", `{"annotations": {"ai.vellum.evals.mitm": " true "}}`, true},
+		{"annotation = 0", `{"annotations": {"ai.vellum.evals.mitm": "0"}}`, false},
+		{"annotation = false", `{"annotations": {"ai.vellum.evals.mitm": "false"}}`, false},
+		{"annotation empty string", `{"annotations": {"ai.vellum.evals.mitm": ""}}`, false},
+		{"different annotation key", `{"annotations": {"other.key": "1"}}`, false},
+		{"annotations block absent", `{"process": {"env": []}}`, false},
+		{"empty spec", `{}`, false},
+		{"invalid JSON", `{ not json`, false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// WHEN we evaluate the opt-in gate against the spec bytes
+			got := mitmOptIn([]byte(c.in))
+
+			// THEN the verdict matches the fail-safe expectation
+			if got != c.want {
+				t.Errorf("mitmOptIn(%s) = %v; want %v", c.in, got, c.want)
+			}
+		})
+	}
+}

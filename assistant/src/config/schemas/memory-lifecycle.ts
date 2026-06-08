@@ -165,6 +165,30 @@ export const MemoryCleanupConfigSchema = z
   })
   .describe("Automatic memory cleanup and garbage collection settings");
 
+export const MemoryMaintenanceConfigSchema = z
+  .object({
+    intervalMs: z
+      .number({ error: "memory.maintenance.intervalMs must be a number" })
+      .int("memory.maintenance.intervalMs must be an integer")
+      .positive("memory.maintenance.intervalMs must be a positive integer")
+      .default(24 * 60 * 60 * 1000)
+      .describe(
+        "Minimum interval between database maintenance (VACUUM / PRAGMA optimize) runs, in milliseconds",
+      ),
+    quietPeriodMs: z
+      .number({ error: "memory.maintenance.quietPeriodMs must be a number" })
+      .int("memory.maintenance.quietPeriodMs must be an integer")
+      .nonnegative("memory.maintenance.quietPeriodMs must be non-negative")
+      .default(3 * 60 * 60 * 1000)
+      .describe(
+        "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so the VACUUM's exclusive lock never collides with an active user (0 disables the quiet-period gate)",
+      ),
+  })
+  .describe("Database maintenance (VACUUM / PRAGMA optimize) scheduling");
+
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
+export type MemoryMaintenanceConfig = z.infer<
+  typeof MemoryMaintenanceConfigSchema
+>;

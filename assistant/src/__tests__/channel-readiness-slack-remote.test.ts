@@ -47,10 +47,6 @@ mock.module("../calls/twilio-config.js", () => ({
   resolveTwilioPhoneNumber: () => undefined,
 }));
 
-mock.module("../email/feature-gate.js", () => ({
-  isEmailEnabled: () => false,
-}));
-
 mock.module("./channel-invite-transports/whatsapp.js", () => ({
   resolveWhatsAppDisplayNumber: () => undefined,
 }));
@@ -83,9 +79,8 @@ afterEach(() => {
 });
 
 async function runSlackRemoteProbe() {
-  const { createReadinessService } = await import(
-    "../runtime/channel-readiness-service.js"
-  );
+  const { createReadinessService } =
+    await import("../runtime/channel-readiness-service.js");
   const service = createReadinessService();
   return service.getReadiness("slack", true);
 }

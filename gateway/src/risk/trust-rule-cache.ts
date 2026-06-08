@@ -1,7 +1,4 @@
-import {
-  TrustRuleStore,
-  type TrustRule,
-} from "../db/trust-rule-store.js";
+import { TrustRuleStore, type TrustRule } from "../db/trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
 // Cache class
@@ -42,19 +39,47 @@ class TrustRuleCache {
    *    (e.g. `/usr/bin/rm` -> `rm`) and retry exact match
    * 3. Subcommand match: for multi-word commands (e.g. `git push`),
    *    try progressively shorter prefixes (`"git push"` then `"git"`)
+   *
+   * Each key is probed in both the literal and `action:`-prefixed dialect. The
+   * rule editor persists generalized bash patterns with an `action:` prefix
+   * (e.g. `action:git push`, produced by `scopeOptionsToAllowlistOptions`),
+   * while the keys passed here are the bare action key the classifier resolves
+   * from the command. Without the prefix-aware lookup, every generalized bash
+   * trust rule created from any client (web, macOS, iOS, CLI) would silently
+   * fail to match, since the save path and the matcher use different dialects.
+   *
+   * At a given key a user-authored rule (either dialect) wins over a seeded
+   * registry default — otherwise a user-saved `action:git push` would be
+   * shadowed by the seeded literal `git push` it was meant to override. The
+   * most specific key still wins overall, so a more specific seeded default
+   * (e.g. `git push`) is preserved over a broader user rule (e.g. `action:git`);
+   * that broader rule still applies to subcommands without their own default.
    */
   findBaseRisk(tool: string, command: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
 
+    const isUserRule = (rule: TrustRule | undefined): rule is TrustRule =>
+      !!rule && (rule.userModified || rule.origin === "user_defined");
+
+    // At each key, prefer a user-authored rule (literal or `action:`) over a
+    // seeded default; otherwise resolve the literal, then its `action:` sibling.
+    const lookup = (key: string): TrustRule | undefined => {
+      const literal = toolMap.get(key);
+      const action = toolMap.get(`action:${key}`);
+      if (isUserRule(literal)) return literal;
+      if (isUserRule(action)) return action;
+      return literal ?? action;
+    };
+
     // 1. Exact match
-    const exact = toolMap.get(command);
+    const exact = lookup(command);
     if (exact) return exact;
 
     // 2. Path-stripped match: /usr/bin/rm -> rm
     const stripped = this.stripPath(command);
     if (stripped !== command) {
-      const strippedMatch = toolMap.get(stripped);
+      const strippedMatch = lookup(stripped);
       if (strippedMatch) return strippedMatch;
     }
 
@@ -64,7 +89,7 @@ class TrustRuleCache {
     const parts = resolvedCommand.split(/\s+/);
     for (let i = parts.length - 1; i >= 1; i--) {
       const subcommand = parts.slice(0, i).join(" ");
-      const match = toolMap.get(subcommand);
+      const match = lookup(subcommand);
       if (match) return match;
     }
 
@@ -72,13 +97,24 @@ class TrustRuleCache {
   }
 
   /**
-   * Look up a tool override rule by exact (tool, pattern) match.
-   * Used for non-bash classifiers (file, web, skill, schedule).
+   * Look up a tool override rule for a non-bash classifier (file, web, skill,
+   * schedule).
+   *
+   * Matches the literal pattern first, then its `<tool>:`-prefixed form. The
+   * rule editor's allowlist options for these tools carry a tool-name prefix
+   * (e.g. `skill_load:my-skill`, `file_read:/path`, produced by the skill/file
+   * classifiers' allowlist builders), and the web client — shared by iOS —
+   * persists that pattern verbatim, while the classifier resolves the bare
+   * selector (skill id, file path, URL). Without the prefix-aware fallback,
+   * every such rule created from those clients would silently fail to match.
+   * This mirrors the `action:`-prefix handling in {@link findBaseRisk}; the
+   * macOS client and the seeded defaults persist bare patterns, which still
+   * match on the first lookup.
    */
   findToolOverride(tool: string, pattern: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
-    return toolMap.get(pattern) ?? null;
+    return toolMap.get(pattern) ?? toolMap.get(`${tool}:${pattern}`) ?? null;
   }
 
   /**

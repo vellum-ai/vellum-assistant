@@ -14,6 +14,7 @@ import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -94,17 +95,11 @@ function isInvalidMessage(message: DisplayMessage): boolean {
   // Any meaningful signal short-circuits as valid. Without one of these the
   // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
   // that the daemon's renderer already stripped).
-  if (message.content && message.content.trim().length > 0) return false;
-  if (
-    message.textSegments?.some(
-      (s) => typeof s.content === "string" && s.content.trim().length > 0,
-    )
-  )
-    return false;
+  if (message.textSegments?.some((s) => s.trim().length > 0)) return false;
   if (message.surfaces && message.surfaces.length > 0) return false;
   if (message.attachments && message.attachments.length > 0) return false;
   if (message.slackMessage) return false;
-  if (message.toolCalls?.some((tc) => tc.toolName !== "unknown")) return false;
+  if (message.toolCalls?.some((tc) => tc.name !== "unknown")) return false;
 
   return true;
 }
@@ -125,9 +120,8 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 //   - the trailing row has SOMETHING substantive to render — at least one of
 //     `textSegments`/`toolCalls` is non-empty. Guards against accidentally
 //     dropping two empty placeholders that happen to be sequentially equal,
-//   - their `textSegments` arrays match position-for-position on `type` and
-//     `content`,
-//   - their `toolCalls` arrays match position-for-position on `toolName` and
+//   - their `textSegments` arrays match position-for-position,
+//   - their `toolCalls` arrays match position-for-position on `name` and
 //     `result`.
 // When all four hold, drop the trailing row.
 //
@@ -161,10 +155,7 @@ function textSegmentsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   const bSegs = b.textSegments ?? [];
   if (aSegs.length !== bSegs.length) return false;
   for (let i = 0; i < aSegs.length; i++) {
-    const aSeg = aSegs[i]!;
-    const bSeg = bSegs[i]!;
-    if (aSeg.type !== bSeg.type) return false;
-    if (aSeg.content !== bSeg.content) return false;
+    if (aSegs[i] !== bSegs[i]) return false;
   }
   return true;
 }
@@ -176,7 +167,7 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   for (let i = 0; i < aTcs.length; i++) {
     const aTc = aTcs[i]!;
     const bTc = bTcs[i]!;
-    if (aTc.toolName !== bTc.toolName) return false;
+    if (aTc.name !== bTc.name) return false;
     if (aTc.result !== bTc.result) return false;
   }
   return true;
@@ -201,11 +192,10 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
 //   - the parent message is NOT the last assistant in the transcript (the
 //     last assistant may still be streaming; its dangling tools could
 //     legitimately resolve via an in-flight `tool_result`),
-//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
+//   - `isToolCallRunning(tool_call)` (the UI's canonical "no result yet"
 //     signal — see `tool-call-chip.tsx`'s `isRunning`).
-// When all three hold, mutate the tool call to:
-//   - `status: "error"`,
-//   - `isError: true`,
+// When all three hold, mutate the tool call to set `isError: true` (so the
+// derived status becomes `"error"`) plus a synthetic result:
 //   - `result: SYNTHETIC_DANGLING_RESULT` (explains the client-side data loss
 //     so a feedback report shows the root cause, not a vague tool failure).
 //
@@ -255,7 +245,9 @@ function findLastAssistantIndex(messages: DisplayMessage[]): number {
 }
 
 function hasDanglingToolCall(message: DisplayMessage): boolean {
-  return message.toolCalls?.some((tc) => tc.status === "running") ?? false;
+  return (
+    message.toolCalls?.some((tc) => isToolCallRunning(tc)) ?? false
+  );
 }
 
 function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
@@ -266,10 +258,11 @@ function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
 }
 
 function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
-  if (tc.status !== "running") return tc;
+  if (!isToolCallRunning(tc)) {
+    return tc;
+  }
   return {
     ...tc,
-    status: "error",
     isError: true,
     result: SYNTHETIC_DANGLING_RESULT,
   };
@@ -291,7 +284,7 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 // daemon-side delivery delay).
 //
 // Predicate (must ALL hold for a tool call to be patched):
-//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
+//   - `isToolCallRunning(tool_call)` (the UI's canonical "no result yet"
 //     signal — see `tool-call-chip.tsx`'s `isRunning`),
 //   - `tool_call.startedAt` is set (else we have no clock to measure
 //     against; typically only happens for tool calls hydrated from a
@@ -310,8 +303,7 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 // server still considers in-flight.
 //
 // When all four hold, mutate the tool call to:
-//   - `status: "error"`,
-//   - `isError: true`,
+//   - `isError: true` (so the derived status becomes `"error"`),
 //   - `result: SYNTHETIC_STALE_RESULT` (explains the client-side timeout
 //     so a feedback report shows the root cause).
 //
@@ -376,8 +368,12 @@ function withStaleToolCallsFailed(
 }
 
 function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
-  if (tc.status !== "running") return false;
-  if (tc.pendingConfirmation) return false;
+  if (!isToolCallRunning(tc)) {
+    return false;
+  }
+  if (tc.pendingConfirmation) {
+    return false;
+  }
   if (tc.startedAt === undefined) return false;
   const effectiveTimeoutMs = DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
   return nowMs - tc.startedAt > effectiveTimeoutMs + STALE_GRACE_MS;
@@ -386,7 +382,6 @@ function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
 function markStale(tc: ChatMessageToolCall): ChatMessageToolCall {
   return {
     ...tc,
-    status: "error",
     isError: true,
     result: SYNTHETIC_STALE_RESULT,
   };

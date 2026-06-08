@@ -1,16 +1,86 @@
 import {
-  MoreHorizontal,
-  Pencil,
-  Trash2,
+    Archive,
+    CircleCheck,
+    MoreHorizontal,
+    Pencil,
+    Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
-import {
-  BottomSheet,
-  PanelItem,
-  Popover,
-} from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import {
+    BottomSheet,
+    ContextMenu,
+    Menu,
+    PanelItem,
+    Popover,
+} from "@vellumai/design-library";
+
+// ---------------------------------------------------------------------------
+// Shared group menu items — used by both the hover popover and the
+// right-click context menu so both surfaces stay in lockstep.
+// ---------------------------------------------------------------------------
+
+export type GroupMenuPrimitive = {
+  Item: typeof Menu.Item | typeof ContextMenu.Item;
+  Separator: typeof Menu.Separator | typeof ContextMenu.Separator;
+};
+
+export interface GroupMenuItemsProps {
+  onMarkAllRead?: () => void;
+  hasUnreadConversations?: boolean;
+  onArchiveAll?: () => void;
+  hasConversations?: boolean;
+  onRename?: () => void;
+  onDelete?: () => void;
+}
+
+export function renderGroupMenuItems({
+  Primitive,
+  onMarkAllRead,
+  hasUnreadConversations = false,
+  onArchiveAll,
+  hasConversations = false,
+  onRename,
+  onDelete,
+}: GroupMenuItemsProps & { Primitive: GroupMenuPrimitive }): ReactNode {
+  const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
+  const hasIndividualActions = onRename != null || onDelete != null;
+
+  return (
+    <>
+      {onMarkAllRead ? (
+        <Primitive.Item
+          leftIcon={<CircleCheck size={14} />}
+          onSelect={onMarkAllRead}
+          disabled={!hasUnreadConversations}
+        >
+          Mark All as Read
+        </Primitive.Item>
+      ) : null}
+      {onArchiveAll ? (
+        <Primitive.Item
+          leftIcon={<Archive size={14} />}
+          onSelect={onArchiveAll}
+          disabled={!hasConversations}
+        >
+          Archive All…
+        </Primitive.Item>
+      ) : null}
+      {hasBulkActions && hasIndividualActions ? <Primitive.Separator /> : null}
+      {onRename ? (
+        <Primitive.Item leftIcon={<Pencil size={14} />} onSelect={onRename}>
+          Rename
+        </Primitive.Item>
+      ) : null}
+      {onDelete ? (
+        <Primitive.Item leftIcon={<Trash2 size={14} />} onSelect={onDelete}>
+          {hasConversations ? "Delete group…" : "Delete group"}
+        </Primitive.Item>
+      ) : null}
+    </>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // GroupActionsMenu — rename/delete context menu for custom group headers

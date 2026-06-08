@@ -1,150 +1,57 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-  type Dispatch,
-  type FormEvent,
-  type ReactNode,
-  type RefObject,
-  type SetStateAction,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
+    type Dispatch,
+    type FormEvent,
+    type ReactNode,
+    type RefObject,
+    type SetStateAction,
+    useCallback,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import { flushSync } from "react-dom";
 
 import {
-  AttachFileButton,
-  ChatAttachmentsStrip,
+    AttachFileButton,
+    ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import { Button, Popover } from "@vellum/design-library";
+import type { ChatAttachment } from "@/domains/chat/composer-store";
+import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
+import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
-  VoiceInputButton,
-  type VoiceInputButtonHandle,
+    VoiceInputButton,
+    type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
-import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
+import { Button, Popover } from "@vellumai/design-library";
 
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, useEmojiSearch, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
-import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
-import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import {
-  applyMarkdownFormatting,
-  matchFormattingShortcut,
+    computeGhostSuffix,
+    shouldSubmitOnEnter,
+} from "@/domains/chat/components/chat-composer/chat-composer-utils";
+import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, type EmojiEntry, useEmojiSearch } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
+import {
+    applyMarkdownFormatting,
+    matchFormattingShortcut,
 } from "@/domains/chat/components/chat-composer/markdown-formatting";
 import {
-  SLASH_PREFIX_RE,
-  filteredCommands,
-  type SlashCommand,
-  selectedInputText,
+    SLASH_PREFIX_RE,
+    type SlashCommand,
+    filteredCommands,
+    selectedInputText,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
-
-// ---------------------------------------------------------------------------
-// Keyboard policy
-// ---------------------------------------------------------------------------
-
-interface ComposerKeyDownPolicy {
-  input: string;
-  canSendAttachments: boolean;
-  sendDisabled: boolean;
-  attachmentsUploadingCount: number;
-  cmdEnterMode: boolean;
-}
-
-/**
- * Pure-logic mirror of the textarea `onKeyDown` policy. Returns whether the
- * Enter keypress should submit the form. Exported for unit tests because the
- * web workspace lacks a DOM-event testing harness — the production handler
- * delegates to this helper to keep behavior in lockstep.
- *
- * Returns:
- *   - `"ignore"`: the event is not Enter-without-shift, IME composition, or
- *     pointer is coarse — let the browser handle the keypress.
- *   - `"submit"`: caller should `preventDefault()` and invoke `onSubmit`.
- *   - `"prevent"`: caller should `preventDefault()` but NOT submit (sendDisabled,
- *     uploading attachments, or no content).
- */
-export function shouldSubmitOnEnter(
-  event: {
-    key: string;
-    shiftKey: boolean;
-    metaKey: boolean;
-    ctrlKey: boolean;
-    isComposing: boolean;
-    keyCode: number;
-  },
-  isPointerCoarse: boolean,
-  policy: ComposerKeyDownPolicy,
-): "ignore" | "submit" | "prevent" {
-  if (event.key !== "Enter" || event.shiftKey) {
-    return "ignore";
-  }
-  // Don't intercept IME composition (CJK input confirmation)
-  if (event.isComposing || event.keyCode === 229) {
-    return "ignore";
-  }
-  // Coarse primary pointer = phone/tablet; fine = mouse/trackpad.
-  // Touch-screen laptops (Surface, etc.) report "fine" and keep desktop
-  // Enter-to-send behavior.
-  if (isPointerCoarse) {
-    return "ignore";
-  }
-  // Cmd+Enter mode: only Cmd+Enter (Mac) or Ctrl+Enter (Win/Linux) submits;
-  // bare Enter inserts a newline.
-  if (policy.cmdEnterMode) {
-    if (!event.metaKey && !event.ctrlKey) return "ignore";
-  }
-  const hasContent = policy.input.trim() || policy.canSendAttachments;
-  if (
-    hasContent &&
-    !policy.sendDisabled &&
-    policy.attachmentsUploadingCount === 0
-  ) {
-    return "submit";
-  }
-  return "prevent";
-}
-
-// ---------------------------------------------------------------------------
-// Ghost-suggestion overlay policy
-// ---------------------------------------------------------------------------
-
-interface GhostSuffixPolicy {
-  pointerCoarse: boolean;
-  suggestion: string | null;
-  input: string;
-  hasAttachments: boolean;
-}
-
-/**
- * Returns the visible suffix of an autocomplete suggestion to render as
- * ghost text behind the textarea, or `null` to render no ghost.
- *
- * Suppressed when the primary pointer is coarse (touch devices): the only
- * acceptance gesture is `Tab`, which is not present on iOS/Android soft
- * keyboards, so rendering the overlay there is purely visual noise — and
- * because the underlying textarea is `rows={1}`, multi-line ghost text
- * gets clipped on narrow viewports.
- *
- * Exported as a pure helper so the policy can be unit-tested without a
- * DOM — the web workspace runs tests under bun without jsdom.
- */
-export function computeGhostSuffix(policy: GhostSuffixPolicy): string | null {
-  if (policy.pointerCoarse) return null;
-  if (!policy.suggestion || policy.hasAttachments) return null;
-  if (policy.suggestion.startsWith(policy.input)) {
-    return policy.suggestion.slice(policy.input.length) || null;
-  }
-  if (!policy.input) return policy.suggestion;
-  return null;
-}
 
 /**
  * Controlled composer used at the bottom of the chat (main variant) and inside
@@ -190,9 +97,23 @@ export interface ChatComposerProps {
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
 
   onStopGenerating: () => void;
+  /**
+   * Whether the active assistant turn can be cancelled. Computed by the
+   * parent from {@link canStopGeneration} which accounts for server-side
+   * processing state (survives page refresh), external-channel streaming,
+   * and the local turn phase. The composer must not derive this locally
+   * because the turn store resets to idle on refresh.
+   */
+  canStopGenerating: boolean;
 
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
+
+  // Active conversation the live-voice session should attach to. Optional —
+  // when absent (e.g. the empty/new-conversation state) live voice still
+  // starts a fresh session for the assistant. The app-editing variant, which
+  // has no voice, leaves this undefined.
+  conversationId?: string | null;
 
   /**
    * Whether the currently-active inference model accepts image input.
@@ -256,7 +177,9 @@ export function ChatComposer({
   onVoiceError,
   onVoiceBeforeStart,
   onStopGenerating,
+  canStopGenerating,
   assistantId,
+  conversationId,
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
@@ -280,6 +203,35 @@ export function ChatComposer({
   });
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
+
+  // ---- Live voice (full-duplex conversation) ----------------------------
+  // Coexists with dictation: `LiveVoiceButton` self-gates on the `voice-mode`
+  // flag, but the transcript surface and the mutual-exclusion wiring below
+  // must also no-op when the flag is off so the composer is byte-identical for
+  // users without the flag. The live-voice button only appears alongside the
+  // dictation button (same `showVoiceInput` precondition + a non-null id).
+  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  const liveVoiceEligible = voiceMode && showVoiceInput && !!assistantId;
+  // Read session state via the store's per-field selectors rather than mounting
+  // a second `useLiveVoice()` controller. The single controller instance lives
+  // in `LiveVoiceButton` (which drives start/stop + owns the unmount-teardown
+  // effect); the composer only ever *reads* the projected state, so two
+  // controllers with competing teardown effects on the same store would be a
+  // footgun. These atomic selectors re-render only on the fields they read.
+  const liveVoiceState = useLiveVoiceStore.use.state();
+  const liveVoicePartial = useLiveVoiceStore.use.partialTranscript();
+  const liveVoiceFinal = useLiveVoiceStore.use.finalTranscript();
+  const liveVoiceAssistant = useLiveVoiceStore.use.assistantTranscript();
+  // Anything but idle/failed counts as an active session; while active the
+  // dictation mic is disabled so the two capture flows never run at once.
+  // `failed` is a retryable/inactive state in `useLiveVoice`/`LiveVoiceButton`,
+  // so we must treat it as inactive — otherwise dictation stays disabled and
+  // the (empty) transcript surface stays mounted after a failed start.
+  const isLiveVoiceActive =
+    liveVoiceEligible &&
+    liveVoiceState !== "idle" &&
+    liveVoiceState !== "failed";
+
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
@@ -303,6 +255,9 @@ export function ChatComposer({
     search: filteredCommands,
   });
 
+  // Cursor position is a DOM property tracked via onSelect; using state
+  // would re-render on every cursor movement.
+  // eslint-disable-next-line react-hooks/refs
   const textBeforeCursor = input.slice(0, cursorRef.current);
   const searchEmoji = useEmojiSearch();
   const emoji = useTextPopup({
@@ -351,9 +306,9 @@ export function ChatComposer({
   );
 
   const phase: TurnPhase = useTurnStore.use.phase();
-  const isGenerating =
+  const isLocallyGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
-  const hideTextareaForVoice = isNative && isVoiceActive && !isGenerating;
+  const hideTextareaForVoice = isNative && isVoiceActive && !isLocallyGenerating;
 
   const ghostSuffix = useMemo(
     () =>
@@ -565,7 +520,7 @@ export function ChatComposer({
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
             </div>
-            {isVoiceActive && !isGenerating && (
+            {isVoiceActive && !isLocallyGenerating && (
               // macOS parity: full-width scrolling waveform between textarea and
               // action bar. Mirrors VStreamingWaveform(.scrolling) in ComposerView.
               // Stays mounted through the `processing` phase with `paused` set so
@@ -596,13 +551,35 @@ export function ChatComposer({
                 )}
               </div>
             )}
+            {isLiveVoiceActive && (
+              // Live-voice transcript surface — distinct from the dictation
+              // interim preview above, which only exists while the dictation
+              // recorder is running. Shows the user's partial/final speech and
+              // the streaming assistant reply for the in-flight turn.
+              <div
+                className="px-4 pb-1 space-y-0.5"
+                aria-label="Live voice transcript"
+                aria-live="polite"
+              >
+                {(liveVoicePartial || liveVoiceFinal) && (
+                  <p className="truncate text-[11px] text-[var(--content-secondary)]">
+                    {liveVoicePartial || liveVoiceFinal}
+                  </p>
+                )}
+                {liveVoiceAssistant && (
+                  <p className="truncate text-[11px] italic text-[var(--content-tertiary)]">
+                    {liveVoiceAssistant}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-1">
                 {thresholdPickerSlot}
                 {contextWindowIndicatorSlot}
               </div>
               <div className="flex items-center gap-1">
-                {isGenerating ? (
+                {canStopGenerating ? (
                   <>
                     {/* Desktop: always show stop. Mobile: show stop only when user has no input. */}
                     {(!isMobile || (!input.trim() && !canSendAttachments)) && (
@@ -652,7 +629,10 @@ export function ChatComposer({
                       <VoiceInputButton
                         ref={voiceInputRef}
                         assistantId={assistantId}
-                        disabled={typingDisabled}
+                        // Mutual exclusion: an active live-voice session
+                        // disables the dictation mic so the two capture flows
+                        // never run simultaneously.
+                        disabled={typingDisabled || isLiveVoiceActive}
                         onTranscript={onVoiceTranscript}
                         onInterimTranscript={onVoiceInterimTranscript}
                         onError={onVoiceError}
@@ -661,6 +641,25 @@ export function ChatComposer({
                           voiceStreamRef.current = stream;
                           setVoiceStream(stream);
                         }}
+                      />
+                    )}
+                    {showVoiceInput && assistantId && (
+                      // Self-gates on the `voice-mode` flag (renders null when
+                      // off — no layout shift). The composer's busy/disabled
+                      // signal only gates the START path; an active session
+                      // stays stoppable even while the composer is otherwise
+                      // busy (see LiveVoiceButton).
+                      //
+                      // Mutual exclusion (reverse direction): while dictation is
+                      // active (`isVoiceActive`) we disable live voice so it
+                      // can't START a second mic/voice session alongside the
+                      // recorder. `LiveVoiceButton` only applies external
+                      // `disabled` to its START path, so an in-flight live-voice
+                      // session is never trapped by this.
+                      <LiveVoiceButton
+                        assistantId={assistantId}
+                        conversationId={conversationId ?? undefined}
+                        disabled={typingDisabled || isVoiceActive}
                       />
                     )}
                     {/* macOS parity: the send button is hidden during recording

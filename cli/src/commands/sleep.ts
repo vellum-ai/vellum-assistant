@@ -82,6 +82,13 @@ export async function sleep(): Promise<void> {
     process.exit(1);
   }
 
+  if (entry.cloud === "paired") {
+    console.error(
+      `Error: '${entry.assistantId}' is a remote assistant paired from another machine — its lifecycle is managed on its host machine, not here. Use \`vellum client ${entry.assistantId}\` to chat with it.`,
+    );
+    process.exit(1);
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
       `Error: 'vellum sleep' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,

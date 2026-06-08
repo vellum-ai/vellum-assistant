@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
+  EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
   type OpenAIChatCompletionsProviderOptions,
 } from "../chat-completions-provider.js";
@@ -346,6 +348,116 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(assistantMsg.content).toBe("visible");
     expect(assistantMsg.reasoning).toBeUndefined();
     expect(assistantMsg.reasoning_content).toBeUndefined();
+  });
+
+  test("backfills placeholder content for a reasoning-only assistant turn when enabled", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      {
+        assistantReasoningField: "reasoning",
+        backfillEmptyAssistantContent: true,
+      },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "truncated chain of thought",
+            signature: "",
+          },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning?: string;
+        tool_calls?: unknown;
+      }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    // content or tool_calls must be set; reasoning alone does not satisfy it.
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+    expect(assistantMsg.tool_calls).toBeUndefined();
+    expect(assistantMsg.reasoning).toBe("truncated chain of thought");
+    // The placeholder is a recognized sentinel, so it is stripped from
+    // persisted/rendered history if a model echoes it back, and it carries no
+    // control characters that a strict OpenAI-compatible backend might reject.
+    expect(isPlaceholderSentinelText(EMPTY_ASSISTANT_TURN_PLACEHOLDER)).toBe(
+      true,
+    );
+    expect(EMPTY_ASSISTANT_TURN_PLACEHOLDER).not.toContain("\x00");
+  });
+
+  test("leaves reasoning-only assistant content null when backfill is disabled", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "truncated chain of thought",
+            signature: "",
+          },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{ role: string; content: string | null }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    // Backfill defaults off, so providers that tolerate null assistant content
+    // (e.g. OpenAI proper) are unaffected by the OpenRouter-specific guard.
+    expect(assistantMsg.content).toBeNull();
+  });
+
+  test("does not backfill content when tool calls are present", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_1", name: "search", input: { q: "x" } },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{ role: string; content: string | null }>;
+    };
+    // Tool-call-only assistant messages keep null content (preferred by
+    // Anthropic-proxy/Bedrock backends); the placeholder is only for the
+    // neither-content-nor-tool_calls case.
+    expect(params.messages[0].content).toBeNull();
   });
 
   test("skips Anthropic-originated thinking blocks (with signatures)", async () => {

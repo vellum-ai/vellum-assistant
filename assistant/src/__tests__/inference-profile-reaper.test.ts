@@ -7,6 +7,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import {
   createConversation,
   getConversation,
@@ -111,6 +116,63 @@ describe("inference-profile-session-reaper", () => {
     }
 
     subscription.dispose();
+  });
+
+  test("syncs the live in-memory Conversation instance for each cleared session", async () => {
+    // GIVEN an expired session-backed override persisted on a conversation row
+    const conv = createConversation("reaper-live-sync");
+    setConversationInferenceProfileSession(
+      conv.id,
+      "balanced",
+      "session-live",
+      Date.now() - 1,
+    );
+
+    // AND a live Conversation instance registered for that conversation,
+    // seeded with the same override state the reaper is about to expire
+    const appliedStates: Array<{
+      profile: string | null;
+      sessionId: string | null;
+      expiresAt: number | null;
+    }> = [];
+    const liveConversation = {
+      conversationId: conv.id,
+      inferenceProfile: "balanced",
+      inferenceProfileSessionId: "session-live",
+      inferenceProfileExpiresAt: Date.now() - 1,
+      applyInferenceProfileState(
+        this: {
+          inferenceProfile: string | null;
+          inferenceProfileSessionId: string | null;
+          inferenceProfileExpiresAt: number | null;
+        },
+        state: {
+          profile: string | null;
+          sessionId: string | null;
+          expiresAt: number | null;
+        },
+      ) {
+        appliedStates.push(state);
+        this.inferenceProfile = state.profile;
+        this.inferenceProfileSessionId = state.sessionId;
+        this.inferenceProfileExpiresAt = state.expiresAt;
+      },
+    } as unknown as Conversation;
+    setConversation(conv.id, liveConversation);
+
+    // WHEN the reaper sweeps the expired session
+    tickInferenceProfileReaper();
+
+    // THEN the live instance is cleared in lock-step with the DB row, so the
+    // per-turn override derivation reads the cleared state without re-fetching
+    expect(appliedStates).toEqual([
+      { profile: null, sessionId: null, expiresAt: null },
+    ]);
+    expect(liveConversation.inferenceProfile).toBeNull();
+    expect(liveConversation.inferenceProfileSessionId).toBeNull();
+    expect(liveConversation.inferenceProfileExpiresAt).toBeNull();
+
+    deleteConversation(conv.id);
   });
 
   test("CAS protection: row with NULL expiresAt (sticky override) is not touched", async () => {

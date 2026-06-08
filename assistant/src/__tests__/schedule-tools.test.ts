@@ -66,6 +66,23 @@ describe("schedule_create tool", () => {
     expect(result.content).toContain("Enabled: true");
   });
 
+  test("persists the creating conversation for recurring schedules", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Recurring source",
+        expression: "0 9 * * *",
+        message: "remember the source",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
+  });
+
   test("creates a disabled schedule", async () => {
     const result = await executeScheduleCreate(
       {
@@ -192,6 +209,24 @@ describe("schedule_create with fire_at (one-shot)", () => {
     expect(result.content).toContain("Status: active");
   });
 
+  test("persists the creating conversation for one-shot schedules", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "One-shot source",
+        fire_at: futureDate,
+        message: "remember this source too",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs LIMIT 1")
+      .get() as { created_from_conversation_id: string | null };
+    expect(row.created_from_conversation_id).toBe(ctx.conversationId);
+  });
+
   test("rejects fire_at that is not valid ISO 8601", async () => {
     const result = await executeScheduleCreate(
       {
@@ -313,6 +348,131 @@ describe("schedule_create with mode and routing", () => {
       .get() as { routing_intent: string; routing_hints_json: string };
     expect(row.routing_intent).toBe("single_channel");
     expect(JSON.parse(row.routing_hints_json)).toEqual({ channel: "slack" });
+  });
+});
+
+// ── script timeout override ─────────────────────────────────────────
+
+describe("schedule_create / schedule_update timeout_ms", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("persists timeout_ms when creating a script schedule", async () => {
+    // GIVEN a script schedule created with a custom timeout
+    const result = await executeScheduleCreate(
+      {
+        name: "Slow job",
+        expression: "0 9 * * *",
+        message: "",
+        mode: "script",
+        script: "sleep 5",
+        timeout_ms: 120_000,
+      },
+      ctx,
+    );
+
+    // THEN the override is stored on the row
+    expect(result.isError).toBe(false);
+    const row = getRawDb()
+      .query("SELECT timeout_ms FROM cron_jobs LIMIT 1")
+      .get() as { timeout_ms: number | null };
+    expect(row.timeout_ms).toBe(120_000);
+  });
+
+  test("rejects an out-of-range timeout_ms on create", async () => {
+    // WHEN creating with a timeout below the minimum
+    const result = await executeScheduleCreate(
+      {
+        name: "Too short",
+        expression: "0 9 * * *",
+        message: "",
+        mode: "script",
+        script: "echo hi",
+        timeout_ms: 10,
+      },
+      ctx,
+    );
+
+    // THEN the tool returns a validation error and stores nothing
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("timeout_ms must be between");
+    const count = getRawDb()
+      .query("SELECT COUNT(*) AS n FROM cron_jobs")
+      .get() as { n: number };
+    expect(count.n).toBe(0);
+  });
+
+  test("updates and clears timeout_ms", async () => {
+    // GIVEN an existing script schedule
+    await executeScheduleCreate(
+      {
+        name: "Adjustable",
+        expression: "0 9 * * *",
+        message: "",
+        mode: "script",
+        script: "echo hi",
+        timeout_ms: 90_000,
+      },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    // WHEN the timeout is updated
+    const updated = await executeScheduleUpdate(
+      { job_id: id, timeout_ms: 5_000 },
+      ctx,
+    );
+
+    // THEN the new value is stored
+    expect(updated.isError).toBe(false);
+    const afterUpdate = getRawDb()
+      .query("SELECT timeout_ms FROM cron_jobs WHERE id = ?")
+      .get(id) as { timeout_ms: number | null };
+    expect(afterUpdate.timeout_ms).toBe(5_000);
+
+    // AND WHEN the timeout is cleared with null
+    const cleared = await executeScheduleUpdate(
+      { job_id: id, timeout_ms: null },
+      ctx,
+    );
+
+    // THEN the override reverts to null
+    expect(cleared.isError).toBe(false);
+    const afterClear = getRawDb()
+      .query("SELECT timeout_ms FROM cron_jobs WHERE id = ?")
+      .get(id) as { timeout_ms: number | null };
+    expect(afterClear.timeout_ms).toBeNull();
+  });
+
+  test("rejects an out-of-range timeout_ms on update", async () => {
+    // GIVEN an existing script schedule
+    await executeScheduleCreate(
+      {
+        name: "Guarded",
+        expression: "0 9 * * *",
+        message: "",
+        mode: "script",
+        script: "echo hi",
+      },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    // WHEN updating with a timeout above the maximum
+    const result = await executeScheduleUpdate(
+      { job_id: id, timeout_ms: 60 * 60 * 1000 },
+      ctx,
+    );
+
+    // THEN the tool returns a validation error
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("timeout_ms must be between");
   });
 });
 

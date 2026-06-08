@@ -4,12 +4,14 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
-import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import { formatResolveFailure } from "../../acp/resolve-agent.js";
+import { AcpResumeError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
@@ -61,26 +63,19 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     throw new BadRequestError("agent, task, and conversationId are required");
   }
 
-  const resolved = resolveAcpAgent(agent);
+  // Resolve the agent, silently auto-installing a missing allowlisted
+  // adapter binary (see acp/auto-install.ts). Shared with the skill-tool
+  // path in tools/acp/spawn.ts; only the transport mapping differs.
+  const { resolved, failureMessage } = await resolveAgentWithAutoInstall(agent);
+  if (failureMessage) {
+    throw new FailedDependencyError(failureMessage);
+  }
   if (!resolved.ok) {
-    switch (resolved.reason) {
-      case "acp_disabled":
-        throw new BadRequestError(resolved.hint);
-      case "unknown_agent":
-        throw new BadRequestError(
-          `Unknown agent "${agent}". Available: ${resolved.available.join(", ")}.`,
-        );
-      case "binary_not_found":
-        throw new FailedDependencyError(
-          `${resolved.command} is not on PATH. ${resolved.hint}`,
-        );
-      default: {
-        const _exhaustive: never = resolved;
-        throw new Error(
-          `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
-        );
-      }
+    const message = formatResolveFailure(agent, resolved);
+    if (resolved.reason === "binary_not_found") {
+      throw new FailedDependencyError(message);
     }
+    throw new BadRequestError(message);
   }
 
   // Inject required env vars and preflight via the shared helper. See
@@ -116,13 +111,31 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
     throw new BadRequestError("instruction is required");
   }
 
+  // Sessions no longer in memory (completed, or lost to a daemon restart)
+  // are transparently resumed from persisted history with the instruction
+  // fired in the same call, mirroring the acp_steer skill tool.
+  // broadcastMessage plays the sender role spawnSession gives it, so
+  // connected clients render the session.
   const manager = getAcpSessionManager();
   try {
-    await manager.steer(id, instruction);
-  } catch {
+    const { resumed } = await manager.steerOrResume(
+      id,
+      instruction,
+      broadcastMessage,
+    );
+    return resumed
+      ? { acpSessionId: id, steered: true, resumed: true }
+      : { acpSessionId: id, steered: true };
+  } catch (err) {
+    // Resume errors carry the actionable hint (legacy row without cwd,
+    // agent capability missing, resolver failures, ...).
+    if (err instanceof AcpResumeError) {
+      throw new FailedDependencyError(err.message);
+    }
+    // Unknown ids (no in-memory session, no history row) and plain steer
+    // failures both map to 404, as before.
     throw new NotFoundError("ACP session not found");
   }
-  return { acpSessionId: id, steered: true };
 }
 
 async function cancelSession({ pathParams }: RouteHandlerArgs) {
@@ -161,9 +174,25 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
       "status query param is required and must be 'completed'",
     );
   }
+  // Exclude sessions currently active in memory AND ids with a resume in
+  // flight (reserved but not yet registered): a resumed session reuses its
+  // original id, and its history row keeps the old terminal status until
+  // the next terminal upsert - a status-only delete would remove the row
+  // out from under the live (or resuming) session, and the later terminal
+  // upsert would resurrect it. Mirrors the 409 guard on the single-id
+  // delete route.
+  const activeIds = getAcpSessionManager().getActiveAndPendingIds();
+  const terminalFilter = inArray(
+    acpSessionHistory.status,
+    TERMINAL_SESSION_STATUSES,
+  );
   getDb()
     .delete(acpSessionHistory)
-    .where(inArray(acpSessionHistory.status, TERMINAL_SESSION_STATUSES))
+    .where(
+      activeIds.length > 0
+        ? and(terminalFilter, notInArray(acpSessionHistory.id, activeIds))
+        : terminalFilter,
+    )
     .run();
   const deleted = rawChanges();
   log.info({ deleted }, "Bulk-cleared terminal ACP session history");
@@ -172,9 +201,10 @@ function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
 
 function deleteSession({ pathParams }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
+  const manager = getAcpSessionManager();
 
   try {
-    const state = getAcpSessionManager().getStatus(id);
+    const state = manager.getStatus(id);
     if (
       !Array.isArray(state) &&
       (state.status === "running" || state.status === "initializing")
@@ -185,7 +215,16 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
     }
   } catch (err) {
     if (err instanceof ConflictError) throw err;
-    // Not in memory — fall through to the (idempotent) DB delete.
+    // Not registered in memory, but a resume may be in flight (id reserved
+    // while awaiting env preparation). Its history row must survive until
+    // the resume lands - the later terminal upsert would resurrect a
+    // deleted row.
+    if (manager.getActiveAndPendingIds().includes(id)) {
+      throw new ConflictError(
+        `ACP session "${id}" has a resume in flight. Wait for it to finish before deleting.`,
+      );
+    }
+    // Otherwise fall through to the (idempotent) DB delete.
   }
 
   getDb().delete(acpSessionHistory).where(eq(acpSessionHistory.id, id)).run();
@@ -233,7 +272,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: steerSession,
     summary: "Steer ACP session",
-    description: "Send a steering instruction to an active ACP session.",
+    description:
+      "Send a steering instruction to an ACP session. Sessions no longer " +
+      "in memory (completed, or lost to a daemon restart) are " +
+      "transparently resumed from persisted history first, when the agent " +
+      "supports ACP session loading.",
     tags: ["acp"],
     requestBody: z.object({
       instruction: z.string(),
@@ -241,6 +284,12 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       acpSessionId: z.string(),
       steered: z.boolean(),
+      resumed: z
+        .boolean()
+        .optional()
+        .describe(
+          "True when the session was resumed from persisted history before steering.",
+        ),
     }),
   },
   {
@@ -324,7 +373,9 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Bulk-clear terminal ACP sessions",
     description:
       "Remove every terminal-state row (completed/failed/cancelled) from " +
-      "the persisted acp_session_history table.",
+      "the persisted acp_session_history table. Rows whose session is " +
+      "currently active in memory (e.g. resumed) or has a resume in " +
+      "flight are excluded.",
     tags: ["acp"],
     queryParams: [
       {
@@ -350,7 +401,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Delete ACP session from history",
     description:
       "Remove a persisted ACP session row. Rejects with 409 when the " +
-      "session is still active in memory; idempotent for unknown ids.",
+      "session is still active in memory or has a resume in flight; " +
+      "idempotent for unknown ids.",
     tags: ["acp"],
     responseBody: z.object({
       deleted: z.boolean(),

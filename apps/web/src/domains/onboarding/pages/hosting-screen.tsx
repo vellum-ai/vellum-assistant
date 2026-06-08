@@ -2,12 +2,13 @@ import { Cloud, Laptop, Package } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { useAuthStore } from "@/stores/auth-store";
-import { routes } from "@/utils/routes";
+import { useHasPlatformSession } from "@/stores/auth-store";
+import { docsUrl, routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 
 type HostingMode = "vellum-cloud" | "local" | "docker";
 
@@ -23,7 +24,7 @@ interface HostingOption {
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function useHostingOptions(): HostingOption[] {
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const hasPlatformSession = useHasPlatformSession();
 
   return [
     {
@@ -55,17 +56,27 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
+  const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
-  const [selected, setSelected] = useState<HostingMode>("local");
+  const [selected, setSelected] = useState<HostingMode>(
+    hasPlatformSession ? "vellum-cloud" : "local",
+  );
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {
       clearGatewayToken();
       setSelfHostedConnection(null);
+      // Cloud is managed — drop any provider key staged from a prior
+      // Local/Docker visit so it can't leak into a later local hatch.
+      setPendingProviderKey(null);
       void navigate(routes.onboarding.privacy);
     } else {
-      void navigate(`${routes.onboarding.hatching}?hosting=${selected}`);
+      void navigate(`${routes.onboarding.apiKey}?hosting=${selected}`);
     }
+  };
+
+  const onBack = () => {
+    void navigate(routes.onboarding.welcome);
   };
 
   return (
@@ -85,7 +96,7 @@ export function HostingScreen() {
         </p>
 
         <div
-          className="mt-10 flex w-full flex-col gap-3"
+          className="mt-10 grid w-full auto-rows-fr gap-3"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
           {options.map((opt) => (
@@ -101,7 +112,7 @@ export function HostingScreen() {
         </div>
 
         <div
-          className="mt-8 w-full max-w-sm"
+          className="mt-8 flex w-full flex-col gap-2"
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
         >
           <Button
@@ -113,7 +124,26 @@ export function HostingScreen() {
           >
             Continue
           </Button>
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            className="h-11 text-base"
+            onClick={onBack}
+          >
+            Back
+          </Button>
         </div>
+
+        <a
+          href={docsUrl(routes.docs.hostingOptions)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-6 text-body-medium-default text-[var(--content-default)] underline"
+          style={{ animation: "fadeInUp 0.5s ease-out 0.6s both" }}
+        >
+          Need help choosing?
+        </a>
       </div>
     </OnboardingLayout>
   );
@@ -140,7 +170,7 @@ function HostingCard({
       } ${
         selected && !option.disabled
           ? "border-[var(--primary-base)] bg-[var(--primary-base)]/5"
-          : "border-[var(--border-default)] bg-transparent"
+          : "border-[var(--border-element)] bg-transparent"
       }`}
     >
       {option.icon}
@@ -164,7 +194,7 @@ function HostingCard({
           className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
             selected
               ? "border-[var(--primary-base)]"
-              : "border-[var(--border-default)]"
+              : "border-[var(--border-element)]"
           }`}
         >
           {selected && (

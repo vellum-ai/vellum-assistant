@@ -24,10 +24,10 @@ import { z } from "zod";
 
 import {
   type FeedItem,
-  feedItemSchema,
+  FeedItemSchema,
   type FeedItemStatus,
-  suggestedPromptSchema,
-} from "../../home/feed-types.js";
+  HomeFeedResponseSchema,
+} from "../../api/responses/home.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
@@ -45,19 +45,6 @@ const log = getLogger("home-feed-routes");
 // ---------------------------------------------------------------------------
 // Response / request schemas
 // ---------------------------------------------------------------------------
-
-const contextBannerSchema = z.object({
-  greeting: z.string(),
-  timeAwayLabel: z.string(),
-  newCount: z.number().int().min(0),
-});
-
-const getHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
-  updatedAt: z.string(),
-  contextBanner: contextBannerSchema,
-  suggestedPrompts: z.array(suggestedPromptSchema),
-});
 
 const patchFeedItemRequestSchema = z.object({
   status: z.enum(["new", "seen", "acted_on", "dismissed"]),
@@ -82,7 +69,7 @@ const listHomeFeedRequestSchema = z.object({
 });
 
 const listHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
+  items: z.array(FeedItemSchema),
   total: z.number().int().nonnegative(),
   returned: z.number().int().nonnegative(),
   hasMore: z.boolean(),
@@ -365,7 +352,7 @@ export const ROUTES: RouteDefinition[] = [
           "Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.",
       },
     ],
-    responseBody: getHomeFeedResponseSchema,
+    responseBody: HomeFeedResponseSchema,
   },
   {
     operationId: "patch_home_feed_item",
@@ -381,7 +368,7 @@ export const ROUTES: RouteDefinition[] = [
       "Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item on success, 404 if the item does not exist, 500 if the underlying write fails.",
     tags: ["home"],
     requestBody: patchFeedItemRequestSchema,
-    responseBody: feedItemSchema,
+    responseBody: FeedItemSchema,
     additionalResponses: {
       "404": { description: "Feed item not found" },
       "500": { description: "Failed to persist feed item status" },

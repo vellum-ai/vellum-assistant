@@ -1,6 +1,10 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
+import type {
+  ConversationMessage,
+  ConversationMessageAttachment,
+} from "../api/responses/conversation-message.js";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -85,8 +89,7 @@ export interface RuntimeMessageConversationOptions {
   /**
    * Optional LLM call-site identifier. Channel ingress and other inbound paths
    * may pass this so the daemon's per-call provider config picks up the right
-   * profile via `resolveCallSiteConfig`. PRs 7-11 wire individual call-site
-   * literals into specific call paths.
+   * profile via `resolveCallSiteConfig`.
    */
   callSite?: LLMCallSite;
   /**
@@ -96,15 +99,18 @@ export interface RuntimeMessageConversationOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /** IDs of user-uploaded attachments to resolve and include in the turn. */
+  attachmentIds?: string[];
+  /** Originating channel (e.g. "slack", "telegram"). Defaults to "vellum". */
+  sourceChannel?: ChannelId;
+  /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
+  sourceInterface?: InterfaceId;
 }
 
 export type MessageProcessor = (
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: RuntimeMessageConversationOptions,
-  sourceChannel?: ChannelId,
-  sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string; assistantMessageId?: string }>;
 
 /**
@@ -135,75 +141,16 @@ export interface RuntimeHttpServerOptions {
   hostname?: string;
 }
 
-export interface RuntimeAttachmentMetadata {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
+/**
+ * Structured attachment metadata returned on a history row. Canonical wire
+ * shape lives in `@vellumai/assistant-api`; aliased here so route modules can
+ * keep importing the runtime-local name.
+ */
+export type RuntimeAttachmentMetadata = ConversationMessageAttachment;
 
-export interface RuntimeMessagePayload {
-  id: string;
-  /**
-   * Server message ids that were folded into this display row when consecutive
-   * assistant messages were consolidated for history rendering.
-   */
-  mergedMessageIds?: string[];
-  role: string;
-  content: string;
-  timestamp: string;
-  attachments: RuntimeAttachmentMetadata[];
-  toolCalls?: Array<{
-    name: string;
-    input: Record<string, unknown>;
-    result?: string;
-    isError?: boolean;
-    riskLevel?: string;
-    riskReason?: string;
-    autoApproved?: boolean;
-    approvalMode?: string;
-    approvalReason?: string;
-    riskThreshold?: string;
-  }>;
-  surfaces?: Array<{
-    surfaceId: string;
-    surfaceType: string;
-    title?: string;
-    data: Record<string, unknown>;
-    actions?: unknown[];
-    display?: string;
-  }>;
-  textSegments?: string[];
-  thinkingSegments?: string[];
-  contentOrder?: string[];
-  subagentNotification?: {
-    subagentId: string;
-    label: string;
-    status: string;
-    error?: string;
-    conversationId?: string;
-    objective?: string;
-  };
-  slackMessage?: {
-    channelId: string;
-    channelName?: string;
-    channelTs: string;
-    threadTs?: string;
-    sender?: {
-      displayName?: string;
-      externalUserId?: string;
-    };
-    messageLink?: {
-      appUrl?: string;
-      webUrl?: string;
-    };
-    threadLink?: {
-      appUrl?: string;
-      webUrl?: string;
-    };
-  };
-}
+/**
+ * The daemon's history-row payload. Canonical wire contract lives in
+ * `@vellumai/assistant-api` (`responses/conversation-message.ts`) so the
+ * producer and every consumer (web, CLI, evals) derive from one source.
+ */
+export type RuntimeMessagePayload = ConversationMessage;

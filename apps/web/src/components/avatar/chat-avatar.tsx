@@ -1,8 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
 
-import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
-import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { AnimatedAvatar } from "./animated-avatar";
 
@@ -17,35 +15,36 @@ export interface ChatAvatarProps {
   isProcessing?: boolean;
 }
 
-/** Tunable badge geometry. Sizes scale with avatar size for visual consistency. */
-const BADGE_DOT_RATIO = 0.16; // dot diameter / avatar size — 56px avatar → ~9px dot
-const BADGE_RING_RATIO = 0.04; // ring thickness / avatar size
+/** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
+const RING_THICKNESS = 1; // border thickness in px
+const RING_GAP_RATIO = 0.04; // gap between avatar edge and ring inner edge / size
 
 /**
- * Pulsing dot in the bottom-right corner of the avatar. Reuses
- * `BusyIndicator` for the pulse so the visual matches every other
- * "busy" affordance in the app (card-header status, tool-call chip).
- *
- * A solid ring (same color as the surrounding chat surface) separates
- * the dot from the avatar background so it reads cleanly against either
- * a character avatar or a custom image.
+ * Spinning semicircular ring traced just outside the avatar's circular edge,
+ * shown while the assistant is streaming/loading. Only used for custom
+ * uploaded-image avatars — character avatars already signal streaming through
+ * their morph animation. The arc + rotation live in CSS (`.avatar-streaming-ring`);
+ * thickness/inset are inline so the ring scales with `size`. It sits in a gap
+ * outside the image (negative inset) so it reads as a ring around the avatar
+ * rather than covering the picture.
  */
-function ProgressBadge({ size }: { size: number }) {
-  const dot = Math.max(6, Math.round(size * BADGE_DOT_RATIO));
-  const ring = Math.max(1, Math.round(size * BADGE_RING_RATIO));
+function AvatarStreamingRing({ size }: { size: number }) {
+  const thickness = RING_THICKNESS;
+  const gap = Math.max(1, Math.round(size * RING_GAP_RATIO));
+  const inset = -(thickness + gap);
   return (
     <span
       aria-hidden="true"
-      className="absolute rounded-full"
+      className="avatar-streaming-ring pointer-events-none absolute"
       style={{
-        bottom: 0,
-        right: 0,
-        padding: ring,
-        backgroundColor: "var(--surface-base)",
+        top: inset,
+        right: inset,
+        bottom: inset,
+        left: inset,
+        borderWidth: thickness,
+        boxSizing: "border-box",
       }}
-    >
-      <BusyIndicator size={dot} />
-    </span>
+    />
   );
 }
 
@@ -62,11 +61,11 @@ function ProgressBadge({ size }: { size: number }) {
  *   - Mount plays an entrance spring (scale 0.6 → 1, opacity 0 → 1).
  *   - When `interactive`, click triggers a spring bounce.
  *   - `prefers-reduced-motion` short-circuits both.
- *   - When `isProcessing` and the `useProgressBadge` debug flag is on,
- *     the bottom-right `ProgressBadge` pulses. Default behavior (flag
- *     off) leaves the old transcript "thinking…" dots in charge.
+ *   - For custom uploaded-image avatars, a spinning semicircular ring traces
+ *     just outside the avatar's edge while `isStreaming`/`isProcessing` is on
+ *     (character avatars already signal streaming via their morph animation).
  */
-export function ChatAvatar({
+function ChatAvatarComponent({
   components,
   traits,
   customImageUrl,
@@ -118,8 +117,6 @@ export function ChatAvatar({
     : { scale: 0.6, opacity: 0 };
   const animate = { scale: isPoking ? 1.15 : 1, opacity: 1 };
 
-  const showBadge = isProcessing && isProgressBadgeEnabled();
-
   if (preferCharacter) {
     return (
       <motion.div
@@ -136,7 +133,6 @@ export function ChatAvatar({
           size={size}
           isStreaming={isStreaming}
         />
-        {showBadge && <ProgressBadge size={size} />}
       </motion.div>
     );
   }
@@ -165,7 +161,7 @@ export function ChatAvatar({
           className={`rounded-full object-cover ${className ?? ""}`}
           style={{ width: size, height: size, flexShrink: 0 }}
         />
-        {showBadge && <ProgressBadge size={size} />}
+        {(isStreaming || isProcessing) && <AvatarStreamingRing size={size} />}
       </motion.div>
     );
   }
@@ -179,7 +175,18 @@ export function ChatAvatar({
       animate={animate}
       transition={transition}
     >
-      V{showBadge && <ProgressBadge size={size} />}
+      V
     </motion.div>
   );
 }
+
+/**
+ * Memoized so the avatar subtree only re-renders when its own props change
+ * (components/traits/image, size, the streaming/processing flags) rather than
+ * on every parent transcript re-render. `Transcript` is a `forwardRef` (not
+ * memoized) and re-renders frequently during streaming, while the avatar runs
+ * per-frame animation work — so skipping unrelated re-renders matters. All
+ * props are primitives or stable references (avatar data is React-Query-cached
+ * with `staleTime: Infinity`), so the default shallow comparison is correct.
+ */
+export const ChatAvatar = memo(ChatAvatarComponent);

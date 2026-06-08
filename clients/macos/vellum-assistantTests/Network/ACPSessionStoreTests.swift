@@ -474,6 +474,135 @@ final class ACPSessionStoreTests: XCTestCase {
         XCTAssertEqual(after.events.count, 1)
     }
 
+    // MARK: - Resume (spawned for a known terminal id)
+
+    /// The daemon re-emits `acp_session_spawned` when a persisted session
+    /// is resumed from history, keeping its original id. A store entry
+    /// seeded in a terminal state must flip back to running with its
+    /// terminal fields cleared; otherwise the panel keeps showing
+    /// "completed" while the agent is actively working again.
+    func test_spawnedForSeededCompletedSession_resetsToRunningAndClearsTerminalFields() async {
+        let store = ACPSessionStore()
+
+        // Seed a session that finished in a previous daemon run. It
+        // carries the full terminal shape: completedAt, error, stopReason.
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"""
+                {
+                  "sessions": [
+                    {
+                      "id": "sess-resume",
+                      "agentId": "claude-code",
+                      "acpSessionId": "acp-protocol-resume",
+                      "parentConversationId": "conv-1",
+                      "status": "completed",
+                      "startedAt": 1700000000000,
+                      "completedAt": 1700000010000,
+                      "error": "old error",
+                      "stopReason": "end_turn"
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+            return (response, data)
+        }
+        await store.seed()
+
+        let viewModel = try! XCTUnwrap(store.sessions["sess-resume"])
+        XCTAssertEqual(viewModel.state.status, .completed)
+
+        // The daemon resumes the session and re-emits spawned with the
+        // same daemon UUID.
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "sess-resume",
+            agent: "claude-code",
+            parentConversationId: "conv-1"
+        )))
+
+        let resumed = try! XCTUnwrap(store.sessions["sess-resume"])
+        XCTAssertTrue(resumed === viewModel, "Resume must reuse the existing view model instance")
+        XCTAssertEqual(resumed.state.status, .running, "Resumed session must flip back to running")
+        XCTAssertNil(resumed.state.completedAt, "Resume must clear completedAt")
+        XCTAssertNil(resumed.state.error, "Resume must clear error")
+        XCTAssertNil(resumed.state.stopReason, "Resume must clear stopReason")
+        XCTAssertEqual(resumed.state.startedAt, 1_700_000_000_000, "Resume must preserve startedAt")
+        XCTAssertEqual(resumed.state.acpSessionId, "acp-protocol-resume",
+                       "Resume must preserve the protocol-level session id")
+        XCTAssertEqual(store.sessions.count, 1, "Resume must not duplicate the session row")
+    }
+
+    /// Same transition driven entirely over SSE: spawn, complete, then a
+    /// resume spawn within a single connected run. Status must flip back
+    /// to running and accumulated events must survive.
+    func test_spawnedAfterCompleted_resumesToRunning_keepingEvents() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-1",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+        store.handle(.acpSessionUpdate(ACPSessionUpdateMessage(
+            acpSessionId: "acp-1",
+            updateType: .agentMessageChunk,
+            content: "first run"
+        )))
+        store.handle(.acpSessionCompleted(ACPSessionCompletedMessage(
+            acpSessionId: "acp-1",
+            stopReason: .endTurn
+        )))
+
+        let viewModel = try! XCTUnwrap(store.sessions["acp-1"])
+        XCTAssertEqual(viewModel.state.status, .completed)
+        XCTAssertNotNil(viewModel.state.completedAt)
+
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-1",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+
+        XCTAssertEqual(viewModel.state.status, .running)
+        XCTAssertNil(viewModel.state.completedAt)
+        XCTAssertNil(viewModel.state.stopReason)
+        XCTAssertEqual(viewModel.events.count, 1, "Resume must keep events from the original run")
+        XCTAssertEqual(store.sessionOrder, ["acp-1"])
+    }
+
+    /// A resume spawn for a failed session must also clear the error.
+    func test_spawnedAfterError_resumesToRunning_clearingError() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-1",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+        store.handle(.acpSessionError(ACPSessionErrorMessage(
+            acpSessionId: "acp-1",
+            error: "agent crashed"
+        )))
+
+        let viewModel = try! XCTUnwrap(store.sessions["acp-1"])
+        XCTAssertEqual(viewModel.state.status, .failed)
+
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-1",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+
+        XCTAssertEqual(viewModel.state.status, .running)
+        XCTAssertNil(viewModel.state.error)
+        XCTAssertNil(viewModel.state.completedAt)
+    }
+
     // MARK: - Delete
 
     func test_delete_removesSessionAndOrderEntry_onSuccess() async {

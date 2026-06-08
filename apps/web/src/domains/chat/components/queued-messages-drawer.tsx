@@ -1,9 +1,10 @@
 
 import { ArrowUp, Pencil, X } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 
-import { Button } from "@vellum/design-library";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { Button } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +42,10 @@ function QueuedMessageRow({
   showSteer,
   onEdit,
 }: QueuedMessageRowProps) {
+  const preview = useMemo(
+    () => segmentsToPlainText(message.textSegments),
+    [message.textSegments],
+  );
   return (
     <div className="flex items-center gap-1.5 rounded-md py-0.5 md:gap-2 md:px-2 md:py-1.5">
       {/* Accent bar */}
@@ -53,7 +58,7 @@ function QueuedMessageRow({
 
       {/* Message preview */}
       <span className="min-w-0 flex-1 truncate text-body-small-default text-[var(--content-secondary)]">
-        {message.content}
+        {preview}
       </span>
 
       {/* Action icons */}

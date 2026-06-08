@@ -72,12 +72,20 @@ const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
   v2Enabled?: boolean;
+  consolidationEnabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.v2Enabled !== undefined) {
     partial.memory.v2.enabled = overrides.v2Enabled;
+  }
+  if (overrides.consolidationEnabled !== undefined) {
+    (
+      partial.memory.v2 as typeof partial.memory.v2 & {
+        consolidation_enabled?: boolean;
+      }
+    ).consolidation_enabled = overrides.consolidationEnabled;
   }
   if (overrides.intervalHours !== undefined) {
     partial.memory.v2.consolidation_interval_hours = overrides.intervalHours;
@@ -110,6 +118,15 @@ function countPendingJobs(type: string): number {
     .all().length;
 }
 
+function consolidationJobPayloads(): Record<string, unknown>[] {
+  return getDb()
+    .select({ payload: memoryJobs.payload })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.type, "memory_v2_consolidate"))
+    .all()
+    .map((row) => JSON.parse(row.payload) as Record<string, unknown>);
+}
+
 // Initialize the DB once for the file; clear per-test tables in beforeEach
 // rather than tearing down the singleton, which is slow because it re-runs
 // every migration on the next access.
@@ -134,10 +151,12 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
 
   test("enqueues consolidate when v2 is on and no checkpoint exists", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    writeBuffer(15);
 
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(consolidationJobPayloads()).toEqual([{ trigger: "automatic" }]);
     // v1 entries are suppressed when v2 is active.
     expect(countPendingJobs("graph_decay")).toBe(0);
     expect(countPendingJobs("graph_consolidate")).toBe(0);
@@ -159,6 +178,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
 
   test("enqueues consolidate again once the interval elapses", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    writeBuffer(15);
 
     const now = Date.now();
     // Stamp checkpoint to >1h ago.
@@ -170,10 +190,12 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     maybeEnqueueGraphMaintenanceJobs(config, now);
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(consolidationJobPayloads()).toEqual([{ trigger: "automatic" }]);
   });
 
   test("respects a custom consolidation_interval_hours value", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 6 });
+    writeBuffer(15);
 
     const now = Date.now();
     // 4h elapsed — under the configured 6h interval.
@@ -197,6 +219,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
 
   test("v1 maintenance entries are suppressed when v2 is active", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    writeBuffer(15);
 
     // No checkpoints set — every entry would be due if it were scheduled.
     deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
@@ -230,6 +253,28 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_pattern_scan")).toBe(1);
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("automatic consolidation off suppresses the v2 schedule without re-enabling v1 maintenance", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      consolidationEnabled: false,
+      intervalHours: 1,
+    });
+
+    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
+    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_decay")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(0);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(0);
   });
 });
 
@@ -368,5 +413,103 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("size trigger inert when automatic consolidation is disabled", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      consolidationEnabled: false,
+      intervalHours: 1,
+      maxBufferLines: 1,
+    });
+
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+});
+
+describe("maybeEnqueueGraphMaintenanceJobs — min buffer lines noop", () => {
+  test("skips scheduled consolidation when buffer is under 10 lines", () => {
+    // GIVEN v2 consolidation is enabled and the interval has elapsed
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    // AND the buffer has fewer than 10 lines
+    writeBuffer(5);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN no consolidation job is enqueued
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    // AND the checkpoint advances so the skip doesn't re-fire next tick
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("allows scheduled consolidation when buffer has exactly 10 lines", () => {
+    // GIVEN v2 consolidation is enabled and the interval has elapsed
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    // AND the buffer has exactly 10 lines
+    writeBuffer(10);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN consolidation is enqueued
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("skips scheduled consolidation when buffer file is missing", () => {
+    // GIVEN v2 consolidation is enabled and the interval has elapsed
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    // AND no buffer file exists (0 lines)
+    removeBuffer();
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN no consolidation job is enqueued
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    // AND the checkpoint advances
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("size-based trigger is independent of the min-lines noop", () => {
+    // GIVEN the time-based interval has elapsed but the buffer has fewer
+    // than 10 lines, while exceeding the configured maxBufferLines threshold
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    writeBuffer(8);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN consolidation is enqueued via the size trigger despite the
+    // time-based schedule being nooped (8 < 10 min lines, but 8 >= 5 max)
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
 });

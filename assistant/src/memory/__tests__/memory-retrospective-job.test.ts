@@ -316,10 +316,11 @@ describe("memoryRetrospectiveJob", () => {
     expect(bootstrapCalls[0]!.forkParentConversationId).toBe("src-conv-1");
   });
 
-  test("legacy path: wake opts include suppressWakeSurface so the full retrospective prompt isn't rendered as a 'Conversation Woke' card body to clients", async () => {
+  test("legacy path: wake is scoped to memory saves and suppresses the internal wake surface", async () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     expect(wakeCalls[0]!.opts.suppressWakeSurface).toBe(true);
   });
 
@@ -537,7 +538,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(forkCalls[0]!.groupId).toBe("system:background");
   });
 
-  test("fork path: wake opts include suppressWakeSurface so clients don't render an empty wake card on top of the '(Retrospective)' fork", async () => {
+  test("fork path: wake is scoped to memory saves and suppresses the internal wake surface", async () => {
     forkFlagEnabled = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
@@ -545,6 +546,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(1);
     expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
     const opts = wakeCalls[0]!.opts;
+    expect(opts.allowedTools).toEqual(["remember"]);
     expect(opts.suppressWakeSurface).toBe(true);
     // Sanity: the other fork-specific opts the handler relies on are still set.
     expect(opts.skipHintInjection).toBe(true);

@@ -22,20 +22,87 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const checkpointStore = new Map<string, string>();
+
+mock.module("../memory/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    checkpointStore.set(key, value);
+  },
+}));
+
+const getConfiguredProviderCalls: string[] = [];
+const mockProvider = { name: "mock-provider" };
+
+mock.module("../providers/provider-send-message.js", () => ({
+  getConfiguredProvider: mock(async (callSite: string) => {
+    getConfiguredProviderCalls.push(callSite);
+    return mockProvider;
+  }),
+}));
+
+type SidechainCall = {
+  callSite?: string;
+  content: string;
+  maxTokens?: number;
+  systemPrompt?: string;
+  tools: unknown[];
+};
+
+type SidechainResult = {
+  text: string;
+  hadTextDeltas: false;
+  response: { content: [] };
+};
+
+const sidechainCalls: SidechainCall[] = [];
+let sidechainText = "";
+let sidechainResultPromise: Promise<SidechainResult> | null = null;
+
+mock.module("../runtime/btw-sidechain.js", () => ({
+  runBtwSidechain: mock(async (params: SidechainCall) => {
+    sidechainCalls.push(params);
+    if (sidechainResultPromise) {
+      return sidechainResultPromise;
+    }
+    return {
+      text: sidechainText,
+      hadTextDeltas: false,
+      response: { content: [] },
+    };
+  }),
+}));
+
+const assistantFeatureFlags: Record<string, boolean> = {};
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    assistantFeatureFlags[key] ?? false,
+}));
+
 import {
   handleDetailedHealth,
   handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
-import {
-  setCesClient,
-} from "../security/secure-keys.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import {
   getHatchedSidecarPath,
   resolveHatchedAtReadOnly,
   selectHatchedAtFromStats,
 } from "../workspace/hatched-date.js";
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 // ── Env helpers ─────────────────────────────────────────────────────────
 
@@ -133,6 +200,15 @@ beforeEach(() => {
 
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
+  rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
+  checkpointStore.clear();
+  getConfiguredProviderCalls.length = 0;
+  sidechainCalls.length = 0;
+  sidechainText = "";
+  sidechainResultPromise = null;
+  for (const key of Object.keys(assistantFeatureFlags)) {
+    delete assistantFeatureFlags[key];
+  }
 });
 
 afterEach(() => {
@@ -202,21 +278,30 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("readyz returns 200 when CES is connected and ready", () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;
@@ -226,7 +311,10 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("/v1/health reports ces.connected=false when CES is not ready", async () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;
@@ -483,5 +571,158 @@ describe("identity routes — createdAt selection", () => {
     const body = route!.handler({}) as { createdAt?: string };
     expect(Date.parse(body.createdAt ?? "")).toBeGreaterThan(0);
     expect(existsSync(getHatchedSidecarPath())).toBe(false);
+  });
+});
+
+describe("identity routes — intro greetings", () => {
+  test("returns static fallback and does not generate when the dynamic greetings flag is off", async () => {
+    const workspaceDir = getWorkspaceDir();
+    writeFileSync(
+      join(workspaceDir, "IDENTITY.md"),
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+    writeFileSync(
+      join(workspaceDir, "SOUL.md"),
+      "# Soul\n\nNo explicit greetings section here.\n",
+      "utf-8",
+    );
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity_intro",
+    );
+    expect(route).toBeDefined();
+
+    const body = route!.handler({}) as {
+      greetings: string[];
+      text: string;
+      source: string;
+      refreshing: boolean;
+    };
+
+    expect(body).toEqual({
+      greetings: [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Ready when you are.",
+      ],
+      text: "What are we working on?",
+      source: "fallback",
+      refreshing: false,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
+  });
+
+  test("returns fallback immediately, generates personalized greetings in the background, then reuses the cache", async () => {
+    assistantFeatureFlags["empty-state-dynamic-greetings"] = true;
+
+    const workspaceDir = getWorkspaceDir();
+    writeFileSync(
+      join(workspaceDir, "IDENTITY.md"),
+      [
+        "# Identity",
+        "",
+        "- **Name:** Example Assistant",
+        "- **Personality:** enjoys crisp, useful hellos",
+        "",
+        "Identity sentinel: chartreuse compass.",
+      ].join("\n"),
+      "utf-8",
+    );
+    writeFileSync(
+      join(workspaceDir, "SOUL.md"),
+      [
+        "# Soul",
+        "",
+        "Soul sentinel: copper lighthouse.",
+        "",
+        "Keep greetings warm and specific.",
+      ].join("\n"),
+      "utf-8",
+    );
+    const deferredSidechain = createDeferred<SidechainResult>();
+    sidechainResultPromise = deferredSidechain.promise;
+
+    const route = ROUTES.find(
+      (candidate) => candidate.operationId === "identity_intro",
+    );
+    expect(route).toBeDefined();
+
+    const body = route!.handler({}) as {
+      greetings: string[];
+      text: string;
+      source: string;
+      refreshing: boolean;
+    };
+
+    expect(body).toEqual({
+      greetings: [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Ready when you are.",
+      ],
+      text: "What are we working on?",
+      source: "fallback",
+      refreshing: true,
+    });
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getConfiguredProviderCalls).toEqual(["emptyStateGreeting"]);
+    expect(sidechainCalls).toHaveLength(1);
+    expect(sidechainCalls[0]?.callSite).toBe("emptyStateGreeting");
+    expect(sidechainCalls[0]?.tools).toEqual([]);
+    expect(sidechainCalls[0]?.content).toContain("JSON array");
+    expect(sidechainCalls[0]?.systemPrompt).toContain(
+      "Identity sentinel: chartreuse compass.",
+    );
+    expect(sidechainCalls[0]?.systemPrompt).toContain(
+      "Soul sentinel: copper lighthouse.",
+    );
+    deferredSidechain.resolve({
+      text: JSON.stringify([
+        "Charting the next useful thing?",
+        "I brought the compass. Where to?",
+        "Ready to make this lighter.",
+      ]),
+      hadTextDeltas: false,
+      response: { content: [] },
+    });
+
+    await sidechainResultPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    sidechainCalls.length = 0;
+    getConfiguredProviderCalls.length = 0;
+
+    const cachedBody = (await route!.handler({})) as {
+      greetings: string[];
+      text: string;
+      source: string;
+      refreshing: boolean;
+    };
+
+    expect(cachedBody).toEqual({
+      greetings: [
+        "Charting the next useful thing?",
+        "I brought the compass. Where to?",
+        "Ready to make this lighter.",
+      ],
+      text: "Charting the next useful thing?",
+      source: "cache",
+      refreshing: false,
+    });
+    expect(getConfiguredProviderCalls).toEqual([]);
+    expect(sidechainCalls).toEqual([]);
   });
 });

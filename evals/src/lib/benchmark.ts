@@ -76,6 +76,13 @@ export interface BenchmarkRunInput {
   session: string;
   /** Optional human-readable label associated with this session. */
   sessionLabel: string | undefined;
+  /**
+   * `process.argv` captured at the top of the `evals run` invocation.
+   * Forwarded to each benchmark so it can stamp the originating CLI
+   * command onto every `RunMetadata` it writes. Undefined when the
+   * runner is invoked programmatically (no real CLI argv to record).
+   */
+  cliArgv: string[] | undefined;
   /** Progress reporter — the same one the CLI built. */
   progress: EvalProgressReporter;
   /**

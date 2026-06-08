@@ -2,17 +2,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
+import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { DetailCard } from "@/components/detail-card";
+import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import {
-  assistantsActiveRetrieveOptions,
-  assistantsListOptions,
+    assistantsActiveRetrieveOptions,
+    assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
-import { hatchAssistant } from "@/assistant/api";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function AssistantLifecyclePanel() {
   const queryClient = useQueryClient();
@@ -34,10 +35,46 @@ export function AssistantLifecyclePanel() {
     setHatchConfirmOpen(false);
     setHatching(true);
     try {
-      const result = await hatchAssistant();
+      // `create` mode so this actually provisions an *additional* assistant.
+      // Without it the platform defaults to `ensure` and hands back the
+      // existing assistant — the button then looked like a no-op.
+      const result = await hatchAssistant(undefined, "create");
       if (result.ok) {
-        toast.success("New assistant hatched successfully.");
-        void queryClient.invalidateQueries({ queryKey: ["assistants"] });
+        // Mirror the freshly hatched assistant into the lockfile so the macOS
+        // tray and CLI pick it up immediately. Unlike onboarding / the tray
+        // "New Assistant" flow, this developer button is otherwise the one
+        // managed-assistant creation path that never reconciled the lockfile —
+        // newly hatched assistants stayed invisible to the tray until the next
+        // session refresh. Best-effort and local-mode only; the hatch already
+        // succeeded regardless of the sync outcome.
+        if (isLocalMode()) {
+          try {
+            const list = await listAssistants();
+            if (list.ok) {
+              await syncPlatformAssistantsToLockfile(list.data);
+            }
+          } catch {
+            // Sync failed — the assistant was still created.
+          }
+        }
+        // 201 = newly created; 200 = server returned the existing assistant
+        // (multi-assistant hatching disabled / deduped). Report honestly
+        // instead of always claiming a new one was made.
+        toast.success(
+          result.status === 201
+            ? "New assistant hatched successfully."
+            : "Returned your existing assistant — no new one was created.",
+        );
+        // Invalidate the panel's own queries by their real generated keys so
+        // the info + list cards refresh (the previous `["assistants"]` key
+        // matched none of them).
+        void queryClient.invalidateQueries({
+          queryKey: assistantsActiveRetrieveOptions().queryKey,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: assistantsListOptions({ query: { hosting: "all" } })
+            .queryKey,
+        });
       } else {
         const detail =
           typeof result.error?.detail === "string"
@@ -199,7 +236,7 @@ function AssistantListCard({
               className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${
                 isActive
                   ? "border-[var(--border-focus)] bg-[var(--surface-lift)]"
-                  : "border-[var(--border-default)] bg-[var(--surface-default)]"
+                  : "border-[var(--border-base)] bg-[var(--surface-default)]"
               }`}
             >
               <div className="min-w-0">

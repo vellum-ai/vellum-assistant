@@ -1,14 +1,30 @@
-import { BrowserWindow, app, ipcMain, shell } from "electron";
-import path from "node:path";
+import { BrowserWindow, app, shell } from "electron";
+import { z } from "zod";
 
-import {
-  APP_HOST,
-  APP_PROTOCOL,
-  RENDERER_BASE_PROD,
-  getDevRendererBase,
-} from "./app-config";
+import { getRendererRootUrl } from "./app-config";
+import { resolveAllowedOrigin } from "./app-origin";
+import { decideNavigation } from "./auth-nav";
 import { type VellumCommand } from "./commands";
-import { restoreBounds, track as trackWindowState } from "./window-state";
+import { handle } from "./ipc";
+import { createWindow } from "./windows";
+import {
+  readOnboardingActive,
+  restoreBounds,
+  track as trackWindowState,
+  writeOnboardingActive,
+} from "./window-state";
+
+// Default content-area size of the onboarding flow, mirroring the macOS
+// Swift client's onboarding window (`OnboardingWindow.swift`: `contentRect`
+// 440×630). Applied as the *content* size (`useContentSize`) so the usable
+// area matches the Swift app's `.fullSizeContentView` content rect rather
+// than including the Electron title bar. Unlike the Swift window this is
+// only the *default* — the window stays resizable, so a user who wants more
+// room can drag it larger.
+const ONBOARDING_CONTENT_SIZE = { width: 440, height: 630 } as const;
+
+// Default bounds for the main window once onboarding is done.
+const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 
 /**
  * Main BrowserWindow lifecycle owner.
@@ -99,76 +115,54 @@ const armReadyState = (win: BrowserWindow): ReadyState => {
 // wait for, so callers can compose `await` uniformly.
 const ALREADY_READY: Promise<void> = Promise.resolve();
 
-interface NavigationGuardConfig {
-  isDev: boolean;
-  devOrigin: string;
-}
+const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
+  const allowedOrigin = resolveAllowedOrigin();
 
-const installSameOriginNavigationGuard = (
-  win: BrowserWindow,
-  { isDev, devOrigin }: NavigationGuardConfig,
-): void => {
-  // Scoped to the main window — popups (OAuth flows etc.) need to
-  // redirect between provider domains and our callback origin, so
-  // they're left unrestricted.
   win.webContents.on("will-navigate", (event, url) => {
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      event.preventDefault();
-      return;
-    }
-    const allowed =
-      (isDev && target.origin === devOrigin) ||
-      (!isDev &&
-        target.protocol === `${APP_PROTOCOL}:` &&
-        target.host === APP_HOST);
-    if (allowed) return;
+    const decision = decideNavigation(url, allowedOrigin);
+    if (decision.kind === "allow") return;
     event.preventDefault();
-    // External http(s) top-level navigations (e.g.
-    // `window.location.href = "https://billing.stripe.com/..."`) route
-    // to the system browser instead of silently failing. Other schemes
-    // stay blocked.
-    if (target.protocol === "https:" || target.protocol === "http:") {
-      void shell.openExternal(url);
+    if (decision.kind === "external") {
+      void shell.openExternal(decision.url);
     }
   });
 };
 
-const createWindow = (): BrowserWindow => {
-  // Resolve the dev URL once per window construction so the loader
-  // and the navigation guard see a consistent string even if
-  // `VELLUM_DEV_URL` is mutated mid-process.
-  //
+const createMainWindow = (): BrowserWindow => {
   // The prod load target is the renderer base itself (no `/index.html`
   // suffix). The `app://` protocol handler in `index.ts` falls back
   // to `index.html` for paths without a file extension, so this
   // serves the SPA — but with the browser URL staying at `/assistant`,
   // which is where React Router's app-root route matches. Appending
   // `/index.html` would land us at the NotFound route under
-  // `/assistant/*`.
-  const isDev = !app.isPackaged;
-  const devBase = isDev ? getDevRendererBase() : null;
-  const loadTarget = devBase ?? RENDERER_BASE_PROD;
-  const devOrigin = devBase ? new URL(devBase).origin : "";
+  // `/assistant/*`. In dev the URL carries a trailing slash to match
+  // Vite's `base`; see `getRendererRootUrl`.
+  const loadTarget = getRendererRootUrl(app.isPackaged);
 
-  const win = new BrowserWindow({
-    ...restoreBounds("main", { width: 1280, height: 800 }),
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      devTools: !app.isPackaged,
-    },
+  // Onboarding opens at the 440×630 default (matching the Swift client);
+  // otherwise restore the user's saved main-app bounds. Both layouts are
+  // fully resizable — onboarding just starts smaller. The persisted flag
+  // lets a relaunch *during* onboarding rebuild the small window directly
+  // (no flash); the absent-flag default is `false` (open large) so we
+  // never cramp the `/account/*` screens that render outside RootLayout —
+  // a brand-new user entering onboarding briefly sees large then the
+  // renderer's `setOnboarding` reconcile shrinks it.
+  const onboardingActive = readOnboardingActive();
+  const sizing = onboardingActive
+    ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }
+    : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+
+  const win = createWindow({
+    browserWindow: { ...sizing, show: false },
+    navigation: { installGuard: installSameOriginNavigationGuard },
   });
 
-  trackWindowState("main", win);
+  // Persist bounds only when NOT in onboarding mode. Both layouts are
+  // resizable, so resize events fire in either mode — but the small
+  // onboarding default must not be saved as the user's "main" size, or
+  // their next post-onboarding launch would come up tiny. The mode flag
+  // (not resizability, which no longer distinguishes them) is the gate.
+  trackWindowState("main", win, () => !readOnboardingActive());
 
   // Readiness resolves only after BOTH the renderer has loaded AND
   // the window has shown + focused. Per-window state keyed via
@@ -211,8 +205,6 @@ const createWindow = (): BrowserWindow => {
     fireVisibilityChange();
   });
 
-  installSameOriginNavigationGuard(win, { isDev, devOrigin });
-
   win.loadURL(loadTarget).catch((err: unknown) => {
     console.error(`[main-window] loadURL failed for ${loadTarget}:`, err);
   });
@@ -243,7 +235,7 @@ const createWindow = (): BrowserWindow => {
  */
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    const win = createWindow();
+    const win = createMainWindow();
     return readyStates.get(win)?.promise ?? ALREADY_READY;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -302,6 +294,47 @@ export const dispatchToMain = (command: VellumCommand): void => {
 };
 
 /**
+ * Switch the main window between the onboarding layout (440×630 default)
+ * and the main-app layout. Both are fully resizable; the only difference
+ * is the default/restored size. Persists the mode so the next launch's
+ * window is constructed at the right size, then resizes the current window
+ * if the mode actually changed.
+ *
+ * The mode of record is the persisted flag (read before the write), not
+ * resizability — both layouts are resizable now, so `isResizable()` can no
+ * longer distinguish them. Writing the flag *before* the resize means
+ * `window-state`'s persistence gate (`!readOnboardingActive()`) already
+ * reflects the new mode when the programmatic resize fires its event:
+ * the entry shrink is skipped, the exit restore is captured under "main".
+ * Re-asserting the current mode (the renderer fires this on every
+ * navigation) is a cheap no-op past the early return.
+ */
+export const setOnboarding = (active: boolean): void => {
+  const wasActive = readOnboardingActive();
+  writeOnboardingActive(active);
+
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  if (active === wasActive) return;
+
+  if (active) {
+    win.setContentSize(
+      ONBOARDING_CONTENT_SIZE.width,
+      ONBOARDING_CONTENT_SIZE.height,
+    );
+    win.center();
+  } else {
+    const bounds = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+    win.setBounds({ width: bounds.width, height: bounds.height });
+    if (bounds.x !== undefined && bounds.y !== undefined) {
+      win.setPosition(bounds.x, bounds.y);
+    } else {
+      win.center();
+    }
+  }
+};
+
+/**
  * Create the initial main window. Call once from `whenReady`.
  * Idempotent: if a window is already alive, no-op.
  */
@@ -315,9 +348,20 @@ export const installMainWindow = (): void => {
   // (deep links, future notification clicks, etc.). The renderer
   // wrapper at `apps/web/src/runtime/main-window.ts` calls this; the
   // handler returns void so the caller can `await` without value.
-  ipcMain.handle("vellum:mainWindow:ensureVisible", async (): Promise<void> => {
+  handle("vellum:mainWindow:ensureVisible", z.tuple([]), async (): Promise<void> => {
     await ensureVisible();
   });
+
+  // Renderer-driven onboarding-window sizing. The renderer is the only
+  // side that knows whether the current route is an onboarding step, so it
+  // toggles the 440×630 onboarding default on/off as the user navigates.
+  handle(
+    "vellum:mainWindow:setOnboarding",
+    z.tuple([z.boolean()]),
+    async ([active]): Promise<void> => {
+      setOnboarding(active);
+    },
+  );
 
   void ensureVisible();
 };

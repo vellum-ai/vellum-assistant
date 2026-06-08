@@ -217,7 +217,7 @@ describe("WebSearchProgressCard — expanded state", () => {
     expect(container.querySelectorAll("img")).toHaveLength(2);
   });
 
-  test("renders the +N more overflow chip after results", () => {
+  test("renders the +N more overflow chip sized to the hidden results", () => {
     const steps: StepDescriptor[] = [
       {
         kind: "web_search",
@@ -225,7 +225,7 @@ describe("WebSearchProgressCard — expanded state", () => {
         durationLabel: "2s",
         linkCount: 5,
         results: [makeResult(1), makeResult(2)],
-        overflow: 3,
+        overflowResults: [makeResult(3), makeResult(4), makeResult(5)],
       },
     ];
     const { getByText } = render(
@@ -238,6 +238,40 @@ describe("WebSearchProgressCard — expanded state", () => {
       />,
     );
     expect(getByText("+3 more")).toBeTruthy();
+  });
+
+  test("+N more pill opens a popover listing the hidden sources as links", () => {
+    // The clamped results must stay reachable: clicking the overflow pill
+    // reveals each hidden source as an external link to its page.
+    const steps: StepDescriptor[] = [
+      {
+        kind: "web_search",
+        title: "Searched the web",
+        durationLabel: "2s",
+        linkCount: 7,
+        results: [makeResult(1), makeResult(2)],
+        overflowResults: [makeResult(3), makeResult(4)],
+      },
+    ];
+    const { getByTestId, queryByText, getByRole } = render(
+      <WebSearchProgressCard
+        currentStepTitle="Searched the web"
+        currentStepInfo="my query"
+        stepCount="1 step"
+        steps={steps}
+        defaultExpanded
+      />,
+    );
+    // The hidden sources are not in the DOM until the pill is activated.
+    expect(queryByText("Result 3")).toBeNull();
+    fireEvent.click(getByTestId("web-search-overflow-chip"));
+    // Both hidden results now render as anchors pointing at their URLs.
+    const link3 = getByRole("link", { name: /Result 3/ });
+    expect(link3.getAttribute("href")).toBe("https://example-3.test/");
+    expect(link3.getAttribute("target")).toBe("_blank");
+    expect(getByRole("link", { name: /Result 4/ }).getAttribute("href")).toBe(
+      "https://example-4.test/",
+    );
   });
 
   test("renders favicon chips for each result inside the phase section", () => {
@@ -267,7 +301,7 @@ describe("WebSearchProgressCard — expanded state", () => {
     expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 
-  test("omits the overflow chip when overflow is 0 or undefined", () => {
+  test("omits the overflow chip when there are no hidden results", () => {
     const steps: StepDescriptor[] = [
       {
         kind: "web_search",
@@ -275,7 +309,7 @@ describe("WebSearchProgressCard — expanded state", () => {
         durationLabel: "2s",
         linkCount: 2,
         results: [makeResult(1), makeResult(2)],
-        overflow: 0,
+        overflowResults: [],
       },
     ];
     const { queryByText } = render(
@@ -364,7 +398,7 @@ describe("WebSearchProgressCard — header layout", () => {
     // pill inside its parent flex column (TranscriptMessageBody uses
     // `items-start`), instead of matching the surrounding chat content width.
     // The outer wrapper must carry `w-full` so the card fills the available
-    // turn-content width like the legacy `ToolCallProgressCard` does.
+    // turn-content width like the legacy `ActivityRunCard` does.
     const { getByTestId } = render(
       <WebSearchProgressCard
         currentStepTitle="Searched the web"

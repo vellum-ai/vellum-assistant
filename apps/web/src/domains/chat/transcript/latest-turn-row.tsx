@@ -4,7 +4,9 @@ import { Fragment, memo, type ReactNode } from "react";
 import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items
@@ -22,19 +24,14 @@ export interface LatestTurnRowProps {
   assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
+  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
-  onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
@@ -47,14 +44,13 @@ export interface LatestTurnRowProps {
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;
@@ -71,29 +67,28 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
+  expandedThinkingKeys,
   onSurfaceAction,
-  onSecretSubmit,
-  onConfirmationDecision,
-  onRetryError,
   onForkConversation,
   onInspectMessage,
-  renderPendingSecret,
-  renderPendingConfirmation,
-  renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
   onSubagentClick,
   onStopSubagent,
 }: LatestTurnRowProps) {
+  // The response cluster is "streaming" whenever the turn is in flight. This
+  // keeps each response message's last tool-call group expanded for the whole
+  // turn, rather than only during the instants a tool reports `running`.
+  const phase = useTurnStore.use.phase();
+  const isStreaming =
+    phase === "queued" || phase === "thinking" || phase === "streaming";
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -101,23 +96,16 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantDisplayName={assistantDisplayName}
         expandedToolCallIds={expandedToolCallIds}
         expandedCardIds={expandedCardIds}
+        expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
-        onSecretSubmit={onSecretSubmit}
-        onConfirmationDecision={onConfirmationDecision}
-        onRetryError={onRetryError}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
-        renderPendingSecret={renderPendingSecret}
-        renderPendingConfirmation={renderPendingConfirmation}
-        renderPendingContactRequest={renderPendingContactRequest}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
-        isSubmittingConfirmation={isSubmittingConfirmation}
         onConfirmationSubmit={onConfirmationSubmit}
         onAllowAndCreateRule={onAllowAndCreateRule}
-        pendingConfirmationToolCallId={pendingConfirmationToolCallId}
         onOpenApp={onOpenApp}
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
@@ -131,28 +119,22 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantDisplayName={assistantDisplayName}
             expandedToolCallIds={expandedToolCallIds}
             expandedCardIds={expandedCardIds}
+            expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
-            onSecretSubmit={onSecretSubmit}
-            onConfirmationDecision={onConfirmationDecision}
-            onRetryError={onRetryError}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}
-            renderPendingSecret={renderPendingSecret}
-            renderPendingConfirmation={renderPendingConfirmation}
-            renderPendingContactRequest={renderPendingContactRequest}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}
-            isSubmittingConfirmation={isSubmittingConfirmation}
             onConfirmationSubmit={onConfirmationSubmit}
             onAllowAndCreateRule={onAllowAndCreateRule}
-            pendingConfirmationToolCallId={pendingConfirmationToolCallId}
             onOpenApp={onOpenApp}
             onOpenDocument={onOpenDocument}
             assistantId={assistantId}
             onSubagentClick={onSubagentClick}
             onStopSubagent={onStopSubagent}
+            isStreaming={isStreaming}
           />
         </Fragment>
       ))}

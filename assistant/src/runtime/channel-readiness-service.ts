@@ -7,8 +7,7 @@ import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
 import { getIsPlatform } from "../config/env-registry.js";
-import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
-import { isEmailEnabled } from "../email/feature-gate.js";
+import { getNestedValue, loadRawConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
@@ -513,9 +512,7 @@ export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
-  if (isEmailEnabled(getConfig())) {
-    service.registerProbe(emailProbe);
-  }
+  service.registerProbe(emailProbe);
   service.registerProbe(whatsappProbe);
   service.registerProbe(slackProbe);
   return service;

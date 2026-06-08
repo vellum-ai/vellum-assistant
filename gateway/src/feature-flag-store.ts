@@ -28,7 +28,7 @@ const log = getLogger("feature-flag-store");
 
 interface FeatureFlagFileData {
   version: 1;
-  values: Record<string, boolean>;
+  values: Record<string, boolean | string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,9 +43,9 @@ export function getFeatureFlagStorePath(): string {
 // Disk I/O with caching
 // ---------------------------------------------------------------------------
 
-let cachedValues: Record<string, boolean> | null = null;
+let cachedValues: Record<string, boolean | string> | null = null;
 
-export function readPersistedFeatureFlags(): Record<string, boolean> {
+export function readPersistedFeatureFlags(): Record<string, boolean | string> {
   if (cachedValues != null) return cachedValues;
 
   const path = getFeatureFlagStorePath();
@@ -72,9 +72,9 @@ export function readPersistedFeatureFlags(): Record<string, boolean> {
       typeof data.values === "object" &&
       !Array.isArray(data.values)
     ) {
-      const filtered: Record<string, boolean> = {};
+      const filtered: Record<string, boolean | string> = {};
       for (const [k, v] of Object.entries(data.values)) {
-        if (typeof v === "boolean") filtered[k] = v;
+        if (typeof v === "boolean" || typeof v === "string") filtered[k] = v;
       }
       cachedValues = filtered;
     } else {
@@ -88,11 +88,11 @@ export function readPersistedFeatureFlags(): Record<string, boolean> {
   }
 }
 
-export function writeFeatureFlag(key: string, enabled: boolean): void {
+export function writeFeatureFlag(key: string, value: boolean | string): void {
   // Re-read from disk to avoid lost updates
   cachedValues = null;
   const values = { ...readPersistedFeatureFlags() };
-  values[key] = enabled;
+  values[key] = value;
 
   const path = getFeatureFlagStorePath();
   const dir = dirname(path);
@@ -107,7 +107,7 @@ export function writeFeatureFlag(key: string, enabled: boolean): void {
   chmodSync(path, 0o600);
 
   cachedValues = values;
-  log.info({ key, enabled }, "Wrote feature flag");
+  log.info({ key, value }, "Wrote feature flag");
 }
 
 export function clearFeatureFlagStoreCache(): void {

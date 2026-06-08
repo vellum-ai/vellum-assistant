@@ -17,7 +17,6 @@ import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
  * `onboarding-store.ts`, `prefs.ts`, and `storage-migration.ts`. */
 export const KEY_TOS_ACCEPTED = "vellum:onboarding:tosAccepted";
 export const KEY_AI_DATA_CONSENT = "vellum:onboarding:aiDataConsent";
-export const KEY_COMPLETED = "vellum:onboarding:completed";
 const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 
 /**
@@ -34,7 +33,6 @@ const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 export function clearOnboardingFlags(): void {
   removeLocalSetting(KEY_TOS_ACCEPTED);
   removeLocalSetting(KEY_AI_DATA_CONSENT);
-  removeLocalSetting(KEY_COMPLETED);
   removeLocalSetting(KEY_SELECTED_VERSION);
 }
 

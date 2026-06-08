@@ -8,6 +8,7 @@ import { basename, join } from "node:path";
 
 import { z } from "zod";
 
+import { setImage } from "../../avatar/avatar-store.js";
 import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
@@ -45,7 +46,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../../tools/schema-transforms.js";
-import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
+import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
@@ -91,11 +92,15 @@ async function handleGenerateAvatar({
   log.info({ description }, "Generating avatar via HTTP request");
 
   try {
-    const result = await generateAndSaveAvatar(description);
+    const result = await generateAvatarImage(description);
 
-    if (result.isError) {
+    if (result.isError || !result.pngBuffer) {
       throw new InternalError(result.content);
     }
+
+    // Route through the store so traits sidecars are cleared and the manifest
+    // is recorded as an AI-sourced image atomically.
+    setImage(result.pngBuffer, "ai");
 
     const avatarPath = getAvatarImagePath();
 

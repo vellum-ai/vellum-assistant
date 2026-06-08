@@ -457,12 +457,15 @@ describe("relay-server", () => {
           runAgentLoop: async (
             _content: string,
             _messageId: string,
-            onEvent: (event: {
-              type: string;
-              conversationId?: string;
-              text?: string;
-            }) => void,
+            options?: {
+              onEvent?: (event: {
+                type: string;
+                conversationId?: string;
+                text?: string;
+              }) => void;
+            },
           ) => {
+            const onEvent = options?.onEvent ?? (() => {});
             const tokens: string[] = [];
             await mockSendMessage([], [], "", {
               onEvent: (event: { type: string; text?: string }) => {

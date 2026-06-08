@@ -187,7 +187,8 @@ function resolveIngressSecretTarget(
 export interface MessagingConversationContext {
   readonly conversationId: string;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
@@ -323,7 +324,7 @@ export function enqueueMessage(
     clientMessageId,
   } = options;
 
-  if (!ctx.processing) {
+  if (!ctx.isProcessing()) {
     return { queued: false, requestId };
   }
 
@@ -384,7 +385,7 @@ export async function persistUserMessage(
 ): Promise<{ id: string; deduplicated: boolean }> {
   const { content, attachments = [] } = options;
 
-  if (ctx.processing) {
+  if (ctx.isProcessing()) {
     throw new Error("Conversation is already processing a message");
   }
 
@@ -394,7 +395,7 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuid();
   ctx.currentRequestId = reqId;
-  ctx.processing = true;
+  ctx.setProcessing(true);
   ctx.abortController = new AbortController();
 
   try {
@@ -404,13 +405,13 @@ export async function persistUserMessage(
       requestId: reqId,
     });
     if (result.deduplicated) {
-      ctx.processing = false;
+      ctx.setProcessing(false);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
     }
     return result;
   } catch (err) {
-    ctx.processing = false;
+    ctx.setProcessing(false);
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
     throw err;

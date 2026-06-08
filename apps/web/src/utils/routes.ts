@@ -14,6 +14,7 @@ const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
+const LOGS_USAGE_PATH = r("/assistant/logs/usage");
 
 export const routes = {
   assistant: r("/assistant"),
@@ -29,6 +30,15 @@ export const routes = {
    * the web build, where the runtime wrapper degrades to a "—" fallback.
    */
   about: r("/assistant/about"),
+  /**
+   * Bundle confirmation page. Standalone like About — sits under
+   * `/assistant/*` for Vite SPA fallback but outside the auth tree so
+   * bundles can be confirmed before sign-in. Mounted by the Electron
+   * host (`apps/macos/src/main/bundle-confirmation.ts`) into a
+   * dedicated BrowserWindow.
+   */
+  bundleConfirm: r("/assistant/bundle/confirm"),
+  quickInput: r("/assistant/quick-input"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id
@@ -40,7 +50,15 @@ export const routes = {
   logs: {
     root: r("/assistant/logs"),
     trace: r("/assistant/logs/trace"),
-    usage: r("/assistant/logs/usage"),
+    usage: LOGS_USAGE_PATH,
+    usageForSchedule: (scheduleId: string) => {
+      const params = new URLSearchParams({
+        range: "7d",
+        groupBy: "schedule",
+        scheduleId,
+      });
+      return `${LOGS_USAGE_PATH}?${params.toString()}`;
+    },
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },
@@ -59,7 +77,9 @@ export const routes = {
 
   onboarding: {
     welcome: r("/assistant/onboarding/welcome"),
+    selectAssistant: r("/assistant/onboarding/select-assistant"),
     hosting: r("/assistant/onboarding/hosting"),
+    apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
@@ -68,6 +88,7 @@ export const routes = {
   home: r("/assistant/home"),
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
+  plugin: (name: string) => dyn(r("/assistant/plugins"), name),
   skills: r("/assistant/skills"),
   workspace: r("/assistant/workspace"),
   library: {
@@ -89,7 +110,9 @@ export const routes = {
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
     schedules: r("/assistant/settings/schedules"),
+    schedule: (id: string) => dyn(r("/assistant/settings/schedules"), id),
     notifications: r("/assistant/settings/notifications"),
+    keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
     devices: r("/assistant/settings/devices"),
@@ -111,6 +134,7 @@ export const routes = {
   },
 
   docs: {
+    hostingOptions: r("/docs/hosting-options"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),
@@ -127,6 +151,11 @@ const WWW_DOMAIN = "vellum.ai";
 export function legalUrl(
   path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
 ): string {
+  return docsUrl(path);
+}
+
+/** Full external URL for a docs page hosted on the marketing site. */
+export function docsUrl(path: string): string {
   return `https://${WWW_DOMAIN}${path}`;
 }
 

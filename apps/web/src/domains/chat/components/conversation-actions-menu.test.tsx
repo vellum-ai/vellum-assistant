@@ -14,7 +14,7 @@
  * surfaces.
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -22,6 +22,12 @@ let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
+let mockIsNativePlatform = false;
+mock.module("@/runtime/native-auth", () => ({
+  useIsNativePlatform: () => mockIsNativePlatform,
+  isNativePlatform: () => mockIsNativePlatform,
 }));
 
 // Mock design library compound components that require browser APIs (portals,
@@ -47,7 +53,7 @@ const mockSubTrigger = ({ children, leftIcon, ...rest }: Record<string, unknown>
 const mockTrigger = ({ children }: Record<string, unknown>) =>
   createElement("div", { "data-testid": "trigger" }, children as ReactNode);
 
-mock.module("@vellum/design-library", () => {
+mock.module("@vellumai/design-library", () => {
   const MenuMock = {
     Root: passthrough,
     Trigger: mockTrigger,
@@ -87,15 +93,16 @@ mock.module("@vellum/design-library", () => {
   };
 });
 
-import { Menu } from "@vellum/design-library";
 import {
-  ConversationActionsMenu,
-  renderConversationMenuItems,
-  type ConversationMenuPrimitive,
+    ConversationActionsMenu,
+    renderConversationMenuItems,
+    type ConversationMenuPrimitive,
 } from "@/domains/chat/components/conversation-actions-menu";
+import { Menu } from "@vellumai/design-library";
 
 beforeEach(() => {
   mockIsMobile = false;
+  mockIsNativePlatform = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -292,6 +299,38 @@ describe("ConversationActionsMenu — mobile panel details", () => {
     expect(html).toContain("Move to");
     expect(html).toContain("Work");
     expect(html).toContain("Remove from group");
+  });
+
+  test("hides Open in New Window on native iOS bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).not.toContain("Open in New Window");
+    // Other actions remain.
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("shows Open in New Window on web bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Open in new window");
   });
 
   test("variant header renders header-order items on mobile", () => {

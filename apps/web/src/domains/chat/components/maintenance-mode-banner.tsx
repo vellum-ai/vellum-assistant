@@ -2,8 +2,13 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@vellum/design-library";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+import {
+    useActiveAssistantLifecycleIsLoading,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { Button } from "@vellumai/design-library";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;
@@ -16,6 +21,26 @@ export function MaintenanceModeBanner({
 }: MaintenanceModeBannerProps) {
   const [isExiting, setIsExiting] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
+  // Self-hosted assistants don't run platform-managed Recovery Mode, so the
+  // banner has nothing to act on — `platformHostedOnly: true` flips "gated"
+  // for the platform-mode-app-pointed-at-self-hosted case too (the standard
+  // gate would still resolve to "full" there and leak the platform-routed
+  // exit mutation onto a self-hosted target).
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // `ChatPage` is NOT mounted under `<ActiveAssistantGate>` (see routes.tsx
+  // — chat owns its own lifecycle UI), so the banner can render while
+  // lifecycle is still `{ kind: "loading" }`. The gate intentionally
+  // returns "full" during that window; pair with the lifecycle-loading
+  // signal so the exit-mutation button stays disabled until lifecycle has
+  // landed a resolution. Already-resolved non-hosted lifecycle kinds
+  // (`retired`, `error`, etc.) don't reach this banner — the parent only
+  // mounts it when `maintenanceMode != null` — so the narrow predicate
+  // catches exactly the deep-link race we care about.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+
+  if (platformGate === "gated") return null;
+
+  const isResolving = platformGate === "full" && isLifecycleLoading;
 
   const handleResumeAssistant = async () => {
     if (isExiting) return;
@@ -61,16 +86,26 @@ export function MaintenanceModeBanner({
           </p>
         ) : null}
       </div>
-      <Button
-        variant="primary"
-        size="compact"
-        leftIcon={isExiting ? <Loader2 className="animate-spin" /> : undefined}
-        onClick={() => void handleResumeAssistant()}
-        disabled={isExiting}
-        data-testid="resume-assistant-button"
-      >
-        Resume Assistant
-      </Button>
+      {platformGate === "disabled" ? (
+        <Notice tone="info">
+          Log in to the Vellum platform to exit Recovery Mode.
+        </Notice>
+      ) : (
+        <Button
+          variant="primary"
+          size="compact"
+          leftIcon={
+            isExiting || isResolving ? (
+              <Loader2 className="animate-spin" />
+            ) : undefined
+          }
+          onClick={() => void handleResumeAssistant()}
+          disabled={isExiting || isResolving}
+          data-testid="resume-assistant-button"
+        >
+          Resume Assistant
+        </Button>
+      )}
     </div>
   );
 }

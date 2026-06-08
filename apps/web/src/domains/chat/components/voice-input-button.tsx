@@ -1,21 +1,21 @@
 
 import { Loader2, Mic, StopCircle } from "lucide-react";
 import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useSyncExternalStore,
+    forwardRef,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useSyncExternalStore,
 } from "react";
 
-import { Button, cn } from "@vellum/design-library";
 import {
-  postSttTranscribe,
-  type SttFailureReason,
-} from "@/domains/voice/stt-api";
+    postSttTranscribe,
+    type SttFailureReason,
+} from "@/domains/chat/voice/stt-api";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { Button, cn } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // MIME type selection
@@ -143,8 +143,8 @@ export function isBatchSttSupported(): boolean {
 
 /**
  * Map a structured STT failure reason to the string `onError` code consumed
- * by `formatVoiceError` in `AssistantPageClient`. Kept as a pure helper so
- * the reason taxonomy can evolve without touching the recording flow.
+ * by `formatVoiceError`. Kept as a pure helper so the reason taxonomy can
+ * evolve without touching the recording flow.
  */
 export function errorCodeForReason(reason: SttFailureReason): string {
   switch (reason) {

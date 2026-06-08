@@ -198,7 +198,7 @@ export async function analyzeConversation(
   // `currentRequestId` and let two loops mutate the same Conversation
   // state. Skip this run instead — the next upstream trigger will
   // re-enqueue once the in-flight loop finishes.
-  if (opts.trigger === "auto" && analysisConversation.processing) {
+  if (opts.trigger === "auto" && analysisConversation.isProcessing()) {
     log.info(
       {
         sourceConversationId: resolvedId,
@@ -247,7 +247,7 @@ export async function analyzeConversation(
   analysisConversation.updateClient(broadcastMessage, !hasLiveSubscriber);
 
   // k. Set up processing state (required by runAgentLoop guard)
-  analysisConversation.processing = true;
+  analysisConversation.setProcessing(true);
   analysisConversation.abortController = new AbortController();
   analysisConversation.currentRequestId = crypto.randomUUID();
 
@@ -255,7 +255,7 @@ export async function analyzeConversation(
   // routes the per-call provider config through `resolveCallSiteConfig`
   // against `llm.callSites.analyzeConversation`.
   analysisConversation
-    .runAgentLoop(prompt, messageId, undefined, {
+    .runAgentLoop(prompt, messageId, {
       isInteractive: false,
       isUserMessage: true,
       callSite: "analyzeConversation",

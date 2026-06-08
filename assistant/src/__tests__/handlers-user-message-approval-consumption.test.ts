@@ -143,7 +143,7 @@ mock.module("../util/logger.js", () => ({
 import {
   clearConversations,
   setConversation,
-} from "../daemon/conversation-store.js";
+} from "../daemon/conversation-registry.js";
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
 describe("handleConfirmationResponse canonical status sync", () => {
@@ -186,14 +186,16 @@ describe("handleConfirmationResponse canonical status sync", () => {
     ).toEqual([
       "req-confirm-allow",
       "allow",
-      undefined,
-      undefined,
-      undefined,
-      { source: "button" },
+      {
+        selectedPattern: undefined,
+        selectedScope: undefined,
+        emissionContext: { source: "button" },
+      },
     ]);
-    // Canonical status sync is now handled inside Conversation.handleConfirmationResponse,
-    // which this test mocks out — so the handler itself no longer calls resolveCanonicalGuardianRequest.
+    // Both canonical status sync and pendingInteractions lifecycle are owned
+    // by Conversation.handleConfirmationResponse (mocked above). The IPC
+    // handler delegates fully and does not call either directly.
     expect(resolveCanonicalGuardianRequestMock).not.toHaveBeenCalled();
-    expect(resolveMock).toHaveBeenCalledWith("req-confirm-allow", "approved");
+    expect(resolveMock).not.toHaveBeenCalled();
   });
 });

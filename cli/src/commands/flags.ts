@@ -1,4 +1,8 @@
 import { AssistantClient } from "../lib/assistant-client.js";
+import {
+  formatAssistantLookupError,
+  lookupAssistantByIdentifier,
+} from "../lib/assistant-config.js";
 
 type FeatureFlagEntry = {
   key: string;
@@ -17,7 +21,12 @@ function pad(s: string, w: number): string {
 }
 
 function printFlagTable(flags: FeatureFlagEntry[]): void {
-  const headers = { key: "KEY", enabled: "ENABLED", default: "DEFAULT", label: "LABEL" };
+  const headers = {
+    key: "KEY",
+    enabled: "ENABLED",
+    default: "DEFAULT",
+    label: "LABEL",
+  };
 
   const rows = flags
     .slice()
@@ -55,7 +64,9 @@ function printHelp(): void {
   console.log("Usage: vellum flags [subcommand] [options]");
   console.log("");
   console.log("Show and toggle feature flags for the active assistant.");
-  console.log("Reads from the gateway's merged flag state (persisted overrides > remote > defaults).");
+  console.log(
+    "Reads from the gateway's merged flag state (persisted overrides > remote > defaults).",
+  );
   console.log("");
   console.log("Subcommands:");
   console.log("  (none)              List all feature flags in a table");
@@ -63,20 +74,53 @@ function printHelp(): void {
   console.log("  set <key> <bool>    Set a flag override to true or false");
   console.log("");
   console.log("Options:");
+  console.log(
+    "  --assistant <name>  Target a specific assistant (display name or ID)",
+  );
+  console.log(
+    "                      instead of the active one. Useful for scripted",
+  );
+  console.log(
+    "                      flows like eval harnesses that must not mutate",
+  );
+  console.log("                      the user's active-assistant pointer.");
   console.log("  --help, -h          Show this help");
   console.log("");
   console.log("Examples:");
-  console.log("  $ vellum flags                                 # list all flags");
-  console.log("  $ vellum flags get query-complexity-routing     # inspect one flag");
-  console.log("  $ vellum flags set voice-mode true              # enable a flag");
+  console.log(
+    "  $ vellum flags                                              # list flags for active assistant",
+  );
+  console.log(
+    "  $ vellum flags get query-complexity-routing                  # inspect one flag",
+  );
+  console.log(
+    "  $ vellum flags set voice-mode true                           # enable a flag",
+  );
+  console.log(
+    "  $ vellum flags set external-plugins true --assistant eval-1  # target by name/id",
+  );
 }
 
-function createClient(): AssistantClient {
+function createClient(assistantName?: string): AssistantClient {
+  // When `--assistant <name>` is provided, resolve the display name or
+  // explicit ID through the standard lookup helper (see cli/AGENTS.md
+  // "Assistant targeting convention"). Exact ID wins over display-name
+  // matches; ambiguous names fail loudly.
+  let assistantId: string | undefined;
+  if (assistantName) {
+    const result = lookupAssistantByIdentifier(assistantName);
+    if (result.status !== "found") {
+      throw new Error(formatAssistantLookupError(assistantName, result));
+    }
+    assistantId = result.entry.assistantId;
+  }
   try {
-    return new AssistantClient();
+    return new AssistantClient(assistantId ? { assistantId } : undefined);
   } catch {
     throw new Error(
-      "No assistant found. Hatch one with 'vellum hatch' first.",
+      assistantName
+        ? `No assistant found matching '${assistantName}'.`
+        : "No assistant found. Hatch one with 'vellum hatch' first.",
     );
   }
 }
@@ -93,8 +137,8 @@ function rethrowFetchError(err: unknown): never {
   throw err;
 }
 
-async function listFlags(): Promise<void> {
-  const client = createClient();
+async function listFlags(assistantName?: string): Promise<void> {
+  const client = createClient(assistantName);
   let res: Response;
   try {
     res = await client.get("/feature-flags");
@@ -113,8 +157,8 @@ async function listFlags(): Promise<void> {
   printFlagTable(data.flags);
 }
 
-async function getFlag(key: string): Promise<void> {
-  const client = createClient();
+async function getFlag(key: string, assistantName?: string): Promise<void> {
+  const client = createClient(assistantName);
   let res: Response;
   try {
     res = await client.get("/feature-flags");
@@ -136,8 +180,12 @@ async function getFlag(key: string): Promise<void> {
   console.log(`Description:    ${flag.description || "(none)"}`);
 }
 
-async function setFlag(key: string, value: boolean): Promise<void> {
-  const client = createClient();
+async function setFlag(
+  key: string,
+  value: boolean,
+  assistantName?: string,
+): Promise<void> {
+  const client = createClient(assistantName);
   let res: Response;
   try {
     res = await client.patch(`/feature-flags/${key}`, { enabled: value });
@@ -151,6 +199,28 @@ async function setFlag(key: string, value: boolean): Promise<void> {
   console.log(`Flag "${key}" set to ${value}`);
 }
 
+/**
+ * Strip `--assistant <name>` from argv and return the captured value.
+ *
+ * Mutates the input array so positional parsing downstream sees a clean
+ * shape (subcommand + key + value). Returns `undefined` if the flag is
+ * absent. Error-reports a missing value so the user gets a clear message
+ * rather than the flag being silently swallowed as a positional.
+ */
+function extractAssistantFlag(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "--assistant") continue;
+    const value = args[i + 1];
+    if (!value || value.startsWith("-")) {
+      console.error("Missing value for --assistant <name>");
+      process.exit(1);
+    }
+    args.splice(i, 2);
+    return value;
+  }
+  return undefined;
+}
+
 export async function flags(): Promise<void> {
   const args = process.argv.slice(3);
 
@@ -159,10 +229,12 @@ export async function flags(): Promise<void> {
     return;
   }
 
+  const assistantName = extractAssistantFlag(args);
+
   const subcommand = args[0];
 
   if (!subcommand) {
-    await listFlags();
+    await listFlags(assistantName);
     return;
   }
 
@@ -172,7 +244,7 @@ export async function flags(): Promise<void> {
       console.error("Usage: vellum flags get <key>");
       process.exit(1);
     }
-    await getFlag(key);
+    await getFlag(key, assistantName);
     return;
   }
 
@@ -187,7 +259,7 @@ export async function flags(): Promise<void> {
       console.error(`Invalid value "${rawValue}". Must be "true" or "false".`);
       process.exit(1);
     }
-    await setFlag(key, rawValue === "true");
+    await setFlag(key, rawValue === "true", assistantName);
     return;
   }
 

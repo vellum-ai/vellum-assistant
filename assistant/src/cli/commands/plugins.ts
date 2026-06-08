@@ -62,45 +62,51 @@ Examples:
           "--ref <ref>",
           `Git ref to fetch from (default: ${DEFAULT_PLUGIN_REF})`,
         )
-        .action(async (name: string, opts: { force?: boolean; ref?: string }) => {
-          try {
-            const result = await installPlugin(
-              {
-                name,
-                force: opts.force ?? false,
-                ref: opts.ref ?? DEFAULT_PLUGIN_REF,
-              },
-              { fetch: globalThis.fetch.bind(globalThis) },
-            );
-            log.info(
-              {
-                name: result.name,
-                target: result.target,
-                fileCount: result.fileCount,
-                ref: result.ref,
-              },
-              "external plugin installed",
-            );
-            console.log(
-              `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) → ${result.target}`,
-            );
-            console.log("Restart the assistant to pick up the new plugin.");
-          } catch (err) {
-            if (err instanceof PluginAlreadyInstalledError) {
-              console.error(`${err.message}\nPass --force to overwrite.`);
+        .action(
+          async (name: string, opts: { force?: boolean; ref?: string }) => {
+            try {
+              const result = await installPlugin(
+                {
+                  name,
+                  force: opts.force ?? false,
+                  ref: opts.ref ?? DEFAULT_PLUGIN_REF,
+                },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+              log.info(
+                {
+                  name: result.name,
+                  target: result.target,
+                  fileCount: result.fileCount,
+                  ref: result.ref,
+                  commit: result.commit,
+                },
+                "external plugin installed",
+              );
+              const pinned = result.commit
+                ? ` at ${result.commit.slice(0, 7)}`
+                : "";
+              console.log(
+                `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
+              );
+              console.log("Restart the assistant to pick up the new plugin.");
+            } catch (err) {
+              if (err instanceof PluginAlreadyInstalledError) {
+                console.error(`${err.message}\nPass --force to overwrite.`);
+                process.exitCode = 1;
+                return;
+              }
+              if (err instanceof PluginNotFoundError) {
+                console.error(err.message);
+                process.exitCode = 1;
+                return;
+              }
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`Plugin install failed: ${message}`);
               process.exitCode = 1;
-              return;
             }
-            if (err instanceof PluginNotFoundError) {
-              console.error(err.message);
-              process.exitCode = 1;
-              return;
-            }
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(`Plugin install failed: ${message}`);
-            process.exitCode = 1;
-          }
-        });
+          },
+        );
 
       plugins
         .command("list")

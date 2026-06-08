@@ -6,218 +6,26 @@
  * handler modules. These are cross-domain shared types — the event bus store
  * and multiple domains subscribe to these events.
  *
- * Schema-validated events are covered by `APIAssistantEvent` (the inferred
- * union from `@vellumai/assistant-api`); each new schema added there appears
- * in `AssistantEvent` automatically. The members listed individually are
- * events still on the hand-rolled legacy parser path — they migrate into
- * the canonical schema one by one.
+ * Every wire event is covered by `APIAssistantEvent` (the inferred union
+ * from `@vellumai/assistant-api`); each new schema added there appears in
+ * `AssistantEvent` automatically. `UnknownEvent` is the client-only
+ * fallback the parser emits for any payload the canonical union doesn't
+ * recognise.
  */
 
 import type { AssistantEvent as APIAssistantEvent } from "@vellumai/assistant-api";
-import type { DiskPressureStatus } from "@/assistant/types";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
-import type { SyncChangedEvent } from "@/lib/sync/types";
-import type {
-  AllowlistOption,
-  DirectoryScopeOption,
-  ScopeOption,
-  SubagentEventEvent,
-  SubagentSpawnedEvent,
-  SubagentStatusChangedEvent,
-} from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // SSE event interfaces
 // ---------------------------------------------------------------------------
 
-export interface StreamErrorEvent {
-  type: "error";
-  code?: string;
-  errorCategory?: string;
-  message: string;
-  conversationId?: string;
-}
-
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
-
-export interface ToolResultEvent {
-  type: "tool_result";
-  toolName: string;
-  result: string;
-  isError?: boolean;
-  toolUseId?: string;
-  conversationId?: string;
-  /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-  riskLevel?: string;
-  riskReason?: string;
-  matchedTrustRuleId?: string;
-  approvalMode?: string;
-  approvalReason?: string;
-  riskThreshold?: string;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  /**
-   * Structured metadata describing tool activity (e.g. web_search,
-   * web_fetch). Optional — present only for tools that emit it (currently
-   * Anthropic-native web_search). See web-activity-types.ts.
-   */
-  activityMetadata?: ToolActivityMetadata;
-}
-
-/**
- * Periodic usage update emitted by the daemon with token counts for the
- * current conversation. `contextWindowTokens` / `contextWindowMaxTokens`
- * reflect the size of the most recent model request (input + cached tokens)
- * and the model's max input window. Either may be absent if unknown.
- */
-export interface UsageUpdateEvent {
-  type: "usage_update";
-  inputTokens?: number;
-  outputTokens?: number;
-  cachedInputTokens?: number;
-  cacheCreationInputTokens?: number;
-  contextWindowTokens?: number;
-  contextWindowMaxTokens?: number;
-  conversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Assistant activity lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Server-side assistant activity lifecycle for thinking-indicator placement
- * and turn-state recovery.
- *
- * The daemon emits one of these whenever the conversation transitions
- * between activity phases (`thinking`, `streaming`, `tool_running`,
- * `awaiting_confirmation`, `idle`). The `idle` phase is always terminal
- * for the active turn — daemon emit sites use it only with reason
- * `message_complete`, `generation_cancelled`, or `error_terminal`.
- *
- * `activityVersion` is monotonically increasing per conversation. Clients
- * must ignore events with a version older than the highest already
- * observed for that conversation.
- *
- * Mirrors `AssistantActivityState` in the daemon's
- * `assistant/src/daemon/message-types/messages.ts`.
- */
-export type AssistantActivityPhase =
-  | "idle"
-  | "thinking"
-  | "streaming"
-  | "tool_running"
-  | "awaiting_confirmation";
-
-export type AssistantActivityReason =
-  | "message_dequeued"
-  | "thinking_delta"
-  | "first_text_delta"
-  | "tool_use_start"
-  | "preview_start"
-  | "tool_result_received"
-  | "confirmation_requested"
-  | "confirmation_resolved"
-  | "context_compacting"
-  | "message_complete"
-  | "generation_cancelled"
-  | "error_terminal";
-
-export interface AssistantActivityStateEvent {
-  type: "assistant_activity_state";
-  activityVersion: number;
-  phase: AssistantActivityPhase;
-  anchor: "assistant_turn" | "user_turn" | "global";
-  reason: AssistantActivityReason;
-  requestId?: string;
-  statusText?: string;
-  conversationId?: string;
-}
-
-export interface NavigateSettingsEvent {
-  type: "navigate_settings";
-  tab: string;
-  conversationId?: string;
-}
-
-export interface DocumentEditorUpdateEvent {
-  type: "document_editor_update";
-  surfaceId: string;
-  markdown: string;
-  mode: string;
-  conversationId?: string;
-}
 
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
   data: Record<string, unknown>;
-  conversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Conversation lifecycle events
-// ---------------------------------------------------------------------------
-
-/**
- * Server push asking the client to display a native notification. Mirrors
- * the daemon's `NotificationIntent` message (see
- * `assistant/src/daemon/message-types/notifications.ts`). The macOS client
- * turns these into `UNUserNotificationCenter` banners; the web / Capacitor
- * client turns them into local notifications (Capacitor iOS) or browser
- * notifications (desktop web).
- *
- * `targetGuardianPrincipalId`, when set, scopes the notification to clients
- * bound to that guardian identity. The web/Capacitor client does not yet
- * participate in guardian binding, so guardian-scoped notifications are
- * skipped to avoid leaking them to unintended devices.
- */
-export interface NotificationIntentEvent {
-  type: "notification_intent";
-  deliveryId?: string;
-  sourceEventName: string;
-  title: string;
-  body: string;
-  deepLinkMetadata?: Record<string, unknown>;
-  targetGuardianPrincipalId?: string;
-  conversationId?: string;
-}
-
-/**
- * Emitted by the daemon when the inference profile is auto-routed for the
- * current turn (e.g. tool-based routing selects a different model profile).
- * The client renders a subtle inline notification so the user knows which
- * profile is handling the response.
- */
-export interface TurnProfileAutoRoutedEvent {
-  type: "turn_profile_auto_routed";
-  conversationId: string;
-  profile: string;
-  profileLabel: string;
-  conversationKey?: string;
-}
-
-export interface ConversationErrorEvent {
-  type: "conversation_error";
-  conversationId: string;
-  code: string;
-  userMessage: string;
-  retryable: boolean;
-  debugDetails?: string;
-  errorCategory?: string;
-}
-
-export interface DiskPressureStatusChangedEvent {
-  type: "disk_pressure_status_changed";
-  status: DiskPressureStatus | null;
-  conversationId?: string;
-}
-
-export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationId?: string;
 }
 
@@ -263,37 +71,15 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
     "acp_confirmation",
   ]);
 
-/**
- * Emitted when a daemon-side pending interaction (confirmation, secret,
- * question, host-proxy request) transitions to a resolved state. Drives
- * push-based attention reconciliation in the sidebar.
- */
 // ---------------------------------------------------------------------------
 // AssistantEvent union
 // ---------------------------------------------------------------------------
 
 /**
- * Every event the chat SSE stream might emit. Schema-validated events
- * are covered by `APIAssistantEvent` (the inferred union from
+ * Every event the chat SSE stream might emit. All wire events are
+ * covered by `APIAssistantEvent` (the inferred union from
  * `@vellumai/assistant-api`); each new schema added there appears here
- * automatically. The members listed individually are events still on
- * the hand-rolled legacy parser path — they peel off this union one by
- * one as they migrate into the canonical schema.
+ * automatically. `UnknownEvent` is the client-only fallback for any
+ * payload the canonical union doesn't recognise.
  */
-export type AssistantEvent =
-  | APIAssistantEvent
-  | StreamErrorEvent
-  | ToolResultEvent
-  | NotificationIntentEvent
-  | UsageUpdateEvent
-  | AssistantActivityStateEvent
-  | NavigateSettingsEvent
-  | ConversationErrorEvent
-  | DiskPressureStatusChangedEvent
-  | AssistantSyncChangedEvent
-  | SubagentSpawnedEvent
-  | SubagentStatusChangedEvent
-  | SubagentEventEvent
-  | DocumentEditorUpdateEvent
-  | TurnProfileAutoRoutedEvent
-  | UnknownEvent;
+export type AssistantEvent = APIAssistantEvent | UnknownEvent;

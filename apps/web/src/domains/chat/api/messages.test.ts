@@ -9,8 +9,32 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { client } from "@/generated/api/client.gen";
-import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import {
+  getChatHistory,
+  mapRuntimeToolCalls,
+  normalizeContentBlocks,
+  normalizeContentOrder,
+  postChatMessage,
+} from "@/domains/chat/api/messages";
+import { messageText } from "@/domains/chat/utils/message-test-helpers";
+import type {
+  ConversationContentBlock,
+  ConversationMessage,
+  ConversationMessageToolCall,
+} from "@vellumai/assistant-api";
+
+function wireMessage(
+  overrides: Partial<ConversationMessage>,
+): ConversationMessage {
+  return {
+    id: "m1",
+    role: "assistant",
+    timestamp: "2026-05-15T12:34:56.000Z",
+    attachments: [],
+    ...overrides,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -18,8 +42,8 @@ import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatM
 
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
-const originalPost = client.post;
-const originalGet = client.get;
+const originalPost = daemonClient.post;
+const originalGet = daemonClient.get;
 
 beforeEach(() => {
   capturedBody = null;
@@ -28,17 +52,17 @@ beforeEach(() => {
     error: null,
     response: new Response(null, { status: 200 }),
   };
-  client.post = mock(
+  daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
       capturedBody = options.body ?? null;
       return nextPostResult;
     },
-  ) as typeof client.post;
+  ) as typeof daemonClient.post;
 });
 
 afterEach(() => {
-  client.post = originalPost;
-  client.get = originalGet;
+  daemonClient.post = originalPost;
+  daemonClient.get = originalGet;
 });
 
 // ---------------------------------------------------------------------------
@@ -47,19 +71,13 @@ afterEach(() => {
 
 describe("postChatMessage — onboarding wire format", () => {
   test("includes googleConnected and googleScopes when provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      {
-        tools: [],
-        tasks: [],
-        tone: "warm",
-        googleConnected: true,
-        googleScopes: ["https://mail.google.com/"],
-      },
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
+      tools: [],
+      tasks: [],
+      tone: "warm",
+      googleConnected: true,
+      googleScopes: ["https://mail.google.com/"],
+    });
 
     expect(capturedBody).not.toBeNull();
     const onboarding = (capturedBody as Record<string, unknown>)
@@ -70,17 +88,11 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 
   test("omits googleConnected and googleScopes when not provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      {
-        tools: [],
-        tasks: [],
-        tone: "grounded",
-      },
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+    });
 
     const onboarding = (capturedBody as Record<string, unknown>)
       .onboarding as Record<string, unknown>;
@@ -92,7 +104,9 @@ describe("postChatMessage — onboarding wire format", () => {
     await postChatMessage("assistant-1", "conv-key", "Hello");
 
     expect(capturedBody).not.toBeNull();
-    expect((capturedBody as Record<string, unknown>).onboarding).toBeUndefined();
+    expect(
+      (capturedBody as Record<string, unknown>).onboarding,
+    ).toBeUndefined();
   });
 });
 
@@ -157,55 +171,115 @@ describe("normalizeContentOrder", () => {
   });
 });
 
-describe("normalizeTextSegments", () => {
-  test("converts plain strings to text segment objects", () => {
-    const result = normalizeTextSegments(["Hello world", "Second segment"]);
-    expect(result).toEqual([
-      { type: "text", content: "Hello world" },
-      { type: "text", content: "Second segment" },
-    ]);
-  });
-
-  test("passes through already-object segments unchanged", () => {
-    const input = [
-      { type: "text", content: "Hello" },
-      { type: "markdown", content: "# Header" },
+describe("normalizeContentBlocks", () => {
+  test("returns the daemon's contentBlocks projection verbatim when present", () => {
+    // GIVEN a wire message that already carries a unified contentBlocks list
+    const contentBlocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "reasoning" },
+      { type: "text", text: "hello" },
     ];
-    const result = normalizeTextSegments(input);
-    expect(result).toEqual(input);
+    const message = wireMessage({
+      contentBlocks,
+      // AND stale positional arrays that should be ignored in favour of blocks
+      textSegments: ["different"],
+      thinkingSegments: ["different reasoning"],
+      contentOrder: ["text:0"],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the wire projection is returned unchanged (same reference)
+    expect(result).toBe(contentBlocks);
   });
 
-  test("defaults type to text when object has content but no type", () => {
-    const result = normalizeTextSegments([
-      { content: "no type field" } as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "no type field" }]);
+  test("trusts an empty contentBlocks array over reconstructing from positional arrays", () => {
+    // GIVEN a daemon that emits the projection but for a contentless message,
+    // so contentBlocks is a defined-but-empty array
+    const contentBlocks: ConversationContentBlock[] = [];
+    const message = wireMessage({
+      contentBlocks,
+      // AND positional arrays that would otherwise be reconstructed from
+      contentOrder: ["text:0"],
+      textSegments: ["should be ignored"],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the authoritative empty projection wins; positional arrays are not
+    // reconstructed (a sent-but-empty field is a genuinely contentless message,
+    // not a missing projection)
+    expect(result).toBe(contentBlocks);
   });
 
-  test("handles mixed string and object entries", () => {
-    const result = normalizeTextSegments([
-      "plain string",
-      { type: "text", content: "object form" },
-    ]);
+  test("reconstructs blocks from positional arrays for daemons that omit them", () => {
+    // GIVEN a pre-projection message carrying only positional arrays
+    const toolCall: ConversationMessageToolCall = {
+      id: "call-a",
+      name: "bash",
+      input: {},
+    };
+    const surface = { surfaceId: "s0", surfaceType: "card", data: {} };
+    const attachment = {
+      id: "att-0",
+      filename: "file.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1,
+      kind: "document",
+    };
+    const message = wireMessage({
+      contentOrder: [
+        "thinking:0",
+        "tool:0",
+        "text:0",
+        "surface:0",
+        "attachment:0",
+      ],
+      thinkingSegments: ["reasoning"],
+      textSegments: ["hello"],
+      toolCalls: [toolCall],
+      surfaces: [surface],
+      attachments: [attachment],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN an equivalent discriminated-union list is built in contentOrder order
     expect(result).toEqual([
-      { type: "text", content: "plain string" },
-      { type: "text", content: "object form" },
+      { type: "thinking", thinking: "reasoning" },
+      { type: "tool_use", toolCall },
+      { type: "text", text: "hello" },
+      { type: "surface", surface },
+      { type: "attachment", attachment },
     ]);
   });
 
-  test("returns undefined for empty or missing input", () => {
-    expect(normalizeTextSegments(undefined)).toBeUndefined();
-    expect(normalizeTextSegments([])).toBeUndefined();
+  test("strips inlined [File attachment] summaries and drops fully-consumed text", () => {
+    // GIVEN a text segment whose only content is an attachment summary line
+    const message = wireMessage({
+      contentOrder: ["text:0", "text:1"],
+      textSegments: [
+        "real body",
+        "[File attachment] file.pdf, type=application/pdf",
+      ],
+    });
+
+    // WHEN we reconstruct the blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the summary-only segment is dropped and the real body survives
+    expect(result).toEqual([{ type: "text", text: "real body" }]);
   });
 
-  test("skips entries without content", () => {
-    const result = normalizeTextSegments([
-      "valid",
-      { type: "text" } as unknown as string,
-      42 as unknown as string,
-      null as unknown as string,
-    ]);
-    expect(result).toEqual([{ type: "text", content: "valid" }]);
+  test("returns undefined when neither blocks nor contentOrder are present", () => {
+    // GIVEN a message with no ordering information at all
+    const message = wireMessage({ textSegments: ["orphan"] });
+
+    // WHEN we resolve the message's content blocks
+    // THEN there is nothing to project
+    expect(normalizeContentBlocks(message)).toBeUndefined();
   });
 });
 
@@ -231,15 +305,16 @@ describe("getChatHistory", () => {
       },
     };
 
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: {
         messages: [
           {
             id: "msg-slack",
             role: "user",
-            content:
-              "Slack reply\n[File attachment] file.pdf, type=application/pdf",
-            metadata: { source: "slack" },
+            textSegments: [
+              "Slack reply",
+              "[File attachment] file.pdf, type=application/pdf",
+            ],
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
           },
@@ -247,7 +322,7 @@ describe("getChatHistory", () => {
       },
       error: null,
       response: new Response(null, { status: 200 }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     const result = await getChatHistory("assistant-1", "conv-key");
 
@@ -258,11 +333,10 @@ describe("getChatHistory", () => {
     expect(result.messages[0]).toMatchObject({
       id: "msg-slack",
       role: "user",
-      content: "Slack reply",
-      metadata: { source: "slack" },
       slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
+    expect(messageText(result.messages[0])).toBe("Slack reply");
   });
 });
 
@@ -350,5 +424,72 @@ describe("postChatMessage — daemon error envelope handling", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure result");
     expect(result.error.detail).toBe("HTTP 503");
+  });
+});
+
+describe("mapRuntimeToolCalls — confirmationDecision", () => {
+  test("omits confirmationDecision entirely when the wire row lacks it", () => {
+    // GIVEN a history tool call with no confirmationDecision on the wire
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: { command: "ls" },
+      result: "ok",
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN the key is absent — not materialized as `undefined` — so a later
+    // reconcile spread can't clobber a locally-set decision.
+    expect(mapped).not.toHaveProperty("confirmationDecision");
+  });
+
+  test("preserves a confirmationDecision carried on the wire row", () => {
+    // GIVEN a history row carrying a recorded confirmation outcome
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: {},
+      confirmationDecision: "denied",
+    };
+
+    // WHEN it is projected onto a rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN the decision survives the projection straight from the wire
+    expect(mapped!.confirmationDecision).toBe("denied");
+  });
+});
+
+describe("mapRuntimeToolCalls — id", () => {
+  test("uses the wire-provided provider tool-use id when present", () => {
+    // GIVEN a history tool call carrying the provider tool-use id on the wire
+    const wire: ConversationMessageToolCall = {
+      id: "toolu_abc123",
+      name: "bash",
+      input: { command: "ls" },
+      result: "ok",
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN it keys by the same id the live `tool_use_start` stream uses, so
+    // reconcile can match snapshot and stream tool calls — no positional id.
+    expect(mapped!.id).toBe("toolu_abc123");
+  });
+
+  test("falls back to a positional id when the wire omits id", () => {
+    // GIVEN history rows from a daemon predating the wire `id` field
+    const wire: ConversationMessageToolCall[] = [
+      { name: "bash", input: {}, result: "a" },
+      { name: "bash", input: {}, result: "b" },
+    ];
+
+    // WHEN they are projected onto rendered tool calls
+    const [first, second] = mapRuntimeToolCalls(wire, "msg-1");
+
+    // THEN each gets a stable synthesized positional id
+    expect(first!.id).toBe("tool-history-msg-1-0");
+    expect(second!.id).toBe("tool-history-msg-1-1");
   });
 });

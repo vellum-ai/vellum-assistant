@@ -35,14 +35,16 @@ import {
   resolveWorkspacePath,
 } from "./workspace-utils.js";
 
-interface TreeEntry {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  size: number | null;
-  mimeType: string | null;
-  modifiedAt: string;
-}
+const workspaceTreeEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(["file", "directory"]),
+  size: z.number().nullable(),
+  mimeType: z.string().nullable(),
+  modifiedAt: z.string(),
+});
+
+type TreeEntry = z.infer<typeof workspaceTreeEntrySchema>;
 
 // Total number of filesystem entries we're willing to traverse when computing
 // recursive directory sizes for a single tree listing. The budget is shared
@@ -514,7 +516,9 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       path: z.string(),
-      entries: z.array(z.unknown()).describe("Directory entry objects"),
+      entries: z
+        .array(workspaceTreeEntrySchema)
+        .describe("Directory entry objects"),
     }),
     handler: handleWorkspaceTree,
   },
@@ -659,6 +663,10 @@ export const ROUTES: RouteDefinition[] = [
         description: "Allow hidden files (true/false)",
       },
     ],
+    responseBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
     responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
     additionalResponses: {
       "416": { description: "Range Not Satisfiable" },

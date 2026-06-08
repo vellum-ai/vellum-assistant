@@ -1,12 +1,10 @@
-
 import { Download, FileIcon, Loader2, X } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library";
-import { Typography } from "@vellum/design-library";
-import { buildVellumHeaders } from "@/lib/auth/request-headers";
+import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
@@ -16,8 +14,20 @@ import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments
 // MIME type is something generic like application/octet-stream. Keep in sync
 // with the language map inside `_TextPreview.tsx`.
 const TEXT_PREVIEW_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "py", "json", "md", "sh", "bash",
-  "html", "css", "yaml", "yml", "txt",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "py",
+  "json",
+  "md",
+  "sh",
+  "bash",
+  "html",
+  "css",
+  "yaml",
+  "yml",
+  "txt",
 ]);
 
 const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
@@ -85,7 +95,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     // the daemon's content endpoint. Skip the doomed fetch and show a
     // clear message instead of a misleading network error.
     if (attachment.id.startsWith("rehydrated:")) {
-      setPreviewError("Preview unavailable — file content was not preserved in chat history.");
+      setPreviewError(
+        "Preview unavailable — file content was not preserved in chat history.",
+      );
       return;
     }
 
@@ -97,20 +109,17 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       setObjectUrl(null);
 
       try {
-        // The attachment-content endpoint streams binary data and isn't
-        // exposed via the HeyAPI generated client, so we hit it directly.
-        const response = await fetch(
-          `/v1/assistants/${assistantId}/attachments/${attachment.id}/content`,
-          { headers: buildVellumHeaders() },
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to load file: ${response.statusText}`);
+        const { data, error } = await attachmentsByIdContentGet({
+          path: { assistant_id: assistantId, id: attachment.id },
+          parseAs: "blob",
+          throwOnError: false,
+        });
+        if (error || !(data instanceof Blob)) {
+          throw new Error("Failed to load file");
         }
-
-        const blob = await response.blob();
         if (revoked) return;
 
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(data);
         setObjectUrl(url);
       } catch {
         if (!revoked) {
@@ -198,7 +207,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (previewError) {
       return (
         <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-          <p className="text-body-medium-lighter text-white/80">{previewError}</p>
+          <p className="text-body-medium-lighter text-white/80">
+            {previewError}
+          </p>
           <Button
             variant="ghost"
             leftIcon={<Download />}
@@ -281,9 +292,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-        paddingBottom: "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-        paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+        paddingBottom:
+          "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+        paddingLeft:
+          "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+        paddingRight:
+          "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
       }}
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
@@ -298,7 +312,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         tintColor="currentColor"
       />
 
-      <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
         {renderContent()}
       </div>
 

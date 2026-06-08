@@ -1,8 +1,9 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { localModePlugin } from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
@@ -13,13 +14,33 @@ const DESIGN_LIBRARY_SRC = path.resolve(
 // path, not the real source path. We need both to translate watcher events.
 const DESIGN_LIBRARY_SYMLINK = path.resolve(
   import.meta.dirname,
-  "node_modules/@vellum/design-library/src",
+  "node_modules/@vellumai/design-library/src",
 );
 
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 function isPlatformMode(raw: string | undefined): boolean {
   return !!raw && PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+}
+
+/**
+ * Proxy configure hook that rewrites the localhost `sessionid` cookie
+ * into both `sessionid` and `__Secure-sessionid` so the platform's
+ * Django session middleware recognises it regardless of which cookie
+ * name is configured (dev vs production).
+ *
+ * Only used in local mode — platform mode proxies without rewriting.
+ */
+function forwardSessionCookie(proxy: { on: (event: string, cb: (...args: unknown[]) => void) => void }): void {
+  proxy.on("proxyReq", (...args: unknown[]) => {
+    const proxyReq = args[0] as http.ClientRequest;
+    const req = args[1] as http.IncomingMessage;
+    const cookie = req.headers.cookie ?? "";
+    const match = /sessionid=([^;]+)/.exec(cookie);
+    if (match?.[1]) {
+      proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+    }
+  });
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -88,6 +109,7 @@ export default defineConfig(({ mode }) => {
           replacement: path.resolve(import.meta.dirname, "src") + "/",
         },
       ],
+      dedupe: ["react", "react-dom"],
       preserveSymlinks: true,
     },
     server: {
@@ -95,8 +117,13 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       host: true,
       proxy: {
-        "/v1": { target: apiProxyTarget, changeOrigin: true },
-        "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+        ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
+          "/v1": { target: apiProxyTarget, changeOrigin: true },
+          "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+        } : {
+          "/v1": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
+          "/_allauth": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
+        }),
         "/accounts": { target: apiProxyTarget, changeOrigin: true },
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },

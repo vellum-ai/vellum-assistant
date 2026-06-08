@@ -1,35 +1,50 @@
+import type {
+  ConversationMessage,
+  ConversationMessageSurface,
+} from "@vellumai/assistant-api";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type {
   DisplayAttachment,
   DisplayMessage,
-  SlackRuntimeMessage,
+  Surface,
 } from "@/domains/chat/types/types";
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
+import {
+  mapRuntimeToolCalls,
+  normalizeContentBlocks,
+  normalizeContentOrder,
+} from "@/domains/chat/api/messages";
 
 /**
- * Intermediate representation of a RuntimeMessage after all server-side fields
- * have been parsed, cleaned, and normalized. Both `history.ts` (initial load)
- * and `reconcile.ts` (periodic server sync) must go through
- * `prepareServerMessage` to produce this — the single-entry-point design
- * prevents the class of bug where one code path forgets a transformation step
- * (e.g. content cleaning, segment normalization).
- *
- * Reconcile applies its merge overlay (local toolCalls, surfaces, attachment
- * priority chain) on top of these prepared fields. History uses them directly
- * via `mapRuntimeToDisplayMessage`.
+ * Narrow the wire surface `display` (an open string) to the display union.
+ * The daemon only emits "inline" / "panel" (or omits it); any other value
+ * maps to undefined, which the renderer treats as an unset display mode.
  */
-export interface PreparedRuntimeMessage {
-  cleanedContent: string;
-  parsedAttachments: DisplayAttachment[] | undefined;
-  structuredAttachments: DisplayAttachment[] | undefined;
-  normalizedSegments:
-    | Array<{ type: string; content: string; [key: string]: unknown }>
-    | undefined;
-  normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
-  toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
-  slackMessage: SlackRuntimeMessage | undefined;
-  timestamp: number | undefined;
+function narrowSurfaceDisplay(
+  display: string | undefined,
+): Surface["display"] {
+  return display === "inline" || display === "panel" ? display : undefined;
+}
+
+/**
+ * Adapt wire surfaces onto the display `Surface` shape. The client-only
+ * fields (`messageId`, `orphaned`) are populated later by the live SSE
+ * surface handlers, not from history.
+ */
+export function mapServerSurfaces(
+  surfaces: readonly ConversationMessageSurface[],
+): Surface[] {
+  return surfaces.map((s) => ({
+    surfaceId: s.surfaceId,
+    surfaceType: s.surfaceType,
+    title: s.title,
+    data: s.data,
+    actions: s.actions,
+    display: narrowSurfaceDisplay(s.display),
+    completed: s.completed,
+    completionSummary: s.completionSummary,
+    toolCallId: s.toolCallId,
+  }));
 }
 
 /**
@@ -37,7 +52,7 @@ export interface PreparedRuntimeMessage {
  * The daemon sends timestamps as ISO strings in history payloads but as
  * numbers in SSE events; this normalizes both to a consistent number.
  */
-export function parseRuntimeTimestamp(
+function parseRuntimeTimestamp(
   ts: unknown,
 ): number | undefined {
   if (typeof ts === "number") return ts;
@@ -49,44 +64,71 @@ export function parseRuntimeTimestamp(
 }
 
 /**
- * Parse and normalize all server-side fields from a `RuntimeMessage`.
+ * Clean each wire text segment of its inlined `[File attachment]` summary
+ * lines, returning the cleaned segments together with any attachment stubs
+ * harvested from the stripped lines.
  *
- * This is the single source of truth for interpreting a RuntimeMessage's raw
- * fields into display-ready values. Content is cleaned (attachment summary
- * lines stripped), text segments are normalized with the first segment synced
- * to cleaned content, attachments are mapped from structured metadata, and
- * timestamps are coerced to epoch ms.
+ * `renderHistoryContent` in the daemon appends `[File attachment]` summary
+ * lines to whichever text segment is open at the end of the message body,
+ * which can be ANY segment when text is interleaved with `tool_use` /
+ * `ui_surface` blocks. Cleaning only segments[0] (as a prior implementation
+ * did) left raw "[File attachment]" text in trailing segments, which the
+ * transcript renderer then printed into chat bubbles (LUM-1527). The
+ * synthesized `rehydrated:` ids are re-indexed so they stay unique even in the
+ * (unusual) case where summary lines span more than one segment.
  */
-export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage {
-  const { cleanedContent, attachments: parsedAttachments } =
-    parseAttachmentSummariesFromContent(m.content);
+function cleanTextSegments(rawSegments: string[] | undefined): {
+  segments: string[] | undefined;
+  attachments: DisplayAttachment[] | undefined;
+} {
+  if (!rawSegments || rawSegments.length === 0) {
+    return { segments: undefined, attachments: undefined };
+  }
+
+  const harvested: DisplayAttachment[] = [];
+  const segments = rawSegments.map((seg) => {
+    const { cleanedContent, attachments } =
+      parseAttachmentSummariesFromContent(seg);
+    if (attachments) {
+      harvested.push(...attachments);
+    }
+    return cleanedContent;
+  });
+
+  const attachments =
+    harvested.length > 0
+      ? harvested.map((att, i) => ({ ...att, id: `rehydrated:${i}` }))
+      : undefined;
+
+  return { segments, attachments };
+}
+
+/**
+ * Map a `ConversationMessage` to a `DisplayMessage`.
+ *
+ * This is the single `ConversationMessage → DisplayMessage` boundary: every
+ * server-side field is interpreted here. Text segments are cleaned of inlined
+ * attachment summaries (with fallback stubs reconstructed from those lines),
+ * structured attachments are mapped from daemon metadata, the unified
+ * `contentBlocks` projection is normalized, and timestamps are coerced to
+ * epoch ms. Both the history load (`history.ts`, `messages.ts`) and the
+ * periodic server sync (`reconcile.ts`) project through this function, so a
+ * server row reaches reconciliation already display-shaped and the merge runs
+ * `DisplayMessage → DisplayMessage`.
+ */
+export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessage {
+  const { segments: normalizedSegments, attachments: parsedAttachments } =
+    cleanTextSegments(
+      m.textSegments && m.textSegments.length > 0 ? m.textSegments : undefined,
+    );
 
   const structuredAttachments =
     m.attachments && m.attachments.length > 0
       ? runtimeAttachmentsToDisplay(m.attachments)
       : undefined;
 
-  // Clean each text segment individually. `renderHistoryContent` in the
-  // daemon appends `[File attachment]` summary lines to whichever text
-  // segment is open at the end of the message body, which can be ANY
-  // segment when text is interleaved with `tool_use` / `ui_surface`
-  // blocks. Patching only segments[0] (as a prior implementation did)
-  // left raw "[File attachment]" text in trailing segments, which the
-  // transcript renderer then printed into chat bubbles. LUM-1527.
-  const rawSegments = normalizeTextSegments(m.textSegments as unknown[]);
-  const normalizedSegments = rawSegments
-    ? rawSegments.map((seg) => {
-        const { cleanedContent: segCleaned } =
-          parseAttachmentSummariesFromContent(seg.content);
-        return segCleaned === seg.content
-          ? seg
-          : { ...seg, content: segCleaned };
-      })
-    : undefined;
-
-  const normalizedContentOrder = normalizeContentOrder(
-    m.contentOrder as unknown[],
-  );
+  const normalizedContentOrder = normalizeContentOrder(m.contentOrder);
+  const contentBlocks = normalizeContentBlocks(m);
 
   const toolCalls =
     m.toolCalls && m.toolCalls.length > 0
@@ -95,44 +137,27 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
 
   const timestamp = parseRuntimeTimestamp(m.timestamp);
 
-  return {
-    cleanedContent,
-    parsedAttachments,
-    structuredAttachments,
-    normalizedSegments,
-    normalizedContentOrder,
-    toolCalls,
-    slackMessage: m.slackMessage,
-    timestamp,
-  };
-}
-
-/**
- * Map a `RuntimeMessage` to a `DisplayMessage`.
- *
- * Used by `history.ts` for initial page loads where there is no local state
- * to merge. For reconciliation (where local state must be preserved), use
- * `prepareServerMessage` directly and apply the merge overlay.
- */
-export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
-  const prepared = prepareServerMessage(m);
+  const thinkingSegments =
+    m.thinkingSegments && m.thinkingSegments.length > 0
+      ? m.thinkingSegments
+      : undefined;
 
   const msg: DisplayMessage = {
     id: m.id,
     role: m.role,
-    content: prepared.cleanedContent,
   };
   if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-  if (m.surfaces) msg.surfaces = m.surfaces;
-  if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
-  if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
-  if (m.metadata) msg.metadata = m.metadata;
+  if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
+  if (contentBlocks) msg.contentBlocks = contentBlocks;
+  if (normalizedSegments) msg.textSegments = normalizedSegments;
+  if (normalizedContentOrder) msg.contentOrder = normalizedContentOrder;
+  if (thinkingSegments) msg.thinkingSegments = thinkingSegments;
   if (m.subagentNotification) msg.isSubagentNotification = true;
-  if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;
-  if (prepared.toolCalls) msg.toolCalls = prepared.toolCalls;
-  if (prepared.timestamp != null) msg.timestamp = prepared.timestamp;
+  if (m.slackMessage) msg.slackMessage = m.slackMessage;
+  if (toolCalls) msg.toolCalls = toolCalls;
+  if (timestamp != null) msg.timestamp = timestamp;
 
-  const attachments = prepared.structuredAttachments ?? prepared.parsedAttachments;
+  const attachments = structuredAttachments ?? parsedAttachments;
   if (attachments) msg.attachments = attachments;
 
   return msg;

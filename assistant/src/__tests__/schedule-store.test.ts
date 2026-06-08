@@ -179,6 +179,47 @@ describe("createSchedule (cron)", () => {
     expect(retrieved!.cronExpression).toBe("0 * * * *");
   });
 
+  test("defaults source conversation metadata to null", () => {
+    const job = createSchedule({
+      name: "No source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+    });
+
+    expect(job.createdFromConversationId).toBeNull();
+    expect(getSchedule(job.id)!.createdFromConversationId).toBeNull();
+
+    const raw = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { created_from_conversation_id: string | null };
+    expect(raw.created_from_conversation_id).toBeNull();
+  });
+
+  test("persists source conversation metadata through create, list, and update", () => {
+    const job = createSchedule({
+      name: "With source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+      createdFromConversationId: "conv-source",
+    });
+
+    expect(job.createdFromConversationId).toBe("conv-source");
+    expect(getSchedule(job.id)!.createdFromConversationId).toBe("conv-source");
+    expect(listSchedules()[0].createdFromConversationId).toBe("conv-source");
+
+    const updated = updateSchedule(job.id, {
+      createdFromConversationId: "conv-updated",
+    });
+    expect(updated!.createdFromConversationId).toBe("conv-updated");
+
+    const cleared = updateSchedule(job.id, {
+      createdFromConversationId: null,
+    });
+    expect(cleared!.createdFromConversationId).toBeNull();
+  });
+
   test("stores schedule_syntax in the DB row", () => {
     const job = createSchedule({
       name: "Syntax check",
@@ -1031,6 +1072,73 @@ describe("routing and mode fields", () => {
     expect(updated!.mode).toBe("notify");
     expect(updated!.routingIntent).toBe("single_channel");
     expect(updated!.routingHints).toEqual({ channel: "telegram" });
+  });
+});
+
+// ── Script timeout override ─────────────────────────────────────────
+
+describe("script timeout override", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("defaults timeoutMs to null when not provided", () => {
+    // GIVEN a schedule created without a timeout override
+    const job = createSchedule({
+      name: "No timeout",
+      cronExpression: "0 9 * * *",
+      message: "no timeout",
+      syntax: "cron",
+    });
+
+    // THEN the stored timeout is null (the runner falls back to the default)
+    expect(job.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
+  });
+
+  test("persists a timeoutMs override through create/read", () => {
+    // GIVEN a script schedule created with a custom timeout
+    const job = createSchedule({
+      name: "Slow script",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "sleep 5",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 120_000,
+    });
+
+    // THEN the override round-trips through the store
+    expect(job.timeoutMs).toBe(120_000);
+    expect(getSchedule(job.id)!.timeoutMs).toBe(120_000);
+  });
+
+  test("updateSchedule sets and clears the timeout override", () => {
+    // GIVEN a schedule with a custom timeout
+    const job = createSchedule({
+      name: "Adjust timeout",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 90_000,
+    });
+
+    // WHEN the timeout is changed
+    const updated = updateSchedule(job.id, { timeoutMs: 5_000 });
+
+    // THEN the new value is stored
+    expect(updated!.timeoutMs).toBe(5_000);
+
+    // AND WHEN the timeout is cleared back to the default
+    const cleared = updateSchedule(job.id, { timeoutMs: null });
+
+    // THEN it reverts to null
+    expect(cleared!.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
   });
 });
 

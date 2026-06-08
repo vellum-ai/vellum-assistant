@@ -3,21 +3,42 @@
  * These endpoints are served via RuntimeProxyView under
  * /v1/assistants/{id}/schedules/* and are not part of the Django OpenAPI schema.
  */
-import { client } from "@/generated/api/client.gen";
+import {
+  consolidationConfigGet,
+  consolidationConfigPut,
+  consolidationRunnowPost,
+  consolidationRunsGet,
+  heartbeatConfigGet,
+  heartbeatConfigPut,
+  heartbeatRunnowPost,
+  heartbeatRunsGet,
+  schedulesByIdDelete,
+  schedulesByIdPatch,
+  schedulesByIdRunPost,
+  schedulesByIdRunsGet,
+  schedulesByIdTogglePost,
+  schedulesUsagesummaryGet,
+  schedulesPost,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  ConsolidationConfigGetResponse,
+  ConsolidationConfigPutResponse,
+  ConsolidationRunnowPostResponse,
+  HeartbeatConfigGetResponse,
+  HeartbeatConfigPutResponse,
+  HeartbeatRunnowPostResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
 import type {
-  ConsolidationConfigResponse,
-  HeartbeatConfigResponse,
-  HeartbeatRunsResponse,
-  RunNowResponse,
   Schedule,
-  ScheduleRunsResponse,
-  SchedulesListResponse,
+  ScheduleRun,
+  ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
 
 export { ApiError };
@@ -34,15 +55,11 @@ export async function createSchedule(
   assistantId: string,
   payload: CreateSchedulePayload,
 ): Promise<void> {
-  const { error, response } = await client.post<SchedulesListResponse, unknown>(
-    {
-      url: "/v1/assistants/{assistant_id}/schedules/",
-      path: { assistant_id: assistantId },
-      body: payload,
-      headers: { "Content-Type": "application/json" },
-      throwOnError: false,
-    },
-  );
+  const { error, response } = await schedulesPost({
+    path: { assistant_id: assistantId },
+    body: payload,
+    throwOnError: false,
+  });
   assertHasResponse(response, error, "Failed to create schedule.");
   if (!response.ok) {
     throw new ApiError(
@@ -52,36 +69,40 @@ export async function createSchedule(
   }
 }
 
-export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  const { data, error, response } = await client.get<
-    SchedulesListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/schedules/",
-    path: { assistant_id: assistantId },
+export interface UpdateSchedulePayload {
+  timeoutMs?: number | null;
+}
+
+export async function updateSchedule(
+  assistantId: string,
+  scheduleId: string,
+  payload: UpdateSchedulePayload,
+): Promise<void> {
+  const { error, response } = await schedulesByIdPatch({
+    path: { assistant_id: assistantId, id: scheduleId },
+    body: payload,
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to load schedules.");
+  assertHasResponse(response, error, "Failed to update schedule.");
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to load schedules."),
+      extractErrorMessage(error, response, "Failed to update schedule."),
     );
   }
-  return data?.schedules ?? [];
+}
+
+export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
+  return fetchSharedSchedules(assistantId);
 }
 
 export async function fetchScheduleRuns(
   assistantId: string,
   scheduleId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
-  const { data, error, response } = await client.get<
-    ScheduleRunsResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/runs/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await schedulesByIdRunsGet({
+    path: { assistant_id: assistantId, id: scheduleId },
     query: { limit },
     throwOnError: false,
   });
@@ -95,16 +116,38 @@ export async function fetchScheduleRuns(
   return data?.runs ?? [];
 }
 
+export interface ScheduleUsageSummaryRange {
+  from: number;
+  to: number;
+}
+
+export async function fetchScheduleUsageSummary(
+  assistantId: string,
+  range: ScheduleUsageSummaryRange,
+): Promise<ScheduleUsageSummary[]> {
+  const { data, error, response } = await schedulesUsagesummaryGet({
+    path: { assistant_id: assistantId },
+    query: { from: range.from, to: range.to },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load schedule usage.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load schedule usage."),
+    );
+  }
+  return data?.summaries ?? [];
+}
+
 export async function toggleSchedule(
   assistantId: string,
   scheduleId: string,
   enabled: boolean,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/toggle/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdTogglePost({
+    path: { assistant_id: assistantId, id: scheduleId },
     body: { enabled },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to toggle schedule.");
@@ -120,9 +163,8 @@ export async function deleteSchedule(
   assistantId: string,
   scheduleId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdDelete({
+    path: { assistant_id: assistantId, id: scheduleId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to delete schedule.");
@@ -138,9 +180,8 @@ export async function runScheduleNow(
   assistantId: string,
   scheduleId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/run/",
-    path: { assistant_id: assistantId, schedule_id: scheduleId },
+  const { error, response } = await schedulesByIdRunPost({
+    path: { assistant_id: assistantId, id: scheduleId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to run schedule.");
@@ -155,12 +196,8 @@ export async function runScheduleNow(
 export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
-  const { data, error, response } = await client.get<
-    HeartbeatRunsResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/heartbeat/runs/",
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await heartbeatRunsGet({
     path: { assistant_id: assistantId },
     query: { limit },
     throwOnError: false,
@@ -182,18 +219,50 @@ export async function fetchHeartbeatRuns(
     output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
     error: run.error,
     conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
+    createdAt: run.createdAt,
+  }));
+}
+
+export async function fetchConsolidationRuns(
+  assistantId: string,
+  limit = 10,
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await consolidationRunsGet({
+    path: { assistant_id: assistantId },
+    query: { limit },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load consolidation runs.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load consolidation runs."),
+    );
+  }
+  return (data?.runs ?? []).map((run) => ({
+    id: run.id,
+    jobId: "consolidation",
+    status: run.status,
+    startedAt: run.startedAt ?? run.scheduledFor,
+    finishedAt: run.finishedAt,
+    durationMs: run.durationMs,
+    output: null,
+    error: run.error,
+    conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
     createdAt: run.createdAt,
   }));
 }
 
 export async function fetchHeartbeatConfig(
   assistantId: string,
-): Promise<HeartbeatConfigResponse> {
-  const { data, error, response } = await client.get<
-    HeartbeatConfigResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/heartbeat/config/",
+): Promise<HeartbeatConfigGetResponse> {
+  const { data, error, response } = await heartbeatConfigGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -207,11 +276,48 @@ export async function fetchHeartbeatConfig(
   return data;
 }
 
+export interface UpdateSystemTaskConfigPayload {
+  enabled: boolean;
+}
+
+async function updateSystemTaskConfig<TResponse>(
+  request: () => Promise<{
+    data?: TResponse;
+    error?: unknown;
+    response?: Response;
+  }>,
+  failureMessage: string,
+): Promise<TResponse> {
+  const { data, error, response } = await request();
+  assertHasResponse(response, error, failureMessage);
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, failureMessage),
+    );
+  }
+  return data;
+}
+
+export async function updateHeartbeatConfig(
+  assistantId: string,
+  payload: UpdateSystemTaskConfigPayload,
+): Promise<HeartbeatConfigPutResponse> {
+  return updateSystemTaskConfig(
+    () =>
+      heartbeatConfigPut({
+        path: { assistant_id: assistantId },
+        body: payload,
+        throwOnError: false,
+      }),
+    "Failed to update heartbeat config.",
+  );
+}
+
 export async function runHeartbeatNow(
   assistantId: string,
-): Promise<RunNowResponse> {
-  const { data, error, response } = await client.post<RunNowResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/heartbeat/run-now/",
+): Promise<HeartbeatRunnowPostResponse> {
+  const { data, error, response } = await heartbeatRunnowPost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -227,12 +333,8 @@ export async function runHeartbeatNow(
 
 export async function fetchConsolidationConfig(
   assistantId: string,
-): Promise<ConsolidationConfigResponse> {
-  const { data, error, response } = await client.get<
-    ConsolidationConfigResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/consolidation/config/",
+): Promise<ConsolidationConfigGetResponse> {
+  const { data, error, response } = await consolidationConfigGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -250,11 +352,25 @@ export async function fetchConsolidationConfig(
   return data;
 }
 
+export async function updateConsolidationConfig(
+  assistantId: string,
+  payload: UpdateSystemTaskConfigPayload,
+): Promise<ConsolidationConfigPutResponse> {
+  return updateSystemTaskConfig(
+    () =>
+      consolidationConfigPut({
+        path: { assistant_id: assistantId },
+        body: payload,
+        throwOnError: false,
+      }),
+    "Failed to update consolidation config.",
+  );
+}
+
 export async function runConsolidationNow(
   assistantId: string,
-): Promise<RunNowResponse> {
-  const { data, error, response } = await client.post<RunNowResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/consolidation/run-now/",
+): Promise<ConsolidationRunnowPostResponse> {
+  const { data, error, response } = await consolidationRunnowPost({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });

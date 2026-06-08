@@ -416,10 +416,39 @@ export function classifySegment(
       subcommandChain.length > 0
         ? `${programName} ${subcommandChain.join(" ")}`
         : programName;
-    const cachedRule = getTrustRuleCache().findBaseRisk(
+
+    // Look up the cache against program + positional args, mirroring how
+    // generateScopeOptions/scopeOptionsToAllowlistOptions derive the saveable
+    // `action:` patterns (flags dropped, positionals kept). This is a superset
+    // of the registry subcommand pattern — subcommands are leading positionals
+    // — and additionally covers generalized rules whose tokens extend past the
+    // registry subcommand tree (e.g. `action:cat README.md`), which the
+    // subcommand pattern alone would silently ignore. `findBaseRisk` walks the
+    // prefixes longest-first, so the most specific saved pattern wins (including
+    // over a broader seeded program-level default).
+    const programSpec = registry[programName];
+    const positionals = programSpec?.argSchema
+      ? parseArgs(segment.args, programSpec.argSchema).positionals
+      : segment.args.filter((arg) => !arg.startsWith("-"));
+    const positionalPattern =
+      positionals.length > 0
+        ? `${programName} ${positionals.join(" ")}`
+        : programName;
+
+    let cachedRule = getTrustRuleCache().findBaseRisk(
       toolName,
-      subcommandPattern,
+      positionalPattern,
     );
+    // Defensive fallback: the registry subcommand walk skips per-level value
+    // flags that the program-level parseArgs may not, so retry with the
+    // subcommand pattern if the positional pattern resolved nothing.
+    if (!cachedRule && subcommandPattern !== positionalPattern) {
+      cachedRule = getTrustRuleCache().findBaseRisk(
+        toolName,
+        subcommandPattern,
+      );
+    }
+
     if (cachedRule) {
       effectiveBaseRisk = cachedRule.risk;
       if (cachedRule.userModified || cachedRule.origin === "user_defined") {
@@ -734,9 +763,7 @@ export function generateScopeOptions(
     );
     // Add command-level wildcards for each unique non-synthetic program
     const programs = new Set(
-      parsed.segments
-        .filter((s) => !s.synthetic)
-        .map((s) => s.program),
+      parsed.segments.filter((s) => !s.synthetic).map((s) => s.program),
     );
     for (const prog of programs) {
       addOption(`^${escapeRegex(prog)}\\b`, `${prog} *`);

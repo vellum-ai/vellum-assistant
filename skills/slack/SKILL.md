@@ -3,8 +3,10 @@ name: slack
 description: Read, send, and manage Slack messages via the Web API
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "💬"
   vellum:
+    category: "messaging"
     display-name: "Slack"
 ---
 
@@ -173,12 +175,6 @@ Before making any Slack API calls, verify that Slack is connected. If not connec
 ## Error Handling
 
 If a Slack API call fails due to missing or invalid credentials -- for example, an error indicating that the token is missing or invalid -- do NOT attempt to fix the credentials manually. Instead, load the **slack-app-setup** skill (`skill_load` with `skill: "slack-app-setup"`) and follow its guided flow to set up or reconnect Slack. Tell the user something like "Slack needs to be reconnected" and start the setup skill.
-
-## Communication Style
-
-- **Be action-oriented.** When the user asks to check Slack, start scanning immediately.
-- **Keep it human.** Never mention OAuth, tokens, APIs, proxies, or credential IDs. If something isn't working, say "Slack needs to be reconnected."
-- **Show progress.** When scanning multiple channels, tell the user what you're doing.
 
 ## Delivery Notes
 

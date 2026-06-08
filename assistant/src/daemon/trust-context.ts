@@ -5,6 +5,8 @@
  * imports (memory/conversation-crud → daemon/conversation-runtime-assembly).
  */
 import type { ChannelId } from "../channels/types.js";
+import { isHttpAuthDisabled } from "../config/env.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export interface TrustContext {
   /** Channel through which the inbound message arrived. */
@@ -49,3 +51,33 @@ export const INTERNAL_GUARDIAN_TRUST_CONTEXT = {
   sourceChannel: "vellum",
   trustClass: "guardian",
 } as const satisfies TrustContext;
+
+/**
+ * Synthetic fallback trust context used when a pipeline fires before the
+ * per-turn trust snapshot has been captured (e.g. fresh conversations before
+ * the trust resolver runs, heartbeat turns that never bind an actor, or
+ * non-turn invocations like `Conversation.forceCompact`). We bias to
+ * `unknown` rather than `guardian` so a missing snapshot cannot accidentally
+ * grant elevated trust to a custom plugin reading `ctx.trust`.
+ */
+export const FALLBACK_TURN_TRUST: TrustContext = {
+  sourceChannel: "vellum",
+  trustClass: "unknown",
+};
+
+/**
+ * Resolve the effective trust class for an actor.
+ *
+ * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
+ * so that control-plane gates don't block local development.
+ *
+ * When no trust context is available (e.g. desktop-only conversations that
+ * don't go through channel trust resolution), defaults to `'unknown'`
+ * to fail-closed.
+ */
+export function resolveTrustClass(
+  trustContext: TrustContext | undefined,
+): TrustClass {
+  if (isHttpAuthDisabled()) return "guardian";
+  return trustContext?.trustClass ?? "unknown";
+}

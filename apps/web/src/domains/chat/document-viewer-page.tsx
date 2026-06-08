@@ -7,27 +7,27 @@
  * for real-time panel updates.
  */
 
+import { Typography } from "@vellumai/design-library";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Loader2 } from "lucide-react";
-import { Typography } from "@vellum/design-library";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+    documentsByIdConversationsPost,
+    documentsByIdGet,
+    documentsByIdPdfGet,
+} from "@/generated/daemon/sdk.gen";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useViewerStore } from "@/stores/viewer-store";
+import type { DocumentContent } from "@/types/document-types";
+import { getEditChatConversationId, setEditChatConversationId } from "@/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import {
-  documentsByIdConversationsPost,
-  documentsByIdGet,
-  documentsByIdPdfGet,
-} from "@/generated/daemon/sdk.gen";
-import type { DocumentContent } from "@/types/document-types";
-import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import {
-  DocumentViewerContainer,
-  type DocumentViewerContainerHandle,
+    DocumentViewerContainer,
+    type DocumentViewerContainerHandle,
 } from "./components/document-viewer-container";
+import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -36,7 +36,7 @@ import {
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,13 +143,12 @@ export function DocumentViewerPage() {
 
   const handleExport = useCallback(async () => {
     if (!doc || !assistantId) return;
-    const { response: pdfResponse } = await documentsByIdPdfGet({
+    const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
       path: { assistant_id: assistantId, id: doc.surfaceId },
       throwOnError: false,
-      parseAs: "stream",
+      parseAs: "blob",
     });
-    if (!pdfResponse || !pdfResponse.ok) return;
-    const blob = await pdfResponse.blob();
+    if (!pdfResponse?.ok || !blob) return;
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,

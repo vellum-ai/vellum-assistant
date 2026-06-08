@@ -2,13 +2,13 @@ import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { Button } from "@vellum/design-library/components/button";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { deleteTrustRule, fetchTrustRules } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
+import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal";
 
@@ -158,11 +158,11 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
         role="dialog"
         aria-modal="true"
         aria-labelledby="trust-rules-title"
-        className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
         onKeyDown={handleKeyDown}
         onClick={handleBackdropClick}
       >
-        <div className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-raised)] shadow-xl">
+        <div className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-xl">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border-base)] px-6 py-4">
             <h2
               id="trust-rules-title"

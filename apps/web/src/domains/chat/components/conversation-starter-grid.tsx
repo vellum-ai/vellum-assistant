@@ -1,20 +1,6 @@
-
-import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
-
 import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip";
-
-/**
- * A single conversation starter rendered by {@link ConversationStarterGrid}.
- *
- * Defined locally to keep the primitive's API minimal. PR 4's daemon client
- * exports a richer type with the same shape; PR 10 will reconcile by
- * importing from the client when wiring data.
- */
-export interface ConversationStarter {
-  id: string;
-  label: string;
-  prompt: string;
-}
+import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 
 export interface ConversationStarterGridProps {
   /**

@@ -92,7 +92,7 @@ mock.module("../daemon/conversation-messaging.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { TurnInterfaceContext } from "../channels/types.js";
-import type { ProcessConversationContext } from "../daemon/conversation-process.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { drainQueue } from "../daemon/conversation-process.js";
 import {
   MessageQueue,
@@ -102,7 +102,7 @@ import { TraceEmitter } from "../daemon/trace-emitter.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
-// of `ProcessConversationContext`. `runAgentLoop` resolves immediately so
+// of `Conversation`. `runAgentLoop` resolves immediately so
 // the drain-chain does not recurse forever.
 // ---------------------------------------------------------------------------
 
@@ -113,13 +113,19 @@ interface FakeRecord {
 function makeFakeContext(opts: {
   queue: MessageQueue;
   turnInterfaceContext?: TurnInterfaceContext;
-}): ProcessConversationContext & FakeRecord {
+}): Conversation & FakeRecord {
   const calls: string[] = [];
   let preactivatedSkillIds: string[] | undefined = undefined;
   const ctx = {
     conversationId: "conv-app-control-preactivation",
     messages: [],
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null,
     queue: opts.queue,
     traceEmitter: new TraceEmitter("conv-app-control-preactivation", () => {}),
@@ -164,10 +170,14 @@ function makeFakeContext(opts: {
         compactedMessages: 0,
       } as never;
     },
+    trustContext: {
+      trustClass: "guardian" as const,
+      guardianPrincipalId: "user-1",
+    },
     setTransportHints() {},
     applyHostEnvFromTransport() {},
     ensureHostProxiesForTurn() {},
-  } as unknown as ProcessConversationContext & FakeRecord;
+  } as unknown as Conversation & FakeRecord;
   return ctx;
 }
 

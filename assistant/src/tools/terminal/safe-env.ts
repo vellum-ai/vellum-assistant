@@ -69,6 +69,15 @@ export const KATA_SAFE_ENV_VARS = [
 export const KATA_INJECTED_ENV_VARS = ["LD_LIBRARY_PATH"] as const;
 
 const KATA_APT_DATA_ROOT = "/data/system";
+const KATA_FAMILY_SANDBOX_RUNTIMES = new Set([
+  "kata",
+  "firecracker",
+  "cloud-hypervisor",
+]);
+
+function isKataFamilyRuntime(runtime: string | undefined): boolean {
+  return runtime != null && KATA_FAMILY_SANDBOX_RUNTIMES.has(runtime);
+}
 
 function kataAptPaths(dataRoot: string): string[] {
   return [
@@ -118,7 +127,7 @@ function appendUniquePathEntries(
 
 export function buildSanitizedEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  const isKataRuntime = process.env.VELLUM_SANDBOX_RUNTIME === "kata";
+  const isKataRuntime = isKataFamilyRuntime(process.env.VELLUM_SANDBOX_RUNTIME);
   const safeEnvVars = isKataRuntime
     ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
     : SAFE_ENV_VARS;

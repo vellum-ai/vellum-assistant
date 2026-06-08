@@ -2,7 +2,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
 /**
  * Animated tuple of (currentStepTitle, currentStepInfo) rendered inside
@@ -192,7 +192,7 @@ export function HeaderStepCarousel({
           <>
             <span
               aria-hidden="true"
-              className="shrink-0 text-[var(--content-tertiary)] opacity-10"
+              className="shrink-0 text-[var(--border-element)]"
             >
               |
             </span>

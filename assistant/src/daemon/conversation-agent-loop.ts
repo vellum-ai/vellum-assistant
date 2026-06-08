@@ -4,20 +4,16 @@
  * This module contains the core agent loop orchestration: pre-flight
  * setup, event handling, retry logic, history reconstruction, and
  * completion event emission.  The Conversation class delegates its
- * runAgentLoop method here via the AgentLoopConversationContext interface.
+ * runAgentLoop method here, passing itself as the loop context.
  */
-
-import { join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
-  AgentLoop,
   AgentLoopExitReason,
   CheckpointDecision,
-  CheckpointInfo,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -26,7 +22,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -46,127 +41,77 @@ import {
 } from "../context/post-turn-tool-result-truncation.js";
 import {
   estimatePromptTokens,
+  estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowManager } from "../context/window-manager.js";
-import { getDocumentsForConversation } from "../documents/document-store.js";
-import type { ToolProfiler } from "../events/tool-profiling-listener.js";
+import type { ContextWindowCompactOptions } from "../context/window-manager.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  addMessage,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
-  getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
-  setConversationHistoryStrippedAt,
-  setLastNotifiedInferenceProfile,
+  resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import {
-  isReplaceableTitle,
-  queueRegenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
+import { isReplaceableTitle } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
-import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import {
-  readMemoryV2StaticContent,
-  shouldExposePersonalMemory,
-} from "../memory/v2/static-context.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
-import {
-  asDefaultGraphPayload,
-  type DefaultMemoryRetrievalDeps,
-  type GraphMemoryPayload,
-  runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
-import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CircuitBreakerArgs,
-  CircuitBreakerResult,
-  CompactionArgs,
-  CompactionResult,
-  EstimateArgs,
-  EstimateResult,
-  HistoryRepairArgs,
-  HistoryRepairResult,
-  MemoryArgs,
-  MemoryResult,
-  OverflowReduceArgs,
-  OverflowReduceResult,
-  PersistAddResult,
-  PersistArgs,
-  PersistResult,
-  TurnContext as PluginTurnContext,
-} from "../plugins/types.js";
-import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import {
-  hasProactiveArtifactCompleted,
-  runProactiveArtifactJob,
-  tryClaimProactiveArtifactTrigger,
-} from "../proactive-artifact/index.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../providers/types.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import userPromptSubmitMemoryRetrieval, {
+  type MemoryRetrievalHookContext,
+} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
+import { runHook } from "../plugins/pipeline.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import {
+  isUntrustedTrustClass,
+  resolveActorTrust,
+} from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { redactSecrets } from "../security/secret-scanner.js";
-import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
-import {
-  type AssistantAttachmentDraft,
-  cleanAssistantContent,
-} from "./assistant-attachments.js";
-import { cleanupBootstrapAfterTurnThreshold } from "./bootstrap-turn-cleanup.js";
+import { cleanAssistantContent } from "./assistant-attachments.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
+import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  finalizePendingToolResultRow,
+  markHistoryStrippedBestEffort,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -179,90 +124,46 @@ import {
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ActiveSurfaceContext,
-  ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildSubagentStatusBlock,
-  buildUnifiedTurnContextBlock,
-  findLastInjectedNowContent,
-  getPkbAutoInjectList,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
-import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
-import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  formatTurnTimestamp,
-  resolveTurnTimezoneContext,
-} from "./date-context.js";
+import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
-import { deepRepairHistory } from "./history-repair.js";
 import type {
-  DynamicPageSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { MemoryRecalled } from "./message-types/memory.js";
-import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import {
+  type OverflowReduceArgs,
+  runOverflowReductionLoop,
+} from "./overflow-reduction-loop.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
-import type { TraceEmitter } from "./trace-emitter.js";
-import type { TrustContext } from "./trust-context.js";
+import {
+  persistUnsendableImageDowngrades,
+  UNSENDABLE_IMAGE_NOTE,
+} from "./persist-unsendable-image.js";
+import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
 
-/**
- * Best-effort persistence of the history-stripped marker after an
- * injection-strip event (compaction / overflow recovery). The marker is a
- * durability hint, not turn-critical state — a transient SQLite write failure
- * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
- * warning and continues on failure, preserving the long-standing non-fatal
- * contract for this metadata write.
- */
-function markHistoryStrippedBestEffort(
-  conversationId: string,
-  strippedAt: number,
-  logger: ReturnType<typeof getLogger>,
-): void {
-  try {
-    setConversationHistoryStrippedAt(conversationId, strippedAt);
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
-    );
-  }
-}
-
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
-
-/**
- * Mid-loop yield threshold expressed as a fraction of the preflight
- * budget. When the running token estimate crosses this fraction at an
- * agent-loop checkpoint, the loop yields so the orchestrator can run a
- * compaction pass *before* the next provider call would risk a hard
- * rejection.
- */
-const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -278,171 +179,14 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   skill_execute: "Run Skill Tool",
 };
 
-type GitServiceInitializer = {
-  ensureInitialized(): Promise<void>;
-};
-
 function formatDiskPressureBlockedMessage(): string {
   return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
 }
 
-// ── Compaction circuit-breaker pipeline helpers ─────────────────────
-//
-// The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
-// 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
-// pipeline. The default plugin (`plugins/defaults/circuit-breaker.ts`)
-// replicates the legacy threshold/cooldown constants and event-emission
-// semantics exactly — it operates on the `consecutiveCompactionFailures` /
-// `compactionCircuitOpenUntil` fields the conversation still owns so the
-// dev-only playground routes (`POST /playground/reset-compaction-circuit`,
-// `POST /playground/inject-compaction-failures`) continue to read and
-// mutate those fields directly.
-//
-// The helpers below build the pipeline inputs and invoke the runner. They
-// are the sole entry points the rest of the daemon uses to query or update
-// the compaction circuit.
-
-/** Circuit-breaker key for a specific conversation's compaction pipeline. */
-function compactionCircuitKey(conversationId: string): string {
-  return `compaction:${conversationId}`;
-}
-
-/**
- * Build the minimal {@link TurnContext} the pipeline runner requires. Called
- * both from inside the agent loop (where turn identifiers are available) and
- * from non-turn invocations like `Conversation.forceCompact` (which falls
- * back to stable placeholders so the runner's log records still carry the
- * conversation identifier).
- */
-function buildCircuitTurnContext(ctx: {
-  readonly conversationId: string;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): PluginTurnContext {
-  const trust: TrustContext =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId: ctx.currentRequestId ?? "circuit-breaker",
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-  };
-}
-
-/**
- * Run the `circuitBreaker` pipeline for the compaction circuit on this
- * conversation. When `outcome` is provided, state is updated (and transition
- * events emit via `onEvent`); when omitted the call is query-only.
- *
- * Returns the post-call decision from the pipeline. Callers gate auto-paths
- * on `!result.open` and admit forced paths regardless of the decision.
- */
-async function runCompactionCircuitPipeline(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  args: {
-    outcome?: "success" | "failure";
-    onEvent?: (msg: ServerMessage) => void;
-  },
-): Promise<CircuitBreakerResult> {
-  const turnContext = buildCircuitTurnContext(ctx);
-  return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
-    "circuitBreaker",
-    getMiddlewaresFor("circuitBreaker"),
-    async (terminalArgs) => {
-      // No plugin in the chain produced a decision. This should be
-      // unreachable in production because the default plugin registers a
-      // `circuitBreaker` middleware that always returns a decision, but we
-      // defensively derive the state here so test setups that intentionally
-      // omit the default plugin still get a sensible response.
-      const openUntil = terminalArgs.state.compactionCircuitOpenUntil;
-      const now = Date.now();
-      if (openUntil !== null && now < openUntil) {
-        return { open: true, cooldownRemainingMs: openUntil - now };
-      }
-      return { open: false };
-    },
-    {
-      key: compactionCircuitKey(ctx.conversationId),
-      // Pass the ctx directly as the mutable state container. The
-      // `CircuitBreakerArgs.state` shape deliberately matches the subset of
-      // fields the conversation owns so plugins mutate the same object the
-      // playground routes read and write.
-      state: ctx,
-      ...(args.outcome !== undefined ? { outcome: args.outcome } : {}),
-      ...(args.onEvent ? { onEvent: args.onEvent } : {}),
-    },
-    turnContext,
-    DEFAULT_TIMEOUTS.circuitBreaker,
-  );
-}
-
-/**
- * Query-only: is the compaction circuit breaker currently open for this
- * conversation? Thin wrapper around {@link runCompactionCircuitPipeline}
- * with no outcome. Async because the pipeline runner is async, but the
- * default plugin resolves synchronously on its microtask.
- */
-async function isCompactionCircuitOpen(ctx: {
-  readonly conversationId: string;
-  consecutiveCompactionFailures: number;
-  compactionCircuitOpenUntil: number | null;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): Promise<boolean> {
-  const decision = await runCompactionCircuitPipeline(ctx, {});
-  return decision.open;
-}
-
-/**
- * Update the compaction circuit breaker with the outcome of a `maybeCompact`
- * call and emit any transition event. A `summaryFailed` value of `undefined`
- * means the summary LLM never ran (early return) — callers must guard with
- * `summaryFailed !== undefined` before invoking this helper so early-return
- * paths don't silently reset the 3-strike counter.
- *
- * The default plugin handles threshold-based tripping and cooldown reset;
- * see `plugins/defaults/circuit-breaker.ts` for the canonical semantics.
- */
-export async function trackCompactionOutcome(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  summaryFailed: boolean,
-  onEvent: (msg: ServerMessage) => void,
-): Promise<void> {
-  await runCompactionCircuitPipeline(ctx, {
-    outcome: summaryFailed ? "failure" : "success",
-    onEvent,
-  });
-}
-
 // ── Plugin pipeline helpers ──────────────────────────────────────────
-//
-// Canonical {@link PluginTurnContext} builder threaded into every
-// `runPipeline` call inside `runAgentLoopImpl`. The orchestrator composes
-// the context on demand at each call site from ambient state rather than
-// carrying a persistent `TurnContext` instance across the turn.
 
 /**
- * Synthetic fallback trust context used when the orchestrator fires a pipeline
+ * Synthetic fallback trust context used when the orchestrator fires a hook
  * before the per-turn trust snapshot has been captured (e.g. invocations that
  * bypass `processMessage` / `drainQueue`). We bias to `unknown` rather than
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
@@ -454,50 +198,22 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
- * Build the {@link TurnContext} passed to {@link runPipeline}.
- *
- * Canonical source of truth for every pipeline call site inside the agent
- * loop. Every `runPipeline` invocation in `runAgentLoopImpl` (and in the
- * handlers that share its ambient state) must route through this helper
- * rather than constructing a `TurnContext` literal inline — this keeps
- * `turnIndex`, trust resolution, and the `contextWindowManager` attachment
- * consistent across pipeline slots, which in turn keeps structured logs
- * filtered by `conversationId`/`turnIndex` coherent across slots.
- *
- * Behavior:
- * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
- *   0-based turn counter. Reading from a single source avoids the
- *   earlier inconsistency (`ctx.turnCount`, `ctx.messages.length - 1`,
- *   `ctx.messages.length`, and `0` were all used for the same turn).
- * - Trust pulls from the per-turn snapshot first, then the conversation-
- *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
- *   the one inside the orchestrator's inline injection assembly so
- *   middleware reads the same trust class the runtime sees.
- * - `contextWindowManager` is attached unconditionally. Pipelines that
- *   don't need it can ignore it; the default compaction plugin reads it
- *   via the typed optional field on `TurnContext`.
+ * Trust class of the actor whose turn is in progress, for the compactor's
+ * image manifest filter. Prefers the turn-start snapshot
+ * ({@link Conversation.currentTurnTrustContext}) over the live
+ * trust context so compaction running in a later tool iteration can't pick up
+ * a concurrent request's actor.
  */
-function buildPluginTurnContext(
-  ctx: AgentLoopConversationContext,
-  requestId: string,
-): PluginTurnContext {
-  const trust =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId,
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-    contextWindowManager: ctx.contextWindowManager,
-  };
+function resolveTurnActorTrustClass(
+  ctx: Conversation,
+): TrustContext["trustClass"] | undefined {
+  return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
 }
-
-// ── Context Interface ────────────────────────────────────────────────
 
 /**
  * Per-surface entry tracked on the current turn. Inline shape kept stable so
  * routes and persistence helpers can consume it via a named import instead of
- * `infer`-extracting from {@link AgentLoopConversationContext}.
+ * `infer`-extracting from {@link Conversation}.
  */
 export interface AssistantSurface {
   surfaceId: string;
@@ -512,176 +228,14 @@ export interface AssistantSurface {
   }>;
   display?: string;
   persistent?: boolean;
-}
-
-export interface AgentLoopConversationContext {
-  readonly conversationId: string;
-  messages: Message[];
-  processing: boolean;
-  abortController: AbortController | null;
-  currentRequestId?: string;
-
-  readonly agentLoop: AgentLoop;
-  readonly provider: Provider;
-  readonly systemPrompt: string;
-
-  readonly contextWindowManager: ContextWindowManager;
-  contextCompactedMessageCount: number;
-  contextCompactedAt: number | null;
-  /**
-   * Set by `applyCompactionResult` when compaction strips runtime injections
-   * from the preserved tail. The next agent loop turn promotes this into a
-   * `compactedThisTurn` signal so NOW.md, PKB, and the v2 static block are
-   * re-injected on the first turn following `/compact` (which runs outside
-   * the agent loop and so has no other way to surface that compaction
-   * happened just before this turn).
-   */
-  pendingPostCompactReinject: boolean;
-  /** Tracks consecutive compaction failures (summary LLM call threw). */
-  consecutiveCompactionFailures: number;
-  /** Timestamp (ms since epoch) until which the circuit breaker is open. */
-  compactionCircuitOpenUntil: number | null;
-
-  readonly graphMemory: ConversationGraphMemory;
-
-  currentActiveSurfaceId?: string;
-  currentPage?: string;
-  readonly surfaceState: Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-    }
-  >;
-  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
-  surfaceActionRequestIds: Set<string>;
-  approvedViaPromptThisTurn?: boolean;
-  currentTurnSurfaces: AssistantSurface[];
-
-  workingDir: string;
-  workspaceTopLevelContext: string | null;
-  workspaceTopLevelDirty: boolean;
-  channelCapabilities?: ChannelCapabilities;
-  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
-  currentTurnTrustContext?: TrustContext;
-  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
-  currentTurnChannelCapabilities?: ChannelCapabilities;
-  /**
-   * Current inference-profile override for this turn. Read by
-   * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
-   * profile the agent loop is sending to the provider. Refreshed between
-   * model calls so an explicitly confirmed profile session opened mid-turn
-   * is inherited by later tool executions and nested subagents.
-   */
-  currentTurnOverrideProfile?: string;
-  /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
-   */
-  toolRoutedProfile?: string;
-  commandIntent?: { type: string; payload?: string; languageCode?: string };
-  trustContext?: TrustContext;
-  /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
-  taskRunId?: string;
-  assistantId?: string;
-  voiceCallControlPrompt?: string;
-  transportHints?: string[];
-  clientTimezone?: string;
-
-  readonly coreToolNames: Set<string>;
-  allowedToolNames?: Set<string>;
-  diskPressureCleanupModeActive?: boolean;
-  toolsDisabledDepth: number;
-  preactivatedSkillIds?: string[];
-  readonly skillProjectionState: Map<string, string>;
-  readonly skillProjectionCache: SkillProjectionCache;
-
-  readonly traceEmitter: TraceEmitter;
-  readonly profiler: ToolProfiler;
-  usageStats: UsageStats;
-  turnCount: number;
-
-  lastAssistantAttachments: AssistantAttachmentDraft[];
-  lastAttachmentWarnings: string[];
-
-  hasNoClient: boolean;
-  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
-  isSubagent?: boolean;
-  headlessLock?: boolean;
-  readonly streamThinking: boolean;
-  readonly prompter: PermissionPrompter;
-  readonly queue: MessageQueue;
-
-  emitActivityState(
-    phase:
-      | "idle"
-      | "thinking"
-      | "streaming"
-      | "tool_running"
-      | "awaiting_confirmation",
-    reason:
-      | "message_dequeued"
-      | "thinking_delta"
-      | "first_text_delta"
-      | "tool_use_start"
-      | "preview_start"
-      | "tool_result_received"
-      | "confirmation_requested"
-      | "confirmation_resolved"
-      | "context_compacting"
-      | "message_complete"
-      | "generation_cancelled"
-      | "error_terminal",
-    anchor?: "assistant_turn" | "user_turn" | "global",
-    requestId?: string,
-    statusText?: string,
-  ): void;
-  emitConfirmationStateChanged(
-    params: ConfirmationStateChanged extends {
-      type: infer _;
-    }
-      ? Omit<ConfirmationStateChanged, "type">
-      : never,
-  ): void;
-
-  /**
-   * Optional callback invoked by the Conversation when a confirmation state changes.
-   * The agent loop registers this to track requestId → toolUseId mappings
-   * and record confirmation outcomes for persistence.
-   */
-  onConfirmationOutcome?: (
-    requestId: string,
-    state: string,
-    toolName?: string,
-    toolUseId?: string,
-  ) => void;
-
-  getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
-  commitTurnChanges?: typeof commitTurnChanges;
-
-  refreshWorkspaceTopLevelContextIfNeeded(): void;
-  markWorkspaceTopLevelDirty(): void;
-  getQueueDepth(): number;
-  hasQueuedMessages(): boolean;
-  canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): Promise<void>;
-  getTurnChannelContext(): TurnChannelContext | null;
-  getTurnInterfaceContext(): TurnInterfaceContext | null;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Persisted so app previews can gate on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
@@ -729,6 +283,13 @@ export async function runAgentLoopImpl(
   });
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
+  // Whether the most recent agent-loop run produced at least one new assistant
+  // message — the loop's own forward-progress signal, used by the ordering
+  // retry gate and the overflow convergence fold.
+  let lastRunAppendedNewMessages = false;
+  // The messages the most recent agent-loop run appended on top of its base —
+  // the loop's own new-output boundary, persisted as this turn's new messages.
+  let lastRunNewMessages: Message[] = [];
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
   // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
   // budget checkpoint. SSE emission happens immediately at the detection site;
@@ -747,23 +308,22 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
-
-  // Read the conversation row once for both the override-profile derivation
-  // below and the title-replaceability check at turn start. Later reads in
-  // this function (post-turn truncation, disk sync, home-feed emission)
-  // intentionally re-read because state can change during the turn.
-  const turnStartConversation = getConversation(ctx.conversationId);
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts.
+  ctx.currentCallSite = turnCallSite;
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
   // this turn. Caller-supplied `options.overrideProfile` (e.g.
   // SubagentManager forwarding the parent's pinned profile into the
-  // spawned subagent's background conversation) wins over the row read
-  // so the agent loop's own background-skip rule doesn't zero out an
-  // explicitly inherited override.
+  // spawned subagent's background conversation) wins over the conversation's
+  // own override so the agent loop's background-skip rule doesn't zero out an
+  // explicitly inherited override. The override state is mirrored onto the
+  // live conversation (hydrated on load, kept current by the HTTP setters and
+  // the expiry reaper), so the derivation reads `ctx` rather than re-fetching
+  // the row.
   const userExplicitOverride =
-    options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(turnStartConversation);
+    options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
   const config = getConfig();
 
@@ -776,9 +336,7 @@ export async function runAgentLoopImpl(
 
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(
-      getConversation(ctx.conversationId),
-    ) ??
+    resolveOverrideProfile(ctx) ??
     ctx.toolRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
@@ -796,11 +354,7 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     currentEffectiveContextWindow,
   );
-  const contextWindowManager =
-    ctx.contextWindowManager as ContextWindowManager & {
-      updateConfig?: (config: ContextWindowConfig) => void;
-    };
-  contextWindowManager.updateConfig?.(currentContextWindowConfig);
+  ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
   let emittedToolRoutedProfile: string | undefined;
@@ -820,7 +374,7 @@ export async function runAgentLoopImpl(
         }).contextWindow,
         currentEffectiveContextWindow,
       );
-      contextWindowManager.updateConfig?.(currentContextWindowConfig);
+      ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },
@@ -876,6 +430,25 @@ export async function runAgentLoopImpl(
       preflightBudget: Math.floor(providerMaxTokens * (1 - safetyMargin)),
     };
   };
+  /**
+   * The agent loop's window into the orchestrator's current effective
+   * context window. The loop reads `maxInputTokens` for tool-result
+   * truncation and `overflowRecovery` for its mid-loop budget gate, applying
+   * the long-history safety-margin bump itself off its own running history.
+   * Resolved fresh on each access so a mid-turn profile change is reflected.
+   */
+  const resolveContextWindow = (): {
+    maxInputTokens: number;
+    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+  } => {
+    refreshCurrentProfileState();
+    const { enabled, safetyMarginRatio } =
+      currentEffectiveContextWindow.overflowRecovery;
+    return {
+      maxInputTokens: currentEffectiveContextWindow.maxInputTokens,
+      overflowRecovery: { enabled, safetyMarginRatio },
+    };
+  };
 
   // Initial value for `createToolExecutor` to read into
   // `ToolContext.overrideProfile`. `resolveCurrentOverrideProfile` refreshes
@@ -920,11 +493,17 @@ export async function runAgentLoopImpl(
 
   const isInteractiveResolved =
     options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+  // Whether the in-flight turn has no human present to answer clarification
+  // questions. Derived from the loop's `isInteractive` option (which can fall
+  // back to mutable client/headless state that flips mid-turn), so it is
+  // resolved once here and threaded into every re-injection — including the
+  // post-compaction hook — rather than re-read per assembly call.
+  const isNonInteractive = !isInteractiveResolved;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
-      conversationType: turnStartConversation?.conversationType ?? null,
-      conversationSource: turnStartConversation?.source ?? null,
+      conversationType: ctx.conversationType ?? null,
+      conversationSource: ctx.source ?? null,
       callSite: turnCallSite,
       isInteractive: isInteractiveResolved,
       sourceChannel:
@@ -941,10 +520,6 @@ export async function runAgentLoopImpl(
         : null,
     },
   );
-  const diskPressureContext =
-    diskPressureDecision.action === "allow-cleanup-mode"
-      ? { cleanupModeActive: true }
-      : null;
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
 
@@ -985,7 +560,10 @@ export async function runAgentLoopImpl(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",
       );
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit("request_error", message, {
         requestId: reqId,
         status: "error",
@@ -1044,72 +622,8 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Generate title early — the user message alone is sufficient context.
-    // Firing before the main LLM call removes the delay of waiting for the
-    // full assistant response. The second-pass regeneration at turn 3 will
-    // refine the title with more context.
-    // No abort signal — title generation should complete even if the user
-    // cancels the response, since the user message is already persisted.
-    // Deferred via setTimeout so the main agent loop LLM call enqueues
-    // first, avoiding rate-limit slot contention on strict configs.
-    if (isReplaceableTitle(turnStartConversation?.title ?? null)) {
-      // TurnContext routed through the canonical builder so the pipeline's
-      // log record reports the same `conversationId`/`turnIndex` shape as
-      // every other slot in this turn. Title generation does not depend on
-      // the context-window manager attached by the builder, but sharing the
-      // builder keeps the invariant enforced in one place.
-      const titlePipelineCtx = buildPluginTurnContext(ctx, reqId);
-      const titleArgs = {
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title: string) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-      };
-      setTimeout(() => {
-        runPipeline(
-          "titleGenerate",
-          getMiddlewaresFor("titleGenerate"),
-          defaultTitleGenerateTerminal,
-          titleArgs,
-          titlePipelineCtx,
-          DEFAULT_TIMEOUTS.titleGenerate,
-        ).catch((err) => {
-          // Fire-and-forget — keep previous non-propagating semantics.
-          // queueGenerateConversationTitle already swallows internal
-          // errors; this catch covers pipeline-layer errors (timeouts,
-          // middleware throws) without surfacing them to the agent loop.
-          rlog.warn({ err }, "titleGenerate pipeline failed (non-fatal)");
-        });
-      }, 0);
-    }
-
     const isFirstMessage = ctx.messages.length === 1;
-    // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
-    // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
-    // turn even when no mid-turn compaction fires. Clear the flag immediately
-    // so this fires exactly once per `/compact` event.
-    const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
-    ctx.pendingPostCompactReinject = false;
-    let shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
-    let compactedThisTurn = consumedPostCompactReinject;
-    let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
-    let currentSlackContextSummary =
-      turnStartConversation?.contextSummary ?? null;
-    let currentSlackContextCompactedMessageCount =
-      turnStartConversation?.contextCompactedMessageCount ?? 0;
-    let currentSlackContextCompactionWatermarkTs =
-      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
         if (!isSlackConversation) return null;
@@ -1118,18 +632,15 @@ export async function runAgentLoopImpl(
           ctx.channelCapabilities!,
           {
             trustClass: ctx.trustContext?.trustClass,
-            contextSummary: currentSlackContextSummary,
-            contextCompactedMessageCount:
-              currentSlackContextCompactedMessageCount,
+            contextSummary: ctx.contextSummary,
+            contextCompactedMessageCount: ctx.contextCompactedMessageCount,
             slackContextCompactionWatermarkTs:
-              currentSlackContextCompactionWatermarkTs,
+              ctx.slackContextCompactionWatermarkTs,
           },
         );
       };
     let slackChronologicalContext: SlackChronologicalContext | null =
       loadCurrentSlackChronologicalContext();
-    const messagesForStartOfTurnCompaction =
-      slackChronologicalContext?.messages ?? ctx.messages;
     const getSlackProvenanceContextForCompactionBasis = (
       messages: Message[],
       compactedMessages: number,
@@ -1216,15 +727,6 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
-      currentSlackContextSummary = result.summaryText;
-      currentSlackContextCompactedMessageCount =
-        ctx.contextCompactedMessageCount;
-      if (slackWatermarkTs) {
-        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
-      }
-      if (isSlackConversation) {
-        slackCompactedThisTurn = true;
-      }
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
         compactedBasis,
@@ -1232,92 +734,9 @@ export async function runAgentLoopImpl(
       );
     };
 
-    const compactCheck = ctx.contextWindowManager.shouldCompact(
-      messagesForStartOfTurnCompaction,
-    );
-    // Skip auto-compaction while the circuit breaker is open. Force paths
-    // and user-initiated /compact bypass this check.
-    const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
-    if (compactCheck.needed && autoCompactAllowed) {
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-      );
-    }
-    const compactionOptions = {
-      lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-      precomputedEstimate: compactCheck.estimatedTokens,
-      conversationOriginChannel:
-        getConversationOriginChannel(ctx.conversationId) ?? undefined,
-      overrideProfile: resolveCurrentOverrideProfile() ?? null,
-    };
-    let compacted: Awaited<
-      ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-    > | null = null;
-    if (autoCompactAllowed) {
-      try {
-        compacted = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: messagesForStartOfTurnCompaction,
-            signal: abortController.signal,
-            options: compactionOptions,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Pipeline exceeded its budget. Record the failure so the circuit
-          // breaker tracks consecutive timeouts (it trips after three),
-          // then degrade gracefully by skipping compaction this turn —
-          // the turn proceeds with the un-compacted history rather than
-          // hard-failing. The inner summary call has been aborted by the
-          // runner's signal-linking, so updateSummary's local fallback
-          // also ran before this catch block is reached.
-          rlog.warn(
-            { err, phase: "start-of-turn-compaction" },
-            "Compaction pipeline timed out — skipping compaction this turn",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          compacted = null;
-        } else {
-          throw err;
-        }
-      }
-    }
-    // Only track circuit-breaker state when a summary LLM call actually ran.
-    // `summaryFailed` is `undefined` on early returns (compaction disabled,
-    // below threshold, cooldown active, no eligible messages, truncation-only
-    // path) — treating those as "successful" compactions would silently reset
-    // the 3-strike counter and break the invariant.
-    if (compacted && compacted.summaryFailed !== undefined) {
-      await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
-    }
-    if (compacted?.compacted) {
-      await applySuccessfulCompaction(
-        compacted,
-        messagesForStartOfTurnCompaction,
-      );
-      shouldInjectWorkspace = true;
-      if (compacted.compactedPersistedMessages > 0) {
-        compactedThisTurn = true;
-      }
-    }
-
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
-    ctx.onConfirmationOutcome = (
-      requestId,
-      confirmationState,
-      toolName,
-      toolUseId,
-    ) => {
+    ctx.onConfirmationOutcome = (requestId, confirmationState, toolUseId) => {
       if (confirmationState === "pending") {
         // Use the toolUseId passed from the prompter (which knows which tool
         // requested confirmation) instead of the ambient state.currentToolUseId,
@@ -1334,7 +753,7 @@ export async function runAgentLoopImpl(
         const resolvedId =
           state.requestIdToToolUseId.get(requestId) ?? toolUseId;
         if (resolvedId) {
-          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
+          const name = state.toolUseIdToName.get(resolvedId) ?? "";
           // Build a friendly label from the tool name
           const label =
             TOOL_FRIENDLY_LABEL[name] ??
@@ -1347,222 +766,16 @@ export async function runAgentLoopImpl(
       }
     };
 
-    let runMessages = ctx.messages;
-
-    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
-    // outputs through a single `memoryRetrieval` pipeline. Plugins may
-    // replace the terminal behavior by registering a middleware that
-    // short-circuits with its own `MemoryResult`; the default terminal
-    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
-    // in-lined behavior (PKB/NOW reads + gated graph call).
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    // Canonical builder — pulls trust from per-turn snapshot, then
-    // conversation-level, then the synthetic fallback. Memory retrieval
-    // does not need the context-window handle the builder attaches, but
-    // keeping every call site on one helper is load-bearing for log
-    // coherence across pipeline slots.
-    const memoryPluginTurnCtx = buildPluginTurnContext(ctx, reqId);
-    const memoryArgs: MemoryArgs = {
-      conversationId: ctx.conversationId,
-      trustContext: ctx.trustContext,
-      turnIndex: ctx.turnCount,
-      // Pass the abort signal via `args` (not `deps`) so the pipeline
-      // runner's `linkAbortSignal` can swap it for a signal linked to the
-      // pipeline's internal controller — on a plugin-set timeout or
-      // external cancel, the linked signal aborts and `prepareMemory`
-      // stops mutating graph state / emitting events after the pipeline
-      // has already errored.
-      signal: abortController.signal,
-    };
-    const memoryDeps: DefaultMemoryRetrievalDeps = {
-      messages: ctx.messages,
-      graphMemory: ctx.graphMemory,
-      config: getConfig(),
-      onEvent,
-      isTrustedActor,
-    };
-    const memoryResult: MemoryResult = await runPipeline(
-      "memoryRetrieval",
-      getMiddlewaresFor("memoryRetrieval"),
-      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
-      memoryArgs,
-      memoryPluginTurnCtx,
-      DEFAULT_TIMEOUTS.memoryRetrieval,
-    );
-
-    // Consume the memory-graph block when the default retriever emitted
-    // one. Custom plugins that substitute their own blocks without the
-    // default discriminator are expected to handle their own side effects
-    // (event emission, metric persistence) inside their middleware; this
-    // block short-circuits to the original no-op behavior in that case.
-    const defaultGraphPayload: GraphMemoryPayload | null =
-      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
-    let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector: QdrantSparseVector | undefined;
-    if (defaultGraphPayload) {
-      const graphResult = defaultGraphPayload.result;
-      runMessages = graphResult.runMessages;
-      // Select dense+sparse as a matched pair so RRF fusion combines two
-      // signals aligned to the same query text:
-      //   1. Context-load with a user query: user-query dense + user-query
-      //      sparse — the cleanest pairing.
-      //   2. Otherwise (context-load without a user query, or per-turn):
-      //      whatever `queryVector` / `sparseVector` the retriever produced,
-      //      which are themselves co-aligned (both summary-derived in
-      //      context-load, both user-last-message-derived in per-turn).
-      // Never pair a user-query dense with a summary-aligned sparse.
-      if (graphResult.userQueryVector) {
-        pkbQueryVector = graphResult.userQueryVector;
-        pkbSparseVector = graphResult.userQuerySparseVector;
-      } else {
-        pkbQueryVector = graphResult.queryVector;
-        pkbSparseVector = graphResult.sparseVector;
-      }
-
-      // Persist the injected block text in message metadata so it survives
-      // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata. Routed through the `persistence` pipeline so plugins
-      // can observe or override metadata updates alongside add/delete.
-      if (graphResult.injectedBlockText) {
-        try {
-          await runPipeline<PersistArgs, PersistResult>(
-            "persistence",
-            getMiddlewaresFor("persistence"),
-            defaultPersistenceTerminal,
-            {
-              op: "update",
-              messageId: userMessageId,
-              updates: {
-                memoryInjectedBlock: graphResult.injectedBlockText,
-              },
-            },
-            buildPluginTurnContext(ctx, reqId),
-            DEFAULT_TIMEOUTS.persistence,
-          );
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Failed to persist memory injection to metadata (non-fatal)",
-          );
-        }
-      }
-
-      const m = graphResult.metrics;
-
-      try {
-        recordMemoryRecallLog({
-          conversationId: ctx.conversationId,
-          enabled: true,
-          degraded: false,
-          provider: m?.embeddingProvider ?? undefined,
-          model: m?.embeddingModel ?? undefined,
-          semanticHits: m?.semanticHits ?? 0,
-          mergedCount: m?.mergedCount ?? 0,
-          selectedCount: m?.selectedCount ?? 0,
-          tier1Count: m?.tier1Count ?? 0,
-          tier2Count: m?.tier2Count ?? 0,
-          hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
-          sparseVectorUsed: m?.sparseVectorUsed ?? false,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-          injectedText: graphResult.injectedBlockText ?? undefined,
-          reason: `graph:${graphResult.mode}`,
-          queryContext: m?.queryContext ?? undefined,
-        });
-      } catch (err) {
-        log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
-      }
-
-      if (m) {
-        const memoryRecalledEvent: MemoryRecalled = {
-          type: "memory_recalled",
-          provider: m.embeddingProvider ?? "unknown",
-          model: m.embeddingModel ?? "unknown",
-          semanticHits: m.semanticHits,
-          mergedCount: m.mergedCount,
-          selectedCount: m.selectedCount,
-          tier1Count: m.tier1Count,
-          tier2Count: m.tier2Count,
-          hybridSearchLatencyMs: m.hybridSearchLatencyMs,
-          sparseVectorUsed: m.sparseVectorUsed,
-          injectedTokens: graphResult.injectedTokens,
-          latencyMs: graphResult.latencyMs,
-          topCandidates: m.topCandidates.map((c) => ({
-            key: c.nodeId,
-            type: c.type,
-            kind: "graph",
-            finalScore: c.score,
-            semantic: c.semanticSimilarity,
-            recency: c.recencyBoost,
-          })),
-        };
-        onEvent(memoryRecalledEvent);
-      }
-    }
-
-    // Build active surface context
-    let activeSurface: ActiveSurfaceContext | null = null;
-    if (ctx.currentActiveSurfaceId) {
-      const stored = ctx.surfaceState.get(ctx.currentActiveSurfaceId);
-      if (stored && stored.surfaceType === "dynamic_page") {
-        const data = stored.data as DynamicPageSurfaceData;
-        activeSurface = {
-          surfaceId: ctx.currentActiveSurfaceId,
-          html: data.html,
-          currentPage: ctx.currentPage,
-        };
-        if (data.appId) {
-          const app = getApp(data.appId);
-          if (app) {
-            activeSurface.appId = app.id;
-            activeSurface.appName = app.name;
-            activeSurface.appDirName = resolveAppDir(app.id).dirName;
-            activeSurface.appSchemaJson = app.schemaJson;
-            activeSurface.appFiles = listAppFiles(app.id);
-            if (app.pages && Object.keys(app.pages).length > 0) {
-              activeSurface.appPages = app.pages;
-            }
-          }
-        }
-      }
-    }
-
-    // Query active documents for this conversation so the injector chain
-    // can surface them to the assistant (prevents duplicate document_create
-    // calls when existing documents should be targeted with document_update).
-    const conversationDocs = getDocumentsForConversation(ctx.conversationId);
-    const activeDocuments =
-      conversationDocs.length > 0
-        ? conversationDocs.map((d) => ({
-            surfaceId: d.surfaceId,
-            title: d.title,
-            wordCount: d.wordCount,
-            updatedAt: d.updatedAt,
-          }))
-        : null;
-
-    ctx.refreshWorkspaceTopLevelContextIfNeeded();
-
-    // Compute fresh turn timestamp for date grounding.
-    // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then device timezones.
+    // Resolve the turn's timezone cascade up front. It depends only on config
+    // and the inbound request — never on retrieval output — so it can be
+    // settled before context assembly. Local date semantics prefer the
+    // configured user timezone, then device timezones, then the host clock.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneContext = resolveTurnTimezoneContext({
       configuredUserTimeZone: config.ui.userTimezone ?? null,
       clientTimezone: ctx.clientTimezone ?? null,
       detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-    });
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
@@ -1587,15 +800,19 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Build unified turn context block that replaces the separate temporal,
-    // channel, interface, and actor context blocks.
-    const interfaceName =
-      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
-    const channelName =
-      capturedTurnChannelContext?.userMessageChannel ?? undefined;
+    // Resolve the guardian flag for this turn. It derives only from the
+    // resolved actor trust class — never from retrieval — so it settles before
+    // context assembly.
     const isGuardian =
       resolvedInboundActorContext?.trustClass === "guardian" ||
       !resolvedInboundActorContext;
+
+    // Unified `<turn_context>` actor input, included only for non-guardian
+    // turns. Resolved once at turn start and threaded per call site (like
+    // `modelProfile`) so post-compaction re-injection receives it as an
+    // explicit hook input rather than re-deriving it from live state that can
+    // flip mid-turn.
+    const actorContext = isGuardian ? null : resolvedInboundActorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
     // the absence naturally. Gated at >12h to avoid noisy injection during
@@ -1616,6 +833,19 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Freeze the turn-start client timezone and long-absence gap on the
+    // conversation so `applyRuntimeInjections` sources them from live state —
+    // like the channel/voice/transport hints. Frozen here (rather than read
+    // live in assembly) because the live `ctx.clientTimezone` is overwritten
+    // when a newer message for the same conversation arrives mid-turn, which
+    // would otherwise leak a queued message's timezone into the in-flight turn.
+    // The `current_time` value is computed fresh at each injection point, so
+    // it is not part of this snapshot.
+    ctx.currentTurnTemporalSnapshot = {
+      clientTimezone: timezoneContext.clientTimezone,
+      timeSinceLastMessage,
+    };
+
     // Resolve the effective profile key for this turn and detect changes.
     // Only inject model_profile into the turn context when the profile
     // changed since the last turn (or on the first turn of a conversation)
@@ -1624,7 +854,7 @@ export async function runAgentLoopImpl(
       turnOverrideProfile ??
       config.llm.activeProfile ??
       resolveDefaultProfileKey("mainAgent", config.llm);
-    const lastNotified = turnStartConversation?.lastNotifiedInferenceProfile;
+    const lastNotified = ctx.lastNotifiedInferenceProfile;
     let modelProfileStr: string | null = null;
     if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
       const profileEntry = config.llm.profiles?.[effectiveProfileKey];
@@ -1633,211 +863,65 @@ export async function runAgentLoopImpl(
       });
       const label = profileEntry?.label ?? effectiveProfileKey;
       modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
-      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
+      // Record the notification for persistence on delivery rather than here:
+      // the model only "learns" the profile once it receives this turn
+      // context, signalled by the first `message_complete`. Persisting inline
+      // would mark the profile notified even if the turn is cancelled or fails
+      // before the model ever sees the notice.
+      state.pendingNotifiedInferenceProfile = effectiveProfileKey;
     }
 
-    const baseTurnContext = {
-      timestamp,
-      interfaceName,
-      channelName,
-      configuredUserTimezone: timezoneContext.configuredUserTimezone,
-      clientTimezone: timezoneContext.clientTimezone,
-      detectedTimezone: timezoneContext.detectedTimezone,
-      timeSinceLastMessage,
-      modelProfile: modelProfileStr,
+    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
+    // persists the retrieval's own side effects (injected-block metadata,
+    // recall log, `memory_recalled` event). Runs at the early "prompt
+    // submitted, before context assembly" moment because its outputs feed the
+    // injection and overflow-reduction transforms below. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
+    // must run early, while the canonical late `user-prompt-submit` hook
+    // (history repair, title) runs after those transforms, so the two cannot
+    // share a fire site until compaction is cleared from the gap between them.
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryCtx: MemoryRetrievalHookContext = {
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      onEvent,
+      isTrustedActor,
+      conversationId: ctx.conversationId,
+      userMessageId,
+      logger: rlog,
+      // An external cancel aborts `prepareMemory` instead of letting it run
+      // to completion after the turn has already been torn down.
+      signal: abortController.signal,
+      latestMessages: ctx.messages,
     };
-    const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
-      isGuardian
-        ? baseTurnContext
-        : {
-            ...baseTurnContext,
-            actorContext: resolvedInboundActorContext,
-          },
-    );
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
+
+    // The retriever owns its side effects (injected-block metadata, recall
+    // log, `memory_recalled` event) and records the dense/sparse PKB query
+    // pair on the graph handle for the PKB-reminder injector to read back; the
+    // loop only reuses the injected message list downstream.
+    let runMessages = memoryCtx.latestMessages;
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
-    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
-    // hold private user content. Block exposure to non-guardian actors
-    // arriving over a remote channel; internal/local flows pass through.
-    // See `shouldExposePersonalMemory` for the threat model.
-    const personalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    });
-
-    // Inject NOW.md and PKB content only on the first turn (or after
-    // compaction re-strips them).  Old injections persist in history and
-    // are never stripped on normal turns — this preserves the cached prefix.
-    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
-    // so plugins can override either source without touching the agent loop.
-    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
-    const scratchpadInjectionEnabled =
-      getConfig().memory.retrieval.scratchpadInjection.enabled;
-    const currentNowContent =
-      personalMemoryAllowed && scratchpadInjectionEnabled
-        ? memoryResult.nowContent
-        : null;
-    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
-    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
-
-    const currentPkbContent = personalMemoryAllowed
-      ? memoryResult.pkbContent
-      : null;
-    const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
-    const pkbActive = currentPkbContent !== null;
-
-    // V2 static memory block (essentials/threads/recent/buffer).
-    // `currentMemoryV2Static` is the trust-gated content reused by every
-    // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<info>`
-    // block) can restore the freshest content. `memoryV2Static` is the
-    // first-turn / post-compaction cadence-gated value for initial
-    // injection only. `readMemoryV2StaticContent` self-gates on the v2
-    // flag + config and returns null when v2 is off.
-    const currentMemoryV2Static = personalMemoryAllowed
-      ? readMemoryV2StaticContent()
-      : null;
-    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
-
-    // PKB relevance-hint inputs. Resolved once per turn and reused across
-    // re-injections so post-compaction rebuilds pick up fresh hints against
-    // the updated conversation history.
-    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
-    const pkbAutoInjectList = pkbRoot
-      ? getPkbAutoInjectList(pkbRoot)
-      : undefined;
-    // Pass `ctx` directly — `PkbContextConversation` is structural and
-    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
-    // so post-compaction re-injects see the updated history.
-    const pkbConversation = pkbActive ? ctx : undefined;
-    // PKB points live under a single workspace sentinel scope.
-    // See `PKB_WORKSPACE_SCOPE` for why.
-    const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
-
-    // Subagent status injection — gives the parent LLM visibility into active/completed children.
-    // Skipped when this conversation IS a subagent (no nesting) or has no children.
-    const subagentStatusBlock = ctx.isSubagent
-      ? null
-      : buildSubagentStatusBlock(
-          getSubagentManager().getChildrenOf(ctx.conversationId),
-        );
-
-    // For any Slack conversation (channels and DMs alike), build a
-    // chronological transcript from the persisted message rows so the
-    // model sees one channel-wide view instead of the gateway's per-turn
-    // hints. DMs render as a flat sequence (no thread tags), channels
-    // include sibling threads.
-    const slackConversationForInjection = isSlackConversation
-      ? (getConversation(ctx.conversationId) ?? turnStartConversation)
-      : turnStartConversation;
-    if (isSlackConversation && !slackCompactedThisTurn) {
-      slackChronologicalContext ??= loadSlackChronologicalContext(
-        ctx.conversationId,
-        ctx.channelCapabilities!,
-        {
-          trustClass: ctx.trustContext?.trustClass,
-          contextSummary: slackConversationForInjection?.contextSummary,
-          contextCompactedMessageCount:
-            slackConversationForInjection?.contextCompactedMessageCount,
-          slackContextCompactionWatermarkTs:
-            slackConversationForInjection?.slackContextCompactionWatermarkTs,
-        },
-      );
-    }
-    const slackChronologicalMessages =
-      slackChronologicalContext?.messages ?? null;
-
-    // Active-thread focus block: when the inbound user message belongs to
-    // a Slack thread, append a non-persisted `<active_thread>` tail block
-    // to the final user turn listing the thread's parent + replies. Helps
-    // the model orient when the channel transcript is long and
-    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
-    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
-    // since DMs do not have threads.
-    const slackActiveThreadFocusBlock = isSlackConversation
-      ? loadSlackActiveThreadFocusBlock(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          {
-            trustClass: ctx.trustContext?.trustClass,
-            contextCompactedMessageCount:
-              slackConversationForInjection?.contextCompactedMessageCount,
-            slackContextCompactionWatermarkTs:
-              slackConversationForInjection?.slackContextCompactionWatermarkTs,
-          },
-        )
-      : null;
-
-    // Guards the chronological-transcript override on re-injection after
-    // the reducer compacts `ctx.messages`. The captured transcript is the
-    // full persisted history; blindly replaying it on every re-inject would
-    // overwrite the reducer's compacted messages and undo compaction. Flip
-    // to `true` after any compaction so subsequent re-injections fall back
-    // to the reduced `ctx.messages`.
-    let reducerCompacted = compactedThisTurn;
-
-    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
-    // When on, runtime assembly suppresses v2's `<memory>` injection (only
-    // when the v3 injector actually produced a block — otherwise v2 stays as a
-    // fallback) and the provider anchors its long-TTL cache breakpoint on the
-    // most recent STABLE user message, since the latest user message now
-    // carries the volatile per-turn memory block. Flag off → bit-for-bit
-    // identical to today's v2 path.
-    const memoryV3Live = isAssistantFeatureFlagEnabled(
-      "memory-v3-live",
-      getConfig(),
-    );
-
-    // Shared injection options — reused whenever we need to re-inject after reduction.
-    const injectionOpts = {
-      suppressV2MemoryForV3: memoryV3Live,
-      diskPressureContext,
-      activeSurface,
-      activeDocuments,
-      workspaceTopLevelContext: shouldInjectWorkspace
-        ? ctx.workspaceTopLevelContext
-        : null,
-      channelCapabilities: ctx.channelCapabilities ?? null,
-      channelCommandContext: ctx.commandIntent ?? null,
-      unifiedTurnContext: unifiedTurnContextStr,
-      pkbContext,
-      pkbActive,
-      pkbQueryVector,
-      pkbSparseVector,
-      pkbScopeId,
-      pkbConversation,
-      pkbAutoInjectList,
-      pkbRoot,
-      pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
-      memoryV2Static,
-      nowScratchpad,
-      voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
-      transportHints: ctx.transportHints ?? null,
-      isNonInteractive: !isInteractiveResolved,
-      isBackgroundConversation: isBackgroundConversationType(
-        turnStartConversation?.conversationType,
-      ),
-      subagentStatusBlock,
-      slackChronologicalMessages,
-      slackActiveThreadFocusBlock,
-    } as const;
-
     let currentInjectionMode: InjectionMode = "full";
 
-    // Canonical per-turn TurnContext forwarded to the injector chain. The
-    // per-turn injection inputs are built inside `applyRuntimeInjections`
-    // from the `injectionOpts` bag; we only need to hand in identity +
-    // trust here so third-party injectors see the real turn metadata.
-    const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
-
+    // `applyRuntimeInjections` self-resolves every per-turn injection input —
+    // the Slack chronological transcript, the unified `<turn_context>` block,
+    // channel/voice/transport hints, and the turn's trust/index/call-site —
+    // from the live conversation, so we only hand in the request id (the one
+    // turn-identity field it can't recover) plus the conversation id that keys
+    // that lookup. `isNonInteractive`, `modelProfile`, and `actorContext` are
+    // resolved once at turn start and threaded per call site so post-compaction
+    // re-injection receives them as explicit inputs rather than via live state
+    // that can flip mid-turn.
     const injection = await applyRuntimeInjections(runMessages, {
-      ...injectionOpts,
-      slackChronologicalMessages: reducerCompacted
-        ? null
-        : injectionOpts.slackChronologicalMessages,
+      isNonInteractive,
+      modelProfile: modelProfileStr,
+      actorContext,
       mode: currentInjectionMode,
-      turnContext: injectionTurnCtx,
+      requestId: reqId,
+      conversationId: ctx.conversationId,
     });
     runMessages = injection.messages;
 
@@ -1879,18 +963,7 @@ export async function runAgentLoopImpl(
           metadataUpdates.memoryV2StaticBlock =
             injection.blocks.memoryV2StaticBlock;
         }
-        await runPipeline<PersistArgs, PersistResult>(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "update",
-            messageId: userMessageId,
-            updates: metadataUpdates,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        );
+        updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
         rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
@@ -1906,51 +979,18 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
-    // every preflight/mid-loop estimate, the overflow reducer config, and the
-    // convergence-path `estimatePromptTokens` call. Matches the key recorded
-    // by `handleUsage` for wrapper providers (OpenRouter routing to
-    // Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — used by the preflight estimate, the
+    // overflow reducer config, and the convergence-path `estimatePromptTokens`
+    // call. Matches the key recorded by `handleUsage` for wrapper providers
+    // (OpenRouter routing to Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
-    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
-    // this turn. The pipeline is the extension point for plugins that want
-    // to substitute an alternate estimator (e.g. provider-native tokenization)
-    // without touching orchestrator code.
-    //
-    // Routed through the canonical builder — `turnIndex` is `ctx.turnCount`,
-    // trust cascades through per-turn/conversation-level/fallback, and the
-    // context-window handle rides along so any middleware that wants to
-    // reuse the manager (e.g. to compute compaction-aware estimates) can.
-    const pipelineTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    const runTokenEstimatePipeline = (
-      history: Message[],
-    ): Promise<EstimateResult> =>
-      runPipeline<EstimateArgs, EstimateResult>(
-        "tokenEstimate",
-        getMiddlewaresFor("tokenEstimate"),
-        defaultTokenEstimateTerminal,
-        {
-          // Shallow-frozen copies so a misbehaving middleware that mutates
-          // `args.history` or `args.tools` in place (e.g. trims the array
-          // before calling next) can't silently strip prompt context from
-          // the orchestrator's live `runMessages` / resolved-tools arrays.
-          // TypeScript `readonly` on `EstimateArgs` does not prevent
-          // `push`/`splice` at runtime; the frozen wrapper throws in strict
-          // mode and isolates any mutation attempts from the call-site state.
-          history: Object.freeze([...history]) as Message[],
-          systemPrompt: ctx.systemPrompt,
-          tools: Object.freeze([
-            ...ctx.agentLoop.getResolvedTools(history),
-          ]) as ToolDefinition[],
-          providerName: estimationProviderName,
-        },
-        pipelineTurnCtx,
-        DEFAULT_TIMEOUTS.tokenEstimate,
-      );
-
-    const preflightTokens = await runTokenEstimatePipeline(runMessages);
+    const preflightTokens = estimatePromptTokensWithTools(
+      runMessages,
+      ctx.systemPrompt,
+      ctx.agentLoop.getResolvedTools(runMessages),
+      estimationProviderName,
+    );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1962,16 +1002,12 @@ export async function runAgentLoopImpl(
         "Preflight budget exceeded — running overflow reducer before provider call",
       );
 
-      // Overflow reduction runs through the plugin pipeline. The default
-      // middleware (`default-overflow-reduce`, registered at bootstrap)
-      // contains the historical tier loop — forced compaction → tool-result
-      // truncation → media stubbing → injection downgrade — plus the
-      // re-inject/re-estimate convergence check. The callbacks below are
-      // the orchestrator-specific side effects that the plugin coordinates
-      // per iteration (activity emission, compaction application, runtime
-      // injection reassembly, token re-estimation). Registered plugins that
-      // wrap the `overflowReduce` slot see each iteration through their own
-      // middleware `next` callback.
+      // `runOverflowReductionLoop` drives the tier loop — forced compaction →
+      // tool-result truncation → media stubbing → injection downgrade — plus
+      // the re-inject/re-estimate convergence check. The callbacks below are
+      // the orchestrator-specific side effects it coordinates per iteration
+      // (activity emission, compaction application, runtime injection
+      // reassembly, token re-estimation).
       const messagesForPreflightOverflowReduction =
         slackChronologicalContext?.messages ?? ctx.messages;
       const overflowArgs: OverflowReduceArgs = {
@@ -1985,75 +1021,23 @@ export async function runAgentLoopImpl(
         maxAttempts: resolveCurrentContextBudget().overflowRecovery.maxAttempts,
         abortSignal: abortController.signal,
         compactFn: async (msgs, signal, opts) => {
-          // Route the reducer's forced-compaction tier through the
-          // `compaction` pipeline so registered plugins observe these
-          // invocations. Without this, custom compaction middleware only
-          // sees the three orchestrator-owned call sites and misses the
-          // reducer-initiated forced compactions entirely.
-          //
-          // Pipeline timeouts must be caught locally — a `PluginTimeoutError`
-          // bubbling out of here would abort the overflow-reducer tier loop
-          // entirely, skipping fallback tiers (tool-result truncation, media
-          // stubbing, injection downgrade) and bypassing circuit-breaker
-          // bookkeeping. On timeout, record the failure and return a
-          // `compacted: false` result so the reducer falls through to the
-          // next tier.
-          try {
-            return (await runPipeline<CompactionArgs, CompactionResult>(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: msgs,
-                signal,
-                options: {
-                  ...(opts ?? {}),
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              rlog.warn(
-                { err, phase: "overflow-reducer-forced-compaction" },
-                "Compaction pipeline timed out — falling through to next reducer tier",
-              );
-              await trackCompactionOutcome(ctx, true, onEvent);
-              return {
-                messages: msgs,
-                compacted: false,
-                previousEstimatedInputTokens: 0,
-                estimatedInputTokens: 0,
-                maxInputTokens: 0,
-                thresholdTokens: 0,
-                compactedMessages: 0,
-                compactedPersistedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-                reason: "compaction pipeline timed out",
-              };
-            }
-            throw err;
-          }
+          // Delegate the reducer's forced-compaction tier to the default
+          // compaction plugin, overlaying the turn's resolved inference
+          // profile and actor trust class onto the reducer-supplied options.
+          const reducerOptions = (opts ?? {}) as ContextWindowCompactOptions;
+          return defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: msgs,
+            signal,
+            ...reducerOptions,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: resolveTurnActorTrustClass(ctx),
+          });
         },
         emitActivityState: () => {
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
         },
         onCompactionResult: async (result, compactedBasis) => {
           // Track circuit-breaker state whenever the reducer invoked
@@ -2066,52 +1050,40 @@ export async function runAgentLoopImpl(
           // truncation-only path, etc.) that shouldn't influence the
           // breaker.
           if (result.summaryFailed !== undefined) {
-            await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
+            await ctx.agentLoop.compactionCircuit.recordOutcome(
+              result.summaryFailed,
+              onEvent,
+            );
           }
           if (result.compacted) {
             await applySuccessfulCompaction(result, compactedBasis);
-            shouldInjectWorkspace = true;
           }
         },
-        reinjectForMode: async (
-          reducedMessages,
-          mode,
-          stepCompacted,
-          accumulatedCompacted,
-        ) => {
-          // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
-          // reducer's latest output before re-injection runs, because other
-          // sites consulted through `injectionOpts` (`workspaceTopLevelContext`,
-          // slack history, etc.) depend on it and `applyCompactionResult`
-          // only updates `ctx.messages` on a compaction tier. Assigning here
-          // keeps non-compaction tiers (tool-result truncation, media
-          // stubbing, injection downgrade) observable to downstream
-          // injection assembly on the same turn.
+        reinjectForMode: async (reducedMessages, mode) => {
+          // `ctx.messages` must track the reducer's latest output before
+          // re-injection runs: the injectors' message-presence scans and the
+          // self-resolved Slack chronological transcript read live conversation
+          // state, and `applyCompactionResult` only updates `ctx.messages` on a
+          // compaction tier. Assigning here keeps non-compaction tiers
+          // (tool-result truncation, media stubbing, injection downgrade)
+          // observable to downstream injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
-          // When THIS iteration compacted, it stripped existing NOW.md /
-          // PKB blocks — so we re-inject current content. A later iteration
-          // that only truncates or downgrades must NOT re-force PKB/NOW,
+          // When THIS iteration compacted, it stripped the existing
+          // memory-static block — so we re-inject current content. A later
+          // iteration that only truncates or downgrades must NOT re-force it,
           // or each round would grow the token count.
           // Gate: only the iteration that actually compacted re-injects.
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `reducedMessages`.)
           const injection = await applyRuntimeInjections(reducedMessages, {
-            ...injectionOpts,
-            ...(stepCompacted && { pkbContext: currentPkbContent }),
-            ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
-            ...(stepCompacted && { nowScratchpad: currentNowContent }),
-            workspaceTopLevelContext: shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
-            // Once ANY iteration has compacted `ctx.messages`, the captured
-            // `slackChronologicalMessages` snapshot (built from the full
-            // persisted transcript) would overwrite the compacted history
-            // and undo compaction. Suppress the override from here on —
-            // sticky across subsequent non-compacting iterations.
-            slackChronologicalMessages: accumulatedCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            isNonInteractive,
+            modelProfile: modelProfileStr,
+            actorContext,
             mode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           let next = injection.messages;
           if (isTrustedActor && mode !== "minimal") {
@@ -2127,87 +1099,12 @@ export async function runAgentLoopImpl(
           }),
       };
 
-      const overflowResult = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        // Terminal — only reached when every registered middleware calls
-        // `next` and delegates past the innermost layer. The default plugin
-        // is a terminal itself (it doesn't call `next`), so in practice
-        // this fallback fires only when the default has been explicitly
-        // deregistered (tests) and no user plugin replaces it. Strict-fail
-        // semantics: throw so the missing terminal surfaces as a visible
-        // error instead of silently returning the history untouched.
-        async () => {
-          throw new PluginExecutionError(
-            "overflowReduce pipeline has no terminal handler — every reducer middleware called next() without providing a replacement",
-            "overflowReduce",
-          );
-        },
-        overflowArgs,
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.overflowReduce,
-      );
+      const overflowResult = await runOverflowReductionLoop(overflowArgs);
 
       ctx.messages = overflowResult.messages;
       runMessages = overflowResult.runMessages;
       currentInjectionMode = overflowResult.injectionMode;
       reducerState = overflowResult.reducerState;
-      if (overflowResult.reducerCompacted) {
-        reducerCompacted = true;
-      }
-    }
-
-    // Pre-run repair — routed through the `historyRepair` plugin pipeline so
-    // plugins can observe or override repair behavior. The default plugin's
-    // middleware is a passthrough; the actual repair runs in the terminal
-    // (`defaultHistoryRepairTerminal`).
-    let preRepairMessages = runMessages;
-    let preRunRepair: HistoryRepairResult | null = null;
-    try {
-      preRunRepair = await runPipeline<HistoryRepairArgs, HistoryRepairResult>(
-        "historyRepair",
-        getMiddlewaresFor("historyRepair"),
-        async (args) => defaultHistoryRepairTerminal(args),
-        { history: runMessages, provider: ctx.provider.name },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.historyRepair,
-      );
-    } catch (err) {
-      if (err instanceof PluginTimeoutError) {
-        // Pipeline exceeded its budget — likely a misbehaving third-party
-        // middleware. Degrade gracefully by proceeding with the un-repaired
-        // history rather than turn-fatal-erroring; un-repaired history is
-        // strictly better than no turn at all, and the provider call itself
-        // will still error visibly if the drift is unrecoverable.
-        rlog.warn(
-          { err, phase: "pre_run" },
-          "historyRepair pipeline timed out — proceeding with un-repaired history",
-        );
-      } else {
-        throw err;
-      }
-    }
-    if (preRunRepair !== null) {
-      // Always adopt the pipeline's output history — a user `historyRepair`
-      // middleware may rewrite `messages` (e.g. provider-specific
-      // normalization) without incrementing any of the built-in repair
-      // counters. Gating the assignment on `stats` would silently discard
-      // those edits and send the un-rewritten history to the provider.
-      runMessages = preRunRepair.messages;
-      if (
-        preRunRepair.stats.assistantToolResultsMigrated > 0 ||
-        preRunRepair.stats.missingToolResultsInserted > 0 ||
-        preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
-        preRunRepair.stats.consecutiveSameRoleMerged > 0
-      ) {
-        rlog.warn(
-          { phase: "pre_run", ...preRunRepair.stats },
-          "Repaired runtime history before provider call",
-        );
-      }
     }
 
     // Replace historical web_search_tool_result blocks with text summaries.
@@ -2225,30 +1122,28 @@ export async function runAgentLoopImpl(
     }
 
     // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at
-    // the primary `agentLoop.run` only — the re-entry / retry calls
-    // further down in this function do not refire it (they're not new
-    // user submissions). Plugins may mutate `ctx.latestMessages` in place
-    // OR return a new context with a fresh array; `runHook` forwards
-    // whichever the chain settles on. Order is plugin registration order.
+    // before the agent loop receives them. Fires once per user turn at the
+    // primary `agentLoop.run` only — the re-entry / retry calls further down
+    // in this function do not refire it (they're not new user submissions).
+    // Plugins may mutate `ctx.latestMessages` in place OR return a new
+    // context with a fresh array; `runHook` forwards whichever the chain
+    // settles on. Order is plugin registration order.
     //
-    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
-    // between pre-existing and hook-emitted messages — consumed by the
-    // ordering-error retry gate, the post-run reconcile loop, and the
-    // new-message extraction for persistence — reflects exactly what
-    // `agentLoop.run` receives.
+    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
+    // of the loop's input; the loop then reports its own appended output via
+    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
+      logger: rlog,
     };
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
-
-    let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
@@ -2263,43 +1158,18 @@ export async function runAgentLoopImpl(
       rlog,
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
+      applyCompaction: applySuccessfulCompaction,
     };
-    const eventHandler = (event: AgentEvent) =>
+    const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
       await eventHandler({ type: "agent_loop_exit", reason });
     };
 
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
-      state.currentTurnToolNames = [];
-
+    const onCheckpoint = async (): Promise<CheckpointDecision> => {
       if (ctx.canHandoffAtCheckpoint()) {
-        yieldedForHandoff = true;
-        pendingCheckpointYield = "handoff";
-        return "yield";
+        return "handoff";
       }
-
-      // Mid-loop token budget check: estimate current context size and
-      // yield if we're approaching the preflight budget. This lets the
-      // conversation-agent-loop run compaction before the provider rejects.
-      if (overflowRecovery.enabled) {
-        const midLoopThreshold =
-          resolveCurrentContextBudget().preflightBudget *
-          MID_LOOP_YIELD_THRESHOLD_RATIO;
-        const estimated = await runTokenEstimatePipeline(checkpoint.history);
-        if (estimated > midLoopThreshold) {
-          rlog.warn(
-            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-            "Token estimate approaching budget — yielding for compaction",
-          );
-          yieldedForBudget = true;
-          pendingCheckpointYield = "budget";
-          return "yield";
-        }
-      }
-
       return "continue";
     };
 
@@ -2307,33 +1177,60 @@ export async function runAgentLoopImpl(
 
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
-    // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (llmCall, emptyResponse,
-    // toolError, toolResultTruncate, toolExecute) see the real
-    // conversation identity / trust / contextWindowManager instead of the
-    // synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
-    const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
+    // Trust snapshot the loop forwards to its mid-loop in-place compaction
+    // (scoping the compactor's image manifest) and the post-compaction
+    // re-injection. Prefers the per-turn snapshot, then the conversation-level
+    // context, then the fallback — matching the trust the runtime injection
+    // assembly resolves for the same turn. The loop's other turn-identity
+    // fields self-resolve from its own conversation id.
+    const loopTrust =
+      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
-    /** Shared closure: runs the agent loop with the orchestrator's turn context. */
-    const runAgentLoop = (msgs: Message[]) =>
-      ctx.agentLoop.run(msgs, eventHandler, {
-        signal: abortController.signal,
-        requestId: reqId,
-        onCheckpoint,
-        callSite: turnCallSite,
-        turnContext: loopTurnCtx,
-        overrideProfile: turnOverrideProfile,
-        effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
-        resolveOverrideProfile: resolveCurrentOverrideProfile,
-        resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
-        // memory-v3-live: the latest user message carries the volatile v3
-        // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
-        // on the most recent stable message instead.
-        mutableLatestUserMessage: memoryV3Live,
-      });
+    /**
+     * Shared closure: runs the agent loop with the orchestrator's turn
+     * context and maps the loop's returned checkpoint pause-reason into the
+     * orchestrator's yield bookkeeping. Returns the updated history so call
+     * sites consume it exactly as before. Pass `compactInPlace` only for the
+     * primary run: the loop then runs its budget gate before the first call
+     * (subsuming the proactive turn-start compaction) and compacts in place
+     * whenever the gate trips. Reruns omit it, skip the first-call gate, and
+     * keep yielding for budget.
+     */
+    const runAgentLoop = async (
+      msgs: Message[],
+      compactInPlace = false,
+    ): Promise<Message[]> => {
+      const { history, exitReason, appendedNewMessages, newMessages } =
+        await ctx.agentLoop.run({
+          messages: msgs,
+          onEvent: eventHandler,
+          signal: abortController.signal,
+          requestId: reqId,
+          onCheckpoint,
+          callSite: turnCallSite,
+          trust: loopTrust,
+          contextWindowManager: ctx.contextWindowManager,
+          overrideProfile: turnOverrideProfile,
+          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveContextWindow,
+          compactInPlace,
+          isNonInteractive,
+          modelProfile: modelProfileStr,
+          actorContext,
+        });
+      lastRunAppendedNewMessages = appendedNewMessages;
+      lastRunNewMessages = newMessages;
+      if (exitReason === "handoff") {
+        yieldedForHandoff = true;
+        pendingCheckpointYield = "handoff";
+      } else if (exitReason === "budget") {
+        yieldedForBudget = true;
+        pendingCheckpointYield = "budget";
+      }
+      return history;
+    };
 
-    let updatedHistory = await runAgentLoop(runMessages);
+    let updatedHistory = await runAgentLoop(runMessages, true);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2345,199 +1242,39 @@ export async function runAgentLoopImpl(
       pendingCheckpointYield = null;
     }
 
-    // ── Proactive mid-loop compaction ───────────────────────────────
-    // When the agent loop yielded because the token budget check in
-    // onCheckpoint detected approaching limits, run compaction on the
-    // accumulated history and re-enter the agent loop. This is distinct
-    // from the reactive convergence loop below that fires after a
-    // provider rejection — here we compact *before* hitting the limit.
-    //
-    // The retry budget lives INSIDE `ContextWindowManager.maybeCompact`
-    // now: a single call to it may run the compactor up to
-    // `overflowRecovery.maxAttempts` times internally before giving up
-    // and reporting `exhausted: true`. The orchestrator's outer loop
-    // here has no count cap — it iterates as long as the agent loop
-    // makes forward progress (each productive turn re-yields against
-    // fresh tool-result bloat, which is a separate scenario from "the
-    // compactor itself is stuck"). When `exhausted` flips true we
-    // escalate to the convergence loop's more aggressive reducer tiers.
-    while (
-      yieldedForBudget &&
-      !state.contextTooLargeDetected &&
-      !abortController.signal.aborted
-    ) {
-      yieldedForBudget = false;
-      pendingCheckpointYield = null;
-
-      rlog.info(
-        { phase: "mid-loop-compact" },
-        "Running compaction after checkpoint yield",
-      );
-
-      // Strip injected context from updated history before compacting,
-      // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectionsForCompaction(updatedHistory);
-      ctx.messages = rawHistory;
-      markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-        "Compacting context",
-      );
-      let midLoopCompact: Awaited<
-        ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-      >;
-      try {
-        midLoopCompact = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: ctx.messages,
-            signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              force: true,
-              targetInputTokensOverride:
-                resolveCurrentContextBudget().preflightBudget,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            },
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Mid-loop compaction timed out. Record the failure for the
-          // circuit breaker and escalate to the convergence loop's more
-          // aggressive reducer tiers (tool-result truncation, media
-          // stubbing, injection downgrade) by flipping the overflow flag
-          // and breaking out of the mid-loop retry. The existing
-          // "exhausted all attempts" block further down handles the
-          // escalation.
-          rlog.warn(
-            { err, phase: "mid-loop-compact" },
-            "Compaction pipeline timed out — escalating to convergence loop",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          state.contextTooLargeDetected = true;
-          break;
-        }
-        throw err;
-      }
-      // `force: true` bypasses the cooldown/threshold gates but early returns
-      // for "no eligible messages" / "insufficient messages" still leave
-      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
-      if (midLoopCompact.summaryFailed !== undefined) {
-        await trackCompactionOutcome(
-          ctx,
-          midLoopCompact.summaryFailed,
-          onEvent,
-        );
-      }
-      if (midLoopCompact.compacted) {
-        await applySuccessfulCompaction(midLoopCompact, rawHistory);
-        reducerCompacted = true;
-        shouldInjectWorkspace = true;
-      }
-
-      // When the compactor exhausts its internal retry budget without
-      // dropping below the auto-threshold, there's no point re-entering
-      // the agent loop — it will yield again and we'll just loop on
-      // a stuck compactor. Escalate to the convergence loop's more
-      // aggressive reducer tiers instead.
-      if (midLoopCompact.exhausted) {
-        rlog.warn(
-          { phase: "mid-loop-compact" },
-          "Compaction reported exhausted — escalating to convergence loop",
-        );
-        state.contextTooLargeDetected = true;
-        break;
-      }
-
-      // Re-inject runtime context and re-enter the agent loop.
-      // stripInjectionsForCompaction() unconditionally removed the existing
-      // NOW.md block from ctx.messages above, so we must always re-inject
-      // the current content regardless of whether compaction actually ran.
-      const injection = await applyRuntimeInjections(ctx.messages, {
-        ...injectionOpts,
-        pkbContext: currentPkbContent,
-        memoryV2Static: currentMemoryV2Static,
-        nowScratchpad: currentNowContent,
-        workspaceTopLevelContext: shouldInjectWorkspace
-          ? ctx.workspaceTopLevelContext
-          : null,
-        // Suppress the chronological-transcript snapshot once the reducer
-        // has collapsed `ctx.messages`; the captured snapshot reflects the
-        // full persisted transcript and would overwrite compaction.
-        slackChronologicalMessages: reducerCompacted
-          ? null
-          : injectionOpts.slackChronologicalMessages,
-        mode: currentInjectionMode,
-        turnContext: buildPluginTurnContext(ctx, reqId),
-      });
-      runMessages = injection.messages;
-      if (isTrustedActor && currentInjectionMode !== "minimal") {
-        ctx.graphMemory.retrackCachedNodes();
-      }
-      const midLoopCompactStrip = stripHistoricalWebSearchResults(runMessages);
-      if (midLoopCompactStrip.stats.blocksStripped > 0) {
-        rlog.info(
-          { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
-          "Converted historical web_search_tool_result blocks to text summaries",
-        );
-        runMessages = midLoopCompactStrip.messages;
-      }
-      preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
-
-      updatedHistory = await runAgentLoop(runMessages);
-    }
-
-    // Defensive: the mid-loop above breaks on `exhausted` and on the
-    // PluginTimeoutError catch — both of which flip
-    // `state.contextTooLargeDetected`. If we somehow exit with
-    // `yieldedForBudget` still set (e.g. compaction was disabled
-    // outside the normal path), force escalation so a half-finished
-    // turn doesn't reach the user.
+    // The loop compacts in place when its budget gate trips and only yields
+    // `exitReason = "budget"` when that inline compaction timed out or
+    // exhausted its retry budget (the `reinject` hook has already restored
+    // runtime context for the productive case). Escalate to the convergence
+    // loop's more aggressive reducer tiers so a half-finished turn doesn't
+    // reach the user.
     if (yieldedForBudget && !abortController.signal.aborted) {
       rlog.warn(
         { phase: "mid-loop-compact" },
-        "Mid-loop exited with yieldedForBudget still set — escalating to convergence loop",
+        "Inline compaction could not get under budget — escalating to convergence loop",
       );
       state.contextTooLargeDetected = true;
     }
 
     // One-shot ordering error retry
-    if (
-      state.orderingErrorDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
       rlog.warn(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
       );
-      // Design note: deep-repair intentionally bypasses the `historyRepair`
-      // plugin pipeline. Deep-repair is a recovery-only path triggered by a
-      // provider ordering error — it must be deterministic and unaffected by
-      // user middleware that might have caused (or be unable to recover from)
-      // the original drift. Plugins can already observe / override the
-      // pre-run repair via the `historyRepair` pipeline above; widening that
-      // surface to deep-repair is intentionally deferred until there's a
-      // concrete plugin-level use case. Do not route this call through
-      // `runPipeline` without first revisiting that contract.
-      const retryRepair = deepRepairHistory(runMessages);
+      // Design note: deep-repair intentionally stays a direct call rather
+      // than running through the `user-prompt-submit` hook chain. Deep-repair
+      // is a recovery-only path triggered by a provider ordering error — it
+      // must be deterministic and unaffected by user hooks that might have
+      // caused (or be unable to recover from) the original drift. Plugins can
+      // already observe / transform the pre-run repair via the
+      // `user-prompt-submit` hook (the default history-repair plugin runs
+      // `repairHistory` there); widening that surface to deep-repair is
+      // intentionally deferred until there's a concrete plugin-level use case.
+      const retryRepair = deepRepairHistory(updatedHistory);
       runMessages = retryRepair.messages;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
       runMessages = retryStrip.messages;
-      preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -2590,15 +1327,29 @@ export async function runAgentLoopImpl(
             }
             // Can't resize — replace with a text annotation so the model
             // can explain the situation rather than silently dropping context
-            return [
-              {
-                type: "text" as const,
-                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
-              },
-            ];
+            return [{ type: "text" as const, text: UNSENDABLE_IMAGE_NOTE }];
           }),
         };
       });
+      // The transform above only mutates ctx.messages for the current retry.
+      // Persist the downgrade for images that can never be sent so the rejected
+      // upload doesn't rehydrate from the DB and resurface on later turns. This
+      // is cleanup for future turns, so a persistence failure must never abort
+      // the retry that is about to run — log it and continue.
+      try {
+        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+        if (rewritten > 0) {
+          rlog.info(
+            { phase: "image-recovery", rewritten },
+            "Persisted unsendable-image downgrades so they cannot resurface",
+          );
+        }
+      } catch (err) {
+        rlog.warn(
+          { phase: "image-recovery", err },
+          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
+        );
+      }
       runMessages = ctx.messages;
       updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
@@ -2627,19 +1378,9 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
-      // Detect whether ctx.messages currently lacks NOW.md so we know if
-      // it needs to be re-injected.  Mid-loop compaction (line ~1067) may
-      // have already stripped injections before escalating here, so we
-      // check actual message state rather than tracking mutation sites.
-      let convergenceStripped =
-        findLastInjectedNowContent(ctx.messages) === null;
-
-      if (updatedHistory.length > preRunHistoryLength) {
+      if (lastRunAppendedNewMessages) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-        convergenceStripped = true;
-        preRepairMessages = updatedHistory;
-        preRunHistoryLength = updatedHistory.length;
+        markHistoryStrippedBestEffort(ctx.conversationId);
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -2720,15 +1461,13 @@ export async function runAgentLoopImpl(
               "Emergency mid-turn compaction succeeded — bypassing reducer tiers",
             );
             if (emergencyResult.summaryFailed !== undefined) {
-              await trackCompactionOutcome(
-                ctx,
+              await ctx.agentLoop.compactionCircuit.recordOutcome(
                 emergencyResult.summaryFailed,
                 onEvent,
               );
             }
             if (emergencyResult.compacted) {
               await applySuccessfulCompaction(emergencyResult, ctx.messages);
-              shouldInjectWorkspace = true;
             }
             // Clear the overflow flag and re-run the agent loop with
             // the compacted context.
@@ -2761,12 +1500,9 @@ export async function runAgentLoopImpl(
           "Context too large — applying next reducer tier",
         );
 
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-        );
+        ctx.emitActivityState("thinking", "context_compacting", {
+          requestId: reqId,
+        });
         const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
           convergenceCompactionBasis,
@@ -2779,9 +1515,13 @@ export async function runAgentLoopImpl(
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
-              ...(opts ?? {}),
+            defaultCompact({
+              manager: ctx.contextWindowManager,
+              messages: msgs,
+              signal,
+              ...((opts ?? {}) as ContextWindowCompactOptions),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
+              actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
           abortController.signal,
         );
@@ -2798,8 +1538,7 @@ export async function runAgentLoopImpl(
           step.compactionResult &&
           step.compactionResult.summaryFailed !== undefined
         ) {
-          await trackCompactionOutcome(
-            ctx,
+          await ctx.agentLoop.compactionCircuit.recordOutcome(
             step.compactionResult.summaryFailed,
             onEvent,
           );
@@ -2810,26 +1549,20 @@ export async function runAgentLoopImpl(
             step.compactionResult,
             convergenceCompactionBasis,
           );
-          shouldInjectWorkspace = true;
-          reducerCompacted = true;
         }
 
-        // Only re-inject NOW.md when ctx.messages was actually stripped;
-        // otherwise the existing NOW.md block is still present and
-        // re-injecting would duplicate it.
+        // Only re-inject the memory-static block when ctx.messages was
+        // actually stripped; otherwise the existing block is still present and
+        // re-injecting would duplicate it. (The `<knowledge_base>` and NOW.md
+        // blocks self-gate inside their injectors on whether they are already
+        // present in `ctx.messages`.)
         const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
-          pkbContext: currentPkbContent,
-          memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-          nowScratchpad: convergenceStripped ? currentNowContent : null,
-          workspaceTopLevelContext: shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
-          slackChronologicalMessages: reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
+          isNonInteractive,
+          modelProfile: modelProfileStr,
+          actorContext,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
+          requestId: reqId,
+          conversationId: ctx.conversationId,
         });
         runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -2843,8 +1576,6 @@ export async function runAgentLoopImpl(
           );
           runMessages = convergenceStrip.messages;
         }
-        preRepairMessages = runMessages;
-        preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -2867,12 +1598,9 @@ export async function runAgentLoopImpl(
           // Fold rerun progress into ctx.messages so the next reducer
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
-          if (updatedHistory.length > preRunHistoryLength) {
+          if (lastRunAppendedNewMessages) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-            convergenceStripped = true;
-            preRepairMessages = updatedHistory;
-            preRunHistoryLength = updatedHistory.length;
+            markHistoryStrippedBestEffort(ctx.conversationId);
           }
         }
       }
@@ -2889,92 +1617,41 @@ export async function runAgentLoopImpl(
 
         if (action === "auto_compress_latest_turn") {
           // Auto-compress without asking — users opt out via the "drop" policy.
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
-          let emergencyCompact: Awaited<
-            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-          > | null = null;
-          try {
-            emergencyCompact = (await runPipeline<
-              CompactionArgs,
-              CompactionResult
-            >(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: ctx.messages,
-                signal: abortController.signal,
-                options: {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-                  force: true,
-                  minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              // Emergency compaction timed out. Record the circuit-breaker
-              // failure and fall through to the graceful-error path below
-              // (the unsuccessful-compaction fallback) rather than hard-
-              // failing the turn.
-              rlog.warn(
-                { err, phase: "emergency-compaction" },
-                "Emergency compaction pipeline timed out — continuing with overflow fallback",
-              );
-              await trackCompactionOutcome(ctx, true, onEvent);
-              emergencyCompact = null;
-            } else {
-              throw err;
-            }
-          }
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
+          const emergencyCompact = await defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: ctx.messages,
+            signal: abortController.signal,
+            force: true,
+            minKeepRecentUserTurns: 0,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+          });
           // Only track when the summary LLM actually ran; `force: true`
-          // bypasses the cooldown but not the early-return paths.
-          if (
-            emergencyCompact &&
-            emergencyCompact.summaryFailed !== undefined
-          ) {
-            await trackCompactionOutcome(
-              ctx,
+          // bypasses the auto-threshold gate but not the early-return paths.
+          if (emergencyCompact.summaryFailed !== undefined) {
+            await ctx.agentLoop.compactionCircuit.recordOutcome(
               emergencyCompact.summaryFailed,
               onEvent,
             );
           }
-          if (emergencyCompact?.compacted) {
+          if (emergencyCompact.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-            reducerCompacted = true;
-            shouldInjectWorkspace = true;
           }
 
-          // Only re-inject NOW.md when ctx.messages was actually stripped;
-          // otherwise the existing block is still present.
+          // Only re-inject the memory-static block when ctx.messages was
+          // actually stripped; otherwise the existing block is still present.
+          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
+          // self-gate inside their injectors on whether they are already
+          // present in `ctx.messages`.)
           const injection = await applyRuntimeInjections(ctx.messages, {
-            ...injectionOpts,
-            pkbContext: currentPkbContent,
-            memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
-            nowScratchpad: convergenceStripped ? currentNowContent : null,
-            workspaceTopLevelContext: shouldInjectWorkspace
-              ? ctx.workspaceTopLevelContext
-              : null,
-            slackChronologicalMessages: reducerCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            isNonInteractive,
+            modelProfile: modelProfileStr,
+            actorContext,
             mode: currentInjectionMode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -2988,8 +1665,6 @@ export async function runAgentLoopImpl(
             );
             runMessages = fallbackStrip.messages;
           }
-          preRepairMessages = runMessages;
-          preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
           updatedHistory = await runAgentLoop(runMessages);
@@ -3043,44 +1718,11 @@ export async function runAgentLoopImpl(
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
-    // Reconcile synthesized cancellation tool_results
-    for (let i = preRunHistoryLength; i < updatedHistory.length; i++) {
-      const msg = updatedHistory[i];
-      if (msg.role === "user") {
-        for (const block of msg.content) {
-          if (
-            block.type === "tool_result" &&
-            !state.pendingToolResults.has(block.tool_use_id) &&
-            !state.persistedToolUseIds.has(block.tool_use_id)
-          ) {
-            state.pendingToolResults.set(block.tool_use_id, {
-              content: block.content,
-              isError: block.is_error ?? false,
-            });
-          }
-        }
-      }
-    }
-
-    // Flush remaining tool results
+    // Flush remaining tool results. On a normal turn these drain at the next
+    // `message_complete`; an aborted or yielded loop exits with them still
+    // buffered, so finalize the (possibly already on-arrival-reserved) grouped
+    // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
-      const toolResultBlocks = Array.from(
-        state.pendingToolResults.entries(),
-      ).map(([toolUseId, result]) => ({
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: redactSecrets(result.content),
-        is_error: result.isError,
-        ...(result.contentBlocks
-          ? {
-              contentBlocks: result.contentBlocks.map((block) =>
-                block.type === "text"
-                  ? { ...block, text: redactSecrets(block.text) }
-                  : block,
-              ),
-            }
-          : {}),
-      }));
       const toolResultMetadata = {
         ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -3090,21 +1732,12 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "user",
-          content: JSON.stringify(toolResultBlocks),
-          metadata: toolResultMetadata,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
+      await finalizePendingToolResultRow(
+        state,
+        ctx.conversationId,
+        toolResultMetadata,
+        rlog,
       );
-      state.pendingToolResults.clear();
     }
 
     // Persist the budget_yield_unrecovered notice now that any pending
@@ -3128,24 +1761,13 @@ export async function runAgentLoopImpl(
       };
       let yieldNoticePersistedId: string | null = null;
       try {
-        const yieldPersistResult = (await runPipeline<
-          PersistArgs,
-          PersistResult
-        >(
-          "persistence",
-          getMiddlewaresFor("persistence"),
-          defaultPersistenceTerminal,
-          {
-            op: "add",
-            conversationId: ctx.conversationId,
-            role: "assistant",
-            content: JSON.stringify(yieldNoticeMessage.content),
-            metadata: yieldNoticeMetadata,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.persistence,
-        )) as PersistAddResult;
-        yieldNoticePersistedId = yieldPersistResult.message.id;
+        const yieldRow = await addMessage(
+          ctx.conversationId,
+          "assistant",
+          JSON.stringify(yieldNoticeMessage.content),
+          { metadata: yieldNoticeMetadata },
+        );
+        yieldNoticePersistedId = yieldRow.id;
       } catch (err) {
         // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
         // a turn-level throw. The live SSE event was already emitted, so the
@@ -3201,7 +1823,7 @@ export async function runAgentLoopImpl(
     }
 
     // Reconstruct history
-    const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+    const newMessages = lastRunNewMessages.map((msg) => {
       if (msg.role !== "assistant") return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
       const cleanedBlocks = cleanedContent as ContentBlock[];
@@ -3232,10 +1854,6 @@ export async function runAgentLoopImpl(
         state.assistantRowAwaitingFinalization &&
         state.lastAssistantMessageId
       ) {
-        // Direct `deleteMessageById` (not via the `persistence` pipeline):
-        // see the same rationale on the matching cleanup in
-        // `handleLlmCallStarted` — an unfinalized reservation has no
-        // observable history for plugins.
         try {
           deleteMessageById(state.lastAssistantMessageId);
         } catch (err) {
@@ -3257,20 +1875,12 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "assistant",
-          content: JSON.stringify(errorAssistantMessage.content),
-          metadata: errChannelMeta,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
-      )) as PersistAddResult;
+      const errorRow = await addMessage(
+        ctx.conversationId,
+        "assistant",
+        JSON.stringify(errorAssistantMessage.content),
+        { metadata: errChannelMeta },
+      );
       persistedErrorAssistantMessage = true;
       // Repoint `lastAssistantMessageId` at the synthetic error row so the
       // post-loop sync, attachment resolution, and `message_complete`/
@@ -3279,7 +1889,7 @@ export async function runAgentLoopImpl(
       // above. Mark finalization complete so the next LLM call in this run
       // (or a downstream handler) doesn't try to clean up an id that
       // already corresponds to a finalized row.
-      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.lastAssistantMessageId = errorRow.id;
       state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
@@ -3293,10 +1903,7 @@ export async function runAgentLoopImpl(
       // other conversations cannot collide. Non-fatal — a DB hiccup must
       // not escalate a provider rejection into a turn-level throw.
       try {
-        backfillMessageIdOnLogs(
-          ctx.conversationId,
-          errorPersistResult.message.id,
-        );
+        backfillMessageIdOnLogs(ctx.conversationId, errorRow.id);
       } catch (err) {
         rlog.warn(
           { err },
@@ -3309,7 +1916,16 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    let restoredHistory = [...preRepairMessages, ...newMessages];
+    // Base persisted into `ctx.messages` is the loop's own returned history
+    // (minus the tail it appended this run), with the cleaned `newMessages`
+    // re-appended on top. Sourcing the base from the loop keeps it in lockstep
+    // with any in-loop compaction without the orchestrator maintaining a
+    // parallel snapshot across re-entry sites.
+    const loopBase = updatedHistory.slice(
+      0,
+      updatedHistory.length - lastRunNewMessages.length,
+    );
+    let restoredHistory = [...loopBase, ...newMessages];
 
     // Post-turn tool result truncation: save large results to disk and
     // replace in-context content with a prefix/suffix stub + file pointer.
@@ -3382,7 +1998,10 @@ export async function runAgentLoopImpl(
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
       syncLastAssistantMessageToDisk();
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit(
         "generation_cancelled",
         "Generation cancelled by user",
@@ -3426,7 +2045,10 @@ export async function runAgentLoopImpl(
           await emitTerminalExit?.("aborted_after_checkpoint");
           pendingCheckpointYield = null;
         }
-        ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+        ctx.emitActivityState("idle", "generation_cancelled", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "generation_cancelled",
           "Generation cancelled by user",
@@ -3467,7 +2089,10 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       } else {
-        ctx.emitActivityState("idle", "message_complete", "global", reqId);
+        ctx.emitActivityState("idle", "message_complete", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "message_complete",
           "Message processing complete",
@@ -3490,67 +2115,7 @@ export async function runAgentLoopImpl(
             : {}),
         });
         publishLoopMessagesChanged();
-
-        // Proactive artifact: fire once when the processed turn was the 4th user message.
-        // Only trigger for real user-authored turns (not subagent/system messages).
-        {
-          const paConv = getConversation(ctx.conversationId);
-          if (
-            paConv &&
-            paConv.conversationType === "standard" &&
-            options?.isUserMessage
-          ) {
-            void (async () => {
-              try {
-                if (hasProactiveArtifactCompleted()) return;
-                const userMsg = getMessageById(
-                  userMessageId,
-                  ctx.conversationId,
-                );
-                if (!userMsg) return;
-                if (!tryClaimProactiveArtifactTrigger(userMsg.createdAt))
-                  return;
-                await runProactiveArtifactJob({
-                  conversationId: ctx.conversationId,
-                  userMessageCutoff: userMsg.createdAt,
-                  assistantMessageId: state.lastAssistantMessageId,
-                  suppressAppBuild: state.appBuildToolUsedThisRun,
-                  broadcastMessage,
-                });
-              } catch (err) {
-                log.warn(
-                  { err, conversationId: ctx.conversationId },
-                  "Proactive artifact trigger failed",
-                );
-              }
-            })();
-          }
-        }
       }
-    }
-
-    // Second title pass: after 3 completed turns, re-generate the title
-    // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1) and the user
-    // has not opted out via `conversations.skipAutoRetitling`.
-    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
-      // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
-      queueRegenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: "conversation_title_updated",
-            conversationId: ctx.conversationId,
-            title,
-          });
-          onEvent({
-            type: "sync_changed",
-            tags: [conversationMetadataSyncTag(ctx.conversationId)],
-          });
-        },
-        signal: abortController.signal,
-      });
     }
   } catch (err) {
     const errorCtx = {
@@ -3562,7 +2127,10 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("aborted_after_checkpoint");
         pendingCheckpointYield = null;
       }
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       rlog.info("Generation cancelled by user");
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -3578,7 +2146,10 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Conversation processing error");
@@ -3605,8 +2176,6 @@ export async function runAgentLoopImpl(
     }
   } finally {
     if (turnStarted) {
-      cleanupBootstrapAfterTurnThreshold(ctx.conversationId);
-
       ctx.turnCount++;
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
@@ -3644,7 +2213,7 @@ export async function runAgentLoopImpl(
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
 
     ctx.abortController = null;
-    ctx.processing = false;
+    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
@@ -3678,10 +2247,7 @@ export async function runAgentLoopImpl(
 // ── Helper ───────────────────────────────────────────────────────────
 
 function emitUsage(
-  ctx: Pick<
-    AgentLoopConversationContext,
-    "conversationId" | "provider" | "usageStats"
-  >,
+  ctx: Pick<Conversation, "conversationId" | "provider" | "usageStats">,
   inputTokens: number,
   outputTokens: number,
   model: string,
@@ -3721,17 +2287,18 @@ function emitUsage(
 }
 
 /**
- * Minimal context shape consumed by `applyCompactionResult`. Both
- * `AgentLoopConversationContext` and `Conversation` satisfy this via structural
- * typing, so the helper can back both the 5 agent-loop auto-compaction sites
- * and the single `forceCompact` user-initiated site.
+ * Minimal context shape consumed by `applyCompactionResult`, satisfied by
+ * `Conversation` via structural typing, so the helper can back both the 5
+ * agent-loop auto-compaction sites and the single `forceCompact`
+ * user-initiated site.
  */
 export interface CompactionApplyContext {
   readonly conversationId: string;
   messages: Message[];
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  pendingPostCompactReinject: boolean;
+  contextSummary: string | null;
+  slackContextCompactionWatermarkTs: string | null;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
   usageStats: UsageStats;
@@ -3778,26 +2345,37 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  // Compaction operates on the in-context history. Untrusted actor views
+  // render that history unsliced (boundary 0); trusted views start past the
+  // already-compacted prefix (the mirrored DB count). Advance from that
+  // in-context boundary rather than the raw mirror so the persisted count
+  // stays consistent with what the new summary represents and never
+  // double-counts an unsliced untrusted view.
+  const inContextCompactedCount = isUntrustedTrustClass(
+    ctx.trustContext?.trustClass,
+  )
+    ? 0
+    : ctx.contextCompactedMessageCount;
+  ctx.contextCompactedMessageCount =
+    inContextCompactedCount + result.compactedPersistedMessages;
+  ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  // Signal to the next agent loop turn that NOW.md / PKB / v2 static blocks
-  // were stripped from the tail and need fresh re-injection. Consumed and
-  // cleared at the top of the next `runAgentLoopImpl` run.
-  ctx.pendingPostCompactReinject = true;
   await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
+  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,
       options.slackContextCompactionWatermarkTs,
       compactedAt,
     );
+    ctx.slackContextCompactionWatermarkTs =
+      options.slackContextCompactionWatermarkTs;
   }
   enqueueAutoAnalysisOnCompaction(
     ctx.conversationId,

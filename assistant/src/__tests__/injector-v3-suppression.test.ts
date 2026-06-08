@@ -1,34 +1,38 @@
 /**
  * Tests for the memory-v3-live v2-suppression branch in
- * `applyRuntimeInjections` (PR L6 of the memory-v3-live plan).
+ * `applyRuntimeInjections`.
  *
- * When `suppressV2MemoryForV3` is on AND the v3 injector (id `memory-v3`,
+ * When the `memory-v3-live` flag is on AND the v3 injector (id `memory-v3`,
  * placement `after-memory-prefix`) actually produces a block, runtime
  * assembly strips the v2 `<memory>` prefix from EVERY user message before
  * splicing the v3 block — so v3 becomes the sole `<memory>` source and history
  * is byte-stable for prompt caching.
  *
- * Keyed off whether v3 produced a block, NOT off the option alone: a v3
+ * Keyed off whether v3 produced a block, NOT off the flag alone: a v3
  * failure (`produce()` → null) leaves v2's block intact (fallback-to-v2).
  *
  * The flag-off path must be byte-for-byte identical to today — that is the
- * load-bearing regression guard.
+ * load-bearing regression guard. `applyRuntimeInjections` reads the flag
+ * itself, so these tests drive it through the override cache.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  getInjectors,
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
 import type {
   InjectionBlock,
   Injector,
-  Plugin,
   TurnContext,
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Drive the suppression branch by controlling the static injector chain that
+// `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
+// the memory-v3 injector producing (or not producing) a block.
+const injectorChainSlot: Injector[] = [];
+mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
+  getInjectorChain: () => injectorChainSlot,
+}));
 
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
@@ -40,10 +44,6 @@ function makeTurnContext(): TurnContext {
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
   };
-}
-
-function wrapInPlugin(name: string, injectors: Injector[]): Plugin {
-  return { manifest: { name, version: "0.0.1" }, injectors };
 }
 
 /**
@@ -88,11 +88,15 @@ function tailTexts(messages: Message[]): string[] {
 
 describe("memory-v3-live v2 suppression", () => {
   beforeEach(() => {
-    resetPluginRegistryForTests();
+    injectorChainSlot.length = 0;
+    // Clean baseline: no overrides → `memory-v3-live` resolves to its registry
+    // default (off). Each test seeds the flag it needs.
+    setOverridesForTesting({});
   });
 
   test("flag ON + v3 produced a block → v2 stripped from all turns, exactly one <memory> (the v3 block)", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
+    setOverridesForTesting({ "memory-v3-live": true });
+    injectorChainSlot.push(v3Injector("v3 working set"));
 
     // History: a prior user turn that still carries a v2 block (rehydrated),
     // plus the current tail user turn with its own v2 block.
@@ -106,8 +110,7 @@ describe("memory-v3-live v2 suppression", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      suppressV2MemoryForV3: true,
+      ...makeTurnContext(),
     });
 
     // Exactly one <memory> source across the WHOLE assembled context.
@@ -138,15 +141,15 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag ON but v3 produced NOTHING → v2 block left intact (fallback-to-v2)", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector(null)]));
+    setOverridesForTesting({ "memory-v3-live": true });
+    injectorChainSlot.push(v3Injector(null));
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("fresh recalled fact", "current question"),
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      suppressV2MemoryForV3: true,
+      ...makeTurnContext(),
     });
 
     // v2's block survives — the turn still ships memory.
@@ -158,7 +161,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag OFF → byte-for-byte identical to today even when v3 would have produced a block", async () => {
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
+    injectorChainSlot.push(v3Injector("v3 working set"));
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("old recalled fact", "earlier question"),
@@ -169,16 +172,16 @@ describe("memory-v3-live v2 suppression", () => {
       userMsgWithV2Memory("fresh recalled fact", "current question"),
     ];
 
-    // With suppression off, the v3 injector still runs through the chain
-    // (after-memory-prefix), but NO v2 stripping happens. This captures the
-    // exact pre-flag assembly behavior: v2 prefix stays, v3 splices after it.
+    // With the flag off (registry default), the v3 injector still runs through
+    // the chain (after-memory-prefix), but NO v2 stripping happens. This
+    // captures the exact pre-flag assembly behavior: v2 prefix stays, v3
+    // splices after it.
     const offResult = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      suppressV2MemoryForV3: false,
+      ...makeTurnContext(),
     });
 
     // The tail keeps v2's block AND gains v3's (the historical double-injection
-    // the suppression PR exists to prevent) — proving suppression is the ONLY
+    // the suppression exists to prevent) — proving suppression is the ONLY
     // behavior change and it is fully gated off here.
     const texts = tailTexts(offResult.messages);
     expect(texts[0]).toBe("<memory>\nfresh recalled fact\n</memory>");
@@ -190,29 +193,20 @@ describe("memory-v3-live v2 suppression", () => {
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text);
     expect(firstUserTexts[0]).toBe("<memory>\nold recalled fact\n</memory>");
-
-    // Strongest guard: omitting the option entirely yields the SAME result as
-    // passing it false — the default path is untouched by this PR.
-    resetPluginRegistryForTests();
-    registerPlugin(wrapInPlugin("v3", [v3Injector("v3 working set")]));
-    const defaultResult = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-    });
-    expect(defaultResult.messages).toEqual(offResult.messages);
   });
 
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {
     // No injector named memory-v3 at all (e.g. plugin not loaded): the
     // suppression branch keys off the produced block, so nothing is stripped.
-    expect(getInjectors()).toHaveLength(0);
+    setOverridesForTesting({ "memory-v3-live": true });
+    expect(injectorChainSlot).toHaveLength(0);
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("fresh recalled fact", "current question"),
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      suppressV2MemoryForV3: true,
+      ...makeTurnContext(),
     });
 
     expect(result.messages).toEqual(runMessages);

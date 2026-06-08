@@ -1,5 +1,3 @@
-// Transport: Vite dev middleware for now. In Electron, swap to IPC (window.electronAPI.readLockfile).
-
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -12,41 +10,70 @@ import {
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { useLockfileStore } from "@/stores/lockfile-store";
+import {
+  fetchGuardianTokenHost,
+  GuardianTokenError,
+  loadLockfileHost,
+  parseLockfile,
+  replacePlatformAssistantsHost,
+  retireLocalAssistantHost,
+  saveLockfileAssistantHost,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
+import type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LocalRetireResult,
+} from "@/runtime/local-mode-host";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface LocalAssistantResources {
-  gatewayPort: number;
-  daemonPort: number;
-}
-
-export interface LockfileAssistant {
-  assistantId: string;
-  name?: string;
-  cloud: string;
-  runtimeUrl: string;
-  species?: string;
-  hatchedAt?: string;
-  resources?: LocalAssistantResources;
-}
-
-export interface Lockfile {
-  assistants: LockfileAssistant[];
-  activeAssistant: string | null;
-}
+// The lockfile shape is the transport contract shared by the Electron IPC and
+// dev-server branches, so the seam owns it; re-exported here for the renderer
+// features that read and model assistants.
+export type {
+  Lockfile,
+  LockfileAssistant,
+  LocalAssistantResources,
+  LocalRetireResult,
+};
 
 // ---------------------------------------------------------------------------
-// Module-level cache
+// Cache
 // ---------------------------------------------------------------------------
 
-let lockfile: Lockfile | null = null;
+// The cache lives in the lockfile store so React consumers can subscribe to
+// changes; this module owns the transport and is the only writer.
+const getCachedLockfile = (): Lockfile | null =>
+  useLockfileStore.getState().lockfile;
+const setCachedLockfile = (data: Lockfile): void =>
+  useLockfileStore.getState().setLockfile(data);
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
+
+export function getPlatformRuntimeUrl(): string {
+  const injected = (
+    window as unknown as {
+      __VELLUM_CONFIG__?: { platformUrl?: string };
+    }
+  ).__VELLUM_CONFIG__;
+  return injected?.platformUrl || window.location.origin;
+}
+
+// Advance the in-memory cache and mirror the lockfile to persisted storage in
+// one step. The mirror lets the synchronous `getLockfile()` hydrate from
+// storage on a cold read before the host transport has responded.
+const commitLockfile = (data: Lockfile): void => {
+  setCachedLockfile(data);
+  setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+};
 
 // ---------------------------------------------------------------------------
 // Core helpers
@@ -62,80 +89,97 @@ export function isLocalMode(): boolean {
 
 export async function loadLockfile(): Promise<Lockfile> {
   try {
-    const res = await fetch("/assistant/__local/lockfile");
-    if (!res.ok) throw new Error(`lockfile fetch failed: ${res.status}`);
-    const data: Lockfile = await res.json();
-    lockfile = data;
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+    const data = await loadLockfileHost();
+    commitLockfile(data);
     return data;
   } catch {
-    lockfile = { ...EMPTY_LOCKFILE };
-    return lockfile;
+    const empty = { ...EMPTY_LOCKFILE };
+    setCachedLockfile(empty);
+    return empty;
   }
 }
 
 export function getLockfile(): Lockfile {
-  if (lockfile) return lockfile;
+  const cached = getCachedLockfile();
+  if (cached) return cached;
 
   const stored = getLocalSetting(LOCKFILE_STORAGE_KEY, "");
   if (stored) {
     try {
-      lockfile = JSON.parse(stored) as Lockfile;
-      return lockfile;
+      const parsed = parseLockfile(JSON.parse(stored));
+      setCachedLockfile(parsed);
+      return parsed;
     } catch {
-      // Corrupted storage -- fall through to empty lockfile.
+      // Unparseable JSON -- fall through to empty lockfile. (A structurally
+      // invalid lockfile does not throw: parseLockfile salvages what it can.)
     }
   }
 
-  lockfile = { ...EMPTY_LOCKFILE };
-  return lockfile;
+  const empty = { ...EMPTY_LOCKFILE };
+  setCachedLockfile(empty);
+  return empty;
 }
 
 // ---------------------------------------------------------------------------
-// Hatch
+// Lockfile mutation
 // ---------------------------------------------------------------------------
 
-export interface LocalHatchResult {
-  ok: boolean;
-  assistantId?: string;
-  error?: string;
-}
-
 /**
- * Trigger a local assistant hatch via the dev server middleware.
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.hatchAssistant(species) (LUM-1997)
- */
-export async function hatchLocalAssistant(
-  species: string = "vellum",
-): Promise<LocalHatchResult> {
-  const res = await fetch("/assistant/__local/hatch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ species }),
-  });
-  return res.json() as Promise<LocalHatchResult>;
-}
-
-/**
- * Write an assistant entry to the lockfile on disk and refresh the cache.
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry) (LUM-1998)
+ * Write an assistant entry to the lockfile on disk and refresh the cache,
+ * making it the active assistant. Silently no-ops on a write failure: the
+ * cache only advances once the on-disk write succeeds.
  */
 export async function saveLockfileAssistant(
   assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
 ): Promise<void> {
-  const res = await fetch("/assistant/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistant, activeAssistant: assistant.assistantId }),
-  });
-  if (res.ok) {
-    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
-    lockfile = updated;
-    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
+  const result = await saveLockfileAssistantHost(
+    assistant,
+    assistant.assistantId,
+  );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Mark an already-known assistant as the lockfile's active assistant, leaving
+ * its other fields untouched. Used when switching managed assistants so the
+ * lockfile `activeAssistant` — read by the macOS tray, the CLI, and the native
+ * client — tracks the in-app selection. No-ops in the browser (no lockfile
+ * host) and when the id isn't a known entry.
+ */
+export async function setActiveLockfileAssistant(
+  assistantId: string,
+): Promise<void> {
+  const entry = getLockfile().assistants.find(
+    (a) => a.assistantId === assistantId,
+  );
+  if (!entry) return;
+  const result = await saveLockfileAssistantHost({ ...entry }, assistantId);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Replace all platform-hosted assistant entries in the lockfile with the
+ * current set from the API. Removes stale entries and adds new ones atomically.
+ */
+export async function syncPlatformAssistantsToLockfile(
+  assistants: Array<{ id: string; is_local: boolean; created: string }>,
+): Promise<void> {
+  const platformAssistants = assistants
+    .filter((a) => !a.is_local)
+    .map((a) => ({
+      assistantId: a.id,
+      cloud: "vellum",
+      runtimeUrl: getPlatformRuntimeUrl(),
+      hatchedAt: a.created,
+    }));
+
+  const result = await replacePlatformAssistantsHost(platformAssistants);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
   }
 }
 
@@ -143,26 +187,15 @@ export async function saveLockfileAssistant(
 // Retire
 // ---------------------------------------------------------------------------
 
-export interface LocalRetireResult {
-  ok: boolean;
-  error?: string;
-}
-
 /**
- * Retire a local assistant via the dev server middleware (shells out to CLI).
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.retireAssistant(assistantId) (LUM-2000)
+ * Retire a local assistant, then clear its selection, gateway token, and
+ * self-hosted connection and reload the lockfile. On failure the local state
+ * is left untouched and the error is returned for the caller to surface.
  */
 export async function retireLocalAssistant(
   assistantId: string,
 ): Promise<LocalRetireResult> {
-  const res = await fetch("/assistant/__local/retire", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistantId }),
-  });
-  const result = (await res.json()) as LocalRetireResult;
+  const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
     clearSelectedAssistant();
     clearGatewayToken();
@@ -176,7 +209,10 @@ export async function retireLocalAssistant(
 // Assistant queries
 // ---------------------------------------------------------------------------
 
-/** In Electron, replace with: window.electronAPI.hasAssistants() (LUM-1998) */
+/**
+ * Whether any assistant is known locally. Reads the in-memory lockfile cache,
+ * so it stays synchronous on every host — no transport hop required.
+ */
 export function hasAssistants(): boolean {
   return getLockfile().assistants.length > 0;
 }
@@ -185,15 +221,26 @@ export function isLocalAssistant(a: LockfileAssistant): boolean {
   return a.cloud !== "vellum" && a.resources?.gatewayPort != null;
 }
 
+export function isPlatformAssistant(a: LockfileAssistant): boolean {
+  return a.cloud === "vellum";
+}
+
 export function getLocalAssistants(): LockfileAssistant[] {
   return getLockfile().assistants.filter(isLocalAssistant);
 }
 
 export function getPlatformAssistants(): LockfileAssistant[] {
-  return getLockfile().assistants.filter((a) => a.cloud === "vellum");
+  return getLockfile().assistants.filter(isPlatformAssistant);
 }
 
-function getActiveAssistant(): LockfileAssistant | undefined {
+/**
+ * The lockfile's active assistant, or — when the recorded `activeAssistant`
+ * no longer resolves but exactly one assistant exists — that sole assistant.
+ * Returns `undefined` when the active id is stale and the choice is ambiguous,
+ * so callers fall back deliberately rather than silently binding to a
+ * positional entry that may shadow the real active assistant.
+ */
+export function getActiveAssistant(): LockfileAssistant | undefined {
   const lf = getLockfile();
   const active = lf.assistants.find(
     (a) => a.assistantId === lf.activeAssistant,
@@ -242,43 +289,21 @@ export function getLocalGatewayUrl(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian token
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch the guardian access token for a local assistant from the Vite dev
- * middleware. The middleware reads the token from disk and handles refresh
- * via the CLI if the access token is expired.
- *
- * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with IPC call to main process.
- */
-export async function fetchGuardianToken(assistantId: string): Promise<string> {
-  const res = await fetch(`/assistant/__local/guardian-token/${encodeURIComponent(assistantId)}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(body.error ?? `Guardian token request failed: ${res.status}`);
-  }
-  const { accessToken } = (await res.json()) as { accessToken: string };
-  return accessToken;
-}
-
-// ---------------------------------------------------------------------------
 // Gateway connection setup
 // ---------------------------------------------------------------------------
 
 /**
  * Acquire a gateway token and prime the self-hosted connection for the
- * selected local assistant.
- *
- * Transport: fetch to Vite dev middleware gateway proxy.
- * In Electron, replace with direct IPC token acquisition. (LUM-1999)
+ * selected local assistant. The guardian token and gateway exchange both ride
+ * the host's local-mode transport, so this stays host-agnostic.
  */
 export async function primeLocalGatewayConnection(): Promise<void> {
   const tokenUrl = getLocalTokenUrl();
   if (!tokenUrl) return;
   const assistant = getSelectedAssistant();
-  const guardianToken = assistant ? await fetchGuardianToken(assistant.assistantId) : undefined;
+  const guardianToken = assistant
+    ? await fetchGuardianTokenHost(assistant.assistantId)
+    : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
   const localGateway = getLocalGatewayUrl();
   if (!localGateway) return;
@@ -286,4 +311,42 @@ export async function primeLocalGatewayConnection(): Promise<void> {
     url: `${window.location.origin}${localGateway}`,
     token: getGatewayToken(),
   });
+}
+
+/**
+ * Classify a connect failure as repairable by `wake`. A `403` means the host
+ * refused the loopback boundary — a security decision wake can't change — so
+ * it surfaces as-is. Every other failure (a missing/expired/malformed guardian
+ * token, or an unreachable or stopped gateway) is something `wake` can fix by
+ * re-seeding the token and restarting the daemon + gateway.
+ */
+function isRepairableConnectError(error: unknown): boolean {
+  if (error instanceof GuardianTokenError) return error.status !== 403;
+  return true;
+}
+
+/**
+ * Prime the local gateway connection, transparently repairing the assistant in
+ * place when the first attempt fails for a repairable reason.
+ *
+ * This mirrors the native client's bootstrap, which re-pairs a stopped,
+ * expired, or mis-seeded local assistant before the failure ever reaches the
+ * user: on a repairable failure it runs `wake` (re-seeds the guardian token
+ * and restarts the daemon + gateway, leaving the assistant's data and identity
+ * untouched), then primes the connection once more. A non-repairable failure,
+ * a wake that itself fails, or a still-failing retry propagate the original
+ * error so the existing connect-error UI surfaces it unchanged.
+ */
+export async function primeLocalGatewayConnectionWithRepair(): Promise<void> {
+  try {
+    await primeLocalGatewayConnection();
+    return;
+  } catch (error) {
+    if (!isRepairableConnectError(error)) throw error;
+    const assistantId = getSelectedAssistant()?.assistantId;
+    if (!assistantId) throw error;
+    const repair = await wakeLocalAssistantHost(assistantId);
+    if (!repair.ok) throw error;
+    await primeLocalGatewayConnection();
+  }
 }

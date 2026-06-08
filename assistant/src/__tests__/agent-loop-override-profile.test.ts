@@ -110,15 +110,19 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
       _input: Record<string, unknown>,
     ) => ({ content: "ok", isError: false });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxTokens: 1024 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxTokens: 1024 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "fast",
     });
@@ -132,9 +136,18 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
 
   test("omits overrideProfile from providerConfig when unset (default behavior unchanged)", async () => {
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", { maxTokens: 1024 });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxTokens: 1024 },
+    });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Single send, no overrideProfile field at all.
     expect(configs()).toHaveLength(1);
@@ -148,9 +161,17 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     // receives so a non-existent profile silently falls back at the
     // provider layer (covered by provider-send-message-override-profile.test.ts).
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", { maxTokens: 1024 });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxTokens: 1024 },
+    });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "does-not-exist",
     });
@@ -214,7 +235,6 @@ class FakeConversation {
   runAgentLoop(
     _content: string,
     _userMessageId: string,
-    _onEvent: unknown,
     options?: CapturedRunAgentLoopOptions,
   ) {
     capturedRunAgentLoopOptions.push({ ...(options ?? {}) });

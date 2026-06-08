@@ -12,6 +12,7 @@
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",
+    "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

@@ -1,10 +1,10 @@
 /**
  * Route handlers for usage and cost summary endpoints.
  *
- * GET /v1/usage/totals?from=&to=              — aggregate totals for a time range
- * GET /v1/usage/daily?from=&to=               — per-day buckets for a time range
- * GET /v1/usage/breakdown?from=&to=&groupBy=  — grouped breakdown
- * GET /v1/usage/series?from=&to=&granularity=&groupBy= — grouped time-series buckets
+ * GET /v1/usage/totals?from=&to=&scheduleId=  — aggregate totals for a time range
+ * GET /v1/usage/daily?from=&to=&scheduleId=   — per-day buckets for a time range
+ * GET /v1/usage/breakdown?from=&to=&groupBy=&scheduleId=  — grouped breakdown
+ * GET /v1/usage/series?from=&to=&granularity=&groupBy=&scheduleId= — grouped time-series buckets
  */
 
 import { z } from "zod";
@@ -18,10 +18,12 @@ import {
   type GroupByDimension,
   USAGE_GROUP_BY_DIMENSIONS,
   USAGE_SERIES_GROUP_BY_DIMENSIONS,
+  type UsageAggregationFilter,
   type UsageGranularity,
 } from "../../memory/llm-usage-store.js";
 import { validateTimezone } from "../../memory/usage-buckets.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -29,6 +31,54 @@ const VALID_GROUP_BY = new Set<string>(USAGE_GROUP_BY_DIMENSIONS);
 const VALID_SERIES_GROUP_BY = new Set<string>(USAGE_SERIES_GROUP_BY_DIMENSIONS);
 const GROUP_BY_DESCRIPTION = USAGE_GROUP_BY_DIMENSIONS.join(", ");
 const SERIES_GROUP_BY_DESCRIPTION = USAGE_SERIES_GROUP_BY_DIMENSIONS.join(", ");
+const SCHEDULE_ID_FILTER_DESCRIPTION =
+  "Optional schedule id. When set, usage is attributed by cron run windows for that schedule.";
+
+const usageTotalsSchema = z.object({
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalCacheCreationTokens: z.number(),
+  totalCacheReadTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+  pricedEventCount: z.number(),
+  unpricedEventCount: z.number(),
+});
+
+const usageDayBucketSchema = z.object({
+  bucketId: z.string(),
+  date: z.string(),
+  displayLabel: z.string().optional(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageGroupBreakdownSchema = z.object({
+  group: z.string(),
+  groupId: z.string().nullable(),
+  groupKey: z.string().nullable().optional(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalCacheCreationTokens: z.number(),
+  totalCacheReadTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageSeriesGroupValueSchema = z.object({
+  group: z.string(),
+  groupKey: z.string().nullable(),
+  totalInputTokens: z.number(),
+  totalOutputTokens: z.number(),
+  totalEstimatedCostUsd: z.number(),
+  eventCount: z.number(),
+});
+
+const usageSeriesBucketSchema = usageDayBucketSchema.extend({
+  groups: z.record(z.string(), usageSeriesGroupValueSchema),
+});
 
 function resolveTimezone(queryParams: Record<string, string>): string {
   const tz = queryParams.tz ?? "UTC";
@@ -40,43 +90,23 @@ function resolveTimezone(queryParams: Record<string, string>): string {
   return tz;
 }
 
-function parseTimeRange(queryParams: Record<string, string>): {
-  from: number;
-  to: number;
-} {
-  const fromRaw = queryParams.from;
-  const toRaw = queryParams.to;
-
-  if (!fromRaw || !toRaw) {
-    throw new BadRequestError(
-      'Missing required query parameters: "from" and "to" (epoch milliseconds)',
-    );
-  }
-
-  const from = Number(fromRaw);
-  const to = Number(toRaw);
-
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
-    throw new BadRequestError(
-      '"from" and "to" must be valid numbers (epoch milliseconds)',
-    );
-  }
-
-  if (from > to) {
-    throw new BadRequestError('"from" must be less than or equal to "to"');
-  }
-
-  return { from, to };
+function parseUsageAggregationFilter(
+  queryParams: Record<string, string>,
+): UsageAggregationFilter {
+  const scheduleId = queryParams.scheduleId?.trim();
+  return scheduleId ? { scheduleId } : {};
 }
 
 function handleUsageTotals({ queryParams }: RouteHandlerArgs) {
-  const range = parseTimeRange(queryParams ?? {});
-  return getUsageTotals(range);
+  const qp = queryParams ?? {};
+  const range = parseEpochMillisRange(qp);
+  const filter = parseUsageAggregationFilter(qp);
+  return getUsageTotals(range, filter);
 }
 
 function handleUsageDaily({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
   const granularity = qp.granularity ?? "daily";
   if (granularity !== "daily" && granularity !== "hourly") {
     throw new BadRequestError(
@@ -84,16 +114,17 @@ function handleUsageDaily({ queryParams }: RouteHandlerArgs) {
     );
   }
   const tz = resolveTimezone(qp);
+  const filter = parseUsageAggregationFilter(qp);
   const buckets =
     granularity === "hourly"
-      ? getUsageHourBuckets(range, tz, { fillEmpty: true })
-      : getUsageDayBuckets(range, tz, { fillEmpty: true });
+      ? getUsageHourBuckets(range, tz, { fillEmpty: true }, filter)
+      : getUsageDayBuckets(range, tz, { fillEmpty: true }, filter);
   return { buckets };
 }
 
 function handleUsageBreakdown({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
 
   const groupBy = qp.groupBy;
   if (!groupBy) {
@@ -107,13 +138,18 @@ function handleUsageBreakdown({ queryParams }: RouteHandlerArgs) {
     );
   }
 
-  const breakdown = getUsageGroupBreakdown(range, groupBy as GroupByDimension);
+  const filter = parseUsageAggregationFilter(qp);
+  const breakdown = getUsageGroupBreakdown(
+    range,
+    groupBy as GroupByDimension,
+    filter,
+  );
   return { breakdown };
 }
 
 function handleUsageSeries({ queryParams }: RouteHandlerArgs) {
   const qp = queryParams ?? {};
-  const range = parseTimeRange(qp);
+  const range = parseEpochMillisRange(qp);
   const granularity = qp.granularity ?? "daily";
   if (granularity !== "daily" && granularity !== "hourly") {
     throw new BadRequestError(
@@ -134,12 +170,14 @@ function handleUsageSeries({ queryParams }: RouteHandlerArgs) {
   }
 
   const tz = resolveTimezone(qp);
+  const filter = parseUsageAggregationFilter(qp);
   const buckets = getUsageGroupedSeries(
     range,
     groupBy as Exclude<GroupByDimension, "conversation">,
     granularity as UsageGranularity,
     tz,
     { fillEmpty: true },
+    filter,
   );
   return { buckets };
 }
@@ -167,7 +205,12 @@ export const ROUTES: RouteDefinition[] = [
         type: "integer",
         description: "End epoch millis (required)",
       },
+      {
+        name: "scheduleId",
+        description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
     ],
+    responseBody: usageTotalsSchema,
     handler: handleUsageTotals,
   },
   {
@@ -202,9 +245,13 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in this timezone. Defaults to "UTC" for backwards compatibility.',
       },
+      {
+        name: "scheduleId",
+        description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
     ],
     responseBody: z.object({
-      buckets: z.array(z.unknown()).describe("Usage bucket objects"),
+      buckets: z.array(usageDayBucketSchema).describe("Usage bucket objects"),
     }),
     handler: handleUsageDaily,
   },
@@ -235,9 +282,15 @@ export const ROUTES: RouteDefinition[] = [
         name: "groupBy",
         description: `Group by: ${GROUP_BY_DESCRIPTION} (required)`,
       },
+      {
+        name: "scheduleId",
+        description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
     ],
     responseBody: z.object({
-      breakdown: z.array(z.unknown()).describe("Grouped usage entries"),
+      breakdown: z
+        .array(usageGroupBreakdownSchema)
+        .describe("Grouped usage entries"),
     }),
     handler: handleUsageBreakdown,
   },
@@ -278,9 +331,15 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in this timezone. Defaults to "UTC".',
       },
+      {
+        name: "scheduleId",
+        description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
     ],
     responseBody: z.object({
-      buckets: z.array(z.unknown()).describe("Grouped usage bucket objects"),
+      buckets: z
+        .array(usageSeriesBucketSchema)
+        .describe("Grouped usage bucket objects"),
     }),
     handler: handleUsageSeries,
   },

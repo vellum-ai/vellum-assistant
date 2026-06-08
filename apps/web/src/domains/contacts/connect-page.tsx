@@ -3,16 +3,24 @@ import { AlertTriangle, Link2, Loader2 } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { toast } from "@vellum/design-library/components/toast";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
-import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
-import { redeemA2AInvite } from "@/domains/contacts/api";
-import type { RedeemA2AInviteResponse } from "@/domains/contacts/types";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
+import { redeemA2AInvite } from "@/domains/contacts/contacts-gateway";
 import { routes } from "@/utils/routes";
+
+function isContactsGetKey(queryKey: readonly unknown[]): boolean {
+  const first = queryKey[0];
+  return (
+    first !== null &&
+    typeof first === "object" &&
+    (first as { _id?: unknown })._id === "contactsGet"
+  );
+}
 
 function mapErrorCode(errorCode: string | undefined, errorMessage: string | undefined): string {
   switch (errorCode) {
@@ -58,10 +66,10 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
         token: parsed.token,
       });
     },
-    onSuccess: (data: RedeemA2AInviteResponse) => {
+    onSuccess: (data) => {
       if (data.success) {
         void queryClient.invalidateQueries({
-          queryKey: ["assistantContacts", assistantId],
+          predicate: (query) => isContactsGetKey(query.queryKey),
         });
         if (data.alreadyConnected) {
           toast("Already connected");

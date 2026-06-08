@@ -16,9 +16,12 @@
  */
 
 import {
+  AlertCircle,
   AlertTriangle,
   Bolt,
+  Brain,
   Check,
+  CheckCircle2,
   Code,
   FileText,
   Monitor,
@@ -30,12 +33,12 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 
-import { Typography } from "@vellum/design-library";
+import { Tooltip, Typography } from "@vellumai/design-library";
 
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
-import { formatMs } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import { formatMs, type ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import { cn } from "@/utils/misc";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
 export const ICON_MAP: Record<IconName, LucideIcon> = {
@@ -47,6 +50,7 @@ export const ICON_MAP: Record<IconName, LucideIcon> = {
   sparkle: Sparkles,
   "user-plus": UserPlus,
   bolt: Bolt,
+  brain: Brain,
 };
 
 /**
@@ -94,6 +98,61 @@ function parseDurationLabel(label: string): number {
   const match = /^(\d+)s$/.exec(label);
   if (!match) return 0;
   return Number(match[1]) * 1000;
+}
+
+/**
+ * Earliest known start time (epoch ms) across a phase's tool steps, or `null`
+ * when none carry timing. Drives the "Started at …" hover on the duration.
+ */
+function phaseStartedAt(steps: ToolCallCardStep[]): number | null {
+  let earliest: number | null = null;
+  for (const step of steps) {
+    if (step.kind === "tool" && step.startedAt != null) {
+      earliest =
+        earliest == null ? step.startedAt : Math.min(earliest, step.startedAt);
+    }
+  }
+  return earliest;
+}
+
+/** Format an epoch-ms timestamp as a local clock time for the duration tooltip. */
+function formatStartTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/**
+ * Phase duration label. When the phase carries a known start time, the duration
+ * becomes a tooltip trigger — hovering "3s" reveals when the work began.
+ */
+function PhaseDurationLabel({
+  durationLabel,
+  startedAt,
+}: {
+  durationLabel: string;
+  startedAt: number | null;
+}) {
+  const label = (
+    <Typography
+      variant="label-medium-default"
+      className="text-[var(--content-tertiary)]"
+    >
+      {durationLabel}
+    </Typography>
+  );
+  if (startedAt == null) return label;
+  return (
+    <Tooltip
+      content={`Started at ${formatStartTime(startedAt)}`}
+      side="top"
+      align="end"
+    >
+      <span className="cursor-default">{label}</span>
+    </Tooltip>
+  );
 }
 
 /** Total of `formatMs`-style labels, re-formatted via `formatMs`. */
@@ -180,15 +239,71 @@ export interface PhaseGroupedStepListProps {
    * passes a renderer that preserves the favicon / overflow / error chips.
    */
   renderStep?: (step: ToolCallCardStep) => ReactNode;
+  /**
+   * When `true`, render the sections as a vertical timeline: each phase's
+   * status icon sits in a left node column with a connector line running
+   * continuously down to the next phase's icon, and the header + steps flow
+   * in a right content column. Defaults to `false`, in which case the list
+   * renders exactly as before (flat phase-header rows + `pl-[24px]`-indented
+   * step pills) — the web-search and subagent inline cards rely on this
+   * unchanged layout.
+   */
+  timeline?: boolean;
 }
 
 export function PhaseGroupedStepList({
   steps,
   renderStep,
+  timeline = false,
 }: PhaseGroupedStepListProps) {
   if (steps.length === 0) return null;
   const sections = groupStepsByPhase(steps);
-  let globalIndex = 0;
+
+  // Pre-compute the global-index offset for each section so we don't
+  // need a mutable counter during render.
+  const sectionOffsets: number[] = [];
+  let offset = 0;
+  for (const section of sections) {
+    sectionOffsets.push(offset);
+    offset += section.steps.length;
+  }
+
+  const renderSectionSteps = (
+    section: PhaseSection,
+    baseIndex: number,
+  ): ReactNode =>
+    section.steps.map((step, stepIdx) => {
+      const key = stepKey(step, baseIndex + stepIdx);
+      return (
+        <Fragment key={key}>
+          {renderStep ? renderStep(step) : <DefaultStepPill step={step} />}
+        </Fragment>
+      );
+    });
+
+  // Timeline mode: a vertical run of circular status nodes joined by a
+  // continuous connector line, each paired with its phase header + steps in a
+  // right-hand content column. The list owns no inter-section `gap` — each
+  // non-last `TimelinePhaseSection` carries its own `pb-3` so the connector
+  // line runs unbroken from one circle down to the next (a list-level `gap`
+  // would split the line into visible segments between circles).
+  if (timeline) {
+    return (
+      <div className="flex w-full flex-col">
+        {sections.map((section, sectionIdx) => (
+          <TimelinePhaseSection
+            key={`${section.label}-${sectionIdx}`}
+            section={section}
+            baseIndex={sectionOffsets[sectionIdx]!}
+            isFirst={sectionIdx === 0}
+            isLast={sectionIdx === sections.length - 1}
+            renderSectionSteps={renderSectionSteps}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-3">
       {sections.map((section, sectionIdx) => {
@@ -198,6 +313,7 @@ export function PhaseGroupedStepList({
           ),
         );
         const status = phaseHeaderStatus(section.steps);
+        const baseIndex = sectionOffsets[sectionIdx];
         return (
           <div
             key={`${section.label}-${sectionIdx}`}
@@ -210,22 +326,196 @@ export function PhaseGroupedStepList({
               durationLabel={totalDuration}
               status={status}
             />
-            <div className="flex min-w-0 flex-wrap items-start gap-1 pl-[24px]">
-              {section.steps.map((step) => {
-                const key = stepKey(step, globalIndex);
-                globalIndex += 1;
-                return (
-                  <Fragment key={key}>
-                    {renderStep ? renderStep(step) : <DefaultStepPill step={step} />}
-                  </Fragment>
-                );
-              })}
+            <div className="flex min-w-0 flex-col items-start gap-1 pl-[24px]">
+              {renderSectionSteps(section, baseIndex)}
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+/**
+ * Height of the connector lead-in that rises from the FIRST timeline node up
+ * toward the card header's status icon. Anchored `bottom-full` above the
+ * section (so it keeps the same small gap above the first node as the
+ * inter-node segments) and colinear with the main line (`left-[6.5px]`). It
+ * spans the ActivityRunCard timeline body's top padding (`pt-4` = 16px) and
+ * most of the gap up to the header icon, stopping a small gap short of it so
+ * the connection reads consistently with the rest of the timeline. Nudge ±2-4px
+ * to taste; if you change the body `pt`, re-tune this to match.
+ */
+const TIMELINE_LEAD_IN_HEIGHT_PX = 24;
+
+/**
+ * One phase section in the vertical timeline: the connector line (+ a lead-in
+ * to the header on the first section), the circular status node, the phase
+ * header row, and the indented step pills.
+ *
+ * Timeline mechanics:
+ *  - A connector line per non-last section sits at the node's center x
+ *    (`left-[6.5px]`: the 14px icon at the section's left → center ≈ 7px). It
+ *    starts BELOW this node (`top-6`) and runs to the section bottom
+ *    (`bottom-0`), leaving a small, even gap before the next node — so the
+ *    timeline reads as evenly-spaced segments rather than one unbroken line.
+ *  - The LAST section renders no line, so nothing trails below the final node.
+ *  - The FIRST section additionally renders a `bottom-full` lead-in above the
+ *    node so the timeline reads as flowing down from the card header icon, with
+ *    the same small gap at each end.
+ */
+function TimelinePhaseSection({
+  section,
+  baseIndex,
+  isFirst,
+  isLast,
+  renderSectionSteps,
+}: {
+  section: PhaseSection;
+  baseIndex: number;
+  isFirst: boolean;
+  isLast: boolean;
+  renderSectionSteps: (section: PhaseSection, baseIndex: number) => ReactNode;
+}) {
+  const totalDuration = sumDurationLabels(
+    section.steps.map((s) => ("durationLabel" in s ? s.durationLabel : "")),
+  );
+  const status = phaseHeaderStatus(section.steps);
+  // A thinking phase carries no real "completed" semantics — swap the green
+  // status check for the brain glyph so the node reads as a reasoning step
+  // (grouping guarantees a thinking section holds only thinking steps).
+  const isThinking = section.steps[0]?.kind === "thinking";
+
+  return (
+    <div
+      data-testid="phase-section"
+      data-phase-label={section.label}
+      className="relative flex flex-col gap-2"
+    >
+      {/* Connector line at the node's center x. It starts BELOW this node
+          (`top-6`) and runs to the section bottom (`bottom-0`), which lands a
+          small, consistent gap before the next node — the timeline reads as
+          evenly-spaced segments rather than one line touching every circle.
+          The last section renders none (nothing trails below the final
+          circle). */}
+      {!isLast && (
+        <div
+          aria-hidden
+          className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
+        />
+      )}
+      {/* Lead-in above the FIRST node, rising through the body's top padding
+          toward the card header's status icon. Anchored `bottom-full` so it
+          keeps the same small gap above the first node as the inter-node
+          segments; its height stops a matching gap short of the header icon. */}
+      {isFirst && (
+        <div
+          aria-hidden
+          className="absolute bottom-full left-[6.5px] w-px bg-[var(--border-element)]"
+          style={{ height: TIMELINE_LEAD_IN_HEIGHT_PX }}
+        />
+      )}
+      {/* Header row: circular node + label share ONE items-center row so the
+          icon is vertically centered with the title regardless of line-height;
+          the duration is pushed to the right edge. */}
+      <div
+        data-testid="phase-header"
+        className="flex items-center justify-between gap-2 py-[2px]"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <TimelineNode status={status} isThinking={isThinking} />
+          <Typography
+            variant="body-medium-default"
+            className="text-[var(--content-default)]"
+          >
+            {section.label}
+          </Typography>
+        </span>
+        {totalDuration ? (
+          <PhaseDurationLabel
+            durationLabel={totalDuration}
+            startedAt={phaseStartedAt(section.steps)}
+          />
+        ) : null}
+      </div>
+      {/* Steps aligned under the phase title (icon 14px + the row's 8px gap →
+          22px). The whole timeline body is already indented under the card
+          header by its container, so the pills only need to align with their
+          own phase title here. Non-last sections add `pb-3` so the connector
+          line runs unbroken down to the next circle. */}
+      <div
+        className={cn(
+          "flex min-w-0 flex-col items-start gap-1 pl-[22px]",
+          !isLast && "pb-3",
+        )}
+      >
+        {renderSectionSteps(section, baseIndex)}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A timeline status node — the circular status icon. The connector lines start
+ * below / end above each node (with a small gap), so the icon never needs to
+ * mask the line passing behind it.
+ */
+function TimelineNode({
+  status,
+  isThinking,
+}: {
+  status: PhaseHeaderStatus;
+  isThinking: boolean;
+}) {
+  if (isThinking) {
+    return (
+      <Brain
+        aria-hidden="true"
+        data-testid="phase-header-status-icon"
+        data-status="thinking"
+        className="h-[14px] w-[14px] shrink-0 text-[var(--content-secondary)]"
+      />
+    );
+  }
+  return <TimelineNodeIcon status={status} testId="phase-header-status-icon" />;
+}
+
+/**
+ * Circular status node for the vertical timeline. Mirrors the card header's
+ * iconography for visual harmony — a green `CheckCircle2` when the phase
+ * completed, a red `AlertCircle` when it failed, and the animated
+ * `ThreeDotIndicator` while running. Keeps the `data-testid` /
+ * `data-status` attributes the flat `PhaseHeaderRow` stamps so existing
+ * status-icon assertions resolve against either layout.
+ */
+function TimelineNodeIcon({
+  status,
+  testId,
+}: {
+  status: PhaseHeaderStatus;
+  testId: string;
+}) {
+  if (status === "completed") {
+    return (
+      <CheckCircle2
+        aria-hidden="true"
+        data-testid={testId}
+        data-status="completed"
+        className="h-[14px] w-[14px] shrink-0 text-[#277E41]"
+      />
+    );
+  }
+  if (status === "failed") {
+    return (
+      <AlertCircle
+        aria-hidden="true"
+        data-testid={testId}
+        data-status="failed"
+        className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
+      />
+    );
+  }
+  return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
 }
 
 /** Stable key for a step descriptor — mirrors the dispatcher card helper. */
@@ -381,11 +671,11 @@ function StepPill({
   const toneClasses =
     tone === "error"
       ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "border-[var(--surface-base)] bg-transparent text-[var(--content-default)]";
+      : "border-[var(--border-element)] bg-transparent text-[var(--content-default)]";
   return (
     <div
       data-testid="phase-step-pill"
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] ${toneClasses}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-2 py-1 ${toneClasses}`}
     >
       {children}
     </div>

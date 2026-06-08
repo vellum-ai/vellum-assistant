@@ -1,13 +1,15 @@
-import type { ReactNode } from "react";
+import { Button } from "@vellumai/design-library";
 import {
-  ChevronLeft,
-  ChevronRight,
-  House,
-  Menu as MenuIcon,
-  PanelLeft,
-  Search,
+    ChevronLeft,
+    ChevronRight,
+    House,
+    Menu as MenuIcon,
+    PanelLeft,
+    Search,
 } from "lucide-react";
-import { Button } from "@vellum/design-library";
+import { useCallback, type ReactNode } from "react";
+
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
@@ -21,7 +23,6 @@ export interface ChatLayoutHeaderProps {
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  onSearchClick?: () => void;
   onOpenHome?: () => void;
   isHomeActive?: boolean;
   hasUnreadHome?: boolean;
@@ -39,11 +40,13 @@ export function ChatLayoutHeader({
   canGoForward,
   onGoBack,
   onGoForward,
-  onSearchClick,
   onOpenHome,
   isHomeActive,
   hasUnreadHome,
 }: ChatLayoutHeaderProps) {
+  const toggleCommandPalette = useCommandPaletteStore.use.toggle();
+  const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
+
   return (
     <header
       data-slot="chat-layout-header"
@@ -57,7 +60,7 @@ export function ChatLayoutHeader({
       }}
     >
       <div
-        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out"
+        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
         style={!isMobile ? { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) } : undefined}
       >
         {isMobile ? (
@@ -81,7 +84,7 @@ export function ChatLayoutHeader({
             onClick={toggleSidebar}
           />
         )}
-        {onOpenHome ? (
+        {onOpenHome && !(isMobile && isHomeActive) ? (
           <span className="relative">
             <Button
               variant="ghost"
@@ -101,15 +104,13 @@ export function ChatLayoutHeader({
         ) : null}
         {!isMobile ? (
           <>
-            {onSearchClick ? (
-              <Button
-                variant="ghost"
-                iconOnly={<Search />}
-                aria-label="Search (Ctrl+K)"
-                tooltip="Search (Ctrl+K)"
-                onClick={onSearchClick}
-              />
-            ) : null}
+            <Button
+              variant="ghost"
+              iconOnly={<Search />}
+              aria-label="Search (Ctrl+K)"
+              tooltip="Search (Ctrl+K)"
+              onClick={handleSearchClick}
+            />
             <Button
               variant="ghost"
               iconOnly={<ChevronLeft />}
@@ -136,14 +137,14 @@ export function ChatLayoutHeader({
         {topBarCenter}
       </div>
 
-      <div className="flex items-center gap-2">
-        {isMobile && onSearchClick ? (
+      <div className="flex items-center gap-2 max-md:flex-1 max-md:justify-end">
+        {isMobile ? (
           <Button
             variant="ghost"
             iconOnly={<Search />}
             aria-label="Search (Ctrl+K)"
             tooltip="Search (Ctrl+K)"
-            onClick={onSearchClick}
+            onClick={handleSearchClick}
           />
         ) : null}
         {topBarRightSlot}

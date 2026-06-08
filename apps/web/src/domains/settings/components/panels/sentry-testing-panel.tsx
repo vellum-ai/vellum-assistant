@@ -1,17 +1,17 @@
 import * as Sentry from "@sentry/react";
 import {
-  AlertTriangle,
-  Bug,
-  Flame,
-  Info,
-  Timer,
-  XCircle,
+    AlertTriangle,
+    Bug,
+    Flame,
+    Info,
+    Timer,
+    XCircle,
 } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
+import { Button } from "@vellumai/design-library/components/button";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function SentryTestingPanel() {
   const handleCaptureError = useCallback(() => {
@@ -109,7 +109,7 @@ function SentryTestRow({
   onClick,
 }: SentryTestRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border-default)] px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border-base)] px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <div className="shrink-0">{icon}</div>
         <div className="min-w-0">

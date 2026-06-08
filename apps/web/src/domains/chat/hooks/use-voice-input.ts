@@ -8,9 +8,9 @@ import {
   shouldShowMicPrimer,
 } from "@/domains/chat/components/mic-permission-primer";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { postDictation } from "@/domains/voice/dictation-api";
-import { usePushToTalk } from "@/domains/voice/use-push-to-talk";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { postDictation } from "@/domains/chat/voice/dictation-api";
+import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------

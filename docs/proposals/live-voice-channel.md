@@ -248,7 +248,7 @@ Key files:
 | `assistant/docs/stt-provider-onboarding.md` | Required steps for adding STT providers and keeping provider catalogs/client fallbacks in sync. | Confirms live voice should use the existing STT catalog rather than a new provider path. |
 | `assistant/docs/credential-execution-service.md` | Credential storage/access architecture. | Reference for provider-key handling and Docker mode. |
 | `assistant/docs/error-handling.md` | Error handling conventions. | Use for live voice user-visible and structured error design. |
-| `assistant/docs/plugins.md` and `assistant/docs/skills.md` | Plugin and skill docs. | Likely not directly involved in V1. |
+| `experimental/plugins/README.md` and `assistant/docs/skills.md` | Plugin and skill docs. | Likely not directly involved in V1. |
 | `assistant/docs/architecture/security.md` | Security architecture. | Reference if live voice adds new auth scopes or gateway routes. |
 | `assistant/docs/architecture/integrations.md` | Integration architecture notes. | Reference if voice channel exposes new integration points. |
 | `assistant/docs/architecture/memory.md` | Memory architecture notes. | Reference if archival changes memory/conversation persistence. |

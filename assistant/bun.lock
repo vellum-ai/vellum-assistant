@@ -5,18 +5,17 @@
     "": {
       "name": "@vellumai/assistant",
       "dependencies": {
-        "@agentclientprotocol/sdk": "0.16.1",
+        "@agentclientprotocol/sdk": "0.25.0",
         "@anthropic-ai/sdk": "0.78.0",
         "@google/genai": "1.45.0",
         "@modelcontextprotocol/sdk": "1.27.1",
         "@qdrant/js-client-rest": "1.17.0",
         "@resvg/resvg-js": "2.6.2",
-        "@resvg/resvg-js-darwin-arm64": "2.6.2",
-        "@resvg/resvg-js-darwin-x64": "2.6.2",
         "@sentry/node": "10.43.0",
         "@vellumai/ces-client": "file:../packages/ces-client",
         "@vellumai/credential-storage": "file:../packages/credential-storage",
         "@vellumai/egress-proxy": "file:../packages/egress-proxy",
+        "@vellumai/environments": "file:../packages/environments",
         "@vellumai/gateway-client": "file:../packages/gateway-client",
         "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
         "@vellumai/service-contracts": "file:../packages/service-contracts",
@@ -61,6 +60,10 @@
         "typescript": "5.9.3",
         "typescript-eslint": "8.57.0",
       },
+      "optionalDependencies": {
+        "@resvg/resvg-js-darwin-arm64": "2.6.2",
+        "@resvg/resvg-js-darwin-x64": "2.6.2",
+      },
     },
   },
   "overrides": {
@@ -68,7 +71,7 @@
     "path-to-regexp": "8.4.2",
   },
   "packages": {
-    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.16.1", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-1ad+Sc/0sCtZGHthxxvgEUo5Wsbw16I+aF+YwdiLnPwkZG8KAGUEAPK6LM6Pf69lCyJPt1Aomk1d+8oE3C4ZEw=="],
+    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.25.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-wU1VgXNtMvdVotX49txc3WJUDV+/QbLpsgjMvFhlRmp37osdLbI7L7y+iwAlQATwfjLxcv1r1p3ZxZBcXlGhcQ=="],
 
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.78.0", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-PzQhR715td/m1UaaN5hHXjYB8Gl2lF9UVhrrGrZeysiF6Rb74Wc9GCB8hzLdzmQtBd1qe89F9OptgB9Za1Ib5w=="],
 
@@ -423,6 +426,8 @@
     "@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
     "@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
+
+    "@vellumai/environments": ["@vellumai/environments@file:../packages/environments", { "devDependencies": { "@types/bun": "1.3.11", "typescript": "5.9.3" } }],
 
     "@vellumai/gateway-client": ["@vellumai/gateway-client@file:../packages/gateway-client", { "dependencies": { "@vellumai/service-contracts": "file:../service-contracts" }, "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
@@ -1260,6 +1265,8 @@
 
     "@vellumai/ces-client/typescript": ["typescript@5.7.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw=="],
 
+    "@vellumai/environments/@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
+
     "@vellumai/gateway-client/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
 
     "ajv-formats/ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
@@ -1375,6 +1382,8 @@
     "@vellumai/ces-client/@vellumai/service-contracts/@types/bun": ["@types/bun@1.3.10", "", { "dependencies": { "bun-types": "1.3.10" } }, "sha512-0+rlrUrOrTSskibryHbvQkDOWRJwJZqZlxrUs1u4oOoTln8+WIXBPmAuCF35SWB2z4Zl3E84Nl/D0P7803nigQ=="],
 
     "@vellumai/ces-client/@vellumai/service-contracts/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@vellumai/environments/@types/bun/bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
 
     "ajv-formats/ajv/json-schema-traverse": ["json-schema-traverse@1.0.0", "", {}, "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug=="],
 

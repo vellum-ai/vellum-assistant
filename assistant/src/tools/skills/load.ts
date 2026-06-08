@@ -128,7 +128,7 @@ export const skillLoadTool = {
   name: "skill_load",
 
   description:
-    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.",
+    'Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills. For app, website, dashboard, game, calculator, tracker, visualization, or interactive tool requests, load `app-builder` with `skill: "app-builder"`.',
 
   category: "skills",
 

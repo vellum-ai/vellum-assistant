@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../web-search-error.js";
+
 // Mutable mock state - set per test
 let mockWebSearchProvider: string | undefined = "perplexity";
 let mockBraveSecureKey: string | undefined;
@@ -32,7 +34,9 @@ mock.module("../../../security/secure-keys.js", () => ({
   },
 }));
 
+const realLogger = await import("../../../util/logger.js");
 mock.module("../../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -169,7 +173,9 @@ describe("web_search activity metadata", () => {
     expect(meta.provider).toBe("perplexity");
     expect(meta.resultCount).toBe(0);
     expect(meta.results).toEqual([]);
-    expect(meta.errorMessage).toContain("rate limit exceeded");
+    // Post-retry rate limits now surface the centralized friendly recoverable
+    // copy (ATL-727) rather than provider-specific rate-limit wording.
+    expect(meta.errorMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
   });
 
   // ---- Tavily -------------------------------------------------------------

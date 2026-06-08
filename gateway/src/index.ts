@@ -17,9 +17,13 @@ import {
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
 import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
+import { AuthFallbackReporter } from "./auth-fallback-reporter.js";
+import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
+import { readPersistedFeatureFlags } from "./feature-flag-store.js";
+import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
@@ -85,6 +89,10 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import {
+  handleListDevices,
+  handleRevokeDevice,
+} from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
@@ -332,6 +340,45 @@ async function main() {
 
     velayStartRequested = true;
     log.info({ reason }, "Starting Velay tunnel after Twilio setup detected");
+    velayTunnelClient.start();
+    return true;
+  }
+
+  /**
+   * Whether web live voice is enabled for this assistant. The browser only
+   * opens the live-voice channel when the `voice-mode` assistant flag is on, so
+   * we mirror that signal here (persisted local override OR platform-synced
+   * remote value). Used to bring up the Velay tunnel, which is the browser's
+   * ingress for live voice.
+   */
+  function isLiveVoiceEnabled(): boolean {
+    return (
+      readPersistedFeatureFlags()["voice-mode"] === true ||
+      readRemoteFeatureFlags()["voice-mode"] === true
+    );
+  }
+
+  /**
+   * Start the Velay tunnel when web live voice is enabled.
+   *
+   * Velay is the browser's ingress for the live-voice WebSocket, but the tunnel
+   * was historically only started for Twilio (see
+   * {@link maybeStartVelayTunnelForTwilio}). Without this, a `voice-mode`
+   * assistant with no Twilio setup never registers a Velay tunnel, so the
+   * browser's `/v1/live-voice` upgrade fails with "assistant tunnel is not
+   * connected". Shares the `velayStartRequested` latch with the Twilio path —
+   * one tunnel serves both — and `velayTunnelClient.start()` is idempotent.
+   */
+  function maybeStartVelayTunnelForLiveVoice(reason: string): boolean {
+    if (velayStartRequested || !velayTunnelClient) {
+      return velayStartRequested;
+    }
+    if (!isLiveVoiceEnabled()) {
+      return false;
+    }
+
+    velayStartRequested = true;
+    log.info({ reason }, "Starting Velay tunnel after live voice enabled");
     velayTunnelClient.start();
     return true;
   }
@@ -781,6 +828,21 @@ async function main() {
       auth: "none",
       handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
     },
+    // ── Device management (localhost-only, auth: none; self-guards loopback) ──
+    {
+      path: "/v1/devices",
+      method: "GET",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleListDevices(req, getClientIp()),
+    },
+    {
+      path: "/v1/devices/revoke",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleRevokeDevice(req, getClientIp()),
+    },
 
     // ── Channel verification sessions ──
     {
@@ -1103,6 +1165,29 @@ async function main() {
       handler: (req) => handleCreateBackup(req),
     },
 
+    // ── Backups — assistant-scoped variants ──
+    // Mirror the flat /v1/backups routes for clients that use the daemon
+    // SDK's assistant-scoped URLs (/v1/assistants/<id>/backups/...).
+    // Without these, the request falls through to the runtime-proxy
+    // catch-all and the daemon rejects create ("moved to gateway").
+    // Backups are gateway-global, so the assistant id is matched and
+    // discarded. Same precedent as the trust-rules assistant-scoped
+    // variants below.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/backups\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleListBackups(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/backups\/create\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleCreateBackup(req),
+    },
+
     // ── Channel readiness ──
     {
       path: "/v1/channels/readiness",
@@ -1327,7 +1412,8 @@ async function main() {
     {
       path: "/v1/trust-rules",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1335,32 +1421,37 @@ async function main() {
       // the /:id catch-all regex so the literal path is matched first.
       path: "/v1/trust-rules/suggest",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: "/v1/trust-rules",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex
       path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
@@ -1378,7 +1469,8 @@ async function main() {
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1386,32 +1478,37 @@ async function main() {
       // so the literal /suggest segment is matched first.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/suggest\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/reset\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
   ];
@@ -2067,6 +2164,14 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
+  // Lazily bound below, once `remoteFeatureFlagSync` is constructed, so the
+  // credential-change callback can trigger an immediate per-assistant flag
+  // re-sync. On a warm-pool claim the `vellum` credentials change to the
+  // newly-assigned identity; without forcing a re-sync, flag values would not
+  // refresh until the next scheduled poll (up to 5 min), so the onboarding
+  // first message evaluates flags against stale values (see JARVIS-1018).
+  let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
+
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
 
@@ -2150,6 +2255,21 @@ async function main() {
           "Failed to register email callback route after credential change",
         );
       });
+
+      // Force an immediate per-assistant feature-flag re-sync. A `vellum`
+      // credential change means a warm-pool claim / key rotation / late
+      // provisioning — the assistant identity the platform evaluates flags
+      // for just changed. Without this, flags stay at their previous (often
+      // registry-default) values until the next ~5-min poll, which the
+      // onboarding auto-greet beats, so first-message flags read stale
+      // (JARVIS-1018). The ref is null only during the initial credential
+      // poll at startup, which `start()` already covers.
+      remoteFeatureFlagSyncRef?.syncNow().catch((err) => {
+        log.error(
+          { err },
+          "Failed to sync remote feature flags after vellum credential change",
+        );
+      });
     }
   });
 
@@ -2160,6 +2280,9 @@ async function main() {
     });
   }
   maybeStartVelayTunnelForTwilio("startup", twilioStartupCredentials);
+  // Velay is also the browser's ingress for web live voice, so bring the tunnel
+  // up at startup when `voice-mode` is already enabled (not just for Twilio).
+  maybeStartVelayTunnelForLiveVoice("startup");
 
   // The credential watcher callback handles credential-backed startup side
   // effects during the initial poll. Stale Velay-owned ingress is already
@@ -2242,7 +2365,13 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
-  const emitFlagChanged = () => ipcServer.emit("feature_flags_changed");
+  const emitFlagChanged = () => {
+    ipcServer.emit("feature_flags_changed");
+    // A `voice-mode` flip (e.g. after a warm-pool claim syncs the assistant's
+    // flags) should bring up the Velay tunnel so web live voice can connect
+    // without a gateway restart.
+    maybeStartVelayTunnelForLiveVoice("voice-mode flag changed");
+  };
 
   const featureFlagWatcher = new FeatureFlagWatcher({
     onChanged: emitFlagChanged,
@@ -2253,9 +2382,21 @@ async function main() {
     credentials: credentialCache,
     onChanged: emitFlagChanged,
   });
+  // Bind the ref so the credential-change callback above can force an
+  // immediate re-sync when the assistant's `vellum` identity changes
+  // (warm-pool claim / key rotation) instead of waiting for the next poll.
+  remoteFeatureFlagSyncRef = remoteFeatureFlagSync;
   // Intentionally fire-and-forget: remote flag fetch is best-effort;
   // the gateway continues with registry defaults if it fails.
   void remoteFeatureFlagSync.start();
+
+  // Periodically ship legacy-loopback auth-fallback counts to the daemon
+  // telemetry route. Best-effort background work; never blocks auth.
+  const authFallbackReporter = new AuthFallbackReporter({
+    tracker: loopbackFallbackCountTracker,
+    baseUrl: config.assistantRuntimeBaseUrl,
+  });
+  authFallbackReporter.start();
 
   // ── Sleep/wake detection ──
   // Detect system sleep/wake transitions and force-reconnect channels
@@ -2300,6 +2441,8 @@ async function main() {
     avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
+    // Stop the timer and flush any buffered auth-fallback counts before exit.
+    shutdownTasks.push(authFallbackReporter.stop());
     const velayStop = velayTunnelClient?.stop();
     if (velayStop) shutdownTasks.push(velayStop);
     ipcServer.stop();

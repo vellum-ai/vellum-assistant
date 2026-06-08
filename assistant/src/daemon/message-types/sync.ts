@@ -1,11 +1,20 @@
 import { z } from "zod";
 
+import {
+  type SyncChangedEvent,
+  SyncChangedEventSchema,
+} from "../../api/events/sync-changed.js";
+
+export { type SyncChangedEvent, SyncChangedEventSchema };
+
 export const SYNC_TAGS = {
   assistantAvatar: "assistant:self:avatar",
   assistantIdentity: "assistant:self:identity",
+  assistantIdentityIntro: "assistant:self:identity-intro",
   assistantConfig: "assistant:self:config",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
+  appsList: "apps:list",
   conversationsList: "conversations:list",
   featureFlagsClient: "feature-flags:client",
   featureFlagsAssistant: "feature-flags:assistant",
@@ -23,28 +32,7 @@ export type SyncInvalidationTag =
   | ConversationSyncInvalidationTag
   | (string & {});
 
-export interface SyncChangedMessage {
-  type: "sync_changed";
-  tags: SyncInvalidationTag[];
-  /**
-   * Optional identifier of the client that originated the change. When set,
-   * the server fan-out and clients themselves can suppress self-echoes so
-   * the originating tab/process doesn't reinvalidate its own cache off its
-   * own mutation. Daemon-internal emits (agent loop, FS watcher, cron) leave
-   * this unset so the event fans out to every subscriber as before.
-   */
-  originClientId?: string;
-}
-
 export const SyncInvalidationTagSchema = z.string().min(1);
-
-export const SyncChangedMessageSchema = z
-  .object({
-    type: z.literal("sync_changed"),
-    tags: z.array(SyncInvalidationTagSchema).min(1),
-    originClientId: z.string().min(1).optional(),
-  })
-  .strict();
 
 export function conversationMessagesSyncTag(
   conversationId: string,
@@ -61,15 +49,14 @@ export function conversationMetadataSyncTag(
 export function buildSyncChangedMessage(
   tags: SyncInvalidationTag[],
   originClientId?: string,
-): SyncChangedMessage {
+): SyncChangedEvent {
   const dedupedTags = Array.from(new Set(tags));
   const trimmedOrigin = originClientId?.trim();
-  const parsed = SyncChangedMessageSchema.parse({
+  return SyncChangedEventSchema.parse({
     type: "sync_changed",
     tags: dedupedTags,
     ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
   });
-  return parsed as SyncChangedMessage;
 }
 
-export type _SyncInvalidationServerMessages = SyncChangedMessage;
+export type _SyncInvalidationServerMessages = SyncChangedEvent;

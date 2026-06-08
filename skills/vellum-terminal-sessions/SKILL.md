@@ -7,6 +7,7 @@ metadata:
   author: vellum-ai
   version: "0.2"
   vellum:
+    category: "system"
     display-name: "Terminal Sessions"
     activation-hints:
       - "User asks about their running terminal sessions or processes"

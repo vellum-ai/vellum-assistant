@@ -5,16 +5,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Notice } from "@vellum/design-library/components/notice";
-import { StatSquare } from "@vellum/design-library/components/stat-square";
-import { Typography } from "@vellum/design-library/components/typography";
 import {
-  organizationsBillingSummaryCreateMutation,
-  organizationsBillingSummaryRetrieveOptions,
-  organizationsBillingSummaryRetrieveQueryKey,
+    organizationsBillingSummaryCreateMutation,
+    organizationsBillingSummaryRetrieveOptions,
+    organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { StatSquare } from "@vellumai/design-library/components/stat-square";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 /** Maximum number of bootstrap retry attempts after transient failures. */
 export const BOOTSTRAP_MAX_RETRIES = 3;

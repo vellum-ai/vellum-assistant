@@ -9,7 +9,7 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   type AttentionState,

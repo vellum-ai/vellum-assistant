@@ -1,32 +1,33 @@
 import {
-  Archive,
-  ArchiveRestore,
-  Circle,
-  CircleCheck,
-  Copy,
-  ExternalLink,
-  FolderInput,
-  GitBranch,
-  MessageCircle,
-  Microscope,
-  MoreHorizontal,
-  Pencil,
-  Pin,
-  PinOff,
-  RefreshCw,
-  Sparkles,
-  type LucideIcon,
+    Archive,
+    ArchiveRestore,
+    Circle,
+    CircleCheck,
+    Copy,
+    ExternalLink,
+    FolderInput,
+    GitBranch,
+    MessageCircle,
+    Microscope,
+    MoreHorizontal,
+    Pencil,
+    Pin,
+    PinOff,
+    RefreshCw,
+    Sparkles,
+    type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import {
-  BottomSheet,
-  ContextMenu,
-  Menu,
-  PanelItem,
-} from "@vellum/design-library";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+    BottomSheet,
+    ContextMenu,
+    Menu,
+    PanelItem,
+} from "@vellumai/design-library";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
@@ -264,14 +265,15 @@ export function renderConversationMenuItems({
       </Primitive.Item>
     ) : null;
 
-  const openInNewWindowItem = onOpenInNewWindow ? (
-    <Primitive.Item
-      leftIcon={<ExternalLink size={14} />}
-      onSelect={onOpenInNewWindow}
-    >
-      {variant === "header" ? "Open in new window" : "Open in New Window"}
-    </Primitive.Item>
-  ) : null;
+  const openInNewWindowItem =
+    onOpenInNewWindow ? (
+      <Primitive.Item
+        leftIcon={<ExternalLink size={14} />}
+        onSelect={onOpenInNewWindow}
+      >
+        {variant === "header" ? "Open in new window" : "Open in New Window"}
+      </Primitive.Item>
+    ) : null;
 
   const inspectItem = onInspect ? (
     <Primitive.Item leftIcon={<Microscope size={14} />} onSelect={onInspect}>
@@ -444,7 +446,11 @@ function renderConversationMenuItemsAsPanelItems({
   onRefresh,
   variant = "sidebar",
   onClose,
-}: ConversationMenuItemsProps & { onClose: () => void }): ReactNode {
+  isNativePlatform = false,
+}: ConversationMenuItemsProps & {
+  onClose: () => void;
+  isNativePlatform?: boolean;
+}): ReactNode {
   const showMoveToGroup =
     onMoveToGroup && moveToGroups && moveToGroups.length > 0;
 
@@ -518,16 +524,17 @@ function renderConversationMenuItemsAsPanelItems({
         })
       : null;
 
-  const openInNewWindowItem = onOpenInNewWindow
-    ? buildPanelItem({
-        key: "open-in-new-window",
-        icon: ExternalLink,
-        label:
-          variant === "header" ? "Open in new window" : "Open in New Window",
-        run: onOpenInNewWindow,
-        onClose,
-      })
-    : null;
+  const openInNewWindowItem =
+    onOpenInNewWindow && !isNativePlatform
+      ? buildPanelItem({
+          key: "open-in-new-window",
+          icon: ExternalLink,
+          label:
+            variant === "header" ? "Open in new window" : "Open in New Window",
+          run: onOpenInNewWindow,
+          onClose,
+        })
+      : null;
 
   const inspectItem = onInspect
     ? buildPanelItem({
@@ -666,6 +673,7 @@ export function ConversationActionsMenu({
   ...itemProps
 }: ConversationActionsMenuProps) {
   const isMobile = useIsMobile();
+  const isNativePlatform = useIsNativePlatform();
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
@@ -697,6 +705,7 @@ export function ConversationActionsMenu({
             {renderConversationMenuItemsAsPanelItems({
               ...itemProps,
               onClose: () => setOpen(false),
+              isNativePlatform,
             })}
           </BottomSheet.Body>
         </BottomSheet.Content>

@@ -1,22 +1,29 @@
-import { Card } from "@vellum/design-library";
-import type { PluginCatalogMatch } from "@/domains/intelligence/plugins/types";
+import { ChevronRight } from "lucide-react";
+import { Link } from "react-router";
+
+import type { PluginsSearchGetResponse } from "@/generated/daemon/types.gen";
+import { routes } from "@/utils/routes";
+import { Card } from "@vellumai/design-library";
 
 interface CatalogRowProps {
-  match: PluginCatalogMatch;
+  match: PluginsSearchGetResponse["matches"][number];
 }
 
 /**
- * Row for a single catalog entry. Mirrors {@link PluginRow}'s visual
- * shape but surfaces the install-via-CLI hint instead of an installed
- * plugin's metadata. Non-interactive — install is CLI-only while the
- * on-disk plugin layout firms up.
+ * Row for a single catalog entry. Links to the plugin's detail page,
+ * where the README, tracked metadata, and an Install action live. The
+ * hover affordance (surface tint + chevron) signals the row is
+ * navigable.
  */
 export function CatalogRow({ match }: CatalogRowProps) {
-  const installHint = `assistant plugins install ${match.name}`;
+  const isExternal = match.source.kind === "github";
 
   return (
     <Card.Root asChild>
-      <div className="flex items-center gap-4 px-5 py-4 text-left">
+      <Link
+        to={routes.plugin(match.name)}
+        className="group flex cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+      >
         <div className="flex h-10 w-10 shrink-0 items-center justify-center text-2xl">
           📦
         </div>
@@ -28,7 +35,26 @@ export function CatalogRow({ match }: CatalogRowProps) {
             >
               {match.name}
             </span>
+            {isExternal && (
+              <span
+                className="shrink-0 rounded px-1.5 py-0.5 text-body-small-default"
+                style={{
+                  backgroundColor: "var(--surface-secondary)",
+                  color: "var(--content-tertiary)",
+                }}
+              >
+                external
+              </span>
+            )}
           </div>
+          {match.description && (
+            <p
+              className="mt-1 truncate text-body-small-default"
+              style={{ color: "var(--content-secondary)" }}
+            >
+              {match.description}
+            </p>
+          )}
           <p
             className="mt-1 truncate text-body-small-default"
             style={{ color: "var(--content-tertiary)" }}
@@ -36,23 +62,13 @@ export function CatalogRow({ match }: CatalogRowProps) {
           >
             {match.path}
           </p>
-          <p
-            className="mt-1 truncate text-body-medium-lighter"
-            style={{ color: "var(--content-secondary)" }}
-          >
-            Install via CLI:{" "}
-            <code
-              className="rounded px-1 py-0.5 text-body-small-default"
-              style={{
-                backgroundColor: "var(--surface-secondary)",
-                color: "var(--content-default)",
-              }}
-            >
-              {installHint}
-            </code>
-          </p>
         </div>
-      </div>
+        <ChevronRight
+          className="h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: "var(--content-tertiary)" }}
+          aria-hidden
+        />
+      </Link>
     </Card.Root>
   );
 }

@@ -18,6 +18,11 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const APP_BUILDER_ARTIFACT_RE =
+  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|visualize|visualise|artifact|artifacts|chart|charts|graph|graphs|tool|tools|utility|utilities|counter|counters)\b/i;
+const APP_BUILDER_BUILD_RE =
+  /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
+
 /**
  * Forward execution to the connected macOS client via the request-bound
  * `proxyToolResolver`. Returns a structured error when no resolver is
@@ -29,6 +34,14 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
+      return {
+        content:
+          'Error: ui_show dynamic_page is for transient UI surfaces only. This request is building an app-like experience, so load the app-builder skill first with `skill_load` using `skill: "app-builder"`, then create a persistent Library app with the app-builder workflow.',
+        isError: true,
+      };
+    }
+
     if (!context.proxyToolResolver) {
       return {
         content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client).`,
@@ -39,6 +52,69 @@ function proxyExecute(toolName: string) {
   };
 }
 
+function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "dynamic_page") {
+    return false;
+  }
+
+  const text = collectRoutingText(input).join(" ");
+  if (
+    APP_BUILDER_ARTIFACT_RE.test(text) &&
+    (APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text))
+  ) {
+    return true;
+  }
+
+  // Second signal: even when the model gives the surface a clean,
+  // non-app-sounding title (dodging the text regex above), substantial
+  // interactive HTML is an app being smuggled in as a transient surface.
+  // A genuinely transient page is small and static; an app has real
+  // scripted markup. Keep the bar high so simple snippets still pass.
+  return isSubstantialInteractiveHtml(input);
+}
+
+const INTERACTIVE_HTML_RE =
+  /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
+
+function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
+  const data = asRecord(input.data);
+  const html = data?.html;
+  if (typeof html !== "string") {
+    return false;
+  }
+  return html.length > 2000 && INTERACTIVE_HTML_RE.test(html);
+}
+
+function collectRoutingText(input: Record<string, unknown>): string[] {
+  const values: string[] = [];
+  addString(values, input.title);
+  addString(values, input.activity);
+
+  const data = asRecord(input.data);
+  if (data) {
+    const preview = asRecord(data.preview);
+    if (preview) {
+      addString(values, preview.title);
+      addString(values, preview.subtitle);
+      addString(values, preview.description);
+    }
+  }
+
+  return values;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function addString(values: string[], value: unknown): void {
+  if (typeof value === "string") {
+    values.push(value);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ui_show
 // ---------------------------------------------------------------------------
@@ -46,17 +122,21 @@ function proxyExecute(toolName: string) {
 export const uiShowTool = {
   name: "ui_show",
   description:
-    "Surface structured data or UI in the conversation. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
+    'Surface structured data or UI in the conversation. For long-form writing use the document skill. For interactive apps, dashboards, games, calculators, or durable tools, call `skill_load` with `skill: "app-builder"` and use the app-builder workflow; do not use `dynamic_page` as a substitute for a persistent app. App-like `dynamic_page` calls are rejected.\n\n' +
     "Surface types (data shapes):\n" +
     '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
+    "- copy_block: { text, label?, language? }. Shows copyable text with a visible copy button; use for prompts, commands, paths, or snippets the user should copy.\n" +
+    '- choice: { description?, options: [{ id, title, description?, recommended?, data? }], selectionMode?: "single"|"multiple", commitOnSelect?, submitLabel? }. Single-select choices commit on option click by default. Use for outcome offers and follow-up choices; mark the strongest option with recommended: true.\n' +
+    "- oauth_connect: { providerKey, displayName?, description?, logoUrl? }. Shows a managed OAuth connection CTA in chat; use when the current task needs a managed integration account (Google, Linear, GitHub, etc.) instead of asking the user to visit settings or attempting OAuth through shell/tools. The client supplies the CTA label. Do not include OAuth scopes in the surface; managed providers use the platform's configured scopes.\n" +
     '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
     '- form: { description?, fields: [{ id, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label, placeholder?, required?, defaultValue?, options?: [{ label, value }] }], submitLabel? }. Multi-page: { pages: [{ id, title, description?, fields }], pageLabels?: { next?, back?, submit? }, submitLabel? }\n' +
     '- list: { items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }\n' +
     "- confirmation: { message, detail?, confirmLabel?, confirmedLabel?, cancelLabel?, destructive? }\n" +
     "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
-    "- task_preferences: {} (no data needed — categories are rendered client-side)\n\n" +
-    "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
+    "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
+    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
+    "Emit a task_progress card BEFORE your first tool call on any multi-step, long-running, or post-form turn (web searches, file operations, research), and keep its steps updated as work progresses. Skills that estimate >30s of work should declare progress upfront with concrete step labels (and counts when known).",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -68,6 +148,9 @@ export const uiShowTool = {
         type: "string",
         enum: [
           "card",
+          "choice",
+          "copy_block",
+          "oauth_connect",
           "form",
           "list",
           "table",
@@ -75,6 +158,7 @@ export const uiShowTool = {
           "dynamic_page",
           "file_upload",
           "task_preferences",
+          "work_result",
         ],
         description: "The type of surface to display",
       },

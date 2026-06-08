@@ -9,22 +9,17 @@
  * closed-registration latch that protects `bootstrapPlugins()` from
  * late-arriving registrations.
  *
- * Registration is order-preserving: {@link getRegisteredPlugins},
- * {@link getMiddlewaresFor}, and (secondarily) {@link getInjectors} all reflect
- * the order in which {@link registerPlugin} was called, which in turn
- * determines onion order for middleware composition in the pipeline runner.
+ * Registration is order-preserving: {@link getRegisteredPlugins} and
+ * {@link getHooksFor} reflect the order in which {@link registerPlugin} was
+ * called, which in turn determines the order plugin hooks run.
  *
  * This module does not call `Plugin.init()` — that is the job of the
- * bootstrap (see PR 14). It also does not wire the registry into the daemon;
- * later PRs introduce consumers.
+ * bootstrap. It also does not wire the registry into the daemon.
  *
- * Design doc: `.private/plans/agent-plugin-system.md` (PR 13).
+ * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
 import {
-  type Injector,
-  type PipelineMiddlewareMap,
-  type PipelineName,
   type Plugin,
   PluginExecutionError,
   type PluginHookFn,
@@ -34,7 +29,7 @@ import {
 
 /**
  * Registered plugins keyed by `manifest.name`. A `Map` preserves insertion
- * order, which the registry relies on for middleware composition and
+ * order, which the registry relies on for hook ordering and
  * `getRegisteredPlugins()` output.
  */
 const registeredPlugins = new Map<string, Plugin>();
@@ -47,8 +42,7 @@ const registeredPlugins = new Map<string, Plugin>();
  * top-level `await` later resolves and still tries to call
  * {@link registerPlugin}. Without the latch such a late arrival would land in
  * the registry after `bootstrapPlugins()` has already walked it, leaving the
- * plugin visible to `getMiddlewaresFor()` / `getInjectors()` with its
- * `init()` hook never invoked.
+ * plugin visible in the registry with its `init()` hook never invoked.
  */
 let registrationClosed = false;
 
@@ -67,7 +61,7 @@ let registrationClosed = false;
  *
  * On success the plugin is appended to the registry in the order this
  * function is called. This function does NOT invoke `plugin.init()` — that
- * runs in the bootstrap sequence (PR 14).
+ * runs in the bootstrap sequence.
  */
 export function registerPlugin(plugin: Plugin): void {
   // Basic shape / required-field validation. The type system already enforces
@@ -145,27 +139,6 @@ export function getRegisteredPlugins(): Plugin[] {
 }
 
 /**
- * Collect the middleware each registered plugin contributes for the given
- * pipeline, in registration order. Consumers feed the returned array into the
- * pipeline runner's `composeMiddleware` helper (PR 12), which applies the
- * outermost-first convention.
- *
- * Plugins that don't declare a middleware for `pipeline` are skipped.
- */
-export function getMiddlewaresFor<P extends PipelineName>(
-  pipeline: P,
-): PipelineMiddlewareMap[P][] {
-  const out: PipelineMiddlewareMap[P][] = [];
-  for (const plugin of registeredPlugins.values()) {
-    const middleware = plugin.middleware?.[pipeline];
-    if (middleware) {
-      out.push(middleware);
-    }
-  }
-  return out;
-}
-
-/**
  * Collect every registered plugin's hook for the given name, in
  * registration order. Plugins that don't declare a hook for `name` are
  * skipped. Used by the daemon to invoke chain-style hooks like
@@ -191,22 +164,6 @@ export function getHooksFor<TCtx = unknown>(
 }
 
 /**
- * Flatten every registered plugin's `injectors` array and sort the result by
- * `order` ascending. Two injectors with the same `order` retain their relative
- * registration order (stable sort via `Array.prototype.sort`).
- */
-export function getInjectors(): Injector[] {
-  const out: Injector[] = [];
-  for (const plugin of registeredPlugins.values()) {
-    if (plugin.injectors && plugin.injectors.length > 0) {
-      out.push(...plugin.injectors);
-    }
-  }
-  out.sort((a, b) => a.order - b.order);
-  return out;
-}
-
-/**
  * Close the per-boot registration window. After this call, any attempt to
  * register a genuinely new plugin throws a {@link PluginExecutionError}.
  * Re-registering an already-registered plugin still hits the duplicate-name
@@ -225,10 +182,8 @@ export function closeRegistration(): void {
 
 /**
  * Remove a plugin from the registry. Invoked from the bootstrap's failure path
- * after {@link Plugin.onShutdown} and contribution teardown have run, so
- * {@link getMiddlewaresFor} and {@link getInjectors} no longer expose a
- * plugin whose `init()` aborted mid-bootstrap. Without this, every subsequent
- * pipeline invocation would re-enter the uninitialized plugin's middleware.
+ * after {@link Plugin.onShutdown} and contribution teardown have run, so the
+ * registry no longer exposes a plugin whose `init()` aborted mid-bootstrap.
  * Safe to call on an already-absent name (no-op).
  */
 export function unregisterPlugin(name: string): void {

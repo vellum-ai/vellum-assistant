@@ -291,6 +291,7 @@ describe("toSlimSkill", () => {
     expect(slim!.kind).toBe("catalog");
     expect(slim!.status).toBe("available");
     expect(slim!.origin).toBe("clawhub");
+    expect(slim!.category).toBe("integrations");
 
     // Clawhub-specific fields
     const clawhub = slim as unknown as Record<string, unknown>;

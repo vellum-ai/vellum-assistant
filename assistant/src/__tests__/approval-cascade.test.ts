@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Minimatch } from "minimatch";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConfirmationStateChanged } from "../daemon/message-types/messages.js";
@@ -175,6 +176,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -196,6 +198,7 @@ mock.module("../memory/llm-usage-store.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -206,10 +209,10 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      _messages: Message[],
-      _onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(_options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
       return [];
     }
   },
@@ -270,9 +273,9 @@ function makeConversation(
     conversationId,
     makeProvider(),
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     process.env.VELLUM_WORKSPACE_DIR!,
+    { maxTokens: 4096 },
   );
 }
 

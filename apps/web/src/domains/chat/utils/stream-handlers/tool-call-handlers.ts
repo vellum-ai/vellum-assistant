@@ -3,9 +3,11 @@ import {
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ToolResultEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { ToolUseStartEvent } from "@vellumai/assistant-api";
+import type {
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "@vellumai/assistant-api";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -17,17 +19,16 @@ export function handleToolUseStart(
     event.toolUseId ?? `tool-${++ctx.toolCallIdCounterRef.current}`;
   const newToolCall: ChatMessageToolCall = {
     id: toolCallId,
-    toolName: event.toolName,
+    name: event.toolName,
     input: event.input,
-    status: "running",
     startedAt: Date.now(),
   };
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
     const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the streaming tail. See parallel
+    // Stamp the current-assistant ref to the assistant tail. See parallel
     // logic in handleAssistantTextDelta.
-    if (tail?.role === "assistant" && tail.isStreaming) {
+    if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;
@@ -61,9 +62,9 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
-      allowlistOptions: event.allowlistOptions,
-      scopeOptions: event.scopeOptions,
-      directoryScopeOptions: event.directoryScopeOptions,
+      riskAllowlistOptions: event.riskAllowlistOptions,
+      riskScopeOptions: event.riskScopeOptions,
+      riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
     }),
   );

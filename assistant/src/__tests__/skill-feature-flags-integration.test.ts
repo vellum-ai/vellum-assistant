@@ -5,6 +5,8 @@
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -26,13 +28,13 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** A SKILL.md with `feature-flag: email-channel` declared in its vellum metadata. */
+/** A SKILL.md with `feature-flag: a2a-channel` declared in its vellum metadata. */
 const SKILL_MD_WITH_FLAG = `---
 name: "Email Setup"
 description: "Set up email integration"
 metadata:
   vellum:
-    feature-flag: email-channel
+    feature-flag: a2a-channel
 ---
 
 Instructions for the email setup skill.
@@ -126,16 +128,16 @@ describe("frontmatter feature-flag integration", () => {
     expect(metadataObj).toBeTruthy();
 
     const vellum = metadataObj.vellum as Record<string, unknown>;
-    expect(vellum["feature-flag"]).toBe("email-channel");
+    expect(vellum["feature-flag"]).toBe("a2a-channel");
   });
 
   test("skillFlagKey returns correct key for parsed skill", () => {
     const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG);
     expect(skill).not.toBeNull();
-    expect(skill!.featureFlag).toBe("email-channel");
+    expect(skill!.featureFlag).toBe("a2a-channel");
 
     const key = skillFlagKey(skill!);
-    expect(key).toBe("email-channel");
+    expect(key).toBe("a2a-channel");
   });
 
   test("skillFlagKey returns undefined for skill without feature-flag", () => {
@@ -149,7 +151,7 @@ describe("frontmatter feature-flag integration", () => {
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
     setOverridesForTesting({
-      "email-channel": true,
+      "a2a-channel": true,
     });
     const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
     const config = makeConfig();
@@ -161,7 +163,7 @@ describe("frontmatter feature-flag integration", () => {
 
   test("resolveSkillStates excludes skill with featureFlag when flag defaults to OFF", () => {
     const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
-    // "email-channel" is in the registry with defaultEnabled: false
+    // "a2a-channel" is in the registry with defaultEnabled: false
     const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
@@ -189,17 +191,17 @@ describe("frontmatter feature-flag integration", () => {
     const metadataObj = parsed!.fields.metadata as Record<string, unknown>;
     const vellum = metadataObj.vellum as Record<string, unknown>;
     const flagId = vellum["feature-flag"];
-    expect(flagId).toBe("email-channel");
+    expect(flagId).toBe("a2a-channel");
 
     // Step 2: Build SkillSummary (as the catalog loader would)
     const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
-    expect(skill.featureFlag).toBe("email-channel");
+    expect(skill.featureFlag).toBe("a2a-channel");
 
     // Step 3: Derive the flag key
     const key = skillFlagKey(skill);
-    expect(key).toBe("email-channel");
+    expect(key).toBe("a2a-channel");
 
-    // Step 4: Check flag state — "email-channel" has defaultEnabled: false in registry
+    // Step 4: Check flag state — "a2a-channel" has defaultEnabled: false in registry
     const configDefault = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configDefault)).toBe(false);
 
@@ -223,5 +225,36 @@ describe("frontmatter feature-flag integration", () => {
 
     const resolvedOff = resolveSkillStates([skill], configOff);
     expect(resolvedOff.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundled ACP skill: discoverability when ACP is disabled
+// ---------------------------------------------------------------------------
+
+describe("bundled acp skill discoverability", () => {
+  test("acp skill resolves with the flag off and config.acp disabled (no frontmatter flag gate)", () => {
+    // The ACP skill carries its own first-time-setup instructions, so it must
+    // stay visible even when the acp flag and config.acp.enabled are both off.
+    // Runtime enforcement happens in the ACP tools via isAcpEnabled instead.
+    const skillMdPath = fileURLToPath(
+      new URL("../config/bundled-skills/acp/SKILL.md", import.meta.url),
+    );
+    const skillMd = readFileSync(skillMdPath, "utf8");
+
+    const skill = buildSkillSummary("acp", skillMd);
+    expect(skill).not.toBeNull();
+    expect(skill!.featureFlag).toBeUndefined();
+    expect(skillFlagKey(skill!)).toBeUndefined();
+
+    // acp flag at its registry default (off) and config.acp disabled.
+    const config = makeConfig({
+      acp: { enabled: false, maxConcurrentSessions: 4, agents: {} },
+    } as Partial<AssistantConfig>);
+
+    const resolved = resolveSkillStates([skill!], config);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("acp");
+    expect(resolved[0].state).toBe("enabled");
   });
 });

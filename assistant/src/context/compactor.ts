@@ -21,7 +21,7 @@
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { stripInjectionsForCompaction } from "../daemon/conversation-runtime-assembly.js";
+import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
@@ -36,7 +36,12 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
+import {
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { stripInjectionsForCompaction } from "./strip-injections.js";
 import { estimatePromptTokens } from "./token-estimator.js";
 
 const log = getLogger("compactor");
@@ -181,6 +186,13 @@ export interface CompactionRunArgs {
   force?: boolean;
   signal?: AbortSignal;
   overrideProfile?: string | null;
+  /**
+   * Trust class of the actor whose turn triggered compaction. When the
+   * actor is untrusted, the image manifest is filtered to exclude
+   * guardian-only attachments so they cannot be retained back into the
+   * untrusted actor's context.
+   */
+  actorTrustClass?: TrustClass;
   /**
    * Number of leading non-persisted messages (e.g. inherited summary from a
    * parent fork). Compacted-persisted-count subtracts this so the DB
@@ -337,9 +349,21 @@ interface ManifestEntry {
  * `filename` is the attachment's `originalFilename`; collisions across
  * messages are kept as separate entries (the model can disambiguate via
  * the timestamp it sees in the manifest).
+ *
+ * For untrusted actors the rows are first filtered through
+ * {@link filterMessagesForUntrustedActor} — the same provenance filter
+ * `loadFromDb` applies when assembling history — so guardian-only images
+ * never enter the manifest and therefore can never be retained back into
+ * an untrusted actor's view.
  */
-export function collectImageManifest(conversationId: string): ManifestEntry[] {
-  const rows = getMessages(conversationId);
+export function collectImageManifest(
+  conversationId: string,
+  actorTrustClass?: TrustClass,
+): ManifestEntry[] {
+  const allRows = getMessages(conversationId);
+  const rows = isUntrustedTrustClass(actorTrustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
   const entries: ManifestEntry[] = [];
   for (const row of rows) {
     const atts = getAttachmentMetadataForMessage(row.id);
@@ -682,7 +706,12 @@ export async function runAssistantDrivenCompaction(
 
   // Build image manifest from the DB before invoking the model so the
   // instruction message carries a faithful picture of available images.
-  const manifest = collectImageManifest(args.conversationId);
+  // Filtered by actor trust so untrusted turns never see guardian-only
+  // attachments.
+  const manifest = collectImageManifest(
+    args.conversationId,
+    args.actorTrustClass,
+  );
   const manifestText = renderImageManifest(manifest);
   const instruction = buildInstructionMessage(
     args.compaction.prompt ?? null,

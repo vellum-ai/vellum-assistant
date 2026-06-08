@@ -25,3 +25,20 @@ export async function ensureMainWindowVisible(): Promise<void> {
   if (!isElectron()) return;
   await window.vellum?.mainWindow.ensureVisible();
 }
+
+/**
+ * Switch the Electron main window between the onboarding layout (440×630
+ * default, matching the macOS Swift client) and the main-app layout. Drive
+ * it from the active route — `true` while an onboarding step is showing,
+ * `false` otherwise.
+ *
+ * No-op off Electron: web is a single resizable browser viewport and
+ * Capacitor iOS is system-managed, so neither has a window to resize.
+ * Safe to call on every navigation — the main process treats re-asserting
+ * the current mode as a no-op.
+ */
+export async function setOnboardingWindow(active: boolean): Promise<void> {
+  if (!isElectron()) return;
+  await window.vellum?.mainWindow.setOnboarding(active);
+}
+

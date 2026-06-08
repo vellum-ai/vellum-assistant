@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔐"
   vellum:
+    category: "integrations"
     display-name: "Guardian Verify Setup"
     activation-hints:
       - "Any guardian verification intent -> load this skill exclusively"
@@ -40,7 +41,6 @@ Based on the chosen channel, ask for the required destination:
   - If they know their numeric chat ID, provide it directly. The bot will send the code to that chat.
   - If they only know their @handle, the flow uses a bootstrap deep-link that they must click first.
 - **Slack**: Offer to look up the user's Slack member ID automatically to reduce friction:
-
   1. **Auto-lookup (preferred)**: Ask the user for their Slack display name or @handle, then look up their member ID using the Slack API:
 
      ```bash
@@ -61,7 +61,6 @@ Based on the chosen channel, ask for the required destination:
      ```
 
      Replace `<name>` and `<handle>` with the value the user provided (try matching against all fields).
-
      - **Single match**: Present it for confirmation: "I found @username (U01ABCDEF) — is that you?" If confirmed, use the `id` value as the destination for Step 3.
      - **Multiple matches**: Present the list (up to 5) and ask the user to pick: "I found a few matches — which one is you?" Use the confirmed `id` as the destination.
      - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).

@@ -10,9 +10,9 @@
  *   3. Driving the hook by `renderToStaticMarkup`-ing a tiny test component
  *      that calls it. The component publishes the latest hook return into
  *      a module-level holder so each test can assert on it.
- *   4. Exercising the `shouldPoll` decision helper directly — that is the
- *      load-bearing piece the test plan calls out, and it stays pure so we
- *      can verify it without `vi.useFakeTimers` (which bun:test does not
+ *   4. Exercising the `refetchInterval` callback captured from `useQuery`
+ *      options — this is the load-bearing piece that verifies polling
+ *      decisions without `vi.useFakeTimers` (which bun:test does not
  *      provide).
  */
 
@@ -93,7 +93,6 @@ mock.module("@/domains/chat/utils/conversation-starters", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  shouldPoll,
   useConversationStarters,
   type UseConversationStartersResult,
 } from "@/domains/chat/hooks/use-conversation-starters";
@@ -224,60 +223,15 @@ describe("useConversationStarters — query wiring", () => {
 // ---------------------------------------------------------------------------
 
 describe("useConversationStarters — polling decision", () => {
-  test("shouldPoll returns 3000ms while status is 'generating'", () => {
-    expect(shouldPoll("generating")).toBe(3000);
-  });
-
-  test("shouldPoll returns 3000ms while status is 'refreshing'", () => {
-    expect(shouldPoll("refreshing")).toBe(3000);
-  });
-
-  test("shouldPoll returns false once status is 'ready'", () => {
-    expect(shouldPoll("ready")).toBe(false);
-  });
-
-  test("shouldPoll returns false once status is 'empty'", () => {
-    expect(shouldPoll("empty")).toBe(false);
-  });
-
-  test("shouldPoll returns false when there's no data yet", () => {
-    expect(shouldPoll(undefined)).toBe(false);
-  });
-
-  test("refetchInterval reads status from query.state.data", () => {
+  test("refetchInterval polls at 3s while generating, stops when ready", () => {
     runHook("asst-1");
-    const generatingResult: ListConversationStartersResult = {
-      starters: [],
-      total: 0,
-      status: "generating",
-    };
-    expect(
-      lastCapturedOptions!.refetchInterval({
-        state: { data: generatingResult },
-      }),
-    ).toBe(3000);
+    const ri = lastCapturedOptions!.refetchInterval;
 
-    const readyResult: ListConversationStartersResult = {
-      starters: [],
-      total: 0,
-      status: "ready",
-    };
-    expect(
-      lastCapturedOptions!.refetchInterval({
-        state: { data: readyResult },
-      }),
-    ).toBe(false);
-
-    expect(
-      lastCapturedOptions!.refetchInterval({ state: { data: undefined } }),
-    ).toBe(false);
-  });
-
-  test("polling stops once the daemon flips from generating to ready", () => {
-    // Initial: generating → poll
-    expect(shouldPoll("generating")).toBe(3000);
-    // Daemon settles → polling stops
-    expect(shouldPoll("ready")).toBe(false);
+    expect(ri({ state: { data: { starters: [], total: 0, status: "generating" } } })).toBe(3000);
+    expect(ri({ state: { data: { starters: [], total: 0, status: "refreshing" } } })).toBe(3000);
+    expect(ri({ state: { data: { starters: [], total: 0, status: "ready" } } })).toBe(false);
+    expect(ri({ state: { data: { starters: [], total: 0, status: "empty" } } })).toBe(false);
+    expect(ri({ state: { data: undefined } })).toBe(false);
   });
 });
 

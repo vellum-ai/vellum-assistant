@@ -31,7 +31,6 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { MutableRefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
@@ -101,8 +100,15 @@ import {
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
 } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import {
+  __resetServerSeqForTesting,
+  getServerSeq,
+} from "@/lib/streaming/server-seq";
 
+import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -119,14 +125,7 @@ function makeMsg(
 
 interface HostState {
   messages: DisplayMessage[];
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessagesCalls: Array<DisplayMessage[]>;
-  setMessages: (
-    update:
-      | DisplayMessage[]
-      | ((prev: DisplayMessage[]) => DisplayMessage[]),
-  ) => void;
 }
 
 function makeHost(
@@ -134,24 +133,29 @@ function makeHost(
   conversationId: string | null,
   dismissed: Set<string> = new Set(),
 ): HostState {
-  useConversationStore.setState({ activeConversationId: conversationId });
+  useConversationStore.setState({
+    activeConversationId: conversationId,
+    processingConversationIds: new Set(),
+  });
   const host: HostState = {
     messages: initial,
-    messagesRef: { current: initial },
-    dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
-    setMessages: (update) => {
+  };
+  // Seed the chat session store with the initial state
+  useChatSessionStore.setState({
+    messages: initial,
+    dismissedSurfaceIds: dismissed,
+    setMessages: ((update: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => {
+      const prev = useChatSessionStore.getState().messages;
       const next =
         typeof update === "function"
-          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(
-              host.messages,
-            )
+          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(prev)
           : update;
       host.setMessagesCalls.push(next);
       host.messages = next;
-      host.messagesRef.current = next;
-    },
-  };
+      useChatSessionStore.setState({ messages: next });
+    }) as never,
+  });
   return host;
 }
 
@@ -170,6 +174,7 @@ beforeEach(() => {
     oldestMessageId: null,
   });
   fetchSurfaceImpl = async () => null;
+  __resetServerSeqForTesting();
 });
 
 afterEach(() => {
@@ -186,9 +191,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -207,9 +209,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: null,
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -227,25 +226,25 @@ describe("useRefreshLatestMessages", () => {
     const existingUser = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const existingAssistant = makeMsg({
       id: "a1",
       role: "assistant",
-      content: "Hi.",
+      ...textBody("Hi."),
       timestamp: 1010,
     });
     const newUser = makeMsg({
       id: "u2",
       role: "user",
-      content: "Anything new?",
+      ...textBody("Anything new?"),
       timestamp: 1020,
     });
     const newAssistant = makeMsg({
       id: "a2",
       role: "assistant",
-      content: "Yes, here's the update.",
+      ...textBody("Yes, here's the update."),
       timestamp: 1030,
     });
 
@@ -255,14 +254,12 @@ describe("useRefreshLatestMessages", () => {
       hasMore: true,
       oldestTimestamp: 1000,
       oldestMessageId: "u1",
+      seq: 17,
     });
 
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -280,23 +277,24 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(1);
     expect(host.setMessagesCalls[0]).not.toEqual([]);
     expect(host.messages.map((m) => m.id)).toEqual(["u1", "a1", "u2", "a2"]);
+    // The accepted snapshot's seq is recorded as the conversation baseline.
+    expect(getServerSeq("conv-1")).toBe(17);
   });
 
   test("preserves an in-flight streaming assistant bubble that latest history does not include", async () => {
     const completedUser = makeMsg({
       id: "u1",
       role: "user",
-      content: "Tell me a story",
+      ...textBody("Tell me a story"),
       timestamp: 1000,
     });
-    // Streaming assistant — no server id yet, isStreaming flag set. The
-    // latest history page below intentionally omits this row to simulate
-    // a refresh that fires while the stream hasn't completed server-side.
+    // Streaming assistant — no server id yet. The latest history page below
+    // intentionally omits this row to simulate a refresh that fires while
+    // the stream hasn't completed server-side.
     const streamingAssistant = makeMsg({
       id: "a-streaming",
       role: "assistant",
-      content: "Once upon a time, there was a",
-      isStreaming: true,
+      ...textBody("Once upon a time, there was a"),
       timestamp: 1010,
     });
 
@@ -304,6 +302,10 @@ describe("useRefreshLatestMessages", () => {
       [completedUser, streamingAssistant],
       "conv-1",
     );
+    // The row's liveness is derived from the conversation processing state,
+    // not a stored flag — mark the conversation processing so the merge
+    // treats the trailing assistant as the live row.
+    useConversationStore.getState().markConversationProcessing("conv-1");
     fetchLatestImpl = async () => ({
       messages: [completedUser],
       hasMore: false,
@@ -314,9 +316,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -329,22 +328,22 @@ describe("useRefreshLatestMessages", () => {
     const ids = host.messages.map((m) => m.id);
     expect(ids).toContain("a-streaming");
     const survivor = host.messages.find((m) => m.id === "a-streaming");
-    expect(survivor?.isStreaming).toBe(true);
-    expect(survivor?.content).toBe("Once upon a time, there was a");
+    expect(liveAssistantRowId(host.messages, true)).toBe("a-streaming");
+    expect(messageText(survivor)).toBe("Once upon a time, there was a");
   });
 
   test("upgrades an optimistic user row with the matching server id when latest history confirms it", async () => {
     const optimisticUser = makeMsg({
       id: "u-optimistic",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
       timestamp: 1000,
       isOptimistic: true,
     });
     const confirmedUser = makeMsg({
       id: "u-server-1",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
       timestamp: 1000,
     });
 
@@ -359,9 +358,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -374,7 +370,7 @@ describe("useRefreshLatestMessages", () => {
     expect(host.messages[0]).toMatchObject({
       id: "u-server-1",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
     });
   });
 
@@ -382,13 +378,13 @@ describe("useRefreshLatestMessages", () => {
     const conv1Msg = makeMsg({
       id: "u1",
       role: "user",
-      content: "Message in conversation 1",
+      ...textBody("Message in conversation 1"),
       timestamp: 1000,
     });
     const conv2Msg = makeMsg({
       id: "u2",
       role: "user",
-      content: "Message in conversation 2",
+      ...textBody("Message in conversation 2"),
       timestamp: 2000,
     });
 
@@ -401,8 +397,8 @@ describe("useRefreshLatestMessages", () => {
     // check the hook performs.
     fetchLatestImpl = async () => {
       useConversationStore.setState({ activeConversationId: "conv-2" });
-      host.messagesRef.current = [conv2Msg];
       host.messages = [conv2Msg];
+      useChatSessionStore.setState({ messages: [conv2Msg] });
       // Return a "latest" page for the original conversation. If the
       // staleness check fails, these messages would land in conv-2's
       // transcript — that's the bug class the guard prevents.
@@ -412,22 +408,20 @@ describe("useRefreshLatestMessages", () => {
           makeMsg({
             id: "a-new",
             role: "assistant",
-            content: "This belongs to conversation 1",
+            ...textBody("This belongs to conversation 1"),
             timestamp: 1500,
           }),
         ],
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 50,
       };
     };
 
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -441,13 +435,16 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(0);
     // conv-2's transcript stays clean: no conv-1 messages bled in.
     expect(host.messages).toEqual([conv2Msg]);
+    // The dropped result must NOT record a baseline for conv-1: recording is
+    // gated behind the same stale-response check that dropped the messages.
+    expect(getServerSeq("conv-1")).toBeNull();
   });
 
   test("returns error outcome without touching state when the fetch rejects", async () => {
     const existing = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hi",
+      ...textBody("Hi"),
       timestamp: 1000,
     });
     const host = makeHost([existing], "conv-1");
@@ -459,9 +456,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -479,13 +473,13 @@ describe("useRefreshLatestMessages", () => {
     const user = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const assistant = makeMsg({
       id: "a1",
       role: "assistant",
-      content: "Hi.",
+      ...textBody("Hi."),
       timestamp: 1010,
     });
     const host = makeHost([user, assistant], "conv-1");
@@ -499,9 +493,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -514,7 +505,6 @@ describe("useRefreshLatestMessages", () => {
     // setMessages was invoked, but the updater returned the same array
     // reference so React skips the re-render. The contract callers care
     // about is that the rendered messages haven't changed.
-    expect(host.messages).toBe(host.messagesRef.current);
     expect(host.messages.map((m) => m.id)).toEqual(["u1", "a1"]);
   });
 
@@ -528,7 +518,7 @@ describe("useRefreshLatestMessages", () => {
         makeMsg({
           id: "a1",
           role: "assistant",
-          content: "Please confirm",
+          ...textBody("Please confirm"),
           timestamp: 1000,
           surfaces: [
             {
@@ -557,9 +547,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -588,19 +575,19 @@ describe("useRefreshLatestMessages", () => {
     const existing = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const fresherMsg = makeMsg({
       id: "a-fresh",
       role: "assistant",
-      content: "Fresh response from refresh B",
+      ...textBody("Fresh response from refresh B"),
       timestamp: 1020,
     });
     const stalerMsg = makeMsg({
       id: "a-stale",
       role: "assistant",
-      content: "Stale response from refresh A",
+      ...textBody("Stale response from refresh A"),
       timestamp: 1010,
     });
 
@@ -624,9 +611,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -641,19 +625,21 @@ describe("useRefreshLatestMessages", () => {
         outcomeB = o;
       });
 
-      // B resolves first with the fresh page.
+      // B resolves first with the fresh page (higher seq).
       resolveB({
         messages: [existing, fresherMsg],
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 20,
       });
-      // Then A resolves with the (now-stale) page.
+      // Then A resolves with the (now-stale) page (lower seq).
       resolveA({
         messages: [existing, stalerMsg],
         hasMore: false,
         oldestTimestamp: 1000,
         oldestMessageId: "u1",
+        seq: 10,
       });
 
       await Promise.all([promiseA, promiseB]);
@@ -664,6 +650,9 @@ describe("useRefreshLatestMessages", () => {
     expect(host.setMessagesCalls).toHaveLength(1);
     expect(outcomeB).toEqual({ kind: "new-messages", count: 1 });
     expect(outcomeA).toEqual({ kind: "no-change" });
+    // The baseline reflects B's seq, not A's: recording happens after the
+    // stale-response guard, so the slower out-of-order A can't regress it.
+    expect(getServerSeq("conv-1")).toBe(20);
   });
 });
 
@@ -684,7 +673,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "u1",
         role: "user",
-        content: "Hi",
+        ...textBody("Hi"),
         timestamp: 1000,
       }),
     ];
@@ -693,13 +682,13 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Hello",
+        ...textBody("Hello"),
         timestamp: 1010,
       }),
       makeMsg({
         id: "u2",
         role: "user",
-        content: "How are you?",
+        ...textBody("How are you?"),
         timestamp: 1020,
       }),
     ];
@@ -714,8 +703,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Streaming...",
-        isStreaming: true,
+        ...textBody("Streaming..."),
         timestamp: 1000,
       }),
     ];
@@ -723,7 +711,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Streaming finalized",
+        ...textBody("Streaming finalized"),
         timestamp: 1000,
       }),
     ];

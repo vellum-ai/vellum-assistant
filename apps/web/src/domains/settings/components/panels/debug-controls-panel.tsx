@@ -2,16 +2,18 @@ import { Loader2, RotateCw, Wrench } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { toast } from "@vellum/design-library/components/toast";
-import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
-import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
-import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
+import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
+import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
+import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/utils/error-report";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
   if (isAdmin) return true;
@@ -21,6 +23,7 @@ function isInternalUser(email: string | null, isAdmin: boolean): boolean {
 export function DebugControlsPanel() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
+  const platformGate = usePlatformGate();
   const showInternalControls = isInternalUser(user?.email ?? null, user?.isStaff ?? false);
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
@@ -30,7 +33,7 @@ export function DebugControlsPanel() {
   const handleReplayOnboarding = useCallback(() => {
     clearOnboardingFlags();
     toast.success("Onboarding flags cleared.");
-    navigate(`${routes.onboarding.privacy}?replay=1`);
+    navigate(routes.onboarding.privacy);
   }, [navigate]);
 
   const fetchAssistant = useCallback(async (force?: boolean) => {
@@ -49,10 +52,8 @@ export function DebugControlsPanel() {
         setAssistant(null);
       }
     } catch (error) {
-      reportError(error, {
-        context: "fetch_assistant_for_debug_controls",
-        userMessage: "Failed to load assistant info",
-      });
+      captureError(error, { context: "fetch_assistant_for_debug_controls" });
+      toast.error("Failed to load assistant info");
     } finally {
       setLoading(false);
     }
@@ -86,12 +87,19 @@ export function DebugControlsPanel() {
         </div>
       ) : assistant ? (
         <div className="space-y-4">
-          <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-            <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
-              Backups
-            </h3>
-            <AssistantBackups assistantId={assistant.id} />
-          </div>
+          {platformGate === "disabled" && (
+            <Notice tone="info">
+              Log in to the Vellum platform to manage backups.
+            </Notice>
+          )}
+          {platformGate !== "disabled" && (
+            <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
+                Backups
+              </h3>
+              <AssistantBackups assistantId={assistant.id} />
+            </div>
+          )}
 
           <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
             <div className="min-w-0">

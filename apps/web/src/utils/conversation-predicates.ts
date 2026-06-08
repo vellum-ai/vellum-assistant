@@ -16,6 +16,20 @@ export function isBackgroundConversation(conversation: Conversation): boolean {
   );
 }
 
+/**
+ * Whether this conversation is a scheduled job specifically (as opposed to
+ * the broader background umbrella). Used to keep the scheduled-only cache
+ * disjoint from the background-only cache: the daemon's `background` filter
+ * still returns scheduled rows for back-compat, so the background list is
+ * filtered through `!isScheduledConversation` before it is cached.
+ */
+export function isScheduledConversation(conversation: Conversation): boolean {
+  return (
+    conversation.conversationType === "scheduled" ||
+    conversation.groupId === "system:scheduled"
+  );
+}
+
 export function canMarkUnread(conversation: Conversation): boolean {
   return (
     !conversation.hasUnseenLatestAssistantMessage &&

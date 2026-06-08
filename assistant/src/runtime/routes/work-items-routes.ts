@@ -8,10 +8,8 @@
 import { z } from "zod";
 
 import type { Conversation } from "../../daemon/conversation.js";
-import {
-  findConversation,
-  getOrCreateConversation,
-} from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
+import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";

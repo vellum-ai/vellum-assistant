@@ -114,3 +114,45 @@ describe("maybeReseedBootstrap — content-automation template", () => {
     expect(content).toContain("VOICE.md");
   });
 });
+
+describe("maybeReseedBootstrap — activation rail template", () => {
+  const templatesDir = join(import.meta.dirname!, "..", "templates");
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    copyFileSync(
+      join(templatesDir, "BOOTSTRAP.md"),
+      join(TEST_DIR, "BOOTSTRAP.md"),
+    );
+  });
+
+  test("replaces generic bootstrap with the activation rail template", () => {
+    maybeReseedBootstrap("BOOTSTRAP-ACTIVATION-RAIL.md");
+    const content = readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
+
+    expect(content).toContain("BOOTSTRAP — Activation Rail");
+    expect(content).toContain("People don't read");
+    expect(content).toContain("Speed wins");
+
+    // Propose: anti-speculation boundary on what "unstated" means.
+    expect(content).toContain("status word");
+    expect(content).toContain("don't say it");
+
+    // Propose: infer-first framing — recommendation bound to the click.
+    expect(content).toContain("You didn't say this");
+    expect(content).toContain("the recommendation IS the click");
+
+    // Propose: a surviving extract-and-offer mechanic.
+    expect(content).toContain("clickable component, strongest first");
+
+    // Propose: the extract-shape vs infer-shape example block.
+    expect(content).toContain("extract-shape");
+    expect(content).toContain("infer-shape");
+
+    // Port: prompt-writing guidance (JARVIS-1124).
+    expect(content).toContain("portable context brief, not a self-summary");
+    expect(content).toContain("load-bearing work in the next month");
+    expect(content).toContain("what to help with first");
+    expect(content).toContain("another tool or collaborator");
+  });
+});

@@ -40,7 +40,10 @@ async function handleGetSurfaceContent({
   // owning Conversation has been evicted or the daemon was restarted. The
   // DB scan uses the surfaceId itself as the existence check so a stale
   // or made-up conversationId can't materialize a phantom conversation.
-  const conversation = await resolveSurfaceConversation(conversationId, surfaceId);
+  const conversation = await resolveSurfaceConversation(
+    conversationId,
+    surfaceId,
+  );
   if (!conversation) {
     throw new NotFoundError(
       "No active conversation found for this conversationId",
@@ -111,7 +114,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       surfaceId: z.string(),
       surfaceType: z.string(),
-      title: z.string(),
+      title: z.string().nullable(),
       data: z.object({}).passthrough().describe("Surface data payload"),
     }),
     handler: handleGetSurfaceContent,

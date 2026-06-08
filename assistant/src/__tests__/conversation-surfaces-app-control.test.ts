@@ -216,6 +216,34 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       proxy.dispose();
     });
+
+    test("app_control_observe rejects when only another actor has a capable client", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-other",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        tool: "observe",
+        app: "com.example.editor",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      // No envelope dispatched.
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -496,7 +524,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain(
-        "multiple clients support host_app_control",
+        "Multiple host_app_control clients",
       );
       expect(result.content).toContain("target_client_id");
       // No envelope dispatched.
@@ -566,9 +594,9 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
-      // No cross-user ambiguity → resolver leaves targetClientId undefined,
-      // letting the proxy use its existing single-client routing.
-      expect(sent.targetClientId).toBeUndefined();
+      // Single same-user client → auto-resolved by pickSameUserAutoResolve.
+      // targetClientId may be set to the resolved client id.
+      expect(sent.type).toBe("host_app_control_request");
 
       proxy.resolve(sent.requestId as string, {
         requestId: "ignored-by-proxy",

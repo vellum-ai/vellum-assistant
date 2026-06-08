@@ -175,7 +175,10 @@ function seedRequestLog(
     .run();
 }
 
-function seedConversationKey(conversationKey: string, conversationId: string): void {
+function seedConversationKey(
+  conversationKey: string,
+  conversationId: string,
+): void {
   getDb()
     .insert(conversationKeys)
     .values({
@@ -774,6 +777,33 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       type: "api_key",
       credential: "credential/openrouter/api_key",
     });
+  });
+
+  test("saves a profile using the minimax provider (regression #32404)", async () => {
+    // minimax is exposed as a first-class provider in the catalog, so saving
+    // a profile bound to it must pass ProfileEntry validation rather than 400.
+    const result = await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "minimax",
+        model: "MiniMax-M2.7",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("minimax");
+    expect(savedProfile.model).toBe("MiniMax-M2.7");
+    expect(savedProfile.provider_connection).toBe("minimax-personal");
+
+    const conn = getConnection(getDb(), "minimax-personal");
+    expect(conn).not.toBeNull();
+    expect(conn!.provider).toBe("minimax");
   });
 
   describe("managed profile guard", () => {

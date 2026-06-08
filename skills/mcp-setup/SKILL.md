@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔌"
   vellum:
+    category: "integrations"
     display-name: "MCP Setup"
 ---
 

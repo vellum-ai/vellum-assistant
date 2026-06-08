@@ -6,7 +6,7 @@ import type {
   DocumentCommentReopenedEvent,
   DocumentCommentResolvedEvent,
 } from "@vellumai/assistant-api";
-import type { DocumentComment } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
   type CommentStateMap,
   type DocumentCommentEventCallbacks,
@@ -20,7 +20,9 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeState(entries?: [string, DocumentComment[]][]): CommentStateMap {
+function makeState(
+  entries?: [string, DocumentsByIdCommentsPostResponse[]][],
+): CommentStateMap {
   return new Map(entries ?? []);
 }
 
@@ -36,7 +38,9 @@ function makeCallbacks(): DocumentCommentEventCallbacks & {
   };
 }
 
-function makeComment(overrides?: Partial<DocumentComment>): DocumentComment {
+function makeComment(
+  overrides?: Partial<DocumentsByIdCommentsPostResponse>,
+): DocumentsByIdCommentsPostResponse {
   return {
     id: "c1",
     surfaceId: "doc-1",

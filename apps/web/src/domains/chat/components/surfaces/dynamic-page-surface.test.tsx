@@ -93,7 +93,30 @@ describe("DynamicPageSurface", () => {
     expect(isOpenAppEnabled(rendered)).toBe(true);
   });
 
-  test("keeps app cards disabled while the app tool is still running", () => {
+  test("keeps app cards disabled while the originating tool call is still running", () => {
+    const rendered = renderToStaticMarkup(
+      <DynamicPageSurface
+        surface={{
+          ...surface({
+            app_id: "app-123",
+            html: "<html><body>Scaffold</body></html>",
+            preview: { title: "Hello, World", icon: "🚀" },
+          }),
+          toolCallId: "tc-app",
+        }}
+        onAction={() => undefined}
+        onOpenApp={() => undefined}
+        toolCalls={[
+          { id: "tc-app", name: "app_create", input: {} },
+        ]}
+      />,
+    );
+
+    expect(rendered).toContain("Open App");
+    expect(isOpenAppEnabled(rendered)).toBe(false);
+  });
+
+  test("keeps app cards disabled while the latest surface tool runs without an explicit link", () => {
     const rendered = renderToStaticMarkup(
       <DynamicPageSurface
         surface={surface({
@@ -103,7 +126,9 @@ describe("DynamicPageSurface", () => {
         })}
         onAction={() => undefined}
         onOpenApp={() => undefined}
-        isToolCallComplete={false}
+        toolCalls={[
+          { id: "tc-app", name: "app_create", input: {} },
+        ]}
       />,
     );
 

@@ -1,29 +1,45 @@
+import { useQuery } from "@tanstack/react-query";
 import {
-  ChartColumn,
-  ChevronDown,
-  ChevronUp,
-  LogOut,
-  MessageSquareText,
-  Settings as SettingsIcon,
-  Shield,
-  SlidersHorizontal,
+    ChartColumn,
+    ChevronDown,
+    ChevronUp,
+    Gift,
+    LogOut,
+    MessageSquareText,
+    Settings as SettingsIcon,
+    Shield,
+    SlidersHorizontal,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-  BottomSheet,
-  PanelItem,
-  Popover,
-  SideMenu,
-} from "@vellum/design-library";
+    BottomSheet,
+    PanelItem,
+    Popover,
+    SideMenu,
+} from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
-import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {
+    useActiveAssistantIsPlatformHosted,
+    usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { handleLogout } from "@/lib/auth/handle-logout";
+import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
+import {
+    useAuthStore,
+    useHasPlatformSession,
+    useIsAuthenticated,
+} from "@/stores/auth-store";
+import { adminUrl, routes } from "@/utils/routes";
+
+import { CreditsCard } from "./credits-card";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -31,6 +47,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const ShareFeedbackModal = lazy(() =>
   import("@/components/share-feedback-modal").then((m) => ({
     default: m.ShareFeedbackModal,
+  })),
+);
+const EarnCreditsModal = lazy(() =>
+  import("@/components/earn-credits-modal").then((m) => ({
+    default: m.EarnCreditsModal,
   })),
 );
 
@@ -45,12 +66,13 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
 }: PreferencesMenuProps) {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
-  if (!isLoggedIn) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -69,6 +91,7 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
+      onEarnCredits={() => setIsEarnCreditsOpen(true)}
     />
   );
 
@@ -77,7 +100,7 @@ export function PreferencesMenu({
       {isMobile ? (
         <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-          <BottomSheet.Content>
+          <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
               <BottomSheet.Title>Preferences</BottomSheet.Title>
             </BottomSheet.Header>
@@ -109,6 +132,15 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
+
+      {isEarnCreditsOpen ? (
+        <LazyBoundary>
+          <EarnCreditsModal
+            open={isEarnCreditsOpen}
+            onClose={() => setIsEarnCreditsOpen(false)}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -116,21 +148,58 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
+  onEarnCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
+  onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
-  const logout = useAuthStore.use.logout();
   const user = useAuthStore.use.user();
+  const platformGate = usePlatformGate();
+  const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const isOrgReady = useIsOrgReady();
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
+  const showBillingRows =
+    billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
+  const { data: billingSummary } = useQuery({
+    ...organizationsBillingSummaryRetrieveOptions(),
+    enabled: showBillingRows,
+  });
+  const effectiveBalance = billingSummary?.effective_balance ?? null;
 
   return (
     <>
-      <ThemeToggle className="px-2 pt-0" />
+      <ThemeToggle className="px-2 py-0" />
 
-      <MenuDivider />
+      <div className="my-2 border-t border-[var(--border-subtle)]" />
+
+      {showBillingRows && effectiveBalance !== null ? (
+        <div className="my-2">
+          <CreditsCard
+            balance={formatWholeCredits(effectiveBalance)}
+            onAddCredits={() => {
+              onClose();
+              navigate(routes.settings.billing);
+            }}
+          />
+        </div>
+      ) : null}
+
+      {showBillingRows ? (
+        <PanelItem
+          icon={Gift}
+          label="Earn Free Credits"
+          onSelect={() => {
+            onClose();
+            onEarnCredits();
+          }}
+        />
+      ) : null}
 
       <PanelItem
         icon={SettingsIcon}
@@ -150,14 +219,16 @@ function PreferencesMenuContent({
         }}
       />
 
-      <PanelItem
-        icon={MessageSquareText}
-        label="Share Feedback"
-        onSelect={() => {
-          onClose();
-          onShareFeedback();
-        }}
-      />
+      {(platformGate === "full" || isElectron()) && (
+        <PanelItem
+          icon={MessageSquareText}
+          label="Share Feedback"
+          onSelect={() => {
+            onClose();
+            onShareFeedback();
+          }}
+        />
+      )}
 
       {user?.isStaff ? (
         <PanelItem
@@ -170,25 +241,27 @@ function PreferencesMenuContent({
         />
       ) : null}
 
-      <PanelItem
-        icon={LogOut}
-        label="Log Out"
-        onSelect={async () => {
-          await logout();
-          onClose();
-          hardNavigate(routes.account.login);
-        }}
-      />
+      {showLogout ? (
+        <PanelItem
+          icon={LogOut}
+          label="Log Out"
+          onSelect={async () => {
+            await handleLogout(navigate);
+            onClose();
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
-function MenuDivider() {
-  return (
-    <div
-      aria-hidden="true"
-      className="my-1 h-px"
-      style={{ background: "var(--border-overlay)" }}
-    />
-  );
+function formatWholeCredits(value: string): string {
+  const num = parseFloat(value);
+  if (!Number.isFinite(num)) {
+    return value;
+  }
+  return num.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }

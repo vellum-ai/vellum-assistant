@@ -11,6 +11,7 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
+import { reapAbandonedEvalContainers } from "../lib/adapters/docker-reaper";
 import { loadBenchmark } from "../lib/benchmark";
 import { DEFAULT_BENCHMARK_ID } from "../lib/catalog";
 import { loadProfile } from "../lib/profile";
@@ -132,16 +133,29 @@ export function registerRunCommand(program: Command): void {
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
-        // Note: we no longer pre-sweep docker resources from prior eval
-        // runs. The previous orphan-cleanup pass existed to free up the
-        // gateway's host port (e.g. 20100) when an earlier hatch crashed
-        // mid-flight. That's now obsolete because `hatchDocker` discovers
-        // an open port at hatch time via `findOpenPort()` (see
-        // `cli/src/lib/port-allocator.ts`), so a stuck previous container
-        // can no longer wedge the next hatch. Dead docker resources from
-        // crashed runs are now garbage to be reaped on demand (e.g. via
-        // `docker container prune` / `docker volume prune`) rather than
-        // a prerequisite for forward progress.
+        // Container-side companion to the scavenger. `hatchDocker`
+        // dynamically allocates the *gateway* host port via
+        // `findOpenPort`, but the **assistant** container in
+        // `statefulset.ts` binds the daemon's fixed host port (7821)
+        // directly. A run that died via SIGKILL/OOM/host-reboot before
+        // reaching `agent.shutdown` leaves its assistant container
+        // alive on 7821, which then fails every subsequent hatch with
+        // "Bind for 0.0.0.0:7821 failed: port is already allocated".
+        // The reaper sweeps any `eval-*` container whose owning run is
+        // terminal, missing, or `running` with a stale heartbeat.
+        // Concurrent runs against the same `.runs/` directory stay
+        // safe (live heartbeats preserve their containers).
+        const reapResult = await reapAbandonedEvalContainers();
+        if (reapResult.reaped.length > 0) {
+          console.log(
+            `[reaper] removed ${reapResult.reaped.length} abandoned eval container(s): ${reapResult.reaped.join(", ")}`,
+          );
+        }
+        if (reapResult.unparseable.length > 0) {
+          console.warn(
+            `[reaper] saw ${reapResult.unparseable.length} eval-prefixed container(s) with unrecognized name shape: ${reapResult.unparseable.join(", ")}`,
+          );
+        }
 
         // `--tests` is the legacy spelling of `--filter`. Treat it as an
         // alias against the benchmark's units, but reject the ambiguous
@@ -184,6 +198,13 @@ export function registerRunCommand(program: Command): void {
         const session = sessionId(opts.label, sessionTimestamp);
         const sessionLabel = opts.label;
 
+        // Snapshot argv at the top of the action handler — Commander
+        // doesn't mutate `process.argv` but a downstream library or a
+        // signal handler conceivably could, and we want every run in
+        // the session to record the same canonical command. `slice()`
+        // detaches us from any later in-place edits.
+        const cliArgv = process.argv.slice();
+
         // Polymorphic dispatch — each benchmark's `src/run.ts` owns
         // its own execution shape (Cartesian profile × `TestDef`,
         // ingest→ask over `BenchmarkItem`, …). The CLI just hands
@@ -195,6 +216,7 @@ export function registerRunCommand(program: Command): void {
           filterFlag: filter,
           session,
           sessionLabel,
+          cliArgv,
           progress,
           maxTurns: opts.maxTurns,
         });

@@ -1,13 +1,17 @@
-import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { AssistantIdentity } from "@/assistant/identity";
+import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
+  PendingConfirmationState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
-import type { PendingToolConfirmation } from "@/domains/chat/api/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PendingToolConfirmation } from "@vellumai/assistant-api";
+import type { ToolCallRuleContext } from "@/domains/chat/hooks/use-interaction-actions";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
@@ -19,6 +23,10 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "conversation_list_invalidated",
   "conversation_title_updated",
   "notification_intent",
+  // Client directive to open a settings tab — carries no `conversationId`
+  // (daemon emits `{ type, tab }`), so the conversation-id gate would
+  // otherwise drop it before it reached `handleNavigateSettings`.
+  "navigate_settings",
   "identity_changed",
   "avatar_updated",
   "sync_changed",
@@ -80,6 +88,46 @@ export function hasPendingAssistantResponse(
   return lastNonQueuedUserIndex !== -1;
 }
 
+/** Whether any message carries a surface that still accepts user input. */
+export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.surfaces) {
+      for (const s of msg.surfaces) {
+        if (isSurfaceInteractive(s)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function hasAssistantMessage(messages: DisplayMessage[]): boolean {
+  return messages.some((message) => message.role === "assistant");
+}
+
+export function shouldClearFirstMessageGateOnConversationChange({
+  previousConversationId,
+  nextConversationId,
+  onboardingDraftConversationId,
+  autoGreetPending,
+  assistantMessagePresent,
+}: {
+  previousConversationId: string | null;
+  nextConversationId: string | null;
+  onboardingDraftConversationId: string | null;
+  autoGreetPending: boolean;
+  assistantMessagePresent: boolean;
+}): boolean {
+  if (previousConversationId == null) return false;
+  if (nextConversationId == null) return false;
+  if (previousConversationId === nextConversationId) return false;
+
+  return !(
+    autoGreetPending &&
+    !assistantMessagePresent &&
+    previousConversationId === onboardingDraftConversationId
+  );
+}
+
 const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "not-allowed": "Microphone access was blocked.",
   "service-not-allowed": "Microphone access was blocked.",
@@ -138,8 +186,8 @@ export function shouldReturnToBackground(c: Conversation): boolean {
 // refetch returns an unchanged value (common on SSE bursts triggered by
 // tool-driven IDENTITY.md edits).
 export function identitiesEqual(
-  a: AssistantIdentity | null,
-  b: AssistantIdentity | null,
+  a: IdentityGetResponse | null,
+  b: IdentityGetResponse | null,
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -222,7 +270,8 @@ export function attachConfirmationToToolCall(
     if (msg?.role !== "assistant" || !msg.toolCalls?.length) continue;
 
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
-      if (msg.toolCalls[ti]?.status === "running") {
+      const tc = msg.toolCalls[ti];
+      if (tc && isToolCallRunning(tc)) {
         return applyConfirmationToToolCall(messages, mi, ti, pending);
       }
     }
@@ -230,6 +279,33 @@ export function attachConfirmationToToolCall(
   }
 
   return { updatedMessages: messages, attachedToolCallId: undefined };
+}
+
+/**
+ * Find the in-flight confirmation a history snapshot carries on one of its
+ * tool calls. The daemon stamps `pendingConfirmation` from the
+ * pending-interactions registry at render time, so on a cold reconnect (or a
+ * reopen after the live event buffer aged out) the prompt rides the snapshot
+ * rather than a replayed `confirmation_request` event. Returns the prompt
+ * projected into the interaction-store shape — with `toolUseId` set to the
+ * carrying tool call so the inline card restores on the right chip — or null
+ * when no tool call is awaiting a decision. Scans latest-first since the
+ * outstanding prompt is on the most recent tool call.
+ */
+export function extractWirePendingConfirmation(
+  messages: DisplayMessage[],
+): PendingConfirmationState | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const msg = messages[mi];
+    if (!msg?.toolCalls?.length) continue;
+    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+      const tc = msg.toolCalls[ti];
+      if (tc?.pendingConfirmation) {
+        return { ...tc.pendingConfirmation, toolUseId: tc.id };
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -257,6 +333,22 @@ export function deriveCommandText(
   } catch {
     return toolName;
   }
+}
+
+/** Builds the rule-editor context passed to `handleOpenRuleEditorForToolCall`. */
+export function toolCallToRuleContext(
+  tc: ChatMessageToolCall,
+): ToolCallRuleContext {
+  return {
+    toolName: tc.name,
+    riskLevel: tc.riskLevel,
+    riskReason: tc.riskReason,
+    input: tc.input ?? {},
+    allowlistOptions: tc.riskAllowlistOptions ?? [],
+    scopeOptions: tc.scopeOptions ?? [],
+    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
+    matchedTrustRuleId: tc.matchedTrustRuleId,
+  };
 }
 
 const MINUTES_PER_HOUR = 60;

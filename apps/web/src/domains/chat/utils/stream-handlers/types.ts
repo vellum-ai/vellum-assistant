@@ -8,15 +8,8 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
-import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-
-export type { PendingQuestionState };
-
-export interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
+import type { ChatError } from "@/domains/chat/types";
+import type { StreamContext } from "@/domains/chat/stream-store";
 
 /** Minimal push-based navigation adapter for stream event handlers. */
 export interface Router {
@@ -25,20 +18,26 @@ export interface Router {
 
 /**
  * Shared context passed to every domain handler function.
- * Built once per `handleStreamEvent` call from the hook's params and refs.
+ * Built once per `handleStreamEvent` call from the hook's params and store.
+ *
+ * Store-backed mutable state (Maps, Sets, arrays) is passed by reference
+ * from `useChatSessionStore.getState()`. Handlers mutate them in place —
+ * this matches the pre-store ref semantics. The context is rebuilt per-event,
+ * so each event gets the store's current references.
  */
 export interface StreamHandlerContext {
   // --- Navigation ---
   router: Router;
   isNative: boolean;
 
-  // --- Stream context ---
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  assistantIdRef: MutableRefObject<string | null>;
+  // --- Stream context (resolved from stream-store / resolved-assistants-store) ---
+  streamContext: StreamContext | null;
+  assistantId: string | null;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
+  /** Current messages snapshot — read from store via `getState().messages`. */
+  messages: DisplayMessage[];
 
   // --- Turn state ---
   turnActions: TurnActions;
@@ -57,23 +56,22 @@ export interface StreamHandlerContext {
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
+  /** Cancel the active SSE stream and clear the store's stream state. */
+  cancelAndClearStream: () => void;
 
   // --- Reconciliation ---
   cancelReconciliation: () => void;
   startReconciliationLoop: (epoch: number) => void;
 
   // --- Interaction state ---
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
+  confirmationToolCallMap: Map<string, string>;
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
+  dismissedSurfaceIds: Set<string>;
 
   // --- Context window ---
-  contextWindowUsageByConversationRef: MutableRefObject<
-    Map<string, ContextWindowUsage>
-  >;
+  contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
@@ -85,9 +83,9 @@ export interface StreamHandlerContext {
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // --- Queue management ---
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
+  pendingQueuedMessageIds: string[];
+  requestIdToMessageId: Map<string, string>;
+  pendingLocalDeletions: Set<string>;
 
   // --- Hook-owned refs ---
   lastActivityVersionRef: MutableRefObject<Map<string, number>>;

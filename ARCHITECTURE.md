@@ -21,6 +21,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Environment and data layout                 | [Environment and Data Layout](#environment-and-data-layout) (this file)                            |
 | Multi-local instance isolation              | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file)                      |
 | Docker volume architecture                  | [Docker Volume Architecture](#docker-volume-architecture) (this file)                              |
+| Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 
 ## Cross-Cutting Invariants
@@ -142,7 +143,7 @@ Each instance gets its own:
 
 ### Port allocation
 
-`allocateLocalResources()` in `cli/src/lib/assistant-config.ts` takes each service's base port from `getDefaultPorts(env)` and scans upward for the first port not bound by another local instance in that env's lockfile. Each environment has its own disjoint port window so running prod + non-prod assistants side by side doesn't collide; the concrete numbers live in `cli/src/lib/environments/seeds.ts`. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` restart instances on the same ports.
+`allocateLocalResources()` in `cli/src/lib/assistant-config.ts` takes each service's base port from `getDefaultPorts(env)` and scans upward for the first port not bound by another local instance in that env's lockfile. Each environment has its own disjoint port window so running prod + non-prod assistants side by side doesn't collide; the concrete numbers live in `packages/environments/src/seeds.ts`. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` restart instances on the same ports.
 
 ### Lockfile schema
 
@@ -633,6 +634,20 @@ Runtime enforcement is layered. `disk-pressure-policy.ts` classifies turns befor
 Tool access is also narrowed during cleanup mode. The runtime marks cleanup turns in the tool context, `tool-approval-handler.ts` rejects non-cleanup-safe tools, and terminal background modes for `bash` and `host_bash` are rejected. When a new lock is created, already registered background terminal tools are cancelled with the disk-pressure reason.
 
 The macOS app owns the local client contract through `DiskPressureStatusStore`. On app activation and SSE changes, it fetches or applies the latest status. If acknowledgement is required, the main window and pop-out thread windows show a blocking safe-storage banner; the guardian must acknowledge or dismiss before continuing. After acknowledgement, chat surfaces keep a persistent cleanup status banner explaining that background processes and trusted-contact messages remain blocked until storage is freed. Acknowledgement request failures are shown in the banner so the modal does not fail silently.
+
+## Web Search Failure Normalization
+
+<!-- ATL-727: centralized web_search backend-failure normalization. -->
+
+Every `web_search` failure path funnels through a single classification layer so the same recoverable, user-facing copy reaches all clients while raw provider detail stays in telemetry only. The classifier lives in `assistant/src/tools/network/web-search-error.ts` (`classifyWebSearchFailure`), a pure leaf module with no daemon/agent/client imports.
+
+- **Single user-facing message.** Genuine backend failures (provider `unavailable` / `internal_error` / `overloaded_error`, post-retry `429`, app-side 5xx, thrown network/timeout/DNS-on-search errors) map to one constant, `WEB_SEARCH_BACKEND_FAILURE_MESSAGE`. It propagates to every client via `WebSearchMetadata.errorMessage` and is written identically by the native Anthropic `server_tool_complete` handler in `assistant/src/daemon/conversation-agent-loop-handlers.ts` and by the app-side `backendFailureResult` helper in `assistant/src/tools/network/web-search.ts`. The copy reads as guidance (retry / continue without search / paste details) and never blames the user, claims the whole internet is down, or embeds raw provider data.
+- **Raw detail logged, not shown.** The originating status code / error code / provider body is preserved only in the structured `web_search_backend_failure` warning (`logWebSearchBackendFailure`, field `rawDetail`, truncated, query text never logged — only `queryLength`). This telemetry is gated on `classification.isBackendFailure`, so recoverable non-backend categories (`query_too_long`, `max_uses_exceeded`, config/auth, `invalid_input`) keep their own specific copy and never count as provider outages.
+- **Per-turn dedup.** A burst of backend failures in one turn surfaces at most one full friendly notice; the native handler tracks this via `webSearchBackendFailureNotified` keyed by request id (the first failure sets `fallbackShown: true`, later ones get a terse line). Every failure is still logged.
+- **Honest, recoverable continuation.** A backend failure is a normal `tool_result` (`isError: true`, empty results), not a thrown provider error — the agent loop continues, and the search is never silently marked successful. A successful empty search (zero results) stays a success: no `errorMessage`, no telemetry.
+- **No conflation with `web_fetch`.** The normalization layer keys exclusively on `web_search` (native server-tool web_search and the app-side search tool). It never inspects `WebFetchMetadata`, so a `web_fetch` DNS failure (e.g. an unresolved host) keeps its own `webFetch.errorMessage` and is never rewritten to the search backend copy.
+
+End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure.test.ts`.
 
 ## Maintenance Rule
 

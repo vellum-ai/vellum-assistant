@@ -1,31 +1,47 @@
-import type { SkillCategory } from "@/domains/intelligence/skills/types";
-
 export interface CategoryConfig {
   displayName: string;
   color: string;
   emoji: string;
 }
 
-export const CATEGORY_CONFIGS: Record<SkillCategory, CategoryConfig> = {
-  communication: { displayName: "Communication", color: "#A665C9", emoji: "\u{1F4AC}" },
-  productivity: { displayName: "Productivity", color: "#0E9B8B", emoji: "\u{1F4CB}" },
-  development: { displayName: "Development", color: "#EF4400", emoji: "\u{1F528}" },
-  media: { displayName: "Media", color: "#DB4B77", emoji: "\u{1F3AC}" },
-  automation: { displayName: "Automation", color: "#E9C91A", emoji: "\u{26A1}" },
-  webSocial: { displayName: "Web & Social", color: "#E9642F", emoji: "\u{1F310}" },
-  knowledge: { displayName: "Knowledge", color: "#4C9B50", emoji: "\u{1F4DA}" },
-  integration: { displayName: "Integration", color: "#8D99A5", emoji: "\u{1F517}" },
+const DEFAULT_CATEGORY_CONFIG: CategoryConfig = {
+  displayName: "Other",
+  color: "#888",
+  emoji: "?",
 };
 
-export const CATEGORY_ORDER: SkillCategory[] = [
-  "communication",
+export const CATEGORY_CONFIGS: Record<string, CategoryConfig> = {
+  email: { displayName: "Email", color: "#A665C9", emoji: "\u{1F4E7}" },
+  calendar: { displayName: "Calendar", color: "#0E9B8B", emoji: "\u{1F4C5}" },
+  messaging: { displayName: "Messaging", color: "#6B8AE0", emoji: "\u{1F4AC}" },
+  browsing: { displayName: "Browsing", color: "#E9642F", emoji: "\u{1F310}" },
+  productivity: { displayName: "Productivity", color: "#0E9B8B", emoji: "\u{1F4CB}" },
+  development: { displayName: "Development", color: "#EF4400", emoji: "\u{1F528}" },
+  voice: { displayName: "Voice", color: "#DB4B77", emoji: "\u{1F3A4}" },
+  commerce: { displayName: "Commerce", color: "#E9C91A", emoji: "\u{1F6D2}" },
+  content: { displayName: "Content", color: "#DB4B77", emoji: "\u{1F3A8}" },
+  health: { displayName: "Health", color: "#4C9B50", emoji: "\u{2764}\u{FE0F}" },
+  system: { displayName: "System", color: "#8D99A5", emoji: "\u{2699}\u{FE0F}" },
+  integrations: { displayName: "Integrations", color: "#8D99A5", emoji: "\u{1F517}" },
+};
+
+export function getCategoryConfig(category: string): CategoryConfig {
+  return CATEGORY_CONFIGS[category] ?? DEFAULT_CATEGORY_CONFIG;
+}
+
+export const CATEGORY_ORDER: string[] = [
+  "email",
+  "calendar",
+  "messaging",
+  "browsing",
   "productivity",
   "development",
-  "media",
-  "automation",
-  "webSocial",
-  "knowledge",
-  "integration",
+  "voice",
+  "commerce",
+  "content",
+  "health",
+  "system",
+  "integrations",
 ];
 
 export interface SubCategoryDef {
@@ -34,30 +50,29 @@ export interface SubCategoryDef {
   skillIds: Set<string>;
 }
 
-export const SUB_CATEGORY_MAP: Partial<Record<SkillCategory, SubCategoryDef[]>> = {
-  communication: [
-    { label: "Messaging", emoji: "\u{1F4AC}", skillIds: new Set(["messaging", "agentmail", "email-setup"]) },
-    { label: "Calling", emoji: "\u{1F4DE}", skillIds: new Set(["phone-calls", "notifications"]) },
-    { label: "People", emoji: "\u{1F465}", skillIds: new Set(["contacts", "followups"]) },
+export const SUB_CATEGORY_MAP: Record<string, SubCategoryDef[]> = {
+  email: [
+    { label: "Sending", emoji: "\u{1F4E8}", skillIds: new Set(["agentmail", "email-setup"]) },
+    { label: "Reading", emoji: "\u{1F4EC}", skillIds: new Set(["email-channel", "gmail"]) },
   ],
-  productivity: [
-    { label: "Planning", emoji: "\u{1F4C5}", skillIds: new Set(["google-calendar", "schedule"]) },
-    { label: "Work", emoji: "\u{1F4CB}", skillIds: new Set(["document", "tasks", "playbooks"]) },
+  messaging: [
+    { label: "Chat", emoji: "\u{1F4AC}", skillIds: new Set(["messaging", "slack", "telegram"]) },
+    { label: "Notifications", emoji: "\u{1F514}", skillIds: new Set(["notifications"]) },
+    { label: "People", emoji: "\u{1F465}", skillIds: new Set(["contacts", "followups"]) },
   ],
   development: [
     { label: "Coding", emoji: "\u{1F4BB}", skillIds: new Set(["typescript-eval", "frontend-design"]) },
     { label: "Dev Tools", emoji: "\u{1F527}", skillIds: new Set(["api-mapping", "cli-discover", "subagent", "app-builder"]) },
   ],
-  automation: [
+  browsing: [
     { label: "Control", emoji: "\u{1F3AE}", skillIds: new Set(["computer-use", "macos-automation", "browser"]) },
     { label: "Triggers", emoji: "\u{23F0}", skillIds: new Set(["watcher", "time-based-actions"]) },
   ],
-  webSocial: [
-    { label: "Social", emoji: "\u{1F4F1}", skillIds: new Set(["influencer"]) },
-    { label: "Services", emoji: "\u{1F6D2}", skillIds: new Set(["amazon", "doordash", "restaurant-reservation"]) },
+  commerce: [
+    { label: "Shopping", emoji: "\u{1F6D2}", skillIds: new Set(["amazon", "doordash", "restaurant-reservation"]) },
   ],
-  knowledge: [
-    { label: "Learning", emoji: "\u{1F9E0}", skillIds: new Set(["knowledge-graph", "skills-catalog", "self-upgrade"]) },
+  system: [
+    { label: "Core", emoji: "\u{1F9E0}", skillIds: new Set(["knowledge-graph", "skills-catalog", "self-upgrade"]) },
     { label: "Daily", emoji: "\u{2600}\u{FE0F}", skillIds: new Set(["start-the-day", "weather"]) },
   ],
 };
@@ -65,21 +80,22 @@ export const SUB_CATEGORY_MAP: Partial<Record<SkillCategory, SubCategoryDef[]>> 
 export interface OrbitItem {
   id: string;
   label: string;
+  icon?: string;
   emoji?: string;
-  category: SkillCategory;
+  category: string;
   description?: string;
   kind: "skill" | "workspaceFile";
 }
 
 export interface CategoryGroup {
-  category: SkillCategory;
+  category: string;
   items: OrbitItem[];
 }
 
 export type TreeNodeKind =
   | { type: "center" }
-  | { type: "category"; category: SkillCategory }
-  | { type: "subCategory"; label: string; emoji: string; category: SkillCategory }
+  | { type: "category"; category: string }
+  | { type: "subCategory"; label: string; emoji: string; category: string }
   | { type: "skill"; item: OrbitItem };
 
 export interface TreeNode {
@@ -294,7 +310,7 @@ function placeSkillCluster(
   childSize: number,
   gap: number,
   depth: number,
-  category: SkillCategory,
+  category: string,
   edgePrefix: string,
   nodes: TreeNode[],
   edges: EdgeLine[],
@@ -307,7 +323,7 @@ function placeSkillCluster(
   const perpY = outX;
   const maxPerRow = 3;
   const rowDepthGap = spacing * 0.88;
-  const color = CATEGORY_CONFIGS[category].color;
+  const color = getCategoryConfig(category).color;
 
   items.forEach((item, idx) => {
     const row = Math.floor(idx / maxPerRow);
@@ -373,7 +389,7 @@ export function buildTree(
   groups.forEach((group, catIdx) => {
     const catAngle = -Math.PI / 2 + catIdx * sectorAngle;
     const catId = `cat-${group.category}`;
-    const catColor = CATEGORY_CONFIGS[group.category].color;
+    const catColor = getCategoryConfig(group.category).color;
 
     const catPos = resolveOverlap(
       {
@@ -522,7 +538,7 @@ export interface BuildGroupsArgs {
 
 /** Bucket items into category groups in the canonical display order. */
 export function buildGroups(items: OrbitItem[]): CategoryGroup[] {
-  const buckets = new Map<SkillCategory, OrbitItem[]>();
+  const buckets = new Map<string, OrbitItem[]>();
   for (const item of items) {
     const list = buckets.get(item.category);
     if (list) {
@@ -535,6 +551,12 @@ export function buildGroups(items: OrbitItem[]): CategoryGroup[] {
   for (const cat of CATEGORY_ORDER) {
     const list = buckets.get(cat);
     if (list && list.length > 0) {
+      result.push({ category: cat, items: list });
+    }
+  }
+  // Include any categories not in CATEGORY_ORDER
+  for (const [cat, list] of buckets) {
+    if (!CATEGORY_ORDER.includes(cat) && list.length > 0) {
       result.push({ category: cat, items: list });
     }
   }

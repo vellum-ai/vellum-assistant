@@ -47,6 +47,11 @@
 import { createHash } from "node:crypto";
 
 import type { ContentBlock } from "../providers/types.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { HostProxyBase, HostProxyRequestError } from "./host-proxy-base.js";
@@ -322,6 +327,54 @@ export class HostAppControlProxy extends HostProxyBase<
       }
     }
 
+    let resolvedTargetClientId = targetClientId;
+    if (resolvedTargetClientId == null) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_app_control",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        if (input.tool === "start") {
+          this.rollbackStartIfCurrent(attemptedSession);
+        }
+        return {
+          content:
+            "Multiple host_app_control clients are connected for this user. Specify target_client_id to disambiguate.",
+          isError: true,
+        };
+      }
+      if (resolved.kind === "match") {
+        resolvedTargetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_app_control").length > 0
+      ) {
+        if (input.tool === "start") {
+          this.rollbackStartIfCurrent(attemptedSession);
+        }
+        return {
+          content:
+            "App control is not available for the current actor. Connect a host_app_control-capable client as the same user.",
+          isError: true,
+        };
+      }
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_app_control",
+      });
+      if (rejection) {
+        if (input.tool === "start") {
+          this.rollbackStartIfCurrent(attemptedSession);
+        }
+        return rejection;
+      }
+    }
+
     try {
       const payload = await this.dispatchRequest(
         toolName,
@@ -329,7 +382,7 @@ export class HostAppControlProxy extends HostProxyBase<
         conversationId,
         signal,
         undefined,
-        targetClientId,
+        resolvedTargetClientId,
       );
       if (input.tool === "start") {
         if (payload.state === "running") {

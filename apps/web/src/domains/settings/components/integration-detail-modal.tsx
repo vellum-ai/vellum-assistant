@@ -1,63 +1,57 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ExternalLink,
-  Loader2,
-  Plus,
-  Trash2,
-  X,
+    Check,
+    Copy,
+    ExternalLink,
+    Loader2,
+    Plus,
+    Trash2,
+    X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Card } from "@vellum/design-library/components/card";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
-import { toast } from "@vellum/design-library/components/toast";
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
+import {
+    createOAuthApp,
+    deleteOAuthApp,
+    deleteOAuthAppConnection,
+    formatOAuthTimestamp,
+    listOAuthAppConnections,
+    listOAuthApps,
+    maskClientId,
+    startOAuthAppConnect,
+    type OAuthApp,
+    type OAuthAppConnection,
+} from "@/domains/settings/api/oauth-apps";
+import {
+    assistantsOauthConnectionsListOptions,
+    assistantsOauthConnectionsListQueryKey,
+    assistantsOauthDisconnectByConnectionCreateMutation,
+    assistantsOauthStartCreateMutation,
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
-import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import { routes } from "@/utils/routes";
-import {
-  assistantsOauthConnectionsListOptions,
-  assistantsOauthConnectionsListQueryKey,
-  assistantsOauthDisconnectByConnectionCreateMutation,
-  assistantsOauthStartCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen";
-import type { OAuthConnection } from "@/generated/api/types.gen";
-import {
-  createOAuthApp,
-  deleteOAuthApp,
-  deleteOAuthAppConnection,
-  formatOAuthTimestamp,
-  listOAuthApps,
-  listOAuthAppConnections,
-  maskClientId,
-  startOAuthAppConnect,
-  type OAuthApp,
-  type OAuthAppConnection,
-} from "@/domains/settings/api/oauth-apps";
+import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { toast } from "@vellumai/design-library/components/toast";
 
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
 import {
-  type OAuthCompletePayload,
-  oauthCompletionStorageKey,
-  getOAuthCompleteMessagePayload,
-  getOAuthCompleteStoragePayload,
+    getOAuthCompleteMessagePayload,
+    getOAuthCompleteStoragePayload,
+    oauthCompletionStorageKey,
+    type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 
-function extractErrorDetail(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return detail;
-    }
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
-}
+import type { PlatformGateState } from "@/hooks/use-platform-gate";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,6 +103,7 @@ interface IntegrationDetailModalProps {
   displayName: string;
   description: string | null;
   logoUrl: string | null;
+  platformGate: PlatformGateState;
   onClose: () => void;
 }
 
@@ -124,11 +119,15 @@ export function IntegrationDetailModal({
   displayName,
   description,
   logoUrl,
+  platformGate,
   onClose,
 }: IntegrationDetailModalProps) {
   const queryClient = useQueryClient();
   const isNative = useIsNativePlatform();
-  const [activeTab, setActiveTab] = useState<ModalTab>("managed");
+  const managedAvailable = platformGate === "full";
+  const [activeTab, setActiveTab] = useState<ModalTab>(
+    platformGate === "gated" ? "your-own" : "managed",
+  );
   const [pendingDisconnectId, setPendingDisconnectId] = useState<string | null>(
     null,
   );
@@ -213,6 +212,8 @@ export function IntegrationDetailModal({
     async (
       baselineSignatures: ReadonlyMap<string, string>,
     ): Promise<boolean> => {
+      if (!managedAvailable) return false;
+
       for (let attempt = 0; attempt < 8; attempt += 1) {
         if (attempt > 0) {
           await wait(750);
@@ -243,7 +244,7 @@ export function IntegrationDetailModal({
 
       return false;
     },
-    [assistantId, connectionsQueryKey, providerKey, queryClient],
+    [assistantId, connectionsQueryKey, managedAvailable, providerKey, queryClient],
   );
 
   useEffect(() => {
@@ -384,11 +385,12 @@ export function IntegrationDetailModal({
     };
   }, []);
 
-  const { data: allConnections, isLoading: connectionsLoading } = useQuery(
-    assistantsOauthConnectionsListOptions({
+  const { data: allConnections, isLoading: connectionsLoading } = useQuery({
+    ...assistantsOauthConnectionsListOptions({
       path: { assistant_id: assistantId },
     }),
-  );
+    enabled: managedAvailable,
+  });
 
   const providerConnections: OAuthConnection[] = (allConnections ?? []).filter(
     (c) => c.provider === providerKey && c.connected,
@@ -412,8 +414,9 @@ export function IntegrationDetailModal({
       setPendingDisconnectId(null);
     },
     onError(error) {
-      const detail = extractErrorDetail(
+      const detail = extractErrorMessage(
         error,
+        undefined,
         `Failed to disconnect ${displayName} account.`,
       );
       toast.error(detail);
@@ -422,6 +425,8 @@ export function IntegrationDetailModal({
   });
 
   const handleConnect = useCallback(() => {
+    if (!managedAvailable) return;
+
     const requestId = crypto.randomUUID();
 
     if (isNative) {
@@ -460,8 +465,9 @@ export function IntegrationDetailModal({
           },
           onError(error) {
             clearPendingRequest();
-            const detail = extractErrorDetail(
+            const detail = extractErrorMessage(
               error,
+              undefined,
               `Failed to start ${displayName} authorization.`,
             );
             toast.error(detail);
@@ -570,8 +576,9 @@ export function IntegrationDetailModal({
         onError(error) {
           closePopupWindow();
           clearPendingRequest();
-          const detail = extractErrorDetail(
+          const detail = extractErrorMessage(
             error,
+            undefined,
             `Failed to start ${displayName} authorization.`,
           );
           toast.error(detail);
@@ -591,6 +598,7 @@ export function IntegrationDetailModal({
     waitForProviderConnection,
     startOAuth,
     isNative,
+    managedAvailable,
   ]);
 
   const handleDisconnect = (connection: OAuthConnection) => {
@@ -651,40 +659,48 @@ export function IntegrationDetailModal({
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <div
-            role="tablist"
-            aria-label="OAuth mode"
-            className="flex w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-0.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-base)]/40"
-          >
-            <TabButton
-              active={activeTab === "managed"}
-              onClick={() => setActiveTab("managed")}
+          {platformGate !== "gated" && (
+            <div
+              role="tablist"
+              aria-label="OAuth mode"
+              className="flex w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-0.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-base)]/40"
             >
-              Managed
-            </TabButton>
-            <TabButton
-              active={activeTab === "your-own"}
-              onClick={() => setActiveTab("your-own")}
-            >
-              Your Own
-            </TabButton>
-          </div>
+              <TabButton
+                active={activeTab === "managed"}
+                onClick={() => setActiveTab("managed")}
+              >
+                Managed
+              </TabButton>
+              <TabButton
+                active={activeTab === "your-own"}
+                onClick={() => setActiveTab("your-own")}
+              >
+                Your Own
+              </TabButton>
+            </div>
+          )}
 
-          {activeTab === "managed" ? (
-            <ManagedTab
-              displayName={displayName}
-              providerKey={providerKey}
-              logoUrl={logoUrl}
-              connections={providerConnections}
-              connectionsLoading={connectionsLoading}
-              startPending={startOAuth.isPending}
-              oauthInProgress={oauthInProgress}
-              disconnectingId={
-                disconnectOAuth.isPending ? pendingDisconnectId : null
-              }
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-            />
+          {activeTab === "managed" && platformGate !== "gated" ? (
+            platformGate === "disabled" ? (
+              <Notice tone="info">
+                Log in to the Vellum platform to manage OAuth connections.
+              </Notice>
+            ) : (
+              <ManagedTab
+                displayName={displayName}
+                providerKey={providerKey}
+                logoUrl={logoUrl}
+                connections={providerConnections}
+                connectionsLoading={connectionsLoading}
+                startPending={startOAuth.isPending}
+                oauthInProgress={oauthInProgress}
+                disconnectingId={
+                  disconnectOAuth.isPending ? pendingDisconnectId : null
+                }
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+              />
+            )
           ) : (
             <YourOwnTab
               assistantId={assistantId}
@@ -893,6 +909,8 @@ function YourOwnTab({
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [creatingApp, setCreatingApp] = useState(false);
+  const [oauthCallbackUrl, setOauthCallbackUrl] = useState<string | null>(null);
+  const [callbackUrlCopied, setCallbackUrlCopied] = useState(false);
   const [deletingAppId, setDeletingAppId] = useState<string | null>(null);
   const [connectingAppId, setConnectingAppId] = useState<string | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
@@ -934,6 +952,17 @@ function YourOwnTab({
   useEffect(() => {
     void loadApps();
   }, [loadApps]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchOAuthProviderDetail(assistantId, providerKey).then(
+      (detail) => {
+        if (active) setOauthCallbackUrl(detail.oauth_callback_url);
+      },
+      () => {},
+    );
+    return () => { active = false; };
+  }, [assistantId, providerKey]);
 
   const shouldShowForm = apps.length === 0 || isShowingAddAppForm;
 
@@ -1062,6 +1091,48 @@ function YourOwnTab({
               sent to Vellum.
             </p>
           </div>
+          {oauthCallbackUrl ? (
+            <div className="space-y-1">
+              <p className="text-body-small-default text-[var(--content-secondary)]">
+                Redirect URL
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={oauthCallbackUrl}
+                  readOnly
+                  fullWidth
+                />
+                <Button
+                  type="button"
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(oauthCallbackUrl)
+                      .then(() => {
+                        setCallbackUrlCopied(true);
+                        toast.success("Copied to clipboard!");
+                        setTimeout(() => setCallbackUrlCopied(false), 2000);
+                      });
+                  }}
+                  aria-label={
+                    callbackUrlCopied ? "Copied" : "Copy redirect URL"
+                  }
+                  iconOnly={
+                    callbackUrlCopied ? (
+                      <Check aria-hidden />
+                    ) : (
+                      <Copy aria-hidden />
+                    )
+                  }
+                />
+              </div>
+              <p className="text-body-small-default text-[var(--content-tertiary)]">
+                Add this URL to your OAuth app&apos;s redirect settings.
+              </p>
+            </div>
+          ) : null}
           <Input
             label="Client ID"
             type="text"

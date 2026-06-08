@@ -24,7 +24,10 @@
  *     once assistant output exists.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -33,19 +36,28 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
+import { invalidateConfigCache } from "../../../config/loader.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { rawRun } from "../../../memory/raw-query.js";
+import { enqueueMemoryJob } from "../../../memory/jobs-store.js";
+import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
+import { rawAll, rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 
 initializeDb();
 
+let workspaceDir: string;
+let origWorkspaceDir: string | undefined;
+let configPath: string;
+
 function resetTables(): void {
   const db = getDb();
+  db.run(`DELETE FROM llm_usage_events`);
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
+  db.run(`DELETE FROM memory_jobs`);
 }
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -69,6 +81,59 @@ function insertMessage(
   );
 }
 
+function recordUsageCostAt(
+  conversationId: string,
+  requestId: string,
+  createdAt: number,
+  estimatedCostUsd: number,
+): void {
+  const event = recordUsageEvent(
+    {
+      conversationId,
+      runId: null,
+      requestId,
+      actor: "main_agent",
+      callSite: "mainAgent",
+      inferenceProfile: "balanced",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      rawUsage: null,
+    },
+    { estimatedCostUsd, pricingStatus: "priced" },
+  );
+  rawRun(
+    "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
+    createdAt,
+    event.id,
+  );
+}
+
+function readConfig(): Record<string, unknown> {
+  return JSON.parse(readFileSync(configPath, "utf-8"));
+}
+
+function readMemoryJobRows(): Array<{
+  id: string;
+  status: string;
+  lastError: string | null;
+  payload: string;
+}> {
+  return rawAll<{
+    id: string;
+    status: string;
+    lastError: string | null;
+    payload: string;
+  }>(`
+    SELECT id, status, last_error AS lastError, payload
+    FROM memory_jobs
+    ORDER BY id
+  `);
+}
+
 interface RunRecord {
   id: string;
   scheduledFor: number;
@@ -79,6 +144,7 @@ interface RunRecord {
   skipReason: string | null;
   error: string | null;
   conversationId: string | null;
+  estimatedCostUsd: number;
   createdAt: number;
 }
 
@@ -88,7 +154,22 @@ interface ListRunsResponse {
 
 describe("listConsolidationRuns handler", () => {
   beforeEach(() => {
+    workspaceDir = mkdtempSync(join(tmpdir(), "vellum-consolidation-routes-"));
+    origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+    configPath = join(workspaceDir, "config.json");
+    invalidateConfigCache();
     resetTables();
+  });
+
+  afterEach(() => {
+    if (origWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = origWorkspaceDir;
+    }
+    invalidateConfigCache();
+    rmSync(workspaceDir, { recursive: true, force: true });
   });
 
   test("returns only conversations sourced from memory_v2_consolidation", async () => {
@@ -136,6 +217,47 @@ describe("listConsolidationRuns handler", () => {
     expect(run.finishedAt).toBe(2500);
     expect(run.durationMs).toBe(1500);
     expect(run.createdAt).toBe(1000);
+  });
+
+  test("exposes estimatedCostUsd from the conversation total when available", async () => {
+    const conv = createConversation({
+      title: "c1",
+      source: "memory_v2_consolidation",
+    });
+    rawRun(
+      "UPDATE conversations SET created_at = ?, total_estimated_cost = ? WHERE id = ?",
+      1000,
+      0.42,
+      conv.id,
+    );
+    insertMessage(conv.id, "assistant", 2000);
+    recordUsageCostAt(conv.id, "consolidation-fallback-cost", 1500, 0.99);
+
+    const handler = findHandler("listConsolidationRuns");
+    const result = (await handler({})) as ListRunsResponse;
+
+    expect(result.runs[0]!.estimatedCostUsd).toBeCloseTo(0.42);
+  });
+
+  test("falls back to conversation-window usage cost when the total is empty", async () => {
+    const conv = createConversation({
+      title: "c1",
+      source: "memory_v2_consolidation",
+    });
+    rawRun(
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      1000,
+      conv.id,
+    );
+    insertMessage(conv.id, "assistant", 2000);
+    recordUsageCostAt(conv.id, "consolidation-before", 999, 0.4);
+    recordUsageCostAt(conv.id, "consolidation-inside", 1500, 0.07);
+    recordUsageCostAt(conv.id, "consolidation-after", 2001, 0.5);
+
+    const handler = findHandler("listConsolidationRuns");
+    const result = (await handler({})) as ListRunsResponse;
+
+    expect(result.runs[0]!.estimatedCostUsd).toBeCloseTo(0.07);
   });
 
   test("synthesizes status='running' when conversation has no assistant message", async () => {
@@ -254,5 +376,146 @@ describe("listConsolidationRuns handler", () => {
       queryParams: { limit: "garbage" },
     })) as ListRunsResponse;
     expect(bad.runs).toHaveLength(5);
+  });
+});
+
+describe("updateConsolidationConfig handler", () => {
+  beforeEach(() => {
+    workspaceDir = mkdtempSync(join(tmpdir(), "vellum-consolidation-routes-"));
+    origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+    configPath = join(workspaceDir, "config.json");
+    invalidateConfigCache();
+    resetTables();
+  });
+
+  afterEach(() => {
+    if (origWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = origWorkspaceDir;
+    }
+    invalidateConfigCache();
+    rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  test("persists only the consolidation enabled override without disabling memory v2", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          memory: {
+            v2: {
+              enabled: true,
+              consolidation_interval_hours: 4,
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const handler = findHandler("updateConsolidationConfig");
+    const result = (await handler({ body: { enabled: false } })) as {
+      available: boolean;
+      enabled: boolean;
+      intervalMs: number;
+      nextRunAt: number | null;
+      success: boolean;
+    };
+
+    expect(readConfig()).toEqual({
+      memory: {
+        v2: {
+          enabled: true,
+          consolidation_interval_hours: 4,
+          consolidation_enabled: false,
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      available: true,
+      enabled: false,
+      intervalMs: 4 * 60 * 60 * 1000,
+      nextRunAt: null,
+      success: true,
+    });
+  });
+
+  test("disabling automatic consolidation cancels pending automatic jobs but preserves manual run-now jobs", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          memory: {
+            v2: {
+              enabled: true,
+              consolidation_enabled: true,
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const automaticJobId = enqueueMemoryJob("memory_v2_consolidate", {
+      trigger: "automatic",
+    });
+    const legacyJobId = enqueueMemoryJob("memory_v2_consolidate", {});
+    const manualJobId = enqueueMemoryJob("memory_v2_consolidate", {
+      trigger: "manual",
+    });
+
+    const handler = findHandler("updateConsolidationConfig");
+    await handler({ body: { enabled: false } });
+
+    const rowsById = new Map(
+      readMemoryJobRows().map((row) => [row.id, row] as const),
+    );
+    expect(rowsById.get(automaticJobId)).toMatchObject({
+      status: "failed",
+      lastError: "automatic_consolidation_disabled",
+    });
+    expect(rowsById.get(legacyJobId)).toMatchObject({
+      status: "failed",
+      lastError: "automatic_consolidation_disabled",
+    });
+    expect(rowsById.get(manualJobId)).toMatchObject({
+      status: "pending",
+      lastError: null,
+      payload: JSON.stringify({ trigger: "manual" }),
+    });
+  });
+
+  test("run-now remains available when automatic consolidation is disabled", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          memory: {
+            v2: {
+              enabled: true,
+              consolidation_enabled: false,
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const handler = findHandler("runConsolidationNow");
+    const result = (await handler({})) as {
+      success: boolean;
+      ran: boolean;
+      jobId: string | null;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.ran).toBe(true);
+    expect(result.jobId).toBeString();
+    const row = readMemoryJobRows().find((job) => job.id === result.jobId);
+    expect(row?.payload).toBe(JSON.stringify({ trigger: "manual" }));
   });
 });

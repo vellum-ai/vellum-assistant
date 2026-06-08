@@ -24,6 +24,7 @@ import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
 } from "@/domains/chat/api/history";
+import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -140,7 +141,7 @@ export function useHistoryPagination({
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    retry: false,
+    retry: shouldRetryDaemonError,
   });
 
   // Flatten pages into a single chronological array.

@@ -1,23 +1,23 @@
-import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Notice } from "@vellum/design-library/components/notice";
+import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
 import {
-  organizationsBillingAutoTopUpDisableCreateMutation,
-  organizationsBillingAutoTopUpRetrieveOptions,
-  organizationsBillingAutoTopUpRetrieveQueryKey,
-  organizationsBillingAutoTopUpUpdateMutation,
+    organizationsBillingAutoTopUpDisableCreateMutation,
+    organizationsBillingAutoTopUpRetrieveOptions,
+    organizationsBillingAutoTopUpRetrieveQueryKey,
+    organizationsBillingAutoTopUpUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import {
-  AutoTopUpForm,
-  type AutoTopUpFormValues,
-} from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
+import {
+    AutoTopUpForm,
+    type AutoTopUpFormValues,
+} from "@/domains/settings/components/auto-top-up-form";
 
 type Mode = "view" | "form";
 
@@ -81,9 +81,9 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
  * rendering the card.
  */
 export function extractAutoTopUpServerErrors(err: unknown): Record<string, string> {
-  if (!err || typeof err !== "object") return {};
+  if (!err || typeof err !== "object" || Array.isArray(err)) return {};
   const out: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(err as Record<string, unknown>)) {
+  for (const [key, messages] of Object.entries(err)) {
     if (Array.isArray(messages) && typeof messages[0] === "string") {
       out[key] = messages[0];
     }

@@ -194,6 +194,37 @@ describe("Button class output", () => {
     expect(html).toContain("text-label-medium-default");
   });
 
+  test("ghost icon-only button expands to a circular mobile tap target by default", () => {
+    const html = renderToStaticMarkup(
+      <Button variant="ghost" size="compact" iconOnly={<svg />} aria-label="a" />,
+    );
+    expect(html).toContain("max-md:h-10");
+    expect(html).toContain("max-md:w-10");
+    expect(html).toContain("max-md:rounded-full");
+    expect(html).toContain("max-md:size-4");
+  });
+
+  test("expandOnMobile={false} keeps an icon-only button compact on mobile", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        variant="ghost"
+        size="compact"
+        expandOnMobile={false}
+        iconOnly={<svg />}
+        aria-label="a"
+      />,
+    );
+    // Desktop sizing/chrome is preserved on mobile — none of the max-md
+    // expansion classes are emitted.
+    expect(html).not.toContain("max-md:h-10");
+    expect(html).not.toContain("max-md:w-10");
+    expect(html).not.toContain("max-md:rounded-full");
+    expect(html).not.toContain("max-md:size-4");
+    // The compact desktop dimensions still apply.
+    expect(html).toContain("h-6");
+    expect(html).toContain("w-6");
+  });
+
   test("no raw hex colors appear in rendered output", () => {
     const html = renderToStaticMarkup(
       <div>

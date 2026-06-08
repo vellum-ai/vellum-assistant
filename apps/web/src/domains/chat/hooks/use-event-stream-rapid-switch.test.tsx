@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
-import { useRef, type MutableRefObject } from "react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-
-type StreamContext = { assistantId: string; conversationId: string };
 
 type CapturedEvent = {
   event: AssistantEvent;
@@ -32,23 +29,12 @@ function renderEventStreamWithCapture(
   const result = renderHook(
     ({ key }: { key: string }) => {
       observeKeyRef.current = key;
-      const streamRef = useRef<ChatEventStream | null>(null);
-      const streamEpochRef = useRef(0);
-      const reconcileAfterNextStreamOpenRef = useRef(false);
-      const streamContextRef = useRef<StreamContext | null>(null);
-      const syncRouterRef = useRef(null) as MutableRefObject<
-        null
-      > as never;
-      const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
         activeConversationId: key,
         conversationExistsOnServer: true,
-        streamRef,
-        streamEpochRef,
-        reconcileAfterNextStreamOpenRef,
-        streamContextRef,
         handleStreamEvent: (event, epoch) => {
           captured.push({
             event,
@@ -63,10 +49,8 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setMessages: () => {},
-        setError: () => {},
-        syncRouterRef,
-        conversationListInvalidatedTimerRef: timerRef,
+        dispatchReconnect: async () => undefined,
+        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: initialKey } },
@@ -79,20 +63,25 @@ function renderEventStreamWithCapture(
 }
 
 function publishDelta(conversationId: string): void {
-  useEventBusStore.getState().publish("sse.event", {
-    type: "assistant_text_delta",
+  publish("sse.event", {
+    id: `evt-${Math.random().toString(36).slice(2, 6)}`,
     conversationId,
-    delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
-  } as unknown as AssistantEvent);
+    emittedAt: new Date().toISOString(),
+    message: {
+      type: "assistant_text_delta",
+      conversationId,
+      text: `delta-${Math.random().toString(36).slice(2, 6)}`,
+    },
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useEventStream — rapid conversation switch stress", () => {
@@ -137,15 +126,13 @@ describe("useEventStream — rapid conversation switch stress", () => {
   });
 
   test("delta published immediately after a commit but before any further event-loop tick is rejected if it's for the previous conversation", () => {
-    // Simulates the precise window the hotfix is meant to close:
-    // React has committed the new active key (latest-ref is updated
-    // during render and the commit ran) but the effect cleanup
-    // hasn't unsubscribed the OLD handler yet (concurrent React
-    // might pause between commit and effect flush). A delta for the
-    // previous conversation arrives in this window. The filter
-    // compares against the LATEST ref (updated during the new
-    // render), not the captured value from the old subscriber's
-    // closure, so the delta is rejected.
+    // The bus subscription is stable (never torn down / re-registered
+    // between conversations). After React commits a new active key,
+    // `activeConversationIdLatestRef` is updated in `useLayoutEffect`
+    // (commit phase). A delta for the previous conversation that
+    // arrives after commit is rejected because the SSE consumer's
+    // filter reads the LATEST ref, which already points to the new
+    // key.
     const observeKey = { current: "" };
     const { rerender, captured } = renderEventStreamWithCapture(
       "conv-A",
@@ -156,9 +143,9 @@ describe("useEventStream — rapid conversation switch stress", () => {
     act(() => {
       rerender({ key: "conv-B" });
     });
-    // rerender + act flushed: render body ran (ref is "conv-B"),
-    // effects ran (old subscription torn down, new subscription
-    // installed). Now a late "conv-A" delta arrives.
+    // rerender + act flushed: commit ran (`activeConversationIdLatestRef`
+    // is now "conv-B"). The bus subscription is unchanged — only the
+    // ref-based filter updated. Now a late "conv-A" delta arrives.
     publishDelta("conv-A");
     // The filter must reject it.
     expect(captured).toHaveLength(1);
@@ -232,17 +219,25 @@ describe("useEventStream — rapid conversation switch stress", () => {
       "conv-A",
       observeKey,
     );
-    useEventBusStore.getState().publish("sse.event", {
-      type: "sync_changed",
-      tags: ["assistant:self:identity"],
-    } as unknown as AssistantEvent);
+    publish("sse.event", {
+      id: "evt-sync-1",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "sync_changed",
+        tags: ["assistant:self:identity"],
+      },
+    } as AssistantEventEnvelope);
     act(() => {
       rerender({ key: "conv-B" });
     });
-    useEventBusStore.getState().publish("sse.event", {
-      type: "sync_changed",
-      tags: ["assistant:self:avatar"],
-    } as unknown as AssistantEvent);
+    publish("sse.event", {
+      id: "evt-sync-2",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "sync_changed",
+        tags: ["assistant:self:avatar"],
+      },
+    } as AssistantEventEnvelope);
     expect(captured).toHaveLength(2);
     expect((captured[0]!.event as { type: string }).type).toBe("sync_changed");
     expect((captured[1]!.event as { type: string }).type).toBe("sync_changed");

@@ -1,14 +1,13 @@
 /**
- * Hand-written fetch wrapper for the daemon's LLM call-site catalog endpoint.
- * Served via RuntimeProxyWildcardView — not in the Django OpenAPI schema.
+ * Fetch wrapper for the daemon's LLM call-site catalog endpoint.
+ * Consumes the generated daemon SDK; the catalog response type is derived
+ * from the route's declared schema.
  */
 
-import { client } from "@/generated/api/client.gen";
+import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 
-export interface UsageCallSiteDomainMetadata {
-  id: string;
-  displayName: string;
-}
+type CallSiteCatalogResponse = ConfigLlmCallsitesGetResponse;
 
 export interface UsageCallSiteMetadata {
   id: string;
@@ -17,43 +16,26 @@ export interface UsageCallSiteMetadata {
   domain: string;
 }
 
-export interface UsageCallSiteCatalogResponse {
-  domains: UsageCallSiteDomainMetadata[];
-  callSites: UsageCallSiteMetadata[];
-}
-
 export type UsageCallSiteMetadataMap = Record<string, UsageCallSiteMetadata>;
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-function stringOrEmpty(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 export function buildCallSiteMetadataMap(
-  catalog: UsageCallSiteCatalogResponse | null | undefined,
+  catalog: CallSiteCatalogResponse | null | undefined,
 ): UsageCallSiteMetadataMap {
   if (!catalog) {
     return {};
   }
 
   const map: UsageCallSiteMetadataMap = {};
-  const callSites = Array.isArray(catalog.callSites) ? catalog.callSites : [];
-  for (const callSite of callSites) {
-    if (
-      !isNonEmptyString(callSite.id) ||
-      !isNonEmptyString(callSite.displayName)
-    ) {
+  for (const callSite of catalog.callSites) {
+    if (!callSite.id || !callSite.displayName) {
       continue;
     }
 
     map[callSite.id] = {
       id: callSite.id,
       displayName: callSite.displayName,
-      description: stringOrEmpty(callSite.description),
-      domain: stringOrEmpty(callSite.domain),
+      description: callSite.description,
+      domain: callSite.domain,
     };
   }
 
@@ -62,13 +44,12 @@ export function buildCallSiteMetadataMap(
 
 export async function fetchUsageCallSiteCatalog(
   assistantId: string,
-): Promise<UsageCallSiteCatalogResponse> {
-  const { data, response } = await client.get<UsageCallSiteCatalogResponse>({
-    url: "/v1/assistants/{assistant_id}/config/llm/call-sites",
+): Promise<CallSiteCatalogResponse> {
+  const { data, response } = await configLlmCallsitesGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
-  if (!response || !response.ok) {
+  if (!response?.ok) {
     const text = await response
       ?.clone()
       .text()

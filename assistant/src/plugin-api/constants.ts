@@ -20,6 +20,14 @@ export const HOOKS = {
   SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
+  /** Fires immediately before each provider call. A hook may edit the outbound request (e.g. the system prompt) and opt the turn into deferred output streaming. */
+  PRE_MODEL_CALL: "pre-model-call",
+  /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
+  POST_TOOL_USE: "post-tool-use",
+  /** Fires when the model yields a response with no tool calls — the run's stop boundary. Decides whether to stop or continue with a follow-up turn. */
+  STOP: "stop",
+  /** Fires for each finalized assistant message, before it is persisted/streamed-final. A hook may transform the message content. */
+  ASSISTANT_MESSAGE: "assistant-message",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

@@ -5,7 +5,10 @@ on:
     branches: [main]
     paths:
       - 'apps/macos/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
       - '.github/workflows/ci-main-electron.yaml'
+      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +33,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       - name: Type check
         run: bun run typecheck
 
@@ -51,6 +59,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       - name: Build (main + preload)
         run: bun run build
 
@@ -71,6 +84,11 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Run tests
         run: bun run test:ci

@@ -1,4 +1,4 @@
-import { type MutableRefObject, useEffect, useRef } from "react";
+import { type MutableRefObject, useEffect, useLayoutEffect, useRef } from "react";
 import type { Terminal as TerminalType, IDisposable } from "xterm";
 import "xterm/css/xterm.css";
 
@@ -27,9 +27,11 @@ export function TerminalConsole({
   const onDataRef = useRef(onData);
   const onResizeRef = useRef(onResize);
   const readOnlyRef = useRef(readOnly);
-  onDataRef.current = onData;
-  onResizeRef.current = onResize;
-  readOnlyRef.current = readOnly;
+  useLayoutEffect(() => {
+    onDataRef.current = onData;
+    onResizeRef.current = onResize;
+    readOnlyRef.current = readOnly;
+  });
 
   useEffect(() => {
     const terminal = terminalRef.current;

@@ -1,87 +1,31 @@
-import { GripVertical, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Toggle } from "@vellum/design-library/components/toggle";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Tag } from "@vellum/design-library/components/tag";
-import { Typography } from "@vellum/design-library/components/typography";
-import { client } from "@/generated/api/client.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@vellumai/design-library/components/button";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Typography } from "@vellumai/design-library/components/typography";
 
-import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
+import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
+import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
+import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import {
-  AUTO_PROFILE_NAME,
-  gateAutoProfile,
-} from "@/domains/settings/ai/profile-pickers";
-import {
-  listConnections,
-  type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client";
-
-function filterFlaggedConnections(
-  connections: ProviderConnection[],
-  openAICompatibleEndpointsEnabled: boolean,
-): ProviderConnection[] {
-  if (openAICompatibleEndpointsEnabled) return connections;
-  return connections.filter((c) => c.provider !== "openai-compatible");
-}
+import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
+import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
+import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface Profile {
-  name: string;
-  source?: "managed" | "user";
-  status?: "active" | "disabled";
-  label?: string | null;
-  description?: string | null;
-  provider?: string | null;
-  /**
-   * Optional name of a `provider_connections` row this profile is bound to.
-   * Mirrors `ProfileEntry.provider_connection` — snake_case both on the
-   * wire AND on this in-memory shape (matches the daemon's Zod schema in
-   * `assistant/src/config/schemas/llm.ts` and the existing `ProfileEntry`
-   * convention in `page.tsx`). Used by `ProfileEditorModal` to populate
-   * the per-provider Connection sub-dropdown when re-opening a profile.
-   */
-  provider_connection?: string | null;
-  model?: string | null;
-  // Advanced inference params — passed through from the stored ProfileEntry
-  // so ProfileEditorModal can initialize them correctly in edit/view mode.
-  maxTokens?: number;
-  effort?: string;
-  speed?: string;
-  verbosity?: string;
-  temperature?: number | null;
-  thinking?: { enabled?: boolean; streamThinking?: boolean; level?: string };
-  contextWindow?: { maxInputTokens?: number };
-}
-
-interface BlockedDeleteState {
-  name: string;
-  label: string;
-  isActive: boolean;
-  callSiteIds: string[];
-}
-
 interface ManageProfilesModalProps {
   isOpen: boolean;
-  profiles: Record<string, ProfileEntry>;
-  profileOrder: string[];
-  activeProfile: string | null;
   assistantId: string;
-  callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
   onClose: () => void;
-  onProfilesChanged: (updates: {
-    profiles?: Record<string, ProfileEntry | null>;
-    profileOrder?: string[];
-    activeProfile?: string | null;
-    callSites?: Record<string, string>;
-  }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,58 +34,37 @@ interface ManageProfilesModalProps {
 
 export function ManageProfilesModal({
   isOpen,
-  profiles,
-  profileOrder,
-  activeProfile,
   assistantId,
-  callSiteOverrides,
   onClose,
-  onProfilesChanged,
 }: ManageProfilesModalProps) {
-  const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  // Provider connections, fetched alongside the modal so ProfileEditorModal can
-  // render the per-provider Connection sub-dropdown without dragging the
-  // entire SettingsStore into the editor. Mirrors the macOS pattern where
-  // `InferenceProfilesSheet` owns the connections list and passes it down to
-  // `InferenceProfileEditor` as a `connections` prop. Re-fetches whenever the
-  // editor closes so cross-surface additions (e.g. user creates a connection
-  // from another tab) are picked up before the user opens another profile.
-  //
-  // `undefined` vs `[]` is meaningful:
-  // - `undefined` → `listConnections` has not yet resolved (pre-load window).
-  //   The editor's provider picker falls back to the full catalog so the
-  //   trigger isn't empty during that gap.
-  // - `[]` → fetch returned zero connections. Fresh workspace with nothing
-  //   configured. The editor's filter runs and yields empty, the empty-state
-  //   hint fires, and the user is steered to Providers instead of being
-  //   allowed to bind a profile to a non-dispatchable provider.
-  //
-  // Mirrors macOS `InferenceProfilesSheet.connections: [ProviderConnection]?`
-  // (PR #30330 follow-up). The web sibling had the same nil-vs-empty trap.
-  const [connections, setConnections] = useState<ProviderConnection[] | undefined>(undefined);
+  const {
+    profiles,
+    profileOrder,
+    orderedProfiles,
+    activeProfile,
+    callSites,
+  } = useDaemonConfigQuery();
+  const configMutation = useDaemonConfigMutation();
 
-  useEffect(() => {
-    if (!isOpen) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const fresh = await listConnections(assistantId);
-        if (!cancelled) {
-          setConnections(
-            filterFlaggedConnections(fresh, openAICompatibleEndpoints),
-          );
-        }
-      } catch {
-        // Tolerate failure — keep stale list so the editor still has options
-        // if the backend hiccups. Matches macOS `refreshConnections()`.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, assistantId, editorOpen, openAICompatibleEndpoints]);
+  const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
+  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
+
+  // Provider connections — shared TanStack Query cache with ManageProvidersModal.
+  const { data: connectionsData } = useQuery({
+    ...inferenceProviderconnectionsGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: isOpen,
+  });
+  const connections = useMemo(
+    () =>
+      connectionsData
+        ? filterFlaggedConnections(connectionsData.connections, openAICompatibleEndpoints)
+        : undefined,
+    [connectionsData, openAICompatibleEndpoints],
+  );
 
   const existingNames = Object.keys(profiles);
 
@@ -156,163 +79,58 @@ export function ManageProfilesModal({
     // Merge mode (view-mode managed-profile policy edits): send a single
     // deep-merge PATCH so the caller's partial `entry` (typically just
     // `{label, status}`) layers on top of the existing record without
-    // wiping seed-owned fields. Skip the delete-then-recreate cycle that
-    // replace mode uses. Codex P1 / Devin 🔴 on PR #6543: without this
-    // branch, view-mode Save would destroy provider/model/advanced params
-    // because the recreate step writes back ONLY the partial entry.
+    // wiping seed-owned fields.
     if (mode === "merge" && !isNew) {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: entry } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      // Mirror the server's deep-merge in the in-memory state so the
-      // parent's profile map stays consistent with what's on disk.
-      const mergedEntry: ProfileEntry = {
-        ...profiles[name],
-        ...entry,
-      };
-      onProfilesChanged({ profiles: { [name]: mergedEntry } });
+      await configMutation.mutateAsync({ llm: { profiles: { [name]: entry } } });
       setEditorOpen(false);
       setEditingProfile(null);
       return;
     }
 
-    const updates: {
-      profiles: Record<string, ProfileEntry>;
-      profileOrder?: string[];
-    } = {
-      profiles: { [name]: entry },
-    };
-    // Build a single atomic PATCH so profile + profileOrder land together.
     const llmPatch: {
       profiles: Record<string, ProfileEntry>;
       profileOrder?: string[];
     } = { profiles: { [name]: entry } };
     if (isNew) {
-      // Dedup guard: skip append if name already in profileOrder (stale config).
       const newOrder = profileOrder.includes(name)
         ? profileOrder
         : [...profileOrder, name];
       llmPatch.profileOrder = newOrder;
-      updates.profileOrder = newOrder;
     }
+
     // For edits: delete the existing profile fragment first so the new entry
     // is a clean replacement rather than a deep-merge. This lets the user
-    // reset advanced params (maxTokens, effort, speed, etc.) back to "inherit"
-    // by using the Inherit button — without this step, deep-merge semantics
-    // in deepMergeOverwrite would silently preserve old values for omitted keys.
-    // deepMergeOverwrite treats { profiles: { [name]: null } } as a delete-sentinel
-    // for the object key, completely removing the profile fragment from config.
-    //
-    // Rollback: if the recreate PATCH fails after the delete succeeds, we
-    // attempt to restore the original entry to avoid data loss. If rollback
-    // also fails, the error is still re-thrown so the caller surfaces it.
+    // reset advanced params back to "inherit" — without this step, deep-merge
+    // semantics would silently preserve old values for omitted keys.
     if (!isNew) {
       const oldEntry = profiles[name];
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: null } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
+      await configMutation.mutateAsync({ llm: { profiles: { [name]: null } } });
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
-          path: { assistant_id: assistantId },
-          body: { llm: llmPatch },
-          headers: { "Content-Type": "application/json" },
-          throwOnError: true,
-        });
+        await configMutation.mutateAsync({ llm: llmPatch });
       } catch (recreateErr) {
+        captureError(recreateErr, { context: "settings-ai-profile-edit-recreate" });
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
-          await client
-            .patch({
-              url: `/v1/assistants/{assistant_id}/config`,
-              path: { assistant_id: assistantId },
-              body: { llm: { profiles: { [name]: oldEntry } } },
-              headers: { "Content-Type": "application/json" },
-              throwOnError: true,
-            })
-            .catch(() => {
-              /* rollback failed — original error still propagates */
-            });
+          await configMutation.mutateAsync({ llm: { profiles: { [name]: oldEntry } } }).catch(() => {
+            /* rollback failed — original error still propagates */
+          });
         }
         throw recreateErr;
       }
     } else {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: llmPatch },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
+      await configMutation.mutateAsync({ llm: llmPatch });
     }
-    onProfilesChanged(updates);
+
+    // Fire the profile-create success toast from the SETTINGS surface only.
+    // The composer quick-add surface owns its own create toast, so firing
+    // here (rather than inside ProfileEditorModal, which both surfaces share)
+    // keeps exactly one success toast per create with no double-fire.
+    if (isNew) {
+      toast.success(`Profile "${entry.label ?? name}" created`);
+    }
+
     setEditorOpen(false);
     setEditingProfile(null);
-  }
-
-  // `profiles` is captured at handler-definition time; we need the LATEST
-  // entry inside the rollback path so concurrent edits (e.g. user opens the
-  // editor mid-toggle and saves new fields) aren't clobbered when restoring
-  // `status`. The ref is updated on every render — reads are deferred to
-  // rollback so the closure stays fresh. (Codex P2, iter2 round 2.)
-  const profilesRef = useRef(profiles);
-  useEffect(() => {
-    profilesRef.current = profiles;
-  });
-
-  async function handleStatusToggle(
-    profile: Profile,
-    active: boolean,
-  ): Promise<boolean> {
-    const wireStatus: "active" | "disabled" = active ? "active" : "disabled";
-    const previousEntry = profiles[profile.name];
-    if (!previousEntry) return false;
-    const previousStatus = previousEntry.status;
-
-    // Optimistic update via the parent's onProfilesChanged. The parent
-    // owns the profiles state map and re-renders the modal with the
-    // flipped status; this mirrors how the editor save flow propagates
-    // changes upward.
-    onProfilesChanged({
-      profiles: {
-        [profile.name]: { ...previousEntry, status: wireStatus },
-      },
-    });
-    try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [profile.name]: { status: wireStatus } } } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      return true;
-    } catch {
-      // Selective rollback: restore only `status` on top of whatever the
-      // LATEST profile entry is. If the user saved an edit while this
-      // PATCH was in flight, those new fields survive — we only undo our
-      // own optimistic status flip.
-      const latestEntry = profilesRef.current[profile.name];
-      if (!latestEntry) {
-        // Profile was deleted while toggle was in flight — nothing to
-        // restore.
-        return false;
-      }
-      onProfilesChanged({
-        profiles: {
-          [profile.name]: { ...latestEntry, status: previousStatus },
-        },
-      });
-      return false;
-    }
   }
 
   return (
@@ -327,11 +145,10 @@ export function ManageProfilesModal({
           <ManageProfilesModalInner
             profiles={profiles}
             profileOrder={profileOrder}
+            orderedProfiles={orderedProfiles}
             activeProfile={activeProfile}
-            assistantId={assistantId}
-            callSiteOverrides={callSiteOverrides}
+            callSiteOverrides={callSites}
             onClose={onClose}
-            onProfilesChanged={onProfilesChanged}
             onEditClick={(profile) => {
               setEditingProfile(profile);
               setEditorOpen(true);
@@ -340,7 +157,6 @@ export function ManageProfilesModal({
               setEditingProfile(null);
               setEditorOpen(true);
             }}
-            onStatusToggle={handleStatusToggle}
           />
         ) : null}
       </Modal.Root>
@@ -355,10 +171,11 @@ export function ManageProfilesModal({
         }
         profileName={editingProfile?.name}
         initialValues={editingProfile ?? undefined}
-        assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
         openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
+        assistantId={assistantId}
+        chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
         onSave={handleEditorSave}
         onCancel={() => {
           setEditorOpen(false);
@@ -376,74 +193,35 @@ export function ManageProfilesModal({
 interface ManageProfilesModalInnerProps {
   profiles: Record<string, ProfileEntry>;
   profileOrder: string[];
+  orderedProfiles: ProfileWithName[];
   activeProfile: string | null;
-  assistantId: string;
   callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
   onClose: () => void;
-  onProfilesChanged: (updates: {
-    profiles?: Record<string, ProfileEntry | null>;
-    profileOrder?: string[];
-    activeProfile?: string | null;
-    callSites?: Record<string, string>;
-  }) => void;
-  onEditClick: (profile: Profile) => void;
+  onEditClick: (profile: ProfileWithName) => void;
   onNewClick: () => void;
-  /// Inline row-status toggle. Returns `true` on success, `false` on
-  /// failure (after the outer wrapper has already rolled back the
-  /// optimistic update). The inner uses this to surface a transient
-  /// error string when the daemon PATCH fails.
-  onStatusToggle: (profile: Profile, active: boolean) => Promise<boolean>;
 }
 
 function ManageProfilesModalInner({
   profiles,
   profileOrder,
+  orderedProfiles,
   activeProfile,
-  assistantId,
   callSiteOverrides,
   onClose,
-  onProfilesChanged,
   onEditClick,
   onNewClick,
-  onStatusToggle,
 }: ManageProfilesModalInnerProps) {
+  const configMutation = useDaemonConfigMutation();
+
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
-  /// Guards against overlapping toggles for the same profile so a rapid
-  /// off→on→off sequence can't produce out-of-order PATCH responses
-  /// that clobber the user's final intent. Mirrors `manage-providers-modal`.
   const [togglingNames, setTogglingNames] = useState<Set<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
-
-  async function handleRowStatusToggle(profile: Profile, active: boolean) {
-    if (togglingNames.has(profile.name)) return;
-    setTogglingNames((prev) => new Set(prev).add(profile.name));
-    setToggleError(null);
-    try {
-      const ok = await onStatusToggle(profile, active);
-      if (!ok) {
-        setToggleError(
-          `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
-        );
-      }
-    } finally {
-      setTogglingNames((prev) => {
-        const next = new Set(prev);
-        next.delete(profile.name);
-        return next;
-      });
-    }
-  }
 
   // Drag-and-drop state
   const [draggingName, setDraggingName] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ name: string; after: boolean } | null>(null);
   const [reorderError, setReorderError] = useState<string | null>(null);
-  // Tracks the last order successfully persisted to the server. Used for
-  // rollback so that a failed drag doesn't undo a concurrent successful one.
-  const lastConfirmedOrderRef = useRef<string[]>(profileOrder);
-  // Refs allow the onDrop handler to read the latest drag state without
-  // depending on React's batched state flushing across fireEvent calls.
   const draggingNameRef = useRef<string | null>(null);
   const dropTargetRef = useRef<{ name: string; after: boolean } | null>(null);
 
@@ -453,56 +231,50 @@ function ManageProfilesModalInner({
   const [blockedDeleteReplacement, setBlockedDeleteReplacement] = useState("");
   const [blockedDeleteSaving, setBlockedDeleteSaving] = useState(false);
 
+  const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   // Build ordered profile list
-  const orderedProfiles: Profile[] = profileOrder
-    .filter((name) => name in profiles)
-    .map((name) => {
-      const entry = profiles[name]!;
-      return {
-        name,
-        source: entry.source,
-        status: entry.status ?? "active",
-        label: entry.label ?? undefined,
-        description: entry.description ?? undefined,
-        provider: entry.provider ?? undefined,
-        provider_connection: entry.provider_connection ?? undefined,
-        model: entry.model ?? undefined,
-        maxTokens: entry.maxTokens,
-        effort: entry.effort,
-        speed: entry.speed,
-        verbosity: entry.verbosity,
-        temperature: entry.temperature,
-        thinking: entry.thinking,
-        contextWindow: entry.contextWindow,
-      };
-    });
+  const allOrderedProfiles: ProfileWithName[] = useMemo(() => {
+    return gateAutoProfile(orderedProfiles, queryComplexityRouting);
+  }, [orderedProfiles, queryComplexityRouting]);
 
-  // Profiles not explicitly in profileOrder but in profiles map
-  const profileNames = new Set(profileOrder);
-  const extraProfiles: Profile[] = Object.entries(profiles)
-    .filter(([name]) => !profileNames.has(name))
-    .map(([name, entry]) => ({
-      name,
-      source: entry.source,
-      status: entry.status ?? "active",
-      label: entry.label ?? undefined,
-      description: entry.description ?? undefined,
-      provider: entry.provider ?? undefined,
-      provider_connection: entry.provider_connection ?? undefined,
-      model: entry.model ?? undefined,
-      maxTokens: entry.maxTokens,
-      effort: entry.effort,
-      speed: entry.speed,
-      verbosity: entry.verbosity,
-      temperature: entry.temperature,
-      thinking: entry.thinking,
-      contextWindow: entry.contextWindow,
-    }));
+  async function handleStatusToggle(
+    profile: ProfileWithName,
+    active: boolean,
+  ): Promise<boolean> {
+    if (togglingNames.has(profile.name)) return false;
+    setTogglingNames((prev) => new Set(prev).add(profile.name));
+    setToggleError(null);
 
-  const allOrderedProfiles = gateAutoProfile(
-    [...orderedProfiles, ...extraProfiles],
-    useAssistantFeatureFlagStore.use.queryComplexityRouting(),
-  );
+    const wireStatus: ProfileStatus = active ? "active" : "disabled";
+    if (!profiles[profile.name]) {
+      setTogglingNames((prev) => {
+        const next = new Set(prev);
+        next.delete(profile.name);
+        return next;
+      });
+      return false;
+    }
+
+    try {
+      await configMutation.mutateAsync({
+        llm: { profiles: { [profile.name]: { status: wireStatus } } },
+      });
+      return true;
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-toggle" });
+      setToggleError(
+        `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
+      );
+      return false;
+    } finally {
+      setTogglingNames((prev) => {
+        const next = new Set(prev);
+        next.delete(profile.name);
+        return next;
+      });
+    }
+  }
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));
@@ -513,18 +285,11 @@ function ManageProfilesModalInner({
     });
     try {
       const newOrder = profileOrder.filter((n) => n !== name);
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: null }, profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
+      await configMutation.mutateAsync({
+        llm: { profiles: { [name]: null }, profileOrder: newOrder },
       });
-      onProfilesChanged({
-        profiles: { [name]: null },
-        profileOrder: newOrder,
-      });
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-delete" });
       setDeleteErrors((prev) => ({
         ...prev,
         [name]: "Failed to delete profile. Please try again.",
@@ -561,44 +326,25 @@ function ManageProfilesModalInner({
     setBlockedDeleteSaving(true);
     setBlockedDeleteError(null);
 
-    const patches: Record<string, unknown> = {};
+    const llmPatch: NonNullable<DaemonConfigPatch["llm"]> = {};
 
     if (blockedDelete.isActive) {
-      patches.activeProfile = blockedDeleteReplacement;
+      llmPatch.activeProfile = blockedDeleteReplacement;
     }
 
     if (blockedDelete.callSiteIds.length > 0) {
-      const callSitePatch: Record<string, unknown> = {};
+      const callSitePatch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of blockedDelete.callSiteIds) {
         callSitePatch[id] = { profile: blockedDeleteReplacement };
       }
-      patches.callSites = callSitePatch;
+      llmPatch.callSites = callSitePatch;
     }
 
-    if (Object.keys(patches).length > 0) {
+    if (Object.keys(llmPatch).length > 0) {
       try {
-        await client.patch({
-          url: `/v1/assistants/{assistant_id}/config`,
-          path: { assistant_id: assistantId },
-          body: { llm: patches },
-          headers: { "Content-Type": "application/json" },
-          throwOnError: true,
-        });
-        // Propagate all reassigned fields so the parent can invalidate its
-        // cache. This matters if the subsequent delete PATCH fails — without
-        // this call the parent's callSiteOverrides would stay stale and the
-        // user would see the blocked-delete modal again on retry.
-        const callSiteUpdate =
-          blockedDelete.callSiteIds.length > 0
-            ? Object.fromEntries(
-                blockedDelete.callSiteIds.map((id) => [id, blockedDeleteReplacement]),
-              )
-            : undefined;
-        onProfilesChanged({
-          ...(blockedDelete.isActive && { activeProfile: blockedDeleteReplacement }),
-          ...(callSiteUpdate && { callSites: callSiteUpdate }),
-        });
-      } catch {
+        await configMutation.mutateAsync({ llm: llmPatch });
+      } catch (error) {
+        captureError(error, { context: "settings-ai-profile-reassign-delete" });
         setBlockedDeleteError("Failed to reassign references. Please try again.");
         setBlockedDeleteSaving(false);
         return;
@@ -616,14 +362,10 @@ function ManageProfilesModalInner({
     target: { name: string; after: boolean },
   ) {
     if (sourceName === target.name) return;
-    // Clear any lingering error from a previous failed drag.
     setReorderError(null);
 
     const without = profileOrder.filter((n) => n !== sourceName);
     let insertAt = without.indexOf(target.name);
-    // Extra profiles (not in profileOrder) are valid drag targets but have no
-    // defined position — silently ignore drops onto them to avoid corrupting
-    // the order (indexOf would return -1 and slice(0, -1) would drop the last entry).
     if (insertAt === -1) return;
     if (target.after) insertAt += 1;
     const newOrder = [
@@ -632,31 +374,15 @@ function ManageProfilesModalInner({
       ...without.slice(insertAt),
     ];
 
-    // Optimistic update
-    onProfilesChanged({ profileOrder: newOrder });
-
     try {
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: assistantId },
-        body: { llm: { profileOrder: newOrder } },
-        headers: { "Content-Type": "application/json" },
-        throwOnError: true,
-      });
-      // Record the confirmed server state so concurrent-drag rollbacks
-      // don't accidentally undo a later successful reorder.
-      lastConfirmedOrderRef.current = newOrder;
-    } catch {
-      // Roll back to last confirmed server state, not the pre-drag capture,
-      // so a failed drag doesn't undo a concurrent successful one.
-      onProfilesChanged({ profileOrder: lastConfirmedOrderRef.current });
+      await configMutation.mutateAsync({ llm: { profileOrder: newOrder } });
+    } catch (error) {
+      captureError(error, { context: "settings-ai-profile-reorder" });
       setReorderError("Failed to reorder profiles. Please try again.");
     }
   }
 
-  // Prefer non-managed profiles as replacement targets. Fall back to managed
-  // profiles when there are no user profiles left — otherwise the modal could
-  // show an empty picker with no way for the user to proceed.
+  // Prefer non-managed profiles as replacement targets
   const userReplacements = allOrderedProfiles.filter(
     (p) => p.name !== blockedDelete?.name && p.source !== "managed",
   );
@@ -686,175 +412,61 @@ function ManageProfilesModalInner({
             </Typography>
           ) : (
             <div className="space-y-1">
-              {allOrderedProfiles.map((profile) => {
-                const isManaged = profile.source === "managed";
-                const isDeleting = deleting[profile.name] ?? false;
-                const deleteError = deleteErrors[profile.name];
-
-                const isActive = profile.status !== "disabled";
-                const isToggling = togglingNames.has(profile.name);
-                const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
-
-                return (
-                  <div key={profile.name} className="relative">
-                    {dropTarget?.name === profile.name && !dropTarget.after && (
-                      <div className="mx-0 h-0.5 rounded-full bg-[var(--border-active)]" />
-                    )}
-                    <div
-                      className={`flex items-center gap-2 rounded-lg pr-2 py-2${draggingName === profile.name ? " opacity-50" : ""}`}
-                      draggable={!isManaged}
-                      onDragStart={(e) => {
-                        draggingNameRef.current = profile.name;
-                        setDraggingName(profile.name);
-                        if (e.dataTransfer) {
-                          e.dataTransfer.effectAllowed = "move";
-                        }
-                      }}
-                      onDragEnd={() => {
-                        draggingNameRef.current = null;
-                        dropTargetRef.current = null;
-                        setDraggingName(null);
-                        setDropTarget(null);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const after = e.clientY > rect.top + rect.height / 2;
-                        const t = { name: profile.name, after };
-                        dropTargetRef.current = t;
-                        setDropTarget(t);
-                      }}
-                      onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                          dropTargetRef.current = null;
-                          setDropTarget((prev) =>
-                            prev?.name === profile.name ? null : prev,
-                          );
-                        }
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const source = draggingNameRef.current;
-                        const target = dropTargetRef.current;
-                        draggingNameRef.current = null;
-                        dropTargetRef.current = null;
-                        setDraggingName(null);
-                        setDropTarget(null);
-                        if (source && target) {
-                          void handleReorder(source, target);
-                        }
-                      }}
-                    >
-                      {/* Grip icon — invisible for managed profiles to preserve alignment */}
-                      <GripVertical
-                        className={`h-4 w-4 shrink-0 ${isManaged ? "invisible" : "cursor-grab text-[var(--content-tertiary)]"}`}
-                      />
-
-                      {/* Label — dimmed when disabled (matches macOS opacity) */}
-                      <div
-                        className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Typography
-                            variant="body-medium-default"
-                            as="span"
-                            className="text-(--content-default)"
-                          >
-                            {profile.label ?? profile.name}
-                          </Typography>
-                          {isManaged && profile.name !== AUTO_PROFILE_NAME && (
-                            <Tag
-                              tone="positive"
-                              title="Managed by Platform — auth is locked, but you can rename or disable this profile."
-                            >
-                              Platform
-                            </Tag>
-                          )}
-                        </div>
-                        {profile.description ? (
-                          <Typography
-                            variant="body-medium-lighter"
-                            as="p"
-                            className="mt-0.5 text-(--content-tertiary)"
-                          >
-                            {profile.description}
-                          </Typography>
-                        ) : null}
-                        {(profile.model ?? profile.provider) ? (
-                          <Typography
-                            variant="body-medium-lighter"
-                            as="p"
-                            className="mt-0.5 text-(--content-tertiary)"
-                          >
-                            {profile.model ?? profile.provider}
-                          </Typography>
-                        ) : null}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex shrink-0 items-center gap-2">
-                        {/* Keep toggle first in the action order; align it by
-                            reserving a fixed-width slot for trailing buttons. */}
-                        <div
-                          className="flex shrink-0 items-center"
-                          title={
-                            isActive
-                              ? "Active — toggle to hide from pickers"
-                              : "Disabled — toggle to show in pickers"
-                          }
-                        >
-                          <Toggle
-                            checked={isActive}
-                            onChange={(next) =>
-                              void handleRowStatusToggle(profile, next)
-                            }
-                            disabled={isToggling}
-                            aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
-                          />
-                        </div>
-                        <div
-                          className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="compact"
-                            onClick={() => onEditClick(profile)}
-                          >
-                            {isManaged ? "View" : "Edit"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="compact"
-                            iconOnly={<Trash2 />}
-                            aria-label={`Delete ${profile.label ?? profile.name}`}
-                            disabled={isManaged || isDeleting}
-                            title={
-                              isManaged ? "Managed profiles cannot be deleted" : undefined
-                            }
-                            onClick={() => handleDeleteClick(profile.name)}
-                            tintColor="var(--system-negative-strong)"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    {dropTarget?.name === profile.name && dropTarget.after && (
-                      <div className="mx-0 h-0.5 rounded-full bg-[var(--border-active)]" />
-                    )}
-                    {deleteError ? (
-                      <Typography
-                        variant="body-small-default"
-                        as="p"
-                        className="px-2 pb-1 text-(--system-negative-strong)"
-                      >
-                        {deleteError}
-                      </Typography>
-                    ) : null}
-                    {profile.name === AUTO_PROFILE_NAME && (
-                      <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
-                    )}
-                  </div>
-                );
-              })}
+              {allOrderedProfiles.map((profile) => (
+                <ProfileListItem
+                  key={profile.name}
+                  profile={profile}
+                  isDragging={draggingName === profile.name}
+                  dropTarget={dropTarget}
+                  isDeleting={deleting[profile.name] ?? false}
+                  deleteError={deleteErrors[profile.name]}
+                  isToggling={togglingNames.has(profile.name)}
+                  onDragStart={(e) => {
+                    draggingNameRef.current = profile.name;
+                    setDraggingName(profile.name);
+                    if (e.dataTransfer) {
+                      e.dataTransfer.effectAllowed = "move";
+                    }
+                  }}
+                  onDragEnd={() => {
+                    draggingNameRef.current = null;
+                    dropTargetRef.current = null;
+                    setDraggingName(null);
+                    setDropTarget(null);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const after = e.clientY > rect.top + rect.height / 2;
+                    const t = { name: profile.name, after };
+                    dropTargetRef.current = t;
+                    setDropTarget(t);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                      dropTargetRef.current = null;
+                      setDropTarget((prev) =>
+                        prev?.name === profile.name ? null : prev,
+                      );
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const source = draggingNameRef.current;
+                    const target = dropTargetRef.current;
+                    draggingNameRef.current = null;
+                    dropTargetRef.current = null;
+                    setDraggingName(null);
+                    setDropTarget(null);
+                    if (source && target) {
+                      void handleReorder(source, target);
+                    }
+                  }}
+                  onEditClick={() => onEditClick(profile)}
+                  onDeleteClick={() => handleDeleteClick(profile.name)}
+                  onStatusToggle={(next) => void handleStatusToggle(profile, next)}
+                />
+              ))}
             </div>
           )}
           {reorderError && (
@@ -901,112 +513,5 @@ function ManageProfilesModalInner({
         onConfirm={() => void handleReassignAndDelete()}
       />
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// BlockedDeleteModal
-// ---------------------------------------------------------------------------
-
-function BlockedDeleteModal({
-  blocked,
-  availableReplacements,
-  replacement,
-  onReplacementChange,
-  error,
-  saving,
-  onClose,
-  onConfirm,
-}: {
-  blocked: BlockedDeleteState | null;
-  availableReplacements: Profile[];
-  replacement: string;
-  onReplacementChange: (value: string) => void;
-  error: string | null;
-  saving: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  let summary = "";
-  if (blocked) {
-    const display = blocked.label || blocked.name;
-    if (blocked.isActive && blocked.callSiteIds.length > 0) {
-      summary = `"${display}" is the active profile and is used by ${blocked.callSiteIds.length} call site(s). Pick a replacement profile.`;
-    } else if (blocked.isActive) {
-      summary = `"${display}" is the active profile. Pick a different active profile before deleting, or select a replacement below.`;
-    } else {
-      summary = `"${display}" is used by ${blocked.callSiteIds.length} call site(s). Select a replacement profile to reassign them before deleting.`;
-    }
-  }
-
-  return (
-    <Modal.Root
-      open={blocked !== null}
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-    >
-      <Modal.Content size="sm">
-        <Modal.Header>
-          <Modal.Title>Can&apos;t Delete Profile</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="space-y-4">
-          <Typography variant="body-medium-default" as="p">
-            {summary}
-          </Typography>
-          {blocked && blocked.callSiteIds.length > 0 && (
-            <ul className="space-y-1 pl-1">
-              {blocked.callSiteIds.map((id) => (
-                <li
-                  key={id}
-                  className="text-body-small-default text-(--content-secondary)"
-                >
-                  • <code>{id}</code>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Replacement profile
-            </label>
-            <Dropdown
-              aria-label="Replacement profile"
-              value={replacement}
-              onChange={onReplacementChange}
-              options={[
-                { value: "", label: "Select a replacement…" },
-                ...availableReplacements.map((p) => ({
-                  value: p.name,
-                  label: p.label ?? p.name,
-                })),
-              ]}
-            />
-          </div>
-          {error && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-(--system-negative-strong)"
-            >
-              {error}
-            </Typography>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="ghost" size="compact" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="compact"
-            disabled={!replacement || saving}
-            onClick={onConfirm}
-          >
-            {saving ? "Saving…" : "Reassign and Delete"}
-          </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
   );
 }

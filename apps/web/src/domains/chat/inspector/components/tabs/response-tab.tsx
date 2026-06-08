@@ -1,12 +1,12 @@
 import { Copy, FileCode } from "lucide-react";
 import { type ReactNode } from "react";
 
-import { Button, Card } from "@vellum/design-library";
 import type {
-  LLMCallSummary,
-  LLMContextSection,
-  LLMRequestLogEntry,
+    LLMCallSummary,
+    LLMContextSection,
+    LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
+import { Button, Card } from "@vellumai/design-library";
 
 interface ResponseTabProps {
   entry: LLMRequestLogEntry;

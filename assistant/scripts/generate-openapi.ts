@@ -56,11 +56,23 @@ const RouteBodySchemaSchema = z.any().refine(
   { message: "Expected a Zod schema or a plain JSON Schema object" },
 );
 
-const RouteRequestBodyVariantSchema = z.object({
+/** Explicit `{ contentType, schema }` body for non-JSON media types. */
+const RouteBodyWithContentTypeSchema = z.object({
   contentType: z.string(),
   /** Zod schema OR plain JSON Schema fragment. */
   schema: z.any(),
 });
+
+/**
+ * A route's request or success-response body: either a bare Zod/JSON schema
+ * (advertised as `application/json`) or an explicit `{ contentType, schema }`
+ * pair for non-JSON media (e.g. an `application/octet-stream` upload or binary
+ * download).
+ */
+const RouteContentBodySchema = z.union([
+  RouteBodyWithContentTypeSchema,
+  RouteBodySchemaSchema,
+]);
 
 const RouteAdditionalResponseSchema = z.object({
   description: z.string(),
@@ -79,12 +91,10 @@ const RouteEntrySchema = z.object({
   tags: z.array(z.string()).optional(),
   /** Query parameter definitions. */
   queryParams: z.array(RouteQueryParamSchema).optional(),
-  /** JSON Schema for the request body. */
-  requestBody: RouteBodySchemaSchema.optional(),
-  /** Multi-content-type request body variants (overrides `requestBody` when present). */
-  requestBodies: z.array(RouteRequestBodyVariantSchema).optional(),
-  /** JSON Schema for the success response body. */
-  responseBody: RouteBodySchemaSchema.optional(),
+  /** Request body: a bare Zod/JSON schema (JSON) or `{ contentType, schema }`. */
+  requestBody: RouteContentBodySchema.optional(),
+  /** Success response body: a bare Zod/JSON schema (JSON) or `{ contentType, schema }`. */
+  responseBody: RouteContentBodySchema.optional(),
   /** HTTP status code for the success response. Defaults to "200".
    * Callable responseStatus values (used at runtime) are ignored here. */
   responseStatus: z.preprocess(
@@ -127,11 +137,7 @@ function dropDefaultedFromRequired(node: unknown): void {
   const obj = node as Record<string, unknown>;
   const props = obj.properties;
   const required = obj.required;
-  if (
-    Array.isArray(required) &&
-    props != null &&
-    typeof props === "object"
-  ) {
+  if (Array.isArray(required) && props != null && typeof props === "object") {
     const propsRecord = props as Record<string, unknown>;
     const filtered = required.filter((name) => {
       if (typeof name !== "string") return true;
@@ -296,6 +302,11 @@ interface OpenApiParameter {
   description?: string;
 }
 
+interface OpenApiResponse {
+  description: string;
+  content?: Record<string, { schema: JSONSchemaObject }>;
+}
+
 interface OpenApiOperation {
   operationId: string;
   summary?: string;
@@ -306,13 +317,27 @@ interface OpenApiOperation {
     required: boolean;
     content: Record<string, { schema: JSONSchemaObject }>;
   };
-  responses: Record<
-    string,
-    {
-      description: string;
-      content?: Record<string, { schema: JSONSchemaObject }>;
-    }
-  >;
+  responses: Record<string, OpenApiResponse>;
+}
+
+/**
+ * Resolve a body declaration (request or success response) into its media type
+ * and the schema source to convert. A bare Zod/JSON schema is advertised as
+ * `application/json`; the explicit `{ contentType, schema }` form carries its
+ * own media type (e.g. `application/octet-stream` for binary bodies).
+ */
+function resolveBodyContent(body: unknown): {
+  contentType: string;
+  schemaSource: unknown;
+} {
+  const hasContentType =
+    typeof body === "object" && body !== null && "contentType" in body;
+  return {
+    contentType: hasContentType
+      ? (body as { contentType: string }).contentType
+      : "application/json",
+    schemaSource: hasContentType ? (body as { schema: unknown }).schema : body,
+  };
 }
 
 interface OpenApiPathItem {
@@ -424,22 +449,27 @@ function buildSpec(
     // that enqueue a job and return immediately set responseStatus: "202"
     // so the generated spec matches the handler's actual response code.
     const successStatus = entry.responseStatus ?? "200";
+    let successResponse: OpenApiResponse = {
+      description: "Successful response",
+    };
+    if (entry.responseBody) {
+      const { contentType, schemaSource } = resolveBodyContent(
+        entry.responseBody,
+      );
+      successResponse = {
+        description: "Successful response",
+        content: {
+          [contentType]: { schema: toJSONSchemaObject(schemaSource) },
+        },
+      };
+    }
     const operation: OpenApiOperation = {
       operationId,
       ...(entry.summary ? { summary: entry.summary } : {}),
       ...(entry.description ? { description: entry.description } : {}),
       ...(tags ? { tags } : {}),
       responses: {
-        [successStatus]: entry.responseBody
-          ? {
-              description: "Successful response",
-              content: {
-                "application/json": {
-                  schema: toJSONSchemaObject(entry.responseBody),
-                },
-              },
-            }
-          : { description: "Successful response" },
+        [successStatus]: successResponse,
       },
     };
 
@@ -447,26 +477,19 @@ function buildSpec(
       operation.parameters = parameters;
     }
 
-    // Multi-content-type request bodies take precedence over the single
-    // application/json requestBody. This lets an endpoint advertise a
-    // `oneOf`-style choice between `application/octet-stream`,
-    // `multipart/form-data`, and `application/json` on the same URL.
-    if (entry.requestBodies && entry.requestBodies.length > 0) {
-      const content: Record<string, { schema: JSONSchemaObject }> = {};
-      for (const variant of entry.requestBodies) {
-        content[variant.contentType] = {
-          schema: toJSONSchemaObject(variant.schema, {
-            stripRequiredDefaults: true,
-          }),
-        };
-      }
-      operation.requestBody = { required: true, content };
-    } else if (entry.requestBody) {
+    // A bare Zod/JSON schema is advertised as `application/json`; the
+    // explicit `{ contentType, schema }` form lets a route declare a non-JSON
+    // body (e.g. a raw `application/octet-stream` upload) so the generated SDK
+    // describes a real body type instead of `never`.
+    if (entry.requestBody) {
+      const { contentType, schemaSource } = resolveBodyContent(
+        entry.requestBody,
+      );
       operation.requestBody = {
         required: true,
         content: {
-          "application/json": {
-            schema: toJSONSchemaObject(entry.requestBody, {
+          [contentType]: {
+            schema: toJSONSchemaObject(schemaSource, {
               stripRequiredDefaults: true,
             }),
           },
@@ -496,7 +519,7 @@ function buildSpec(
   }
 
   return {
-    openapi: "3.0.0",
+    openapi: "3.1.0",
     info: {
       title: "Vellum Assistant API",
       version,
@@ -580,14 +603,21 @@ async function main() {
         }
       }
       if (firstDiff >= 0) {
-        const lineNo = (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
+        const lineNo =
+          (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
         const winStart = Math.max(0, firstDiff - 120);
         const winEnd = Math.min(maxLen, firstDiff + 120);
-        console.error(`First divergence at byte ${firstDiff} (~line ${lineNo}):`);
+        console.error(
+          `First divergence at byte ${firstDiff} (~line ${lineNo}):`,
+        );
         console.error(`  existing[${winStart}..${winEnd}]:`);
-        console.error(`    ${JSON.stringify(existing.slice(winStart, winEnd))}`);
+        console.error(
+          `    ${JSON.stringify(existing.slice(winStart, winEnd))}`,
+        );
         console.error(`  generated[${winStart}..${winEnd}]:`);
-        console.error(`    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`);
+        console.error(
+          `    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`,
+        );
       }
       // Also flag which path operations are present in one but not the other —
       // the common failure mode is a missing or duplicated route entry, and
@@ -611,11 +641,15 @@ async function main() {
         );
         if (inGeneratedOnly.length) {
           console.error(`  Only in generated (missing from committed yaml):`);
-          for (const p of inGeneratedOnly.slice(0, 20)) console.error(`    + ${p}`);
+          for (const p of inGeneratedOnly.slice(0, 20))
+            console.error(`    + ${p}`);
         }
         if (inExistingOnly.length) {
-          console.error(`  Only in existing (stale entries in committed yaml):`);
-          for (const p of inExistingOnly.slice(0, 20)) console.error(`    - ${p}`);
+          console.error(
+            `  Only in existing (stale entries in committed yaml):`,
+          );
+          for (const p of inExistingOnly.slice(0, 20))
+            console.error(`    - ${p}`);
         }
       }
       process.exit(1);

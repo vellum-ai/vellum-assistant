@@ -306,6 +306,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "vellum",
         status: "available",
+        category: "knowledge",
       }),
     };
 
@@ -322,6 +323,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       kind: "catalog",
       origin: "vellum",
       status: "available",
+      category: "knowledge",
     });
     expect(result.files).toHaveLength(2);
     for (const entry of result.files) {
@@ -455,6 +457,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "vellum",
         status: "available",
+        category: "knowledge",
       }),
     };
 
@@ -479,6 +482,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "vellum",
         status: "available",
+        category: "knowledge",
       }),
     };
 
@@ -504,6 +508,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "vellum",
         status: "available",
+        category: "knowledge",
       }),
     };
 
@@ -544,6 +549,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "skillssh",
         status: "available",
+        category: "knowledge",
         slug: id,
         sourceRepo: "owner/repo",
         installs: 0,
@@ -603,6 +609,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "clawhub",
         status: "available",
+        category: "knowledge",
         slug: "cool-tool",
         author: "someone",
         stars: 5,
@@ -662,6 +669,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "vellum",
         status: "available",
+        category: "knowledge",
       }),
     };
     mockSkillsshProvider = {
@@ -678,6 +686,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "skillssh",
         status: "available",
+        category: "knowledge",
         slug: "contested-skill",
         sourceRepo: "",
         installs: 0,
@@ -697,6 +706,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         kind: "catalog",
         origin: "clawhub",
         status: "available",
+        category: "knowledge",
         slug: "contested-skill",
         author: "",
         stars: 0,

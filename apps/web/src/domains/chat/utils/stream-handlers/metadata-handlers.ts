@@ -4,11 +4,9 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import type {
   CompactionCircuitClosedEvent,
   CompactionCircuitOpenEvent,
-} from "@vellumai/assistant-api";
-import type {
   TurnProfileAutoRoutedEvent,
   UsageUpdateEvent,
-} from "@/types/event-types";
+} from "@vellumai/assistant-api";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,
@@ -29,9 +27,9 @@ export function handleUsageUpdate(
     maxTokens: resolvedMax,
     fillRatio,
   };
-  const streamCtx = ctx.streamContextRef.current;
+  const streamCtx = ctx.streamContext;
   if (streamCtx) {
-    ctx.contextWindowUsageByConversationRef.current.set(
+    ctx.contextWindowUsageByConversation.set(
       streamCtx.conversationId,
       usage,
     );

@@ -28,6 +28,7 @@ import {
   type RoutingIntent,
   type ScheduleJob,
   scheduleRetry,
+  setScheduleRunConversationId,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -303,7 +304,9 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Executing script schedule",
         );
-        const result: ScriptResult = await runScript(job.script);
+        const result: ScriptResult = await runScript(job.script, {
+          timeoutMs: job.timeoutMs ?? undefined,
+        });
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
           output: result.stdout || undefined,
@@ -440,6 +443,7 @@ export async function runScheduleDueWorkOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
+      const runId = createScheduleRun(job.id, null);
       let failed = false;
       try {
         log.info(
@@ -470,14 +474,13 @@ export async function runScheduleDueWorkOnce(
           },
         );
 
+        setScheduleRunConversationId(runId, result.conversationId);
         onScheduleConversationCreated?.({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
           title: result.status === "failed" ? `${job.name}: Error` : job.name,
         });
 
-        // Track the schedule run using the task's conversation
-        const runId = createScheduleRun(job.id, result.conversationId);
         if (result.status === "failed") {
           const errorMessage = result.error ?? "Task run failed";
           completeScheduleRun(runId, {
@@ -528,7 +531,7 @@ export async function runScheduleDueWorkOnce(
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
         });
-        const runId = createScheduleRun(job.id, fallbackConversation.id);
+        setScheduleRunConversationId(runId, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
         emitTaskActivityFailed({
           taskId,
@@ -582,6 +585,8 @@ export async function runScheduleDueWorkOnce(
     let ok: boolean;
     let errorMsg: string | undefined;
     const conversationReused = reusedConversationId != null;
+    let runConversationId = reusedConversationId;
+    const runId = createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
       // Reuse path: keep using the injected `processMessage` callback so the
@@ -623,6 +628,8 @@ export async function runScheduleDueWorkOnce(
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
         onConversationCreated: (newConversationId) => {
+          runConversationId = newConversationId;
+          setScheduleRunConversationId(runId, newConversationId);
           onScheduleConversationCreated?.({
             conversationId: newConversationId,
             scheduleJobId: job.id,
@@ -639,11 +646,13 @@ export async function runScheduleDueWorkOnce(
         !result.ok && result.conversationId === ""
           ? `bootstrap-error:${job.id}`
           : result.conversationId;
+      if (runConversationId !== conversationId) {
+        runConversationId = conversationId;
+        setScheduleRunConversationId(runId, conversationId);
+      }
       ok = result.ok;
       errorMsg = result.error?.message;
     }
-
-    const runId = createScheduleRun(job.id, conversationId);
 
     if (ok) {
       completeScheduleRun(runId, { status: "ok" });

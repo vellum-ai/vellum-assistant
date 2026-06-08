@@ -34,15 +34,26 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { InvalidPluginNameError } from "../../../cli/lib/install-from-github.js";
+import {
+  type InstallPluginOptions,
+  type InstallPluginResult,
+  InvalidPluginNameError,
+  PluginAlreadyInstalledError,
+  PluginNotFoundError,
+  PluginSourceUnavailableError,
+} from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
+import {
+  type PluginDetails,
+  PluginDetailsNotFoundError,
+  type PluginDetailsOptions,
+} from "../../../cli/lib/plugin-details.js";
 import type {
+  PluginCatalog,
   PluginSearchMatch,
   SearchPluginsDeps,
-  SearchPluginsOptions,
-  SearchPluginsResult,
 } from "../../../cli/lib/search-plugins.js";
-import { InvalidSearchPatternError } from "../../../cli/lib/search-plugins.js";
+import { PluginCatalogUnavailableError } from "../../../cli/lib/search-plugins.js";
 import {
   PluginNotInstalledError,
   type UninstallPluginOptions,
@@ -57,22 +68,18 @@ mock.module("../../../cli/lib/list-installed-plugins.js", () => ({
   listInstalledPlugins: () => installedFixture,
 }));
 
-// Mock searchPlugins: `searchSpy` records every invocation; the implementation
-// returns whatever `searchResult` is set to (or throws `searchError` when set).
-const searchSpy = mock(
-  async (
-    _opts: SearchPluginsOptions,
-    _deps: SearchPluginsDeps,
-  ): Promise<SearchPluginsResult> => {
-    throw new Error("searchSpy default impl not configured");
+// Mock the catalog cache: `getCatalogSpy` records every invocation and
+// returns the (unfiltered) catalog the route then filters in memory via the
+// real `filterPluginCatalog`. The real `search-plugins.js` module is left
+// unmocked so filtering + error classes behave exactly as in production.
+const getCatalogSpy = mock(
+  async (_ref: string, _deps: SearchPluginsDeps): Promise<PluginCatalog> => {
+    throw new Error("getCatalogSpy default impl not configured");
   },
 );
 
-mock.module("../../../cli/lib/search-plugins.js", () => ({
-  // Pass through the real error classes — the route handler checks
-  // `instanceof InvalidSearchPatternError`.
-  InvalidSearchPatternError,
-  searchPlugins: searchSpy,
+mock.module("../../../cli/lib/plugin-catalog-cache.js", () => ({
+  getPluginCatalog: getCatalogSpy,
 }));
 
 // Mock uninstallPlugin. The handler's error mapping is the wiring under
@@ -89,16 +96,50 @@ mock.module("../../../cli/lib/uninstall-plugin.js", () => ({
   uninstallPlugin: uninstallSpy,
 }));
 
+// Mock installPlugin. As with the other libs, the handler's error mapping
+// is the wiring under test; the lib's own behavior is covered separately.
+const installSpy = mock(
+  async (_opts: InstallPluginOptions): Promise<InstallPluginResult> => {
+    throw new Error("installSpy default impl not configured");
+  },
+);
+
 // `InvalidPluginNameError` is re-exported from uninstall-plugin.js but
 // the canonical definition lives in install-from-github.js. The
 // handler imports from install-from-github.js, so mock that too so the
-// `instanceof` check inside the handler resolves to the same class as
-// the one the spy throws.
+// `instanceof` checks inside the handler resolve to the same classes as
+// the ones the spies throw. The error classes are passed through real so
+// `instanceof` aligns.
 mock.module("../../../cli/lib/install-from-github.js", () => ({
+  DEFAULT_PLUGIN_REF: "main",
   InvalidPluginNameError,
+  PluginAlreadyInstalledError,
+  PluginNotFoundError,
+  PluginSourceUnavailableError,
+  installPlugin: installSpy,
 }));
 
-import { BadRequestError, InternalError, NotFoundError } from "../errors.js";
+// Mock getPluginDetails: the detail handler unions disk + manifest + repo
+// in the lib (covered by plugin-details.test.ts); here we isolate the
+// route's error mapping and pass-through.
+const detailsSpy = mock(
+  async (_opts: PluginDetailsOptions): Promise<PluginDetails> => {
+    throw new Error("detailsSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/plugin-details.js", () => ({
+  PluginDetailsNotFoundError,
+  getPluginDetails: detailsSpy,
+}));
+
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "../errors.js";
 import { ROUTES as PLUGINS_ROUTES } from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -111,10 +152,12 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 const listHandler = findHandler("plugins_list");
 const searchHandler = findHandler("plugins_search");
 const uninstallHandler = findHandler("plugins_uninstall");
+const getHandler = findHandler("plugins_get");
+const installHandler = findHandler("plugins_install");
 
-function invoke(
-  args: RouteHandlerArgs = {},
-): { plugins: Array<Record<string, unknown>> } {
+function invoke(args: RouteHandlerArgs = {}): {
+  plugins: Array<Record<string, unknown>>;
+} {
   return listHandler(args) as { plugins: Array<Record<string, unknown>> };
 }
 
@@ -268,7 +311,9 @@ describe("GET /v1/plugins", () => {
 
     // matches multiple
     expect(
-      invoke({ queryParams: { q: "o" } }).plugins.map((p) => p.id).sort(),
+      invoke({ queryParams: { q: "o" } })
+        .plugins.map((p) => p.id)
+        .sort(),
     ).toEqual(["calendar-sync", "todo", "weather"].sort());
 
     // no match
@@ -305,81 +350,129 @@ describe("GET /v1/plugins", () => {
 // GET /v1/plugins/search
 // ---------------------------------------------------------------------------
 
+function catalog(
+  ref: string,
+  matches: readonly PluginSearchMatch[],
+): PluginCatalog {
+  return { ref, matches };
+}
+
 describe("GET /v1/plugins/search", () => {
   beforeEach(() => {
-    searchSpy.mockClear();
-    // Default to a happy-path resolution; individual tests override as needed.
-    searchSpy.mockImplementation(async (opts) => ({
-      query: opts.query,
-      ref: opts.ref ?? "main",
-      matches: [],
-    }));
+    getCatalogSpy.mockClear();
+    // Default to a happy-path empty catalog; individual tests override.
+    getCatalogSpy.mockImplementation(async (ref) => catalog(ref, []));
   });
 
-  test("forwards ?q= and ?ref= to searchPlugins; returns its result", async () => {
-    searchSpy.mockImplementation(async (opts) => ({
-      query: opts.query,
-      ref: opts.ref ?? "main",
-      matches: [
-        { name: "simple-memory", path: "experimental/plugins/simple-memory" },
-        { name: "simple-router", path: "experimental/plugins/simple-router" },
-      ],
-    }));
+  test("resolves the catalog at the requested ref and filters by ?q=", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "simple-memory",
+          path: "experimental/plugins/simple-memory",
+          source: { kind: "first-party" },
+        },
+        {
+          name: "caveman",
+          path: "github:JuliusBrussee/caveman@v1.8.2",
+          description: "Ultra-compressed communication mode.",
+          source: {
+            kind: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ]),
+    );
 
     const result = await invokeSearch({
       queryParams: { q: "^simple", ref: "my-feature-branch" },
     });
 
-    // The lib received the exact query + ref we surfaced from the route.
-    expect(searchSpy).toHaveBeenCalledTimes(1);
-    const [opts] = searchSpy.mock.calls[0]!;
-    expect(opts.query).toBe("^simple");
-    expect(opts.ref).toBe("my-feature-branch");
+    // The cache was consulted once at the requested ref.
+    expect(getCatalogSpy).toHaveBeenCalledTimes(1);
+    const [ref] = getCatalogSpy.mock.calls[0]!;
+    expect(ref).toBe("my-feature-branch");
 
+    // The query is applied in-memory by the real filter: `^simple` matches
+    // only `simple-memory`, and the source discriminator is preserved.
     expect(result).toEqual({
       query: "^simple",
       ref: "my-feature-branch",
       matches: [
-        { name: "simple-memory", path: "experimental/plugins/simple-memory" },
-        { name: "simple-router", path: "experimental/plugins/simple-router" },
+        {
+          name: "simple-memory",
+          path: "experimental/plugins/simple-memory",
+          source: { kind: "first-party" },
+        },
       ],
     });
   });
 
-  test("missing ?q= passes empty string through (match-all per lib contract)", async () => {
-    await invokeSearch();
-    const [opts] = searchSpy.mock.calls[0]!;
-    expect(opts.query).toBe("");
-    // ref is omitted (undefined) when caller doesn't supply one — lib
-    // applies its DEFAULT_PLUGIN_REF fallback.
-    expect(opts.ref).toBeUndefined();
+  test("missing ?q= matches all (empty-string query) at the default ref", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "caveman",
+          path: "github:JuliusBrussee/caveman@v1.8.2",
+          source: {
+            kind: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ]),
+    );
+    const result = await invokeSearch();
+    const [ref] = getCatalogSpy.mock.calls[0]!;
+    // No ref supplied → route resolves the default ref before caching.
+    expect(ref).toBe("main");
+    expect(result.query).toBe("");
+    expect(result.matches.map((m) => m.name)).toEqual(["caveman"]);
   });
 
-  test("whitespace-only ?ref= is treated as missing", async () => {
+  test("whitespace-only ?ref= falls back to the default ref", async () => {
     await invokeSearch({ queryParams: { q: "x", ref: "   " } });
-    const [opts] = searchSpy.mock.calls[0]!;
-    expect(opts.ref).toBeUndefined();
+    const [ref] = getCatalogSpy.mock.calls[0]!;
+    expect(ref).toBe("main");
   });
 
-  test("supplies a bound globalThis.fetch as the lib's fetch dep", async () => {
+  test("supplies a bound globalThis.fetch as the catalog loader's fetch dep", async () => {
     await invokeSearch({ queryParams: { q: "memory" } });
-    const [, deps] = searchSpy.mock.calls[0]!;
+    const [, deps] = getCatalogSpy.mock.calls[0]!;
     expect(typeof deps.fetch).toBe("function");
   });
 
-  test("InvalidSearchPatternError → BadRequestError (400)", async () => {
-    searchSpy.mockImplementation(async () => {
-      throw new InvalidSearchPatternError("(", new SyntaxError("unbalanced"));
-    });
-
+  test("InvalidSearchPatternError → BadRequestError (400), before any catalog load", async () => {
+    // GIVEN a malformed regex query and a cold cache
+    // WHEN the search runs
+    // THEN it's a deterministic 400 AND the catalog is never loaded, so a
+    // user typo can't waste a GitHub request (which would otherwise surface
+    // as 503 on a rate-limited cold cache).
     await expect(
       invokeSearch({ queryParams: { q: "(" } }),
     ).rejects.toBeInstanceOf(BadRequestError);
+    expect(getCatalogSpy).not.toHaveBeenCalled();
+  });
+
+  test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
+    getCatalogSpy.mockImplementation(async () => {
+      throw new PluginCatalogUnavailableError(
+        "GitHub contents listing failed for experimental/plugins @ main: HTTP 403",
+        403,
+      );
+    });
+
+    // A rate-limited upstream (with no cache to fall back on) is transient
+    // and retryable — the route surfaces it as 503, not a misleading 500.
+    await expect(
+      invokeSearch({ queryParams: { q: "memory" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
   test("unknown errors → InternalError with original message preserved", async () => {
-    searchSpy.mockImplementation(async () => {
-      throw new Error("GitHub contents listing failed: HTTP 502");
+    getCatalogSpy.mockImplementation(async () => {
+      throw new Error("GitHub contents listing failed: HTTP 404");
     });
 
     await expect(
@@ -394,20 +487,28 @@ describe("GET /v1/plugins/search", () => {
 
   test("re-packs readonly match array into a mutable copy", async () => {
     const frozenMatches = Object.freeze([
-      Object.freeze({ name: "a", path: "experimental/plugins/a" }),
+      Object.freeze({
+        name: "a",
+        path: "experimental/plugins/a",
+        source: { kind: "first-party" } as const,
+      }),
     ]) as readonly PluginSearchMatch[];
-    searchSpy.mockImplementation(async (opts) => ({
-      query: opts.query,
-      ref: opts.ref ?? "main",
-      matches: frozenMatches,
-    }));
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, frozenMatches),
+    );
 
     const result = await invokeSearch({ queryParams: { q: "a" } });
     // The route returns a non-frozen array we can mutate without
     // touching the lib's internal cache. This matters when serializers
     // (or downstream test fixtures) reach in.
     expect(Object.isFrozen(result.matches)).toBe(false);
-    expect(() => result.matches.push({ name: "b", path: "x" })).not.toThrow();
+    expect(() =>
+      result.matches.push({
+        name: "b",
+        path: "x",
+        source: { kind: "first-party" },
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -508,5 +609,229 @@ describe("DELETE /v1/plugins/:name", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toBe("plugin uninstall failed");
+  });
+});
+
+function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
+  return {
+    name: overrides.name ?? "caveman",
+    installed: overrides.installed ?? false,
+    description: overrides.description ?? null,
+    homepage: overrides.homepage ?? null,
+    license: overrides.license ?? null,
+    version: overrides.version ?? null,
+    source: overrides.source ?? { kind: "first-party" },
+    readme: overrides.readme ?? null,
+    ref: overrides.ref ?? "main",
+  };
+}
+
+async function invokeGet(args: RouteHandlerArgs = {}): Promise<PluginDetails> {
+  return (await getHandler(args)) as PluginDetails;
+}
+
+describe("GET /v1/plugins/:name", () => {
+  beforeEach(() => {
+    detailsSpy.mockReset();
+  });
+
+  test("forwards name + ref to getPluginDetails and returns the detail view", async () => {
+    const view = pluginDetails({
+      name: "caveman",
+      installed: true,
+      description: "A loud agent plugin",
+      homepage: "https://example.com/caveman",
+      license: "MIT",
+      version: "1.8.2",
+      source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
+      readme: "# Caveman\n\nHello.",
+      ref: "v1.8.2",
+    });
+    detailsSpy.mockImplementation(async () => view);
+
+    const result = await invokeGet({
+      pathParams: { name: "caveman" },
+      queryParams: { ref: "v1.8.2" },
+    });
+
+    expect(result).toEqual(view);
+    expect(detailsSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "v1.8.2",
+    });
+  });
+
+  test("omits ref (passes undefined) when the query param is absent or blank", async () => {
+    detailsSpy.mockImplementation(async () => pluginDetails());
+
+    await invokeGet({ pathParams: { name: "caveman" }, queryParams: {} });
+    expect(detailsSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: undefined,
+    });
+
+    await invokeGet({
+      pathParams: { name: "caveman" },
+      queryParams: { ref: "   " },
+    });
+    expect(detailsSpy.mock.calls[1]?.[0]).toEqual({
+      name: "caveman",
+      ref: undefined,
+    });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginDetailsNotFoundError → NotFoundError (404)", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new PluginDetailsNotFoundError("ghost", "main");
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    detailsSpy.mockImplementation(async () => {
+      throw new Error("ENOTFOUND api.github.com");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeGet({ pathParams: { name: "caveman" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ENOTFOUND");
+  });
+});
+
+async function invokeInstall(args: RouteHandlerArgs = {}): Promise<{
+  ok: true;
+  name: string;
+  target: string;
+  fileCount: number;
+  ref: string;
+}> {
+  return (await installHandler(args)) as {
+    ok: true;
+    name: string;
+    target: string;
+    fileCount: number;
+    ref: string;
+  };
+}
+
+describe("POST /v1/plugins/install", () => {
+  beforeEach(() => {
+    installSpy.mockReset();
+  });
+
+  test("forwards name/ref/force to installPlugin and shapes the result", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+    }));
+
+    const result = await invokeInstall({
+      body: { name: "caveman", ref: "v1.8.2", force: true },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      name: "caveman",
+      target: "/workspace/.vellum/plugins/caveman",
+      fileCount: 7,
+      ref: "v1.8.2",
+    });
+    expect(installSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "v1.8.2",
+      force: true,
+    });
+  });
+
+  test("a missing name short-circuits to BadRequestError without calling the lib", async () => {
+    await expect(invokeInstall({ body: {} })).rejects.toBeInstanceOf(
+      BadRequestError,
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    installSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginAlreadyInstalledError → ConflictError (409)", async () => {
+    installSpy.mockImplementation(async (opts) => {
+      throw new PluginAlreadyInstalledError(
+        opts.name,
+        `/workspace/.vellum/plugins/${opts.name}`,
+      );
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("PluginNotFoundError → NotFoundError (404)", async () => {
+    installSpy.mockImplementation(async (opts) => {
+      throw new PluginNotFoundError(opts.name, "main", "example-org/ghost");
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
+    // A rate-limited or temporarily-down GitHub source is retryable: the
+    // route surfaces 503 so the client can back off and try again, rather
+    // than a misleading 500 that reads as a permanent failure.
+    installSpy.mockImplementation(async () => {
+      throw new PluginSourceUnavailableError(
+        "GitHub tree listing for JuliusBrussee/caveman @ v1.8.2: HTTP 403",
+        403,
+      );
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    installSpy.mockImplementation(async () => {
+      throw new Error("ECONNRESET");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeInstall({ body: { name: "caveman" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ECONNRESET");
   });
 });

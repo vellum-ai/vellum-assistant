@@ -179,11 +179,10 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string; textSegments: string[] }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("");
     // textSegments is omitted from payload when empty
     expect(body.messages[0].textSegments).toBeUndefined();
   });
@@ -201,11 +200,10 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string; textSegments: string[] }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("Real reply.");
     expect(body.messages[0].textSegments).toEqual(["Real reply."]);
   });
 
@@ -231,7 +229,6 @@ describe("handleListMessages no_response filtering", () => {
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: {
-        content: string;
         textSegments: string[];
         contentOrder: string[];
       }[];
@@ -254,11 +251,13 @@ describe("handleListMessages no_response filtering", () => {
 
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
-      messages: { content: string }[];
+      messages: { textSegments?: string[] }[];
     };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("What does <no_response/> do?");
+    expect(body.messages[0].textSegments).toEqual([
+      "What does <no_response/> do?",
+    ]);
   });
 });
 
@@ -267,7 +266,7 @@ describe("handleListMessages no_response filtering", () => {
 // ---------------------------------------------------------------------------
 
 interface PaginatedResponse {
-  messages: { id: string; content: string; timestamp: string }[];
+  messages: { id: string; timestamp: string }[];
   hasMore?: boolean;
   oldestTimestamp?: number;
   oldestMessageId?: string;

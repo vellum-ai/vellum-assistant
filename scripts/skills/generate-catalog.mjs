@@ -64,6 +64,13 @@ function buildEntry(skillName) {
   // Extract metadata (per agentskills.io spec, metadata is an arbitrary key-value map)
   if (frontmatter.metadata && typeof frontmatter.metadata === "object") {
     entry.metadata = frontmatter.metadata;
+
+    if (entry.metadata.icon) {
+      const iconPath = join(skillDir, entry.metadata.icon);
+      if (!statSync(iconPath, { throwIfNoEntry: false })?.isFile()) {
+        console.warn(`Warning: ${skillName} declares metadata.icon="${entry.metadata.icon}" but file not found`);
+      }
+    }
   }
 
   // Extract compatibility

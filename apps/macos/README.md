@@ -1,8 +1,9 @@
 # Electron wrapper
 
 Desktop shell for the Vellum Assistant macOS app. Wraps [`apps/web/`](../web/)
-in an Electron `BrowserWindow` and supervises the bundled assistant binary
-shipped under `Resources/`.
+in an Electron `BrowserWindow`. Each assistant's background processes are owned
+entirely by the `vellum` CLI, which the app invokes as a subprocess — the
+Electron app is a GUI client, not a process manager.
 
 This package is the macOS distribution surface (outside the App Store).
 Code signing, notarization, and auto-update wiring live in follow-up tickets.
@@ -80,14 +81,11 @@ need a distributable artifact.
 - **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
   static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
   a secure standard scheme.
-- **Assistant process** — The main process spawns the bundled assistant
-  binary at `process.resourcesPath/bun` (invoked with the `daemon` subcommand
-  the binary itself exposes). If it exits, it restarts with exponential
-  backoff (1s → 2s → 4s, capped at 30s). The backoff resets to 1s after any
-  run that stayed up for at least 60s, so a transient crash after a long
-  stable run doesn't inherit the prior wait. Missing binary (ENOENT) is
-  logged but does not retry — expected in local dev where the assistant
-  isn't bundled yet.
+- **Assistant process** — The app does not run or supervise any background
+  process of its own. Each local assistant runs its own processes, spawned and
+  managed by the `vellum` CLI; the main process only invokes the CLI as a
+  subprocess for lifecycle ops (hatch, retire, token). Packaging the CLI
+  runtime so this works in distributed builds is tracked in LUM-2085.
 
 ## Native macOS integration
 
@@ -145,7 +143,8 @@ apps/macos/
 ├── scripts/
 │   └── dev.ts                # probes vel-up at :3000, dispatches to standalone or electron-only
 ├── src/
-│   ├── main/index.ts         # window creation, app://, assistant supervisor
+│   ├── main/index.ts         # app:// protocol, app lifecycle, popup hardening
+│   ├── main/windows.ts       # hardened window-creation seam (webPreferences + nav policy)
 │   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
@@ -178,6 +177,17 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   `ALLOW_ACCESSORY_MODE` until a menu-bar (tray) entry point exists;
   until then the icon stays in the Dock so the user always has a way
   back to the window.
+- `localMode.*` — provisions and retires local assistants and reads/writes
+  the lockfile that records them. `hatch(species)` and `retire(assistantId)`
+  drive the Vellum CLI as a subprocess; `readLockfile()`,
+  `saveLockfileAssistant(assistant, activeAssistant?)`, and
+  `replacePlatformAssistants(platformAssistants)` read and write the lockfile
+  on disk. Every method is a thin wrapper over [`@vellumai/local-mode`](../../packages/local-mode/),
+  the shared host library that also backs the web app's dev-server middleware,
+  so the spawn/parse and lockfile logic lives in one place. The renderer-side
+  transport seam is [`apps/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
+  which selects this bridge on Electron and the dev-server `/assistant/__local/*`
+  middleware on web/dev so both hosts honor the same contract.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

@@ -2,23 +2,23 @@
  * Plugin bootstrap — runs every registered plugin's `init()` hook once during
  * daemon startup.
  *
- * Plugins register themselves via side-effect imports elsewhere in the boot
- * sequence (first-party) or at runtime (hot-reload). By the time
- * {@link bootstrapPlugins} runs, the registry has been fully populated for
- * this boot cycle. This function:
+ * The registry is populated before this runs: first-party defaults are
+ * registered explicitly (step 1 below), user plugins are registered by the
+ * user-plugin loader from the workspace `plugins/` directory, and hot-reload
+ * registers at runtime. By the time {@link bootstrapPlugins} runs, the
+ * registry has been fully populated for this boot cycle. This function:
  *
  * 1. Registers the canonical first-party default plugins via
- *    {@link registerDefaultPlugins} (one per pipeline). Registration is
- *    idempotent so repeat calls (e.g. during integration tests) do not throw.
+ *    {@link registerDefaultPlugins}. Registration is idempotent so repeat
+ *    calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
  *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
  *    contributions, no entry in the shutdown hook, and the plugin is also
- *    dropped from the registry via {@link unregisterPlugin} so its middleware
- *    and injectors stop participating in pipeline runs and system-prompt
- *    assembly. This is the primary mechanism for shipping experimental
- *    plugins behind a feature flag.
+ *    dropped from the registry via {@link unregisterPlugin} so none of its
+ *    hooks participate in the turn lifecycle. This is the primary mechanism for
+ *    shipping experimental plugins behind a feature flag.
  * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
  *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
@@ -82,6 +82,7 @@ import {
   type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
+import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
   registerSkillRoute,
   type SkillRouteHandle,
@@ -98,16 +99,6 @@ import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
-
-/**
- * Minimal context required to bootstrap the plugin layer. Kept intentionally
- * small so the call site in `lifecycle.ts` can construct it from whatever
- * state is already available at that point in startup.
- */
-export interface DaemonContext {
-  config: AssistantConfig;
-  assistantVersion: string;
-}
 
 /**
  * Resolve one credential value. Returns the raw secret string or throws a
@@ -192,6 +183,33 @@ function getDisabledPluginFlag(
 }
 
 /**
+ * Bring the plugin layer up during daemon startup. Runs the full sequence in
+ * the one order the rest of the system depends on:
+ *
+ * 1. Register the first-party defaults so their middleware composes innermost,
+ *    ahead of any user plugins.
+ * 2. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
+ *    logged and skipped; `loadUserPlugins()` closes the registration window
+ *    when it returns, so the defaults must already be registered by then.
+ * 3. Run every registered plugin's `init()` via {@link bootstrapPlugins}.
+ *
+ * Plugin bootstrap is wrapped so a failing plugin cannot block daemon startup —
+ * the daemon comes up with degraded plugin functionality instead.
+ */
+export async function initializePlugins(): Promise<void> {
+  registerDefaultPlugins();
+  await loadUserPlugins();
+  try {
+    await bootstrapPlugins();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
+    );
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -203,9 +221,9 @@ function getDisabledPluginFlag(
  * and before the first conversation is served. First-party defaults are
  * registered inline via {@link registerDefaultPlugins}.
  */
-export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+export async function bootstrapPlugins(): Promise<void> {
   // Register first-party default plugins. Each default wraps one of the
-  // assistant's canonical pipelines (`toolExecute`, `llmCall`, ...) with a
+  // assistant's canonical pipelines (`compaction`, `persistence`, ...) with a
   // passthrough so the pipeline shape is explicit at boot even when no
   // third-party plugins are loaded. Registration is idempotent via the
   // already-registered guard so repeated calls (e.g. during integration
@@ -214,14 +232,16 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path. The default injectors normally populate the registry,
-    // so this branch is primarily for tests that call
+    // No-op fast path. The default plugins normally populate the registry, so
+    // this branch is primarily for tests that call
     // `resetPluginRegistryForTests()` and stub the default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
   }
 
   log.info({ count: plugins.length }, "bootstrapPlugins: initializing plugins");
+
+  const assistantConfig = getConfig();
 
   // Plugins that passed `requiresFlag` gating and therefore need the full
   // init → contribute → shutdown lifecycle. Plugins skipped by the flag gate
@@ -237,15 +257,14 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // Tear down a plugin's contributions AND remove it from the registry. The
   // two steps always move together on the bootstrap failure path: the former
   // clears tools/routes/skills (so they stop appearing to the model/HTTP
-  // server), the latter drops the plugin's entry from the Map (so
-  // `getMiddlewaresFor` / `getInjectors` don't re-enter an uninitialized
-  // plugin on the next pipeline invocation).
+  // server), the latter drops the plugin's entry from the Map (so the registry
+  // doesn't expose an uninitialized plugin's hooks).
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the bootstrap-failure rollback and the normal
   // shutdown hook below. Only `assistantVersion` is exposed today; future
   // additions live on {@link PluginShutdownContext}.
   const shutdownContext: PluginShutdownContext = {
-    assistantVersion: ctx.assistantVersion,
+    assistantVersion: APP_VERSION,
   };
 
   async function rollbackPlugin(active: ActivePlugin): Promise<void> {
@@ -266,7 +285,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
-    const disabledFlag = getDisabledPluginFlag(plugin, ctx.config);
+    const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
     if (disabledFlag !== undefined) {
       log.info(
         { plugin: name, flag: disabledFlag },
@@ -277,7 +296,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     }
 
     try {
-      activePlugins.push(await initializePlugin(plugin, ctx));
+      activePlugins.push(await initializePlugin(plugin, assistantConfig));
     } catch (err) {
       unregisterPlugin(name);
       await teardownPartialInit();
@@ -326,7 +345,7 @@ interface ActivePlugin {
 
 async function initializePlugin(
   plugin: Plugin,
-  ctx: DaemonContext,
+  assistantConfig: AssistantConfig,
 ): Promise<ActivePlugin> {
   const name = plugin.manifest.name;
   const routeHandles: SkillRouteHandle[] = [];
@@ -341,7 +360,7 @@ async function initializePlugin(
     const config = validatePluginConfig(
       name,
       plugin.manifest.config,
-      getPluginConfigRaw(ctx.config, name),
+      getPluginConfigRaw(assistantConfig, name),
     );
 
     const initContext = {
@@ -349,7 +368,7 @@ async function initializePlugin(
       credentials,
       logger: log.child({ plugin: name }),
       pluginStorageDir: ensurePluginStorageDir(name),
-      assistantVersion: ctx.assistantVersion,
+      assistantVersion: APP_VERSION,
     };
 
     if (plugin.tools && plugin.tools.length > 0) {
@@ -417,7 +436,7 @@ async function initializePlugin(
   } catch (err) {
     if (initCompleted) {
       await teardownPlugin({ plugin, routeHandles }, "bootstrap-failed", {
-        assistantVersion: ctx.assistantVersion,
+        assistantVersion: APP_VERSION,
       });
     } else {
       for (const handle of routeHandles) {
@@ -519,11 +538,8 @@ export async function reregisterExternalPlugin(
     return;
   }
 
-  const ctx: DaemonContext = {
-    config: getConfig(),
-    assistantVersion: APP_VERSION,
-  };
-  const disabledFlag = getDisabledPluginFlag(plugin, ctx.config);
+  const assistantConfig = getConfig();
+  const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
   if (disabledFlag !== undefined) {
     log.info(
       { plugin: pluginName, flag: disabledFlag },
@@ -535,7 +551,7 @@ export async function reregisterExternalPlugin(
   const existing = getRegisteredPlugin(pluginName);
   if (existing === undefined) {
     try {
-      await initializePlugin(plugin, ctx);
+      await initializePlugin(plugin, assistantConfig);
       setRegisteredPlugin(plugin);
       log.info({ plugin: pluginName }, "external plugin registered post-boot");
     } catch (err) {

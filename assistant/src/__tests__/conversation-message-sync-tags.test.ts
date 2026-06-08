@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   conversationMessagesSyncTag,
-  type SyncChangedMessage,
+  type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
@@ -34,12 +34,11 @@ async function captureEvents(
   }
 }
 
-function syncMessages(events: AssistantEvent[]): SyncChangedMessage[] {
+function syncMessages(events: AssistantEvent[]): SyncChangedEvent[] {
   return events
     .map((event) => event.message)
     .filter(
-      (message): message is SyncChangedMessage =>
-        message.type === "sync_changed",
+      (message): message is SyncChangedEvent => message.type === "sync_changed",
     );
 }
 

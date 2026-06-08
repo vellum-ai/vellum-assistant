@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🌐"
   vellum:
+    category: "browsing"
     display-name: "Browser"
     activation-hints:
       - "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"

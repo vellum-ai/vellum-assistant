@@ -352,14 +352,15 @@ export interface HistoryConversationContext {
   readonly traceEmitter: TraceEmitter;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
-  processing: boolean;
+  isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   currentRequestId?: string;
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isUserMessage?: boolean;
       titleText?: string;
     },
@@ -371,7 +372,7 @@ export interface HistoryConversationContext {
  * Returns the number of messages removed.
  */
 export function undo(conversation: HistoryConversationContext): number {
-  if (conversation.processing) return 0;
+  if (conversation.isProcessing()) return 0;
 
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) return 0;
@@ -417,8 +418,12 @@ export async function regenerate(
   conversation: HistoryConversationContext,
   requestId?: string,
 ): Promise<void> {
-  if (conversation.processing) {
-    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "Cannot regenerate while processing" });
+  if (conversation.isProcessing()) {
+    conversation.sendToClient({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message: "Cannot regenerate while processing",
+    });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -437,7 +442,11 @@ export async function regenerate(
   // assistant's exchange that we want to regenerate.
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
   if (lastUserIdx === -1) {
-    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No messages to regenerate" });
+    conversation.sendToClient({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message: "No messages to regenerate",
+    });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -454,7 +463,11 @@ export async function regenerate(
 
   // There must be at least one message after the user message (the assistant reply).
   if (lastUserIdx >= conversation.messages.length - 1) {
-    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No assistant response to regenerate" });
+    conversation.sendToClient({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message: "No assistant response to regenerate",
+    });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -497,7 +510,11 @@ export async function regenerate(
   }
 
   if (dbUserMsgIdx === -1) {
-    conversation.sendToClient({ type: "error", conversationId: conversation.conversationId, message: "No user message found in DB" });
+    conversation.sendToClient({
+      type: "error",
+      conversationId: conversation.conversationId,
+      message: "No user message found in DB",
+    });
     if (requestId) {
       conversation.traceEmitter.emit(
         "request_error",
@@ -555,7 +572,7 @@ export async function regenerate(
   // Set up processing state manually and call runAgentLoop directly,
   // bypassing processMessage to avoid duplicating the user message
   // in both this.messages and the DB.
-  conversation.processing = true;
+  conversation.setProcessing(true);
   conversation.abortController = new AbortController();
   const resolvedRequestId = requestId ?? uuid();
   conversation.currentRequestId = resolvedRequestId;
@@ -572,7 +589,7 @@ export async function regenerate(
   // not await the agent loop. Emit a structured trace event so the
   // observability contract is preserved on those paths too.
   void conversation
-    .runAgentLoop(content, existingUserMessageId, undefined, {
+    .runAgentLoop(content, existingUserMessageId, {
       isUserMessage: true,
     })
     .catch((err) => {

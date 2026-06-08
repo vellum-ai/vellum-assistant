@@ -24,7 +24,8 @@ export type HeartbeatSkipReason =
   | "outside_active_hours"
   | "overlap"
   | "pre_first_user_message"
-  | "max_consecutive_runs";
+  | "max_consecutive_runs"
+  | "max_daily_runs";
 
 export interface HeartbeatRunRecord {
   id: string;
@@ -215,6 +216,58 @@ export function countCompletedHeartbeatRuns(): number {
     .where(eq(heartbeatRuns.status, "ok"))
     .get();
   return row?.count ?? 0;
+}
+
+/**
+ * Count heartbeat runs that completed with status `ok` today (local midnight).
+ */
+export function countCompletedRunsToday(): number {
+  const db = getDb();
+  const now = new Date();
+  const startOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(heartbeatRuns)
+    .where(
+      sql`${heartbeatRuns.status} = 'ok' AND ${heartbeatRuns.scheduledFor} >= ${startOfDay}`,
+    )
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
+ * Count the most recent consecutive heartbeat runs with status `ok`,
+ * walking backwards from newest. Stops at the first non-`ok` status
+ * (skipped, superseded, missed, error, timeout), which acts as a
+ * natural boundary for the consecutive-run counter. In-flight rows
+ * (`pending`, `running`) are skipped so they don't break the chain.
+ *
+ * Used to restore the in-memory consecutive-run counter on startup.
+ */
+export function countRecentConsecutiveRuns(maxToCheck: number): number {
+  const db = getDb();
+  const rows = db
+    .select({ status: heartbeatRuns.status })
+    .from(heartbeatRuns)
+    .orderBy(desc(heartbeatRuns.scheduledFor))
+    .limit(maxToCheck + 5)
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    if (row.status === "ok") {
+      count++;
+    } else if (row.status === "pending" || row.status === "running") {
+      continue;
+    } else {
+      break;
+    }
+  }
+  return count;
 }
 
 /**

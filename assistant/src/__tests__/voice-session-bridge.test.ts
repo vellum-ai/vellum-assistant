@@ -76,8 +76,9 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
         onEvent(event);
       }
@@ -95,10 +96,10 @@ function makePersistingStreamingSession(
 
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
+  let processing = false;
   const session = {
     conversationId,
     messages: [],
-    processing: false,
     abortController: null,
     currentRequestId: undefined,
     queue: {} as never,
@@ -107,7 +108,10 @@ function makePersistingStreamingSession(
       scopeId: "default",
       includeDefaultFallback: false,
     },
-    isProcessing: () => session.processing,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     persistUserMessage: async (
       ...args: Parameters<Conversation["persistUserMessage"]>
     ) => persistUserMessageImpl(session, ...args),
@@ -131,12 +135,13 @@ function makePersistingStreamingSession(
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
         onEvent(event);
       }
-      session.processing = false;
+      processing = false;
       session.abortController = null;
       session.currentRequestId = undefined;
     },
@@ -318,10 +323,12 @@ describe("voice-session-bridge", () => {
       runAgentLoop: async (
         _content: string,
         _messageId: string,
-        onEvent: (msg: ServerMessage) => void,
         options?: Record<string, unknown>,
       ) => {
         capturedOptions = options;
+        const onEvent =
+          (options as { onEvent?: (msg: ServerMessage) => void })?.onEvent ??
+          (() => {});
         for (const event of events) {
           onEvent(event);
         }
@@ -765,11 +772,13 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (
         requestId: string,
         decision: string,
-        _selectedPattern?: string,
-        _selectedScope?: string,
-        decisionContext?: string,
+        options?: { decisionContext?: string },
       ) => {
-        handleConfirmationCalls.push({ requestId, decision, decisionContext });
+        handleConfirmationCalls.push({
+          requestId,
+          decision,
+          decisionContext: options?.decisionContext,
+        });
       },
       abort: () => {},
     } as unknown as Conversation;

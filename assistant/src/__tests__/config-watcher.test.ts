@@ -231,11 +231,39 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(1);
   });
 
+  test("SOUL.md change triggers identity intro refetch notification", async () => {
+    let introCallCount = 0;
+    watcher.start(
+      onConversationEvict,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        introCallCount += 1;
+      },
+    );
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(introCallCount).toBe(1);
+  });
+
   test("IDENTITY.md change triggers onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(evictCallCount).toBe(1);
+  });
+
+  test("IDENTITY.md change triggers onIdentityChanged", async () => {
+    let identityCallCount = 0;
+    watcher.start(onConversationEvict, () => {
+      identityCallCount += 1;
+    });
+    simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(identityCallCount).toBe(1);
   });
 
   test("UPDATES.md is not subscribed (only the registered handler set is)", () => {

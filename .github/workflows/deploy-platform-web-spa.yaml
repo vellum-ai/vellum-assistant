@@ -1,0 +1,160 @@
+name: Deploy Web SPA (reusable)
+
+# Reusable workflow: build + publish the SPA for ONE GitHub environment.
+#
+# Split into two jobs so the privileged publish never shares a runner with
+# repository/dependency-controlled build code. `build-and-package` runs the
+# untrusted build (bun install/postinstall, openapi-ts, vite build) with NO
+# cloud credentials and uploads the resulting `dist/` as an artifact. `deploy`
+# then downloads that artifact into a fresh runner that holds the `id-token`
+# OIDC permission and authenticates to GCP — so build code can no longer plant
+# a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
+# in the post-auth publish step and exfiltrate the short-lived GCP credentials.
+#
+# The caller matrixes over environments (fail-fast: false), so each environment
+# is an independent instance of this workflow — a failure building `dev` never
+# blocks `staging`/`production`. `production` gates at `build-and-package` if it
+# has required reviewers; `deploy` then inherits the gate via `needs`.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target GitHub environment (dev | staging | production).
+        required: true
+        type: string
+
+jobs:
+  build-and-package:
+    name: Build SPA (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    environment: ${{ inputs.environment }}
+    # No id-token: this job runs untrusted build code and must never hold cloud
+    # credentials.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate API clients
+        run: bun run openapi-ts
+
+      # apps/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
+      # @vellumai/local-mode and its transitive @vellumai/environments file: dep.
+      # Both must have their own node_modules so the config loads at build time.
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      # Build per environment so the bundle bakes in this environment's public
+      # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)
+      # and the Sentry environment tag must match. Sources, per the GitHub config:
+      #   - VITE_SENTRY_DSN          repo-level variable (same for every env)
+      #   - VITE_SENTRY_ENVIRONMENT  per-environment variable (resolves via the
+      #                              job's `environment:`)
+      #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
+      #                              are public, so embedding them is expected
+      #   - VITE_VELAY_HOST          per-environment variable: the live-voice
+      #                              velay host (no scheme), e.g.
+      #                              `velay-dev.vellum.ai` on nonprod. Unset in
+      #                              prod, where the client defaults to
+      #                              `velay.vellum.ai`. Must match the velay the
+      #                              environment's assistant gateways tunnel to,
+      #                              or the live-voice WS upgrade 503s "offline".
+      #   - VITE_APP_VERSION         commit SHA baked into the browser bundle
+      #                              for Sentry event release tagging.
+      #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
+      #                              and Sentry release side effects.
+      #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
+      #                              inlines it — it only authenticates the
+      #                              build-time source-map upload and is not
+      #                              emitted into dist/.
+      # The API base URL is not baked in: in the browser the client uses
+      # same-origin paths, so each bucket's origin reaches its own backend.
+      - name: Build
+        env:
+          VITE_PLATFORM_MODE: "true"
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
+          VITE_APP_VERSION: ${{ github.sha }}
+          SENTRY_UPLOAD_SOURCE_MAPS: "true"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: bun run build
+
+      # `path` is resolved from the workspace root and is NOT affected by the
+      # job's `working-directory` default, so it must be the full `apps/web/dist`.
+      - name: Upload SPA artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-dist-${{ inputs.environment }}
+          path: apps/web/dist
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy SPA (${{ inputs.environment }})
+    needs: [build-and-package]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Download into workspace-root `dist/` (this job sets no working-directory
+      # default), matching the `dist/...` paths the publish step references.
+      - name: Download SPA artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: web-dist-${{ inputs.environment }}
+          path: dist
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Publish SPA to GCS
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          TARGET_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          BUCKET="${PROJECT_ID}-assistant-spa"
+
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html not found — the build produced no output."
+            exit 1
+          fi
+
+          # 1. Upload everything EXCEPT index.html with a long immutable cache,
+          #    additive (no deletion) so clients that loaded the previous shell can
+          #    still fetch their lazy-loaded hashed chunks during the rollout.
+          #    index.html is excluded here so that a run cancelled before step 2
+          #    (e.g. superseded by concurrency.cancel-in-progress) can never leave
+          #    the entrypoint pinned with a year-long immutable cache.
+          gcloud storage rsync -r \
+            --exclude="^index\.html$" \
+            --cache-control="public, max-age=31536000, immutable" \
+            dist "gs://${BUCKET}"
+
+          # 2. Upload the HTML entrypoint last, with no-cache, so the new release
+          #    only goes live once its assets exist and is always revalidated.
+          gcloud storage cp \
+            --cache-control="no-cache, max-age=0, must-revalidate" \
+            dist/index.html "gs://${BUCKET}/index.html"
+
+          echo "Published SPA to gs://${BUCKET}/ (environment=${TARGET_ENV})"

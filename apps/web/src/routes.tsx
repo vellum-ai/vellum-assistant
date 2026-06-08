@@ -6,6 +6,7 @@ import {
   onboardingCompletedMiddleware,
 } from "@/lib/onboarding-middleware";
 import { RootLayout } from "@/root-layout";
+import { AccountLayout } from "@/domains/account/account-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
@@ -46,8 +47,11 @@ function OAuthDesktopCompleteRedirect() {
 // - React Router lazy (data mode): https://reactrouter.com/start/data/custom#3-lazy-loading
 // - React Router error boundaries: https://reactrouter.com/how-to/error-boundary
 // - React Router middleware: https://reactrouter.com/how-to/middleware
-export const router = createBrowserRouter(
-  [
+// Exported separately from `router` so the route tree can be asserted in
+// tests: `createBrowserRouter` consumes `Component`, so structural checks
+// (e.g. "the OAuth popup pages are NOT under AccountLayout") must run against
+// these raw definitions.
+export const routeTree = [
     // Account routes — standalone auth pages, no app chrome.
     // Lazy-loaded: only needed for unauthenticated flows.
     {
@@ -61,16 +65,30 @@ export const router = createBrowserRouter(
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
-            { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
-            { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
-            { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
-            { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
-            { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+            // Auth screens that render in the MAIN window. AccountLayout sizes
+            // it compact (440×630) for these, matching onboarding.
+            {
+              Component: AccountLayout,
+              children: [
+                { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
+                { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
+                { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
+                { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
+                { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+                { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+                { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+              ],
+            },
+            // OAuth completion / loopback machinery. These render inside the
+            // OAuth popup child window (or are transient redirects), NOT the
+            // main window — so they're deliberately OUTSIDE AccountLayout and
+            // never mount the sizing hook. The resize IPC targets the
+            // module-scoped main window, so sizing from a popup would shrink
+            // the wrong window. See `use-onboarding-window-size`.
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
             { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
             { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
-            { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
-            { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+            { path: "platform-callback", lazy: { Component: () => import("@/domains/account/pages/platform-loopback-page").then((m) => m.PlatformLoopbackPage) } },
           ],
         },
       ],
@@ -86,6 +104,17 @@ export const router = createBrowserRouter(
     // tree below. URL sits under `/assistant/*` so it's served by
     // Vite's SPA fallback in dev (which is scoped to the `base`).
     { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
+
+    // Bundle confirmation — standalone page rendered inside the Electron
+    // bundle-confirmation BrowserWindow. No auth required so bundles can
+    // be opened before the user logs in. Same sibling pattern as About.
+    { path: "/assistant/bundle/confirm", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage) } },
+
+    // Quick Input — lightweight input panel rendered inside the Electron
+    // quick input BrowserWindow (a frameless, always-on-top panel invoked
+    // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
@@ -125,8 +154,16 @@ export const router = createBrowserRouter(
                   lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
                 },
                 {
+                  path: "onboarding/select-assistant",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
+                },
+                {
                   path: "onboarding/hosting",
                   lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
+                },
+                {
+                  path: "onboarding/api-key",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/api-key-screen").then((m) => m.ApiKeyScreen) },
                 },
               ],
             },
@@ -158,7 +195,9 @@ export const router = createBrowserRouter(
             { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
             { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
             { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
+            { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
             { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
+            { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
             { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
             { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
             { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
@@ -228,6 +267,7 @@ export const router = createBrowserRouter(
                   children: [
                     { path: "identity", lazy: { Component: () => import("@/identity-page-route").then((m) => m.IdentityPageRoute) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
+                    { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },
@@ -260,8 +300,8 @@ export const router = createBrowserRouter(
 
     // Top-level catch-all
     { path: "*", ErrorBoundary: RouteErrorBoundary, Component: NotFound },
-  ],
-  {
-    future: { v8_middleware: true },
-  },
-);
+];
+
+export const router = createBrowserRouter(routeTree as never, {
+  future: { v8_middleware: true },
+});

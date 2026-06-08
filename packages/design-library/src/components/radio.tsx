@@ -115,8 +115,8 @@ function Radio<T extends string>({
           "data-[state=checked]:border-transparent",
           "disabled:[--radio-border:var(--content-disabled)]",
           "disabled:cursor-not-allowed",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
-          "focus-visible:ring-[color-mix(in_srgb,var(--system-positive-strong)_30%,transparent)]",
+          "keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-offset-1",
+          "keyboard-focus:ring-[color-mix(in_srgb,var(--system-positive-strong)_30%,transparent)]",
         )}
         style={{ background: ringBg }}
       >

@@ -11,14 +11,12 @@ import {
   type InterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -48,26 +46,9 @@ import {
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
-import type { TrustContext } from "./trust-context.js";
+import { resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
-
-/**
- * Resolve the effective trust class for tool execution.
- *
- * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
- * so that control-plane gates don't block local development.
- *
- * When no trust context is available (e.g. desktop-only conversations that
- * don't go through channel trust resolution), defaults to `'unknown'`
- * to fail-closed.
- */
-export function resolveTrustClass(
-  trustContext: TrustContext | undefined,
-): TrustClass {
-  if (isHttpAuthDisabled()) return "guardian";
-  return trustContext?.trustClass ?? "unknown";
-}
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
@@ -97,7 +78,6 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  turnContext?: import("../plugins/types.js").TurnContext,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
   registerConversationSender(ctx.conversationId, (msg) =>
@@ -109,7 +89,6 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
-    turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
@@ -159,6 +138,7 @@ export function createToolExecutor(
         ctx.sendToClient(msg as ServerMessage);
         if (msg.type === "ui_surface_show") {
           const s = msg as unknown as UiSurfaceShow;
+          const surfaceToolCallId = s.toolCallId ?? toolUseId;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
             surfaceType: s.surfaceType,
@@ -167,6 +147,7 @@ export function createToolExecutor(
             actions: s.actions,
             display: s.display,
             ...(s.persistent ? { persistent: true } : {}),
+            ...(surfaceToolCallId ? { toolCallId: surfaceToolCallId } : {}),
           });
         }
       },
@@ -180,6 +161,7 @@ export function createToolExecutor(
           toolName,
           proxyInput,
           ctx.abortController?.signal,
+          toolUseId,
         ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
@@ -254,12 +236,7 @@ export function createToolExecutor(
         };
       }
 
-      const result = await executor.execute(
-        toolName,
-        toolInput,
-        toolContext,
-        turnContext,
-      );
+      const result = await executor.execute(toolName, toolInput, toolContext);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -273,7 +250,6 @@ export function createToolExecutor(
       executionName,
       executionInput,
       toolContext,
-      turnContext,
     );
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;

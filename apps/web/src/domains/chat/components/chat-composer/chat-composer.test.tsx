@@ -9,20 +9,133 @@
  *   2. `@testing-library/react` `render` for HTML surface checks (placeholder,
  *      send/stop button, disabled attribute).
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import type { ChatAttachment } from "@/domains/chat/composer-store";
+import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
-import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer";
+// Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
+// statically. `ChatComposer` itself is imported dynamically *after* the mocks
+// below so its transitive flag-store / live-voice / voice-input-button imports
+// resolve against the mocked modules.
+import {
+  computeGhostSuffix,
+  shouldSubmitOnEnter,
+} from "@/domains/chat/components/chat-composer/chat-composer-utils";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
+
+// Live-voice integration mocks. The composer mounts `LiveVoiceButton` (which
+// self-gates on `voice-mode`) and reads live-voice session state via the
+// `useLiveVoiceStore` per-field selectors for the transcript surface +
+// dictation mutual-exclusion. Both are mocked so the composer renders in
+// isolation: the flag via a mutable `mockVoiceMode`, and the session via a
+// mutable state + transcript bag exposed through the store's `.use.*`
+// selectors. Defaults (flag off, idle, empty) keep the existing HTML-surface
+// assertions unchanged.
+let mockVoiceMode = false;
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: {
+      voiceMode: () => mockVoiceMode,
+    },
+  },
+}));
+
+// Local mirror of the live-voice session phases this test exercises. Kept as a
+// narrow union (not an import from the `voice` domain) so the `chat` test stays
+// free of cross-domain coupling — the composer only ever distinguishes idle
+// from non-idle, so the precise phase taxonomy is irrelevant here.
+type MockLiveVoiceState = "idle" | "connecting" | "listening" | "failed";
+
+let mockLiveVoiceState: MockLiveVoiceState = "idle";
+let mockLivePartial = "";
+let mockLiveFinal = "";
+let mockLiveAssistant = "";
+const liveStartSpy = mock(
+  async (_assistantId: string, _conversationId?: string) => {},
+);
+const liveStopSpy = mock(async () => {});
+// The composer reads session state through the store's per-field selectors
+// (`useLiveVoiceStore.use.state()` etc.), so mock the store rather than the
+// `useLiveVoice` controller. `LiveVoiceButton` is the only `useLiveVoice`
+// consumer, and it is mocked separately below.
+mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
+  useLiveVoiceStore: {
+    use: {
+      state: () => mockLiveVoiceState,
+      partialTranscript: () => mockLivePartial,
+      finalTranscript: () => mockLiveFinal,
+      assistantTranscript: () => mockLiveAssistant,
+    },
+  },
+}));
+mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
+  useLiveVoice: () => ({
+    state: mockLiveVoiceState,
+    partialTranscript: mockLivePartial,
+    finalTranscript: mockLiveFinal,
+    assistantTranscript: mockLiveAssistant,
+    inputAmplitude: 0,
+    error: null,
+    start: liveStartSpy,
+    stop: liveStopSpy,
+  }),
+}));
+
+// The real `VoiceInputButton` self-suppresses (returns null) unless the test
+// DOM exposes `MediaRecorder` + `getUserMedia`, which happy-dom does not. Mock
+// it with a probe that always renders and mirrors its `disabled` prop so the
+// composer's mutual-exclusion wiring is observable. The handle is mocked too.
+mock.module("@/domains/chat/components/voice-input-button", () => ({
+  VoiceInputButton: (props: { disabled?: boolean }) => (
+    <button
+      type="button"
+      aria-label="Start voice input"
+      disabled={props.disabled ?? false}
+    />
+  ),
+}));
+
+// Dictation recording phase. The composer reads `useVoiceRecordingStore`
+// (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
+// via `mock.module` (rather than importing the store) so the `chat` test stays
+// free of cross-domain coupling, matching the live-voice mocks above. Only the
+// `.use.phase()` selector is consumed by the composer.
+let mockVoicePhase = "idle";
+mock.module("@/domains/chat/voice/voice-recording-store", () => ({
+  useVoiceRecordingStore: {
+    use: {
+      phase: () => mockVoicePhase,
+    },
+  },
+}));
+
+function resetLiveVoiceMocks() {
+  mockVoiceMode = false;
+  mockLiveVoiceState = "idle";
+  mockLivePartial = "";
+  mockLiveFinal = "";
+  mockLiveAssistant = "";
+  mockVoicePhase = "idle";
+  liveStartSpy.mockClear();
+  liveStopSpy.mockClear();
+}
+
+// Imported after the mocks so the component (and its transitive flag-store /
+// live-voice / voice-input-button imports) resolve against the mocked modules.
+// The pure helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
+// `chat-composer-utils`, imported statically above.
+const { ChatComposer } = await import(
+  "@/domains/chat/components/chat-composer/chat-composer"
+);
 
 // ---------------------------------------------------------------------------
 // shouldSubmitOnEnter — keyboard policy
@@ -277,6 +390,7 @@ describe("computeGhostSuffix", () => {
 // ---------------------------------------------------------------------------
 
 afterEach(cleanup);
+beforeEach(resetLiveVoiceMocks);
 
 function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
   const { container } = render(
@@ -294,6 +408,7 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       onAddAttachmentFiles={() => {}}
       onRemoveAttachment={() => {}}
       onStopGenerating={() => {}}
+      canStopGenerating={false}
       assistantId="asst_test"
       {...props}
     />,
@@ -314,62 +429,46 @@ describe("ChatComposer — placeholder", () => {
 });
 
 describe("ChatComposer — send/stop button visibility", () => {
-  test("idle state renders a Send button (aria-label='Send message')", () => {
+  test("canStopGenerating=false renders a Send button (aria-label='Send message')", () => {
+    const html = renderComposer({ canStopGenerating: false });
+    expect(html).toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("canStopGenerating=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
+    mockIsMobile = false;
+    const html = renderComposer({ canStopGenerating: true });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
+  });
+
+  test("canStopGenerating=true on mobile with no input renders only Stop button", () => {
+    mockIsMobile = true;
+    const html = renderComposer({ input: "", canStopGenerating: true });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
+    mockIsMobile = false;
+  });
+
+  test("canStopGenerating=true on mobile with user input renders only Send button", () => {
+    mockIsMobile = true;
+    const html = renderComposer({ input: "hello", canStopGenerating: true });
+    expect(html).not.toContain('aria-label="Stop generating"');
+    expect(html).toContain('aria-label="Send message"');
+    mockIsMobile = false;
+  });
+
+  test("canStopGenerating=false keeps the Send button even during awaiting_user_input", () => {
+    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "awaiting_user_input" });
+    const html = renderComposer({ canStopGenerating: false });
+    expect(html).toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("canStopGenerating=true shows stop button after page refresh (idle phase, server processing)", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
-    const html = renderComposer();
-    expect(html).toContain('aria-label="Send message"');
-    expect(html).not.toContain('aria-label="Stop generating"');
-  });
-
-  test("isSending=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
-    mockIsMobile = false;
-    const sending: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "streaming",
-    };
-    useTurnStore.setState(sending);
-    const html = renderComposer();
+    const html = renderComposer({ canStopGenerating: true });
     expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
-  });
-
-  test("isSending=true on mobile with no input renders only Stop button", () => {
-    mockIsMobile = true;
-    const sending: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "streaming",
-    };
-    useTurnStore.setState(sending);
-    const html = renderComposer({ input: "" });
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).not.toContain('aria-label="Send message"');
-    mockIsMobile = false;
-  });
-
-  test("isSending=true on mobile with user input renders only Send button", () => {
-    mockIsMobile = true;
-    const sending: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "streaming",
-    };
-    useTurnStore.setState(sending);
-    const html = renderComposer({ input: "hello" });
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).toContain('aria-label="Send message"');
-    mockIsMobile = false;
-  });
-
-  test("`awaiting_user_input` keeps the Send button (not Stop)", () => {
-    // isSending() returns true for awaiting_user_input, but the composer
-    // explicitly excludes that phase from the Stop variant — match source.
-    const awaiting: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "awaiting_user_input",
-    };
-    useTurnStore.setState(awaiting);
-    const html = renderComposer();
-    expect(html).toContain('aria-label="Send message"');
-    expect(html).not.toContain('aria-label="Stop generating"');
   });
 });
 
@@ -519,5 +618,182 @@ describe("Slash popup — SSR rendering", () => {
     // that the role="listbox" is absent when no slash input is active.
     const html = renderComposer({ input: "" });
     expect(html).not.toContain('role="listbox"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live-voice integration
+//
+// The live-voice button is only mounted alongside the dictation button (same
+// `voiceInputRef`/`onVoiceTranscript` precondition) and self-gates on the
+// `voice-mode` flag. These tests render the *voice-enabled* variant so both
+// mic affordances are in play.
+// ---------------------------------------------------------------------------
+
+/** Render the composer with the dictation voice props supplied. */
+function renderVoiceComposer(
+  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
+) {
+  return render(
+    <ChatComposer
+      input=""
+      setInput={() => {}}
+      onSubmit={() => {}}
+      inputRef={createRef<HTMLTextAreaElement>()}
+      typingDisabled={false}
+      sendDisabled={false}
+      attachmentsUploadingCount={0}
+      canSendAttachments={false}
+      chatAttachments={[]}
+      onAddAttachmentFiles={() => {}}
+      onRemoveAttachment={() => {}}
+      onStopGenerating={() => {}}
+      canStopGenerating={false}
+      assistantId="asst_test"
+      conversationId="conv_test"
+      voiceInputRef={createRef<VoiceInputButtonHandle>()}
+      onVoiceTranscript={() => {}}
+      {...props}
+    />,
+  );
+}
+
+describe("ChatComposer — live-voice integration", () => {
+  test("flag OFF: no live-voice button, dictation mic stays enabled", () => {
+    // GIVEN the voice-mode flag is disabled (default)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = false;
+
+    // WHEN the voice-enabled composer renders
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN the live-voice control is absent and dictation is unaffected
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+    expect(queryByLabelText("Stop voice mode")).toBeNull();
+    const dictation = queryByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement | null;
+    expect(dictation).not.toBeNull();
+    expect(dictation?.disabled).toBe(false);
+  });
+
+  test("flag ON, idle: live-voice button present, dictation still enabled", () => {
+    // GIVEN the flag is on with no active session
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+
+    // WHEN the composer renders
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN both mics are available and neither is forced disabled
+    expect(getByLabelText("Start voice mode")).toBeTruthy();
+    const dictation = queryByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement | null;
+    expect(dictation?.disabled).toBe(false);
+  });
+
+  test("active session disables dictation (mutual exclusion)", () => {
+    // GIVEN a live-voice session is listening
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the live-voice control is a stop affordance and the dictation
+    // mic is disabled so the two capture flows can't run together
+    expect(getByLabelText("Stop voice mode")).toBeTruthy();
+    const dictation = getByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement;
+    expect(dictation.disabled).toBe(true);
+  });
+
+  test("active session surfaces user + assistant transcripts", () => {
+    // GIVEN a listening session with partial speech and a streaming reply
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+    mockLivePartial = "what is the";
+    mockLiveAssistant = "Let me check";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the transcript surface shows both sides of the turn
+    const surface = getByLabelText("Live voice transcript");
+    expect(surface.textContent).toContain("what is the");
+    expect(surface.textContent).toContain("Let me check");
+  });
+
+  test("active session stays stoppable even when the composer is busy", () => {
+    // GIVEN a live session AND the composer is otherwise disabled
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders with typingDisabled raised
+    const { getByLabelText } = renderVoiceComposer({ typingDisabled: true });
+
+    // THEN the stop control is still actionable and clicking it stops
+    const stop = getByLabelText("Stop voice mode") as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    fireEvent.click(stop);
+    expect(liveStopSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("flag ON but no transcript content: surface stays empty when idle", () => {
+    // GIVEN the flag is on but the session is idle
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+
+    // WHEN the composer renders
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN no transcript surface is rendered (idle = nothing to show)
+    expect(queryByLabelText("Live voice transcript")).toBeNull();
+  });
+
+  test("dictation active disables the live-voice button (reverse mutual exclusion)", () => {
+    // GIVEN the flag is on, no live session, but dictation is active.
+    // `processing` is one of the two phases that make the composer's
+    // `isVoiceActive` true (alongside `recording`); we use it because
+    // `recording` additionally spins up amplitude analysis (getUserMedia),
+    // which happy-dom doesn't provide — the mutual-exclusion signal is the
+    // same either way.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the live-voice start affordance is disabled so it can't open a
+    // second mic/voice session alongside the dictation recorder
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+  });
+
+  test("failed live-voice state is inactive: dictation re-enabled, no transcript surface", () => {
+    // GIVEN the flag is on and a live-voice start attempt has failed
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "failed";
+
+    // WHEN the composer renders (dictation idle)
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN dictation is treated as available again (failed = inactive)...
+    const dictation = getByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement;
+    expect(dictation.disabled).toBe(false);
+    // ...and the transcript surface is unmounted rather than left hanging
+    expect(queryByLabelText("Live voice transcript")).toBeNull();
   });
 });

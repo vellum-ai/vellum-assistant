@@ -298,26 +298,22 @@ export async function sweepFailedEvents(
 
     let userMessageId: string | undefined;
     try {
-      const result = await processMessage(
-        event.conversationId,
-        content,
+      const result = await processMessage(event.conversationId, content, {
         attachmentIds,
-        {
-          transport: {
-            channelId: sourceChannel,
-            hints: metadataHints.length > 0 ? metadataHints : undefined,
-            uxBrief: metadataUxBrief,
-            chatType: metadataChatType,
-          },
-          assistantId,
-          trustContext,
-          isInteractive:
-            resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
-          onEvent: observeAgentEvent,
+        transport: {
+          channelId: sourceChannel,
+          hints: metadataHints.length > 0 ? metadataHints : undefined,
+          uxBrief: metadataUxBrief,
+          chatType: metadataChatType,
         },
+        assistantId,
+        trustContext,
+        isInteractive:
+          resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+        onEvent: observeAgentEvent,
         sourceChannel,
         sourceInterface,
-      );
+      });
       userMessageId = result.messageId;
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);

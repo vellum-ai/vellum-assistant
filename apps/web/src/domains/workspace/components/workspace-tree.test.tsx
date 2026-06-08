@@ -9,7 +9,7 @@
  * (same pattern as conversation-actions-menu.test.tsx).
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -22,7 +22,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
 
-mock.module("@vellum/design-library/components/bottom-sheet", () => ({
+mock.module("@vellumai/design-library/components/bottom-sheet", () => ({
   BottomSheet: {
     Root: passthrough,
     Trigger: ({ children }: Record<string, unknown>) =>
@@ -35,7 +35,7 @@ mock.module("@vellum/design-library/components/bottom-sheet", () => ({
   },
 }));
 
-mock.module("@vellum/design-library/components/popover", () => ({
+mock.module("@vellumai/design-library/components/popover", () => ({
   Popover: {
     Root: passthrough,
     Trigger: ({ children }: Record<string, unknown>) =>
@@ -45,7 +45,7 @@ mock.module("@vellum/design-library/components/popover", () => ({
   },
 }));
 
-mock.module("@vellum/design-library/components/button", () => ({
+mock.module("@vellumai/design-library/components/button", () => ({
   Button: ({
     children,
     role,
@@ -62,7 +62,7 @@ mock.module("@vellum/design-library/components/button", () => ({
     ),
 }));
 
-mock.module("@vellum/design-library/components/panel-item", () => ({
+mock.module("@vellumai/design-library/components/panel-item", () => ({
   PanelItem: ({ label, onSelect }: Record<string, unknown>) =>
     createElement(
       "button",

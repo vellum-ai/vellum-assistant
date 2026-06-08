@@ -438,7 +438,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("multiple clients support host_cu");
+      expect(result.content).toContain("Multiple host_cu clients");
       expect(result.content).toContain("target_client_id");
       // No message should have been dispatched
       expect(sentMessages).toHaveLength(0);
@@ -704,6 +704,31 @@ describe("surfaceProxyResolver — CU tool routing", () => {
         executionResult: "ok",
       });
       await resultPromise;
+    });
+
+    test("rejects untargeted CU dispatch when only another actor has a capable client", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-other",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, DEFAULT_PRINCIPAL);
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      // No step burned, no dispatch.
+      expect(proxy.stepCount).toBe(0);
+      expect(sentMessages).toHaveLength(0);
     });
   });
 

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -26,6 +27,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { llmUsageEvents } from "../memory/schema.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
+import { getLogsDir } from "../util/platform.js";
 
 initializeDb();
 
@@ -132,6 +134,63 @@ describe("POST /v1/export - connected clients", () => {
       }
     } finally {
       assistantEventHub.listClients = originalListClients;
+    }
+  });
+});
+
+describe("POST /v1/export - conversation-scoped daemon logs", () => {
+  test("retains the full daily assistant log even when lines are not tagged with the conversationId", async () => {
+    /**
+     * Tests that a conversation-scoped export keeps the full daily assistant
+     * log so agent-loop failures logged without the conversationId stay
+     * visible, while still emitting the conversation-filtered index.
+     */
+
+    // GIVEN a daily assistant log with a line that mentions the conversation
+    // AND an agent-loop failure line that does NOT — the kind that
+    // conversationId grepping would drop
+    const conversationId = "conv-export-log-retention";
+    const today = new Date().toISOString().slice(0, 10);
+    const logsDir = getLogsDir();
+    mkdirSync(logsDir, { recursive: true });
+    const logFileName = `assistant-${today}.log`;
+    const logPath = join(logsDir, logFileName);
+    const taggedLine = `[agent] processing turn for ${conversationId}`;
+    const untaggedErrorLine =
+      "[agent] ERROR agent loop failed: stream aborted before first token";
+    writeFileSync(logPath, `${taggedLine}\n${untaggedErrorLine}\n`, "utf-8");
+
+    try {
+      // WHEN we run a conversation-scoped export
+      const result = await exportRoute.handler({ body: { conversationId } });
+
+      // THEN the archive is produced
+      expect(result).toBeInstanceOf(Uint8Array);
+
+      const dir = await extractArchive(result as Uint8Array);
+      try {
+        // AND the full daily log is retained, including the untagged failure
+        const exportedLogPath = join(dir, "daemon-logs", logFileName);
+        expect(existsSync(exportedLogPath)).toBe(true);
+        const exportedLog = readFileSync(exportedLogPath, "utf-8");
+        expect(exportedLog).toContain(untaggedErrorLine);
+        expect(exportedLog).toContain(taggedLine);
+
+        // AND the conversation-filtered slice still exists as a quick index
+        const filteredPath = join(
+          dir,
+          "daemon-logs",
+          "conversation-filtered.jsonl",
+        );
+        expect(existsSync(filteredPath)).toBe(true);
+        const filtered = readFileSync(filteredPath, "utf-8");
+        expect(filtered).toContain(taggedLine);
+        expect(filtered).not.toContain(untaggedErrorLine);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(logPath, { force: true });
     }
   });
 });

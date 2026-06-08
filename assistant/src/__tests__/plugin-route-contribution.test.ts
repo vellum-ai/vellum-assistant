@@ -43,11 +43,7 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import {
   registerPlugin,
@@ -68,12 +64,6 @@ const TEST_WORKSPACE_DIR = join(
   `vellum-plugin-route-contrib-test-${process.pid}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-  assistantVersion: "9.9.9-test",
-};
 
 /** Build a minimal valid plugin with optional route contributions. */
 /**
@@ -149,7 +139,7 @@ describe("plugin route contributions", () => {
       }),
     );
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // init() must have run — route registration is gated on init success.
     expect(initFired).toBe(true);
@@ -179,7 +169,7 @@ describe("plugin route contributions", () => {
 
     registerPlugin(buildPlugin("echo-plugin", { routes: [route] }));
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Sanity: route is live after bootstrap.
     expect(matchSkillRoute("/_plugin/echo", "GET")).not.toBeNull();
@@ -197,7 +187,7 @@ describe("plugin route contributions", () => {
     // route handling entirely (the guard is `if plugin.routes && length > 0`).
     registerPlugin(buildPlugin("no-routes-plugin", { async init() {} }));
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
 
     // Nothing to verify beyond "neither throws" — an empty `routes` must not
@@ -228,7 +218,7 @@ describe("plugin route contributions", () => {
       }),
     );
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Simulate an external wipe before the shutdown hook runs — e.g. a
     // different subsystem calling `resetSkillRoutesForTests` or a hot-reload
@@ -301,7 +291,7 @@ describe("plugin route contributions", () => {
       }),
     );
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Both plugins' routes landed in the registry; matching returns one of
     // them (order defined by registration, but we only care that *some*

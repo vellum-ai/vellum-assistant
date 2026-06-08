@@ -47,6 +47,9 @@ export interface ScheduleJob {
   retryCount: number;
   maxRetries: number;
   retryBackoffMs: number;
+  /** Script-mode execution timeout override (ms); null = use the default. */
+  timeoutMs: number | null;
+  createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
@@ -99,6 +102,8 @@ export function createSchedule(params: {
   reuseConversation?: boolean;
   maxRetries?: number;
   retryBackoffMs?: number;
+  timeoutMs?: number | null;
+  createdFromConversationId?: string | null;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -134,6 +139,8 @@ export function createSchedule(params: {
   const reuseConversation = params.reuseConversation ?? !isOneShot;
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
+  const timeoutMs = params.timeoutMs ?? null;
+  const createdFromConversationId = params.createdFromConversationId ?? null;
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -160,6 +167,8 @@ export function createSchedule(params: {
     retryCount: 0,
     maxRetries,
     retryBackoffMs,
+    timeoutMs,
+    createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
     routingIntent,
@@ -258,6 +267,8 @@ export function updateSchedule(
     wakeConversationId?: string | null;
     maxRetries?: number;
     retryBackoffMs?: number;
+    timeoutMs?: number | null;
+    createdFromConversationId?: string | null;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -322,6 +333,9 @@ export function updateSchedule(
   if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
+  if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
+  if (updates.createdFromConversationId !== undefined)
+    set.createdFromConversationId = updates.createdFromConversationId;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -584,7 +598,7 @@ export function cancelSchedule(id: string): boolean {
 
 export function createScheduleRun(
   jobId: string,
-  conversationId: string,
+  conversationId: string | null,
 ): string {
   const db = getDb();
   const id = uuid();
@@ -604,6 +618,17 @@ export function createScheduleRun(
     })
     .run();
   return id;
+}
+
+export function setScheduleRunConversationId(
+  runId: string,
+  conversationId: string,
+): void {
+  const db = getDb();
+  db.update(scheduleRuns)
+    .set({ conversationId })
+    .where(eq(scheduleRuns.id, runId))
+    .run();
 }
 
 export function completeScheduleRun(
@@ -969,6 +994,8 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     retryCount: row.retryCount,
     maxRetries: row.maxRetries ?? 3,
     retryBackoffMs: row.retryBackoffMs ?? 60000,
+    timeoutMs: row.timeoutMs ?? null,
+    createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,

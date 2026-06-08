@@ -4,7 +4,6 @@ import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
-import { isEmailEnabled } from "../email/feature-gate.js";
 import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -36,6 +35,7 @@ import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryV2Command } from "./commands/memory-v2.js";
+import { registerMemoryV3Command } from "./commands/memory-v3.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
@@ -123,16 +123,15 @@ Examples:
   registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
   registerDbCommand(program);
-  if (isEmailEnabled(getConfigReadOnly())) {
-    registerDomainCommand(program);
-    registerEmailCommand(program);
-  }
+  registerDomainCommand(program);
+  registerEmailCommand(program);
   registerGatewayCommand(program);
   registerImageGenerationCommand(program);
   registerInferenceCommand(program);
   registerKeysCommand(program);
   registerMcpCommand(program);
   registerMemoryV2Command(program);
+  registerMemoryV3Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
   registerPendingCommand(program);

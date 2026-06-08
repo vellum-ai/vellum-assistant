@@ -14,25 +14,43 @@
  * never resolves a pending queryFn) renders the loaded state directly.
  */
 
-import { describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
+import {
+    assistantsListQueryKey,
+    organizationsBillingSubscriptionRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
-import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
-mock.module("@vellum/design-library/components/toast", () => ({
+mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
   ToastContent: () => null,
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");
+// These tests exercise the subscription entitlement gate, not the platform
+// gate. Mock usePlatformGate to always return "full" so the managed email
+// form renders and the entitlement logic is reachable.
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => "full",
+}));
 
 const ASSISTANT_ID = "asst-1";
+
+// Seed the selection store so useActiveAssistantId() (called by
+// EmailServiceCard) finds a non-null id without a route-level gate.
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  useActiveAssistantId: () => ASSISTANT_ID,
+}));
+
+const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
+
+const ASSISTANT_HANDLE = "my-assistant";
 
 function makeSubscription(
   managedEmail: boolean,
@@ -54,13 +72,17 @@ function renderCard(subscription: SubscriptionResponse): string {
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(
+    assistantsListQueryKey(),
+    { results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }] },
+  );
+  client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
   );
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <EmailServiceCard assistantId={ASSISTANT_ID} assistantHandle="my-assistant" />
+        <EmailServiceCard />
       </MemoryRouter>
     </QueryClientProvider>,
   );

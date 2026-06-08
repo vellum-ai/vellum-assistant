@@ -383,6 +383,7 @@ export function createSkillsShProvider(): SkillFileProvider {
           kind: "catalog",
           status: "available",
           origin: "skillssh",
+          category: "integrations",
           slug: skillId,
           sourceRepo: `${source.owner}/${source.repo}`,
           installs: 0,

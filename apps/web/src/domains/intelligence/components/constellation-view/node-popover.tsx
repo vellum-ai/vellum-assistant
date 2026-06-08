@@ -1,8 +1,9 @@
 
 import { FileText, Zap } from "lucide-react";
 
-import { Button, Card } from "@vellum/design-library";
 import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout";
+import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
+import { Button, Card } from "@vellumai/design-library";
 
 export interface NodePopoverProps {
   item: OrbitItem;
@@ -43,9 +44,8 @@ export function NodePopover({ item, color, onViewDetails }: NodePopoverProps) {
         ) : null}
       </div>
       <div className="mt-2 flex items-start gap-2">
-        {item.emoji ? (
-          // typography: emoji glyph sized to match header; intentionally off-scale
-          <span className={"text-[20px] leading-none" /* typography: off-scale — 20px off-scale */}>{item.emoji}</span>
+        {(item.icon || item.emoji) ? (
+          <SkillIcon skill={item} className="h-5 w-5 shrink-0 text-[20px] leading-none" />
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="truncate text-body-medium-default text-[var(--content-default)]">

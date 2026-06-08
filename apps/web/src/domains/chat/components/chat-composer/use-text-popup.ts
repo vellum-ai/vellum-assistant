@@ -1,47 +1,24 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for unit testing)
+// Pure helpers
 // ---------------------------------------------------------------------------
 
-const EMPTY_ARRAY: never[] = [];
-
-/** Wrapping index when navigating up in a list. */
-export function listIndexUp(current: number, listLength: number): number {
+function listIndexUp(current: number, listLength: number): number {
   if (listLength === 0) return 0;
   return current <= 0 ? listLength - 1 : current - 1;
 }
 
-/** Wrapping index when navigating down in a list. */
-export function listIndexDown(current: number, listLength: number): number {
+function listIndexDown(current: number, listLength: number): number {
   if (listLength === 0) return 0;
   return current >= listLength - 1 ? 0 : current + 1;
-}
-
-/**
- * Pure derivation of text-triggered popup visibility. Given the input text,
- * a trigger regex (must have one capture group for the filter), a search
- * function, and a suppress flag, returns whether the popup should show, the
- * extracted filter string, and matched items.
- */
-export function derivePopupState<T>(
-  text: string,
-  trigger: RegExp,
-  search: (filter: string) => T[],
-  suppressed: boolean,
-  minFilterLength = 0,
-): { show: boolean; filter: string; items: T[] } {
-  const match = trigger.exec(text);
-  if (!match) return { show: false, filter: "", items: EMPTY_ARRAY as unknown as T[] };
-  const filter = match[1] ?? "";
-  if (filter.length < minFilterLength) return { show: false, filter, items: EMPTY_ARRAY as unknown as T[] };
-  const items = search(filter);
-  return { show: items.length > 0 && !suppressed, filter, items };
 }
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
+
+const EMPTY_ARRAY: never[] = [];
 
 export interface TextPopupConfig<T> {
   text: string;
@@ -78,6 +55,12 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
   const suppressRef = useRef(false);
   const textAtSuppressRef = useRef<string | null>(null);
 
+  // Intentional render-phase ref access: "store information from previous
+  // renders" pattern per
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  // The suppress flag is reset synchronously so the same render reflects
+  // the cleared state. Converting to useState would cause an extra render.
+  /* eslint-disable react-hooks/refs */
   if (
     suppressRef.current &&
     textAtSuppressRef.current !== null &&
@@ -86,6 +69,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
     suppressRef.current = false;
     textAtSuppressRef.current = null;
   }
+  /* eslint-enable react-hooks/refs */
 
   const match = trigger.exec(text);
   const hasMatch = match !== null;
@@ -93,10 +77,11 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
   const meetsMinLength = filter.length >= minFilterLength;
 
   const items = useMemo(() => {
-    if (!hasMatch || !meetsMinLength) return EMPTY_ARRAY as unknown as T[];
+    if (!hasMatch || !meetsMinLength) return EMPTY_ARRAY as T[];
     return search(filter);
   }, [hasMatch, meetsMinLength, filter, search]);
 
+  // eslint-disable-next-line react-hooks/refs -- derived from suppressRef (see above)
   const show = items.length > 0 && !suppressRef.current;
 
   // Reset selection index when the filter string changes.
@@ -118,7 +103,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
 
   // Stable ref so dismiss always captures the text at invocation time.
   const textRef = useRef(text);
-  textRef.current = text;
+  useLayoutEffect(() => { textRef.current = text; });
 
   const [, forceRender] = useState(0);
   const dismiss = useCallback(() => {
@@ -127,5 +112,6 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
     forceRender((n) => n + 1);
   }, []);
 
+  // eslint-disable-next-line react-hooks/refs -- `show` is derived from suppressRef (suppressed above)
   return { show, filter, items, selectedIndex, moveUp, moveDown, dismiss };
 }

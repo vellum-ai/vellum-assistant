@@ -1,73 +1,166 @@
 /**
- * Aggregate export of the first-party default plugins.
+ * First-party default plugins — definitions and centralized registration.
  *
- * Each default wraps one of the assistant's built-in pipelines with a
- * passthrough implementation so the pipeline shape is always explicit at boot
- * and at test time, even when no third-party plugins are loaded.
+ * Each default contributes the hooks for one of the assistant's built-in
+ * behaviors (history repair, title generation, tool-error coaching, …) so the
+ * lifecycle is always populated at boot and at test time, even when no
+ * third-party plugins are loaded. A `Plugin` is the manifest (name/version,
+ * sourced from the sibling `package.json`) plus its hook map; the hook
+ * implementations live in each `defaults/<name>/hooks/` directory.
  *
  * Consumers:
  *
- * - `daemon/external-plugins-bootstrap.ts` — production/registry boot path;
- *   calls {@link registerDefaultPlugins} inside `bootstrapPlugins()`.
+ * - `daemon/external-plugins-bootstrap.ts` — the daemon's `initializePlugins()`
+ *   calls {@link registerDefaultPlugins} explicitly at startup, before
+ *   `loadUserPlugins()` closes the registration window, so the defaults compose
+ *   innermost (ahead of any user plugins). `bootstrapPlugins()` replays it;
+ *   idempotent, so already-registered defaults are skipped.
  * - integration tests that reset the registry and then need a
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Each `defaults/<name>.ts` module self-registers at module load via a local
- * side effect. Importing this aggregator (or any individual default file)
- * populates the registry — the self-registration is idempotent, and so are
- * {@link registerDefaultPlugins} and {@link resetPluginRegistryAndRegisterDefaults}.
- * Per-file self-registration is what keeps registration attached to each
- * file's own already-initialized plugin identifier, so importing
- * `defaults/index.ts` mid-cycle (e.g. through the
- * `memory-retrieval.ts` → … → `pipeline.ts` → `defaults/index.ts`
- * chain) does not trip a TDZ.
+ * The plugin definitions below are plain `const`s, so importing this module
+ * does no registration work — registration is driven by
+ * {@link registerDefaultPlugins} at call time.
  */
 
-import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { defaultCircuitBreakerPlugin } from "./circuit-breaker.js";
-import { defaultCompactionPlugin } from "./compaction.js";
-import { defaultEmptyResponsePlugin } from "./empty-response.js";
-import { defaultHistoryRepairPlugin } from "./history-repair.js";
-import { defaultInjectorsPlugin } from "./injectors.js";
-import { defaultLlmCallPlugin } from "./llm-call.js";
-import { defaultMemoryRetrievalPlugin } from "./memory-retrieval.js";
-import { defaultOverflowReducePlugin } from "./overflow-reduce.js";
-import { defaultPersistencePlugin } from "./persistence.js";
-import { defaultTitleGeneratePlugin } from "./title-generate.js";
-import { defaultTokenEstimatePlugin } from "./token-estimate.js";
-import { defaultToolErrorPlugin } from "./tool-error.js";
-import { defaultToolExecutePlugin } from "./tool-execute.js";
-import { defaultToolResultTruncatePlugin } from "./tool-result-truncate.js";
+import compactionPkg from "./compaction/package.json" with { type: "json" };
+import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
+import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
+import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
+import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import titleGenerateStop from "./title-generate/hooks/stop.js";
+import titleGenerateUserPromptSubmit from "./title-generate/hooks/user-prompt-submit.js";
+import titleGeneratePkg from "./title-generate/package.json" with { type: "json" };
+import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
+import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
+import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
+import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+
+/**
+ * `compaction` — compaction is implemented in `compaction/compact.ts` as
+ * `defaultCompact`, which the agent loop calls directly. The plugin stays
+ * registered as a placeholder so it keeps a presence in the defaults list
+ * while we decide how plugins should surface compaction; it contributes no
+ * hooks today.
+ */
+export const defaultCompactionPlugin: Plugin = {
+  manifest: {
+    name: compactionPkg.name,
+    version: compactionPkg.version,
+  },
+};
+
+/**
+ * `empty-response` — a `stop` hook that re-queries the model when a turn
+ * yields with no tool calls but came back empty (or as a provider refusal).
+ */
+export const defaultEmptyResponsePlugin: Plugin = {
+  manifest: {
+    name: emptyResponsePkg.name,
+    version: emptyResponsePkg.version,
+  },
+  hooks: {
+    stop: emptyResponseStop,
+  },
+};
+
+/**
+ * `history-repair` — a `user-prompt-submit` hook that normalizes the working
+ * message history (tool-use/tool-result pairing, role alternation) before the
+ * agent loop hands it to the provider.
+ */
+export const defaultHistoryRepairPlugin: Plugin = {
+  manifest: {
+    name: historyRepairPkg.name,
+    version: historyRepairPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": historyRepairUserPromptSubmit,
+  },
+};
+
+/**
+ * `memory-v3-shadow` — houses the memory-v3 shadow/live orchestration engine
+ * (`memory-v3-shadow/`) and its injector. The `user-prompt-submit` /
+ * `post-compact` hooks are no-op scaffolding for the eventual convergence,
+ * when v3 injection moves off the loop-driven chain and into these hooks.
+ */
+export const memoryV3ShadowPlugin: Plugin = {
+  manifest: {
+    name: memoryV3Pkg.name,
+    version: memoryV3Pkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": memoryV3UserPromptSubmit,
+    "post-compact": memoryV3PostCompact,
+  },
+};
+
+/**
+ * `title-generate` — two pure-trigger hooks that delegate the title work to
+ * the conversation-title service: `user-prompt-submit` (first-pass title) and
+ * `stop` (second-pass regeneration once the topic is established).
+ */
+export const defaultTitleGeneratePlugin: Plugin = {
+  manifest: {
+    name: titleGeneratePkg.name,
+    version: titleGeneratePkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": titleGenerateUserPromptSubmit,
+    stop: titleGenerateStop,
+  },
+};
+
+/**
+ * `tool-error` — a `post-tool-use` hook that coaches the model to retry or
+ * report a failed tool call, bounded per tool. The coaching is surfaced via
+ * `additionalContext`, leaving the tool result's own content untouched.
+ */
+export const defaultToolErrorPlugin: Plugin = {
+  manifest: {
+    name: toolErrorPkg.name,
+    version: toolErrorPkg.version,
+  },
+  hooks: {
+    "post-tool-use": toolErrorPostToolUse,
+  },
+};
+
+/**
+ * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
+ * tool result down to a character budget derived from the model's context
+ * window before the result is sent to the provider.
+ */
+export const defaultToolResultTruncatePlugin: Plugin = {
+  manifest: {
+    name: toolResultTruncatePkg.name,
+    version: toolResultTruncatePkg.version,
+  },
+  hooks: {
+    "post-tool-use": toolResultTruncatePostToolUse,
+  },
+};
 
 /**
  * Full set of first-party default plugins. Used by
- * {@link registerDefaultPlugins} to drive the idempotent re-registration
- * loop; actual registration-order in the registry is determined by the
- * module-load side effects in each per-file default (whichever loader
- * evaluates a file first wins, later attempts are swallowed as duplicates).
- *
- * Returned by a function rather than a top-level `const` so the array
- * contents are read at call time, after every imported plugin identifier is
- * guaranteed initialized.
+ * {@link registerDefaultPlugins} to drive the registration loop; the array
+ * order is the registration order, which fixes hook-chain order (defaults run
+ * ahead of any later-registered user plugins).
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
-    defaultLlmCallPlugin,
-    defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
-    defaultMemoryRetrievalPlugin,
-    defaultInjectorsPlugin,
-    defaultTokenEstimatePlugin,
-    defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
-    defaultCircuitBreakerPlugin,
-    defaultPersistencePlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
   ];
@@ -79,11 +172,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
  * an "already registered" message) are swallowed so repeat bootstrap or test
  * setup calls do not throw. Every other error (shape failure, version
  * mismatch) re-throws.
- *
- * In practice every call after the first is a no-op: each default's
- * module-load side effect registers itself the first time its file is
- * imported, which for production happens via `pipeline.ts`'s side-effect
- * import of this aggregator.
  */
 export function registerDefaultPlugins(): void {
   for (const plugin of getAllDefaultPlugins()) {
@@ -106,7 +194,7 @@ export function registerDefaultPlugins(): void {
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
- * plugin handles every op (e.g. persistence, overflowReduce).
+ * plugin handles every op (e.g. compaction).
  *
  * Tests that specifically need an empty registry (pipeline-unit tests, the
  * plugin-registry tests themselves) should continue to call

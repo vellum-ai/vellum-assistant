@@ -1,39 +1,46 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  ScrollText,
+    AlertTriangle,
+    ChevronDown,
+    ChevronUp,
+    Loader2,
+    ScrollText,
 } from "lucide-react";
 import { createElement, useCallback, useMemo, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library";
+import { Dropdown } from "@vellumai/design-library";
 
-import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
-import type { Conversation } from "@/types/conversation-types";
 import {
-  loadLastViewedConversationId,
-  saveLastViewedConversationId,
-} from "@/utils/last-viewed-conversation-storage";
-import {
-  formatLatency,
-  formatTimelineTimestamp,
-  formatTokens,
-  formatTokensCombined,
+    formatLatency,
+    formatTimelineTimestamp,
+    formatTokens,
+    formatTokensCombined,
 } from "@/domains/logs/format";
-import { fetchTraceEvents } from "@/domains/logs/trace-events-api";
-import type { TraceEventRow } from "@/domains/logs/trace-events-types";
 import {
-  calculateMetrics,
-  determineGroupStatus,
-  getGroupStatusMeta,
-  getIconForKind,
-  getStatusColor,
-  groupEventsByRequest,
-  stringifyAttributeValue,
-  type ConversationMetrics,
+    calculateMetrics,
+    determineGroupStatus,
+    getGroupStatusMeta,
+    getIconForKind,
+    getStatusColor,
+    groupEventsByRequest,
+    stringifyAttributeValue,
+    type ConversationMetrics,
 } from "@/domains/logs/trace-event-processing";
+import {
+    fetchTraceEvents,
+    type TraceEventRow,
+} from "@/domains/logs/trace-events-api";
+import {
+    useBackgroundConversationListQuery,
+    useConversationListQuery,
+    useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
+import type { Conversation } from "@/types/conversation-types";
+import { mergeConversationLists } from "@/utils/conversation-cache";
+import {
+    loadLastViewedConversationId,
+    saveLastViewedConversationId,
+} from "@/utils/last-viewed-conversation-storage";
 
 interface LogsTabProps {
   assistantId: string;
@@ -47,15 +54,29 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   >(null);
 
   const {
-    conversations: allConversations,
+    conversations: foregroundConversations,
     isLoading: isLoadingConversations,
     isError: isConversationsError,
     error: conversationsError,
   } = useConversationListQuery(assistantId);
 
+  // The logs picker lists every conversation, so it eagerly mounts the
+  // background and scheduled lists rather than waiting for a sidebar reveal —
+  // unlike the chat sidebar, there is no collapse affordance to gate the
+  // fetches on.
+  const { conversations: backgroundConversations } =
+    useBackgroundConversationListQuery(assistantId, true);
+  const { conversations: scheduledConversations } =
+    useScheduledConversationListQuery(assistantId, true);
+
   const conversations = useMemo<Conversation[]>(
-    () => allConversations.filter((c) => c.archivedAt == null),
-    [allConversations],
+    () =>
+      mergeConversationLists(
+        foregroundConversations,
+        backgroundConversations,
+        scheduledConversations,
+      ).filter((c) => c.archivedAt == null),
+    [foregroundConversations, backgroundConversations, scheduledConversations],
   );
 
   const activeConversationId = useMemo(() => {
@@ -69,9 +90,7 @@ export function LogsTab({ assistantId }: LogsTabProps) {
     }
     const lastViewed = loadLastViewedConversationId(assistantId);
     if (lastViewed) {
-      const match = conversations.find(
-        (c) => c.conversationId === lastViewed,
-      );
+      const match = conversations.find((c) => c.conversationId === lastViewed);
       if (match) {
         return match.conversationId;
       }
@@ -273,8 +292,7 @@ function MetricStatCard({
     <div
       className="flex flex-col gap-1 rounded-md px-3 py-2"
       style={{
-        background:
-          "color-mix(in srgb, var(--border-base) 15%, transparent)",
+        background: "color-mix(in srgb, var(--border-base) 15%, transparent)",
       }}
     >
       <span
@@ -328,9 +346,7 @@ function RequestGroup({
 }) {
   const status = useMemo(() => determineGroupStatus(events), [events]);
   const meta = getGroupStatusMeta(status);
-  const label = requestId
-    ? `Request ${requestId.slice(0, 8)}`
-    : "System";
+  const label = requestId ? `Request ${requestId.slice(0, 8)}` : "System";
 
   return (
     <div className="flex flex-col gap-2">

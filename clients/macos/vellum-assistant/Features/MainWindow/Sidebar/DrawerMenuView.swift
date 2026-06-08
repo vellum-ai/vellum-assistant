@@ -8,6 +8,22 @@ struct DrawerMenuView: View {
     let onShareFeedback: () -> Void
     let onLogOut: () -> Void
     let onSignIn: () -> Void
+    let onOpenBilling: () -> Void
+    let onEarnCredits: () -> Void
+
+    @State private var effectiveBalance: String?
+    @State private var isLowBalance = false
+    @State private var isZeroBalance = false
+    @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
+
+    private var isBillingVisible: Bool {
+        return authManager.isAuthenticated &&
+        connectedOrgId != nil
+    }
+
+    private var isReferralVisible: Bool {
+        isBillingVisible
+    }
 
     var body: some View {
         VMenu {
@@ -17,6 +33,42 @@ struct DrawerMenuView: View {
 
             VMenuCustomRow {
                 tightDividerLine
+            }
+
+            if let balance = effectiveBalance {
+                VMenuCustomRow {
+                    HStack {
+                        Text("\(balance) credits")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(
+                                isZeroBalance ? VColor.systemNegativeStrong :
+                                isLowBalance ? VColor.systemMidStrong :
+                                VColor.contentDefault
+                            )
+                        Spacer()
+                        if isBillingVisible {
+                            Button("Add credits") { onOpenBilling() }
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.primaryBase)
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .frame(minHeight: VSize.rowMinHeight)
+                }
+
+                VMenuCustomRow {
+                    tightDividerLine
+                }
+
+                if isReferralVisible {
+                    VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
+                        onEarnCredits()
+                    }
+
+                    VMenuCustomRow {
+                        tightDividerLine
+                    }
+                }
             }
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
@@ -30,6 +82,9 @@ struct DrawerMenuView: View {
                 VMenuItem(icon: VIcon.logOut.rawValue, label: String(localized: "Log In"), action: onSignIn)
             }
         }
+        .task(id: connectedOrgId) {
+            await loadBalance()
+        }
     }
 
     /// 1pt divider line without VMenuDivider's 4pt vertical padding,
@@ -38,5 +93,33 @@ struct DrawerMenuView: View {
         Rectangle()
             .fill(VColor.borderOverlay)
             .frame(height: 1)
+    }
+
+    private func loadBalance() async {
+        guard authManager.isAuthenticated, connectedOrgId != nil else {
+            clearBalance()
+            return
+        }
+        clearBalance()
+        do {
+            var summary = try await BillingService.shared.getBillingSummary()
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
+                summary = bootstrapped
+            }
+            let balanceString = summary.effective_balance
+            effectiveBalance = balanceString
+            if let value = Double(balanceString) {
+                isZeroBalance = value <= 0
+                isLowBalance = value < 1.0
+            }
+        } catch {
+            // Silently ignore errors; the drawer should remain usable without billing data.
+        }
+    }
+
+    private func clearBalance() {
+        effectiveBalance = nil
+        isLowBalance = false
+        isZeroBalance = false
     }
 }

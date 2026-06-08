@@ -5,8 +5,8 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 import {
-  CATEGORY_CONFIGS,
   CENTER_AVATAR_SIZE,
+  getCategoryConfig,
   type TreeNode,
 } from "@/domains/intelligence/components/constellation-layout";
 
@@ -69,7 +69,7 @@ export function NodeView({
   }
 
   if (node.kind.type === "category" || node.kind.type === "subCategory") {
-    const cfg = CATEGORY_CONFIGS[node.kind.category];
+    const cfg = getCategoryConfig(node.kind.category);
     const variant: NodeShellVariant =
       node.kind.type === "category" ? "category" : "subcategory";
     const emoji = node.kind.type === "category" ? cfg.emoji : node.kind.emoji;
@@ -109,7 +109,7 @@ export function NodeView({
 
   if (node.kind.type === "skill") {
     const item = node.kind.item;
-    const cfg = CATEGORY_CONFIGS[item.category];
+    const cfg = getCategoryConfig(item.category);
     return (
       <SkillNode
         x={node.x}

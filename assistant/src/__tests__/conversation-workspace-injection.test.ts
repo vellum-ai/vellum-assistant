@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -143,7 +144,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   setLastNotifiedInferenceProfile: () => {},
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
@@ -182,6 +183,7 @@ mock.module("../memory/retrieval-budget.js", () => ({
 }));
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -232,6 +234,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -242,10 +245,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -263,7 +267,12 @@ mock.module("../agent/loop.js", () => ({
         content: [{ type: "text", text: "ok" }],
       };
       onEvent({ type: "message_complete", message: assistantMessage });
-      return [...messages, assistantMessage];
+      return {
+        history: [...messages, assistantMessage],
+        exitReason: null,
+        appendedNewMessages: true,
+        newMessages: [assistantMessage],
+      };
     }
   },
 }));
@@ -288,6 +297,15 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import {
+  clearConversations,
+  findConversation,
+  removeSubagentConversation,
+  setConversation,
+  setSubagentConversation,
+} from "../daemon/conversation-registry.js";
+import { resolveWorkspaceTopLevelContext } from "../daemon/conversation-workspace.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -301,14 +319,18 @@ function makeConversation(): Conversation {
       };
     },
   };
-  return new Conversation(
+  const conversation = new Conversation(
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
+  // Mirror production: top-level conversations are registered in the store, so
+  // the workspace injector can resolve them by id via the conversation registry.
+  setConversation(conversation.conversationId, conversation);
+  return conversation;
 }
 
 function messageText(message: Message): string {
@@ -327,6 +349,8 @@ describe("Conversation workspace injection", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    clearConversations();
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("runtime messages include workspace top-level context", async () => {
@@ -408,11 +432,59 @@ describe("Conversation workspace injection", () => {
   });
 });
 
+describe("Conversation workspace injection — subagents", () => {
+  beforeEach(() => {
+    scanCallCount = 0;
+    clearConversations();
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
+  test("workspace context resolves for subagent conversations not in the store", () => {
+    const provider = {
+      name: "mock",
+      async sendMessage(): Promise<ProviderResponse> {
+        return {
+          content: [],
+          model: "mock",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const subagentId = "subagent-conv-1";
+    const conversation = new Conversation(
+      subagentId,
+      provider,
+      "system prompt",
+      () => {},
+      "/tmp",
+      { maxTokens: 4096 },
+    );
+    setSubagentConversation(subagentId, conversation);
+
+    try {
+      // Subagents live only in the manager's index, never in the
+      // eviction-managed store, so the store lookup must not see them.
+      expect(findConversation(subagentId)).toBeUndefined();
+
+      // The per-conversation workspace lookup still resolves them, so subagent
+      // turns retain workspace grounding.
+      const context = resolveWorkspaceTopLevelContext(subagentId);
+      expect(context).not.toBeNull();
+      expect(context).toContain("Root: /tmp");
+    } finally {
+      removeSubagentConversation(subagentId, conversation);
+    }
+  });
+});
+
 describe("Conversation workspace dirty-refresh E2E", () => {
   beforeEach(() => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    clearConversations();
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("first turn computes snapshot", async () => {

@@ -1,3 +1,8 @@
+import {
+  type DiskPressureBlockedCapability,
+  type DiskPressureState,
+  type DiskPressureStatus,
+} from "../api/events/disk-pressure-status-changed.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
@@ -25,33 +30,13 @@ export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
   "agent-turns",
   "background-work",
   "remote-ingress",
-] as const;
+] as const satisfies readonly DiskPressureBlockedCapability[];
 
-export type DiskPressureState =
-  | "disabled"
-  | "ok"
-  | "warning"
-  | "critical"
-  | "unknown";
-
-export type DiskPressureBlockedCapability =
-  (typeof DISK_PRESSURE_BLOCKED_CAPABILITIES)[number];
-
-export interface DiskPressureStatus {
-  enabled: boolean;
-  state: DiskPressureState;
-  locked: boolean;
-  acknowledged: boolean;
-  overrideActive: boolean;
-  effectivelyLocked: boolean;
-  lockId: string | null;
-  usagePercent: number | null;
-  thresholdPercent: number;
-  path: string | null;
-  lastCheckedAt: string | null;
-  blockedCapabilities: DiskPressureBlockedCapability[];
-  error: string | null;
-}
+export {
+  type DiskPressureBlockedCapability,
+  type DiskPressureState,
+  type DiskPressureStatus,
+};
 
 export type DiskPressureTransitionResult =
   | { ok: true; status: DiskPressureStatus }

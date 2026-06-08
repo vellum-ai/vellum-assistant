@@ -1,51 +1,66 @@
 /**
  * Route handlers for the assistant plugins surface.
  *
- * GET    /v1/plugins         — list installed plugins under `<workspaceDir>/plugins/`.
- * GET    /v1/plugins/search  — search the canonical GitHub catalog of installable plugins.
- * DELETE /v1/plugins/:name   — uninstall a plugin from `<workspaceDir>/plugins/<name>/`.
+ * GET    /v1/plugins          — list installed plugins under `<workspaceDir>/plugins/`.
+ * GET    /v1/plugins/search   — search the canonical GitHub catalog of installable plugins.
+ * GET    /v1/plugins/:name    — resolve a single plugin's detail view (metadata + README).
+ * POST   /v1/plugins/install  — install a plugin by name from the canonical source.
+ * DELETE /v1/plugins/:name    — uninstall a plugin from `<workspaceDir>/plugins/<name>/`.
  *
  * The read-only routes are projections over the same library functions
  * the CLI uses (`assistant plugins list`, `assistant plugins search`).
- * The DELETE route is symmetric to `assistant plugins uninstall` and
- * delegates to the same `uninstallPlugin` lib function. CLI / daemon /
- * web stay aligned on what an installed or available plugin looks like.
- *
- * Install is intentionally not exposed here. The CLI remains the
- * install surface because installation fetches from GitHub, applies
- * sanitization, and writes to disk — a heavier flow than a single
- * JSON request justifies right now.
+ * The install / uninstall routes are symmetric to `assistant plugins
+ * install` / `uninstall` and delegate to the same `installPlugin` /
+ * `uninstallPlugin` lib functions. CLI / daemon / web stay aligned on
+ * what an installed or available plugin looks like — mirroring the
+ * skills surface, which already exposes detail + install over HTTP.
  *
  * # Policy gating
  *
- * Every route declares `policyKey: "plugins"` + `requirePolicyEnforcement:
- * true`. The HTTP router enforces via `enforcePolicy()` against the
- * `plugins:GET` / `plugins/search:GET` / `plugins:DELETE` registry
- * entries in `runtime/auth/route-policy.ts`. The same registry is the
- * source of truth for the IPC path too: the IPC route adapter resolves
- * each route's policy and ships it in `get_route_schema`, which the
- * gateway's IPC proxy reads from its in-memory cache. Reads require
- * `settings.read`; uninstall requires `settings.write`.
+ * Reads require `settings.read`; install and uninstall require
+ * `settings.write`. The HTTP router enforces the per-route `policy`
+ * block below, and the IPC route adapter ships the same policy in
+ * `get_route_schema` so the gateway's IPC proxy stays in sync.
  */
 
 import { z } from "zod";
 
-import { InvalidPluginNameError } from "../../cli/lib/install-from-github.js";
+import {
+  DEFAULT_PLUGIN_REF,
+  installPlugin,
+  InvalidPluginNameError,
+  PluginAlreadyInstalledError,
+  PluginNotFoundError,
+  PluginSourceUnavailableError,
+} from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
+import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
 import {
+  getPluginDetails,
+  PluginDetailsNotFoundError,
+} from "../../cli/lib/plugin-details.js";
+import {
+  assertValidSearchPattern,
+  filterPluginCatalog,
   InvalidSearchPatternError,
+  PluginCatalogUnavailableError,
   type PluginSearchMatch,
-  searchPlugins,
 } from "../../cli/lib/search-plugins.js";
 import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -83,17 +98,43 @@ const pluginsListResponseSchema = z.object({
   plugins: z.array(pluginInfoSchema),
 });
 
+const pluginMatchSourceSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("first-party"),
+    }),
+    z.object({
+      kind: z.literal("github"),
+      repo: z
+        .string()
+        .describe("`owner/repo` of the external plugin repository."),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Directory within the repo, when the plugin is not at the root.",
+        ),
+      ref: z.string().describe("Pinned git ref the plugin is fetched from."),
+    }),
+  ])
+  .describe(
+    "Origin of the match: a first-party in-repo plugin or a whitelisted external one.",
+  );
+
 const pluginSearchMatchSchema = z.object({
   name: z
     .string()
-    .describe(
-      "Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.",
-    ),
+    .describe("Install name. Matches `assistant plugins install <name>`."),
   path: z
     .string()
     .describe(
-      "Repo-relative path of the match (e.g. `experimental/plugins/<name>`).",
+      "Human-readable origin: a repo-relative path (`experimental/plugins/<name>`) for first-party plugins or a `github:owner/repo@ref` locator for external ones.",
     ),
+  description: z
+    .string()
+    .optional()
+    .describe("Short description, when known (external entries only today)."),
+  source: pluginMatchSourceSchema,
 });
 
 const pluginsSearchResponseSchema = z.object({
@@ -117,6 +158,72 @@ const pluginUninstallResponseSchema = z.object({
     .describe(
       "Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.",
     ),
+});
+
+const pluginDetailsResponseSchema = z.object({
+  name: z
+    .string()
+    .describe("Install name. Matches `assistant plugins install <name>`."),
+  installed: z
+    .boolean()
+    .describe(
+      "Whether a copy is materialized under `<workspaceDir>/plugins/<name>/`.",
+    ),
+  description: z
+    .string()
+    .nullable()
+    .describe(
+      "Short description, best-effort across disk, manifest, and repo.",
+    ),
+  homepage: z.string().nullable().describe("Project homepage URL, when known."),
+  license: z
+    .string()
+    .nullable()
+    .describe("SPDX license expression, when known."),
+  version: z
+    .string()
+    .nullable()
+    .describe(
+      "Resolved version (installed copy first, then repo `package.json`).",
+    ),
+  source: pluginMatchSourceSchema,
+  readme: z
+    .string()
+    .nullable()
+    .describe("README markdown, or null when the plugin ships none."),
+  ref: z
+    .string()
+    .describe("Git ref the catalog metadata / README were resolved at."),
+});
+
+const pluginInstallRequestSchema = z.object({
+  name: z
+    .string()
+    .describe(
+      "Install name to resolve against the catalog (first-party directory or marketplace entry).",
+    ),
+  ref: z
+    .string()
+    .optional()
+    .describe(
+      "Optional git ref to install from. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.",
+    ),
+  force: z
+    .boolean()
+    .optional()
+    .describe("Overwrite an existing install in place. Defaults to false."),
+});
+
+const pluginInstallResponseSchema = z.object({
+  ok: z.literal(true),
+  name: z.string().describe("Install name that was materialized."),
+  target: z
+    .string()
+    .describe("Absolute path the plugin was materialized into on the host."),
+  fileCount: z
+    .number()
+    .describe("Number of files written for the installed plugin."),
+  ref: z.string().describe("Git ref the plugin was fetched from."),
 });
 
 // ---------------------------------------------------------------------------
@@ -145,6 +252,41 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
+  }
+  return view;
+}
+
+/** Wire shape for a catalog match. Mirrors {@link pluginSearchMatchSchema}. */
+interface PluginMatchView {
+  name: string;
+  path: string;
+  description?: string;
+  source:
+    | { kind: "first-party" }
+    | { kind: "github"; repo: string; path?: string; ref: string };
+}
+
+/**
+ * Re-pack a `readonly` lib match into a mutable wire object so the route
+ * serializer's `Record<string, unknown>` contract holds. The wire shape is
+ * identical to {@link PluginSearchMatch}.
+ */
+function projectMatch(m: PluginSearchMatch): PluginMatchView {
+  const view: PluginMatchView = {
+    name: m.name,
+    path: m.path,
+    source:
+      m.source.kind === "github"
+        ? {
+            kind: "github",
+            repo: m.source.repo,
+            ref: m.source.ref,
+            ...(m.source.path !== undefined ? { path: m.source.path } : {}),
+          }
+        : { kind: "first-party" },
+  };
+  if (m.description !== undefined) {
+    view.description = m.description;
   }
   return view;
 }
@@ -180,7 +322,7 @@ function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
 interface PluginsSearchResponse {
   query: string;
   ref: string;
-  matches: PluginSearchMatch[];
+  matches: PluginMatchView[];
 }
 
 async function handleSearchPlugins({
@@ -189,24 +331,38 @@ async function handleSearchPlugins({
   // Empty string is a legitimate "match everything" query per the lib's
   // contract — accept it without forcing the caller to pick a sentinel.
   const query = queryParams.q ?? "";
-  const ref = queryParams.ref?.trim() || undefined;
+  const ref = queryParams.ref?.trim() || DEFAULT_PLUGIN_REF;
 
   try {
-    const result = await searchPlugins(
-      { query, ref },
-      { fetch: globalThis.fetch.bind(globalThis) },
-    );
+    // Reject a malformed regex before any network I/O so a user typo is a
+    // cheap deterministic 400 — never a wasted GitHub request that could
+    // surface as 503 on a cold cache when upstream is rate-limited.
+    assertValidSearchPattern(query);
+    // The catalog is cached per ref (and served stale on upstream failure),
+    // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
+    // Filtering by the query is an in-memory operation over that catalog.
+    const catalog = await getPluginCatalog(ref, {
+      fetch: globalThis.fetch.bind(globalThis),
+    });
+    const matches = filterPluginCatalog(catalog, query);
     // Re-pack `readonly` lib types into mutable copies so the route
     // serializer's `Record<string, unknown>` contract holds. The wire
     // shape is identical.
     return {
-      query: result.query,
-      ref: result.ref,
-      matches: result.matches.map((m) => ({ name: m.name, path: m.path })),
+      query,
+      ref: catalog.ref,
+      matches: matches.map(projectMatch),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
+    }
+    // A rate-limited or unavailable upstream (with no cache to fall back on)
+    // is transient and retryable — surface it as 503 rather than a
+    // misleading 500 so the client can show a "temporarily unavailable"
+    // state and retry later.
+    if (err instanceof PluginCatalogUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin catalog search failed",
@@ -244,6 +400,80 @@ function handleUninstallPlugin({
     }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin uninstall failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — detail view
+// ---------------------------------------------------------------------------
+
+async function handleGetPluginDetails({
+  pathParams = {},
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const rawName = pathParams.name ?? "";
+  const ref = queryParams.ref?.trim() || undefined;
+
+  try {
+    return await getPluginDetails(
+      { name: rawName, ref },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (err instanceof PluginDetailsNotFoundError) {
+      throw new NotFoundError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin detail lookup failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — install
+// ---------------------------------------------------------------------------
+
+async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
+  const name = typeof body.name === "string" ? body.name : "";
+  if (!name) {
+    throw new BadRequestError("`name` is required");
+  }
+  const ref = typeof body.ref === "string" ? body.ref : undefined;
+  const force = typeof body.force === "boolean" ? body.force : undefined;
+
+  try {
+    const result = await installPlugin(
+      { name, ref, force },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+    return {
+      ok: true as const,
+      name: result.name,
+      target: result.target,
+      fileCount: result.fileCount,
+      ref: result.ref,
+    };
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (err instanceof PluginAlreadyInstalledError) {
+      throw new ConflictError(err.message);
+    }
+    if (err instanceof PluginNotFoundError) {
+      throw new NotFoundError(err.message);
+    }
+    // A rate-limited or otherwise temporarily-down GitHub source is
+    // retryable, so surface 503 rather than a misleading 500.
+    if (err instanceof PluginSourceUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin install failed",
     );
   }
 }
@@ -304,6 +534,77 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: pluginsSearchResponseSchema,
     handler: handleSearchPlugins,
+  },
+  {
+    operationId: "plugins_install",
+    endpoint: "plugins/install",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Install a plugin",
+    description:
+      "Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json` entry, else the first-party `experimental/plugins/<name>/` convention. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing at the ref returns 404. Sibling to `POST /v1/skills/install`.",
+    tags: ["plugins"],
+    requestBody: pluginInstallRequestSchema,
+    responseBody: pluginInstallResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The request body was missing `name` or the name failed sanitization.",
+      },
+      "404": {
+        description:
+          "No plugin resolves to the given name at the requested ref.",
+      },
+      "409": {
+        description:
+          "A plugin with the same name is already installed and `force` was not set.",
+      },
+    },
+    handler: handleInstallPlugin,
+  },
+  {
+    operationId: "plugins_get",
+    endpoint: "plugins/:name",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get a plugin's detail view",
+    description:
+      "Resolve a single plugin's tracked metadata (description, homepage, license, version, source) plus its README markdown. Unions the locally installed copy, the marketplace manifest, and the plugin's repository at the pinned ref — preferring the installed copy. Names that are neither installed nor present in the catalog return 404. Powers the web plugin detail page; mirrors `GET /v1/skills/:id`.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    queryParams: [
+      {
+        name: "ref",
+        schema: { type: "string" },
+        description:
+          "Optional git ref to read catalog metadata / README at. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.",
+      },
+    ],
+    responseBody: pluginDetailsResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description:
+          "No installed copy and no catalog entry claims the given name.",
+      },
+    },
+    handler: handleGetPluginDetails,
   },
   {
     operationId: "plugins_uninstall",

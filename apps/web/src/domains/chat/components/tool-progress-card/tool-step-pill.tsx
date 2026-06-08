@@ -8,24 +8,32 @@
  * interactive styling, so static / no-action contexts don't get a dead
  * button.
  *
+ * When both `onClick` and `onRiskBadgeClick` are provided, the pill renders
+ * as a `<div>` with `role="button"` so the risk badge can render its own
+ * `<button>` without nesting interactive elements (invalid per HTML spec).
+ *
  * Props are intentionally PRIMITIVE (icon name + strings) rather than coupled
  * to `ToolCallCardStep`, so the pill is independently testable and reusable
  * outside the card pipeline.
  */
 
+import type { KeyboardEvent } from "react";
+
 import { Bolt } from "lucide-react";
 
-import { Typography } from "@vellum/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 
 export interface ToolStepPillProps {
   iconName: IconName;
   label: string;
   riskLevel?: string;
   onClick?: () => void;
+  /** Click handler for the risk badge. Opens the trust-rule editor. */
+  onRiskBadgeClick?: () => void;
   tone?: "default" | "error";
   /**
    * Selected state — rendered when this pill's tool-detail drawer is open.
@@ -45,7 +53,7 @@ export interface ToolStepPillProps {
  * enough that descenders ("g", "p", "y") get clipped without extra leading.
  */
 const BASE_CLASSES =
-  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] text-left leading-normal";
+  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
 
 /** Cursor / transition / focus-ring affordances when the pill is a button. */
 const INTERACTIVE_BASE =
@@ -56,6 +64,7 @@ export function ToolStepPill({
   label,
   riskLevel,
   onClick,
+  onRiskBadgeClick,
   tone = "default",
   active = false,
   ariaLabel,
@@ -65,13 +74,15 @@ export function ToolStepPill({
   // overrides tone's background wholesale so we never emit conflicting
   // arbitrary-value classes — Tailwind resolves equal-specificity collisions by
   // stylesheet order, not class-attribute order.
+  // No outline. Idle pills carry a `--surface-overlay` fill; the open pill
+  // (its drawer showing) reads as active via the stronger `--surface-active`.
   const colorClasses = active
     ? tone === "error"
-      ? "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--content-default)]"
+      ? "bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
+      : "bg-[var(--surface-active)] text-[var(--content-default)]"
     : tone === "error"
-      ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-base)] bg-transparent text-[var(--content-default)]";
+      ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
+      : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
 
   const Glyph = ICON_MAP[iconName] ?? Bolt;
   const iconColor =
@@ -79,7 +90,7 @@ export function ToolStepPill({
       ? "text-[var(--system-negative-strong)]"
       : "text-[var(--content-tertiary)]";
 
-  const content = (
+  const labelContent = (
     <>
       <Glyph
         aria-hidden="true"
@@ -91,17 +102,44 @@ export function ToolStepPill({
       >
         {label}
       </Typography>
-      <RiskBadge level={riskLevel} />
     </>
   );
 
   if (onClick) {
-    // Active pills hover toward the stronger `surface-active`; idle pills lift
-    // to `surface-base`. Kept as distinct whole classes so the active hover
-    // doesn't fight the idle hover.
-    const hoverClass = active
-      ? "hover:bg-[var(--surface-active)]"
-      : "hover:bg-[var(--surface-base)]";
+    // Both idle and active pills lift to `surface-active` on hover (idle from
+    // `surface-overlay`, active already there).
+    const hoverClass = "hover:bg-[var(--surface-active)]";
+
+    // When onRiskBadgeClick is also provided, use a <div role="button"> as the
+    // outer wrapper so the RiskBadge can render its own <button> without
+    // nesting interactive elements (invalid per HTML spec). The div handles
+    // keyboard activation for the main action; the badge button stops event
+    // propagation to keep the two actions independent.
+    if (onRiskBadgeClick) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      };
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          data-testid="tool-step-pill"
+          data-active={active ? "" : undefined}
+          aria-pressed={active}
+          aria-label={ariaLabel ?? `View details: ${label}`}
+          onClick={onClick}
+          onKeyDown={handleKeyDown}
+          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+        >
+          {labelContent}
+          <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
+        </div>
+      );
+    }
+
     return (
       <button
         type="button"
@@ -112,7 +150,8 @@ export function ToolStepPill({
         onClick={onClick}
         className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
       >
-        {content}
+        {labelContent}
+        <RiskBadge level={riskLevel} />
       </button>
     );
   }
@@ -122,7 +161,8 @@ export function ToolStepPill({
       data-testid="tool-step-pill"
       className={`${BASE_CLASSES} ${colorClasses}`}
     >
-      {content}
+      {labelContent}
+      <RiskBadge level={riskLevel} />
     </span>
   );
 }

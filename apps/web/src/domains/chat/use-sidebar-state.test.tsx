@@ -1,12 +1,26 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
-import {
-  SIDEBAR_CONVERSATION_LIMIT,
-  useSidebarState,
-} from "@/domains/chat/use-sidebar-state";
+
+// The Background/Scheduled sections own their lazy queries; stub both so the
+// hook resolves without a QueryClient and these tests stay focused on the
+// foreground grouping/pagination they exercise.
+mock.module("@/hooks/conversation-queries", () => ({
+  useBackgroundConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+  useScheduledConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+}));
+
+const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } = await import(
+  "@/domains/chat/use-sidebar-state"
+);
 
 function makeConversation(
   index: number,
@@ -38,7 +52,10 @@ describe("useSidebarState pagination", () => {
     );
 
     const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations }),
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+      }),
     );
 
     expect(result.current.recents.items).toHaveLength(
@@ -78,7 +95,10 @@ describe("useSidebarState pagination", () => {
     );
 
     const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations }),
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+      }),
     );
 
     expect(result.current.slack.items).toHaveLength(

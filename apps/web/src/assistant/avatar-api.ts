@@ -7,47 +7,85 @@
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import { client } from "@/generated/api/client.gen";
+import {
+  avatarCharactercomponentsGet,
+  avatarImagePost,
+  avatarRenderfromtraitsPost,
+  avatarStateGet,
+  workspaceDeletePost,
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import { resolveSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
+import { isAvatarState, isCharacterTraits } from "@/types/avatar";
 import { assertHasResponse } from "@/utils/api-errors";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { isCharacterTraits } from "@/types/avatar";
 
-export async function fetchCharacterComponents(
+/**
+ * Fetch the authoritative avatar render manifest from the daemon's
+ * `GET /avatar/state` endpoint.
+ *
+ * Returns `null` only on transport failure. A 200 response with
+ * `{ kind: "none" }` is a valid state (an empty avatar), not `null`.
+ */
+export async function fetchAvatarState(
   assistantId: string,
-): Promise<CharacterComponents | null> {
+): Promise<AvatarState | null> {
   try {
-    const { data, error, response } = await client.get({
-      url: "/v1/assistants/{assistant_id}/avatar/character-components",
+    const { data, error, response } = await avatarStateGet({
       path: { assistant_id: assistantId },
+      throwOnError: false,
     });
-    assertHasResponse(response, error, "Failed to fetch character components");
-    if (!response.ok || !data || typeof data !== "object") return null;
-    return data as CharacterComponents;
+    assertHasResponse(response, error, "Failed to fetch avatar state");
+    if (!response.ok || !isAvatarState(data)) {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }
 }
 
-interface WorkspaceFileResponse {
-  content: string | null;
+export async function fetchCharacterComponents(
+  assistantId: string,
+): Promise<CharacterComponents | null> {
+  try {
+    const { data, error, response } = await avatarCharactercomponentsGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to fetch character components");
+    if (!response.ok || !data) {
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchCharacterTraits(
   assistantId: string,
 ): Promise<CharacterTraits | null> {
   try {
-    const { data, error, response } = await client.get({
-      url: "/v1/assistants/{assistant_id}/workspace/file/",
+    const { data, error, response } = await workspaceFileGet({
       path: { assistant_id: assistantId },
       query: { path: "data/avatar/character-traits.json" },
+      throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch character traits");
-    if (!response.ok || !data || typeof data !== "object") return null;
+    if (!response.ok || !data) {
+      return null;
+    }
 
-    const content = (data as WorkspaceFileResponse).content;
-    if (typeof content !== "string") return null;
-
-    const parsed: unknown = JSON.parse(content);
-    if (!isCharacterTraits(parsed)) return null;
+    const parsed: unknown = JSON.parse(data.content);
+    if (!isCharacterTraits(parsed)) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -59,11 +97,10 @@ export async function saveCharacterTraits(
   traits: CharacterTraits,
 ): Promise<boolean> {
   try {
-    const { error, response } = await client.post({
-      url: "/v1/assistants/{assistant_id}/avatar/render-from-traits",
+    const { error, response } = await avatarRenderfromtraitsPost({
       path: { assistant_id: assistantId },
       body: traits,
-      headers: { "Content-Type": "application/json" },
+      throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to save character traits");
     return response.ok;
@@ -85,48 +122,55 @@ export async function uploadAvatarImage(
       ),
     );
 
-    const { error: writeError, response: writeResponse } = await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/write/",
-      path: { assistant_id: assistantId },
-      body: { path: "data/avatar/avatar-image.png", content: base64, encoding: "base64" },
-      headers: { "Content-Type": "application/json" },
-    });
-    assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
-    if (!writeResponse.ok) return false;
+    if (!(await resolveSupportsAvatarStateManifest())) {
+      return uploadAvatarImageLegacy(assistantId, base64);
+    }
 
-    await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/delete/",
+    const { error, response } = await avatarImagePost({
       path: { assistant_id: assistantId },
-      body: { path: "data/avatar/character-traits.json" },
-      headers: { "Content-Type": "application/json" },
+      body: { content: base64, encoding: "base64" },
+      throwOnError: false,
     });
-
-    return true;
+    assertHasResponse(response, error, "Failed to upload avatar image");
+    return response.ok;
   } catch {
     return false;
   }
 }
 
-export async function deleteAvatar(assistantId: string): Promise<boolean> {
-  try {
-    const [imageResult, traitsResult] = await Promise.all([
-      client.post({
-        url: "/v1/assistants/{assistant_id}/workspace/delete/",
-        path: { assistant_id: assistantId },
-        body: { path: "data/avatar/avatar-image.png" },
-        headers: { "Content-Type": "application/json" },
-      }),
-      client.post({
-        url: "/v1/assistants/{assistant_id}/workspace/delete/",
-        path: { assistant_id: assistantId },
-        body: { path: "data/avatar/character-traits.json" },
-        headers: { "Content-Type": "application/json" },
-      }),
-    ]);
-    return (imageResult.response?.ok ?? false) || (traitsResult.response?.ok ?? false);
-  } catch {
+/**
+ * Pre-manifest custom-image upload for assistants without the avatar
+ * state manifest: write the PNG to the workspace and delete any
+ * character-traits sidecar so the legacy file-existence inference resolves
+ * to a custom image. Used as the fallback for {@link uploadAvatarImage};
+ * see `lib/backwards-compat/avatar-state-manifest.ts`.
+ */
+async function uploadAvatarImageLegacy(
+  assistantId: string,
+  base64: string,
+): Promise<boolean> {
+  const { error: writeError, response: writeResponse } =
+    await workspaceWritePost({
+      path: { assistant_id: assistantId },
+      body: {
+        path: "data/avatar/avatar-image.png",
+        content: base64,
+        encoding: "base64",
+      },
+      throwOnError: false,
+    });
+  assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
+  if (!writeResponse.ok) {
     return false;
   }
+
+  await workspaceDeletePost({
+    path: { assistant_id: assistantId },
+    body: { path: "data/avatar/character-traits.json" },
+    throwOnError: false,
+  });
+
+  return true;
 }
 
 export async function fetchAvatarImageUrl(

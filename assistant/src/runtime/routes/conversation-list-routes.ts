@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -27,6 +27,7 @@ import {
   listConversations,
   listPinnedConversations,
 } from "../../memory/conversation-queries.js";
+import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
@@ -176,7 +177,25 @@ function resolveOrThrow(rawId: string): string {
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
-  const backgroundOnly = queryParams.conversationType === "background";
+  // "background" is the back-compat umbrella (background + scheduled); newer
+  // clients can pass "scheduled" to load only the Scheduled section. Absent
+  // defaults to the standard foreground list. Any other value is rejected so
+  // an unrecognized type surfaces as a 400 rather than being silently coerced
+  // to the foreground list (which would mask client/daemon version skew).
+  const rawConversationType = queryParams.conversationType;
+  let conversationType: ConversationType = "standard";
+  if (rawConversationType !== undefined && rawConversationType !== "") {
+    if (
+      rawConversationType === "background" ||
+      rawConversationType === "scheduled"
+    ) {
+      conversationType = rawConversationType;
+    } else {
+      throw new BadRequestError(
+        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
+      );
+    }
+  }
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -187,14 +206,18 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         ? "all"
         : "active";
 
-  let rows = listConversations(limit, backgroundOnly, offset, archiveStatus);
-  const totalCount = countConversations(backgroundOnly, archiveStatus);
+  let rows = listConversations(limit, conversationType, offset, archiveStatus);
+  const totalCount = countConversations(conversationType, archiveStatus);
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
   // skipped in archived/all views since the Archive page renders archived
   // rows in archive-time order, not pin order.
-  if (offset === 0 && !backgroundOnly && archiveStatus === "active") {
+  if (
+    offset === 0 &&
+    conversationType === "standard" &&
+    archiveStatus === "active"
+  ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
     const missing = pinned.filter((c) => !seen.has(c.id));
@@ -358,8 +381,8 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
-        schema: { type: "string", enum: ["background"] },
+          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), or "scheduled" to list only scheduled conversations.',
+        schema: { type: "string", enum: ["background", "scheduled"] },
       },
       {
         name: "archiveStatus",

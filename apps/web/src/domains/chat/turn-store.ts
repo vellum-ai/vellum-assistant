@@ -85,18 +85,18 @@ export const INITIAL_TURN_STATE: TurnState = {
 // ---------------------------------------------------------------------------
 
 /** True when the turn is actively processing (not idle/errored). */
-export function isSending(state: TurnState): boolean {
+export function isSending(phase: TurnPhase): boolean {
   return (
-    state.phase === "queued" ||
-    state.phase === "thinking" ||
-    state.phase === "streaming" ||
-    state.phase === "awaiting_user_input"
+    phase === "queued" ||
+    phase === "thinking" ||
+    phase === "streaming" ||
+    phase === "awaiting_user_input"
   );
 }
 
 /** True when we are waiting for the first assistant text delta. */
-export function isThinking(state: TurnState): boolean {
-  return state.phase === "thinking";
+export function isThinking(phase: TurnPhase): boolean {
+  return phase === "thinking";
 }
 
 // ---------------------------------------------------------------------------
@@ -542,7 +542,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // When turnId is provided, only honour if it matches the current
     // turn — makes completion idempotent when SSE and polling race.
     if (turnId && turnId !== s.activeTurnId) return;
-    if (!isSending(s)) return;
+    if (!isSending(s.phase)) return;
     set({
       phase: "idle",
       activeTurnId: null,
@@ -832,7 +832,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "POLL_RECONCILED": {
-      if (!isSending(state)) return state;
+      if (!isSending(state.phase)) return state;
       if (event.turnId && state.activeTurnId && event.turnId !== state.activeTurnId) {
         return state;
       }

@@ -1,10 +1,17 @@
 /**
- * Search for plugin directories in the canonical GitHub source.
+ * Search the installable plugin catalog in the canonical GitHub source.
  *
- * Lists `vellum-ai/vellum-assistant/experimental/plugins/` at the configured
- * git ref and filters the directory entries by case-insensitive ECMAScript
- * regex. A plain query like `"memory"` matches anywhere in the name; anchors
- * like `"^simple"` work without escaping.
+ * The catalog is the union of two sources, both fetched from the repo at the
+ * configured git ref:
+ *   1. First-party plugins — directories under
+ *      `vellum-ai/vellum-assistant/experimental/plugins/`.
+ *   2. Whitelisted external ecosystem plugins — entries in the curated
+ *      `experimental/plugins/marketplace.json` manifest (see
+ *      {@link ./plugin-marketplace}).
+ *
+ * Entries are filtered by case-insensitive ECMAScript regex against the
+ * plugin name. A plain query like `"memory"` matches anywhere in the name;
+ * anchors like `"^simple"` work without escaping.
  *
  * Designed for direct programmatic use. The CLI command
  * `assistant plugins search <query>` is a thin wrapper that supplies
@@ -15,6 +22,10 @@
 
 import type { FetchLike } from "./install-from-github.js";
 import { DEFAULT_PLUGIN_REF } from "./install-from-github.js";
+import {
+  fetchMarketplaceEntries,
+  type MarketplaceEntry,
+} from "./plugin-marketplace.js";
 
 // Re-export the dep-injection type so callers can grab everything they need
 // from one module rather than reaching into `install-from-github.js`.
@@ -50,12 +61,33 @@ export interface SearchPluginsDeps {
   readonly fetch: FetchLike;
 }
 
-/** One matching plugin directory. */
+/** Where a catalog match comes from. */
+export type PluginMatchSource =
+  | { readonly kind: "first-party" }
+  | {
+      readonly kind: "github";
+      /** `owner/repo` of the external plugin repository. */
+      readonly repo: string;
+      /** Directory within the repo, when the plugin is not at the root. */
+      readonly path?: string;
+      /** Pinned git ref the plugin is fetched from. */
+      readonly ref: string;
+    };
+
+/** One matching catalog entry. */
 export interface PluginSearchMatch {
-  /** Directory name under `experimental/plugins/`. */
+  /** Install name — `assistant plugins install <name>` resolves to it. */
   readonly name: string;
-  /** Path within the repo (e.g. `experimental/plugins/<name>`). */
+  /**
+   * Human-readable origin of the entry: the repo-relative path for
+   * first-party plugins (e.g. `experimental/plugins/<name>`) or a
+   * `github:owner/repo@ref` locator for external ones.
+   */
   readonly path: string;
+  /** Short description, when known (external entries only today). */
+  readonly description?: string;
+  /** Discriminated origin, so callers can render/install accordingly. */
+  readonly source: PluginMatchSource;
 }
 
 /** Search result envelope. */
@@ -75,12 +107,28 @@ export class InvalidSearchPatternError extends Error {
 }
 
 /**
- * List directories under `experimental/plugins/` at {@link opts.ref} and
- * filter by {@link opts.query}.
- *
- * Only `type === "dir"` entries are returned — `experimental/plugins/`
- * follows a convention where each plugin lives in its own directory, so
- * loose files at the prefix are not plugins.
+ * The catalog source (GitHub) was reachable but refused or could not serve
+ * the request right now — rate limiting (HTTP 403 with the rate-limit budget
+ * exhausted, or 429) or an upstream 5xx. Distinct from a hard 404 on the
+ * plugins prefix (a real "source gone" misconfiguration): a transient
+ * upstream failure should surface as a retryable "temporarily unavailable"
+ * rather than a generic internal error, and is a candidate for serving a
+ * stale cached catalog.
+ */
+export class PluginCatalogUnavailableError extends Error {
+  /** Upstream HTTP status that triggered the failure. */
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PluginCatalogUnavailableError";
+    this.status = status;
+  }
+}
+
+/**
+ * Build the catalog at {@link opts.ref} and return the entries whose name
+ * matches {@link opts.query} (case-insensitive ECMAScript regex; an empty
+ * query matches everything).
  */
 export async function searchPlugins(
   opts: SearchPluginsOptions,
@@ -92,17 +140,119 @@ export async function searchPlugins(
   // the network — keeps "user typo" cheap to recover from.
   const matcher = buildMatcher(opts.query);
 
-  const entries = await listDir(PLUGIN_SOURCE_PATH_PREFIX, ref, deps.fetch);
-
-  const matches: PluginSearchMatch[] = [];
-  for (const entry of entries) {
-    if (entry.type !== "dir") continue;
-    if (!matcher(entry.name)) continue;
-    matches.push({ name: entry.name, path: entry.path });
-  }
-  matches.sort((a, b) => a.name.localeCompare(b.name));
+  const { matches: catalog } = await loadPluginCatalog({ ref }, deps);
+  const matches = catalog.filter((m) => matcher(m.name));
 
   return { query: opts.query, ref, matches };
+}
+
+/**
+ * Validate that {@link query} compiles as a case-insensitive ECMAScript regex,
+ * throwing {@link InvalidSearchPatternError} if not. Lets a caching caller
+ * (the daemon) reject a malformed query before loading the catalog, so a typo
+ * is a cheap deterministic 400 rather than a wasted GitHub request.
+ */
+export function assertValidSearchPattern(query: string): void {
+  buildMatcher(query);
+}
+
+/**
+ * Filter a pre-loaded {@link PluginCatalog} by {@link query}, compiling it as
+ * a case-insensitive ECMAScript regex (an empty query matches everything).
+ * Lets a caching caller (the daemon) reuse one catalog load across many
+ * searches. Throws {@link InvalidSearchPatternError} on a malformed pattern.
+ */
+export function filterPluginCatalog(
+  catalog: PluginCatalog,
+  query: string,
+): PluginSearchMatch[] {
+  const matcher = buildMatcher(query);
+  return catalog.matches.filter((m) => matcher(m.name));
+}
+
+/** The full, unfiltered catalog at a given ref. */
+export interface PluginCatalog {
+  readonly ref: string;
+  /** Every catalog entry, deduped and sorted alphabetically by name. */
+  readonly matches: readonly PluginSearchMatch[];
+}
+
+/**
+ * Build the full catalog at {@link opts.ref}: every first-party plugin
+ * directory under `experimental/plugins/` merged with every whitelisted
+ * external entry in the marketplace manifest.
+ *
+ * The result is **query-independent** — `searchPlugins` applies the regex
+ * filter in memory afterwards. That separation is what lets a long-lived
+ * caller (the daemon) cache one catalog load and serve any number of
+ * searches from it without re-hitting GitHub (see {@link ./plugin-catalog-cache}).
+ */
+export async function loadPluginCatalog(
+  opts: { readonly ref?: string },
+  deps: SearchPluginsDeps,
+): Promise<PluginCatalog> {
+  const ref = opts.ref ?? DEFAULT_PLUGIN_REF;
+
+  const [entries, marketplace] = await Promise.all([
+    listDir(PLUGIN_SOURCE_PATH_PREFIX, ref, deps.fetch),
+    fetchMarketplaceSafe(deps.fetch, ref),
+  ]);
+
+  const matches: PluginSearchMatch[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "dir") continue;
+    matches.push({
+      name: entry.name,
+      path: entry.path,
+      source: { kind: "first-party" },
+    });
+    seen.add(entry.name);
+  }
+
+  for (const entry of marketplace) {
+    // First-party plugins win a name collision — the curated manifest is
+    // additive, never an override of what ships in-repo.
+    if (seen.has(entry.name)) continue;
+    matches.push(marketplaceMatch(entry));
+    seen.add(entry.name);
+  }
+
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+
+  return { ref, matches };
+}
+
+/**
+ * Project a marketplace entry onto the catalog match shape, building a
+ * `github:owner/repo[/path]@ref` locator for display.
+ */
+function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
+  const { repo, path, ref } = entry.source;
+  const locator = `github:${repo}${path ? `/${path}` : ""}@${ref}`;
+  return {
+    name: entry.name,
+    path: locator,
+    description: entry.description,
+    source: { kind: "github", repo, path, ref },
+  };
+}
+
+/**
+ * Fetch the marketplace manifest, degrading to an empty whitelist on any
+ * failure. The manifest is supplementary to the first-party listing, so a
+ * missing or malformed manifest must never break the core catalog — mirroring
+ * the daemon's "never block over a subsystem failure" philosophy.
+ */
+async function fetchMarketplaceSafe(
+  fetchFn: FetchLike,
+  ref: string,
+): Promise<readonly MarketplaceEntry[]> {
+  try {
+    return await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
+  } catch {
+    return [];
+  }
 }
 
 function buildMatcher(query: string): (name: string) => boolean {
@@ -127,13 +277,17 @@ async function listDir(
 
   const res = await githubFetch(url, fetchFn);
   if (!res.ok) {
-    // Unlike `installPlugin`, where 404 on a specific plugin name is a
-    // legitimate "not found" outcome, 404 on the plugins prefix itself
-    // means the canonical source path is gone — surface it as an error
-    // rather than silently returning empty results.
-    throw new Error(
-      `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`,
-    );
+    const detail = `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`;
+    // Rate limiting (403 with the budget exhausted, or 429) and upstream
+    // 5xx are transient — surface them as a retryable "temporarily
+    // unavailable" so the caller can serve a stale cache and the route can
+    // map to 503 instead of a misleading 500. A 404 on the plugins prefix
+    // itself means the canonical source path is gone (a real
+    // misconfiguration), so it stays a hard error.
+    if (isTransientUpstreamStatus(res)) {
+      throw new PluginCatalogUnavailableError(detail, res.status);
+    }
+    throw new Error(detail);
   }
 
   const body = (await res.json()) as unknown;
@@ -150,10 +304,22 @@ async function listDir(
  * request. Unauthenticated — the canonical source is a public repo, mirroring
  * `installPlugin` which uses the same envelope.
  */
-async function githubFetch(
-  url: string,
-  fetchFn: FetchLike,
-): Promise<Response> {
+/**
+ * Whether a non-OK GitHub response should be treated as a transient
+ * "temporarily unavailable" failure rather than a hard error. Covers
+ * rate limiting (429, or 403 once the rate-limit budget is exhausted) and
+ * upstream server errors (5xx). A bare 403 without the rate-limit signal
+ * (e.g. a genuine permissions problem) is not treated as transient.
+ */
+function isTransientUpstreamStatus(res: Response): boolean {
+  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 403) {
+    return res.headers.get("x-ratelimit-remaining") === "0";
+  }
+  return false;
+}
+
+async function githubFetch(url: string, fetchFn: FetchLike): Promise<Response> {
   return fetchFn(url, {
     headers: {
       Accept: "application/vnd.github+json",

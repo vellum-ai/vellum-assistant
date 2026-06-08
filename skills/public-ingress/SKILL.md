@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🌍"
   vellum:
+    category: "system"
     display-name: "Public Ingress"
     activation-hints:
       - "Local assistant needs a public webhook or OAuth callback URL"

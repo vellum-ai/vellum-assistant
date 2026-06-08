@@ -1,14 +1,14 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
-import { createA2AInvite } from "@/domains/contacts/api";
+import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;
@@ -35,20 +35,22 @@ export function GenerateInviteLinkDialog({
   const prevOpenRef = useRef(false);
 
   const mutation = useMutation({
-    mutationFn: () => createA2AInvite(assistantId),
+    ...integrationsA2aInvitePostMutation({
+      path: { assistant_id: assistantId },
+    }),
   });
 
   const mutateRef = useRef(mutation.mutate);
-  mutateRef.current = mutation.mutate;
+  useLayoutEffect(() => { mutateRef.current = mutation.mutate; });
   const resetRef = useRef(mutation.reset);
-  resetRef.current = mutation.reset;
+  useLayoutEffect(() => { resetRef.current = mutation.reset; });
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      mutateRef.current();
+      mutateRef.current({ path: { assistant_id: assistantId } });
     }
     prevOpenRef.current = open;
-  }, [open]);
+  }, [open, assistantId]);
 
   useEffect(() => {
     return () => {
@@ -75,7 +77,7 @@ export function GenerateInviteLinkDialog({
   }, []);
 
   const inviteUrl =
-    mutation.isSuccess
+    mutation.isSuccess && mutation.data.token
       ? buildA2AInviteLink({
           senderAssistantId: assistantId,
           token: mutation.data.token,
@@ -114,7 +116,9 @@ export function GenerateInviteLinkDialog({
               </p>
               <Button
                 variant="outlined"
-                onClick={() => mutation.mutate()}
+                onClick={() =>
+                  mutation.mutate({ path: { assistant_id: assistantId } })
+                }
               >
                 Try Again
               </Button>
@@ -142,7 +146,7 @@ export function GenerateInviteLinkDialog({
                   type="button"
                   onClick={() => handleCopy(inviteUrl)}
                   aria-label="Copy invite link"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-default)] hover:bg-[var(--surface-hover)]"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-base)] hover:bg-[var(--surface-hover)]"
                 >
                   {copied ? (
                     <Check className="h-4 w-4" />
@@ -151,12 +155,14 @@ export function GenerateInviteLinkDialog({
                   )}
                 </button>
               </div>
-              <Typography
-                variant="body-small-default"
-                style={{ color: "var(--content-tertiary)" }}
-              >
-                {formatExpiry(mutation.data.expiresAt)}
-              </Typography>
+              {mutation.data.expiresAt != null && (
+                <Typography
+                  variant="body-small-default"
+                  style={{ color: "var(--content-tertiary)" }}
+                >
+                  {formatExpiry(mutation.data.expiresAt)}
+                </Typography>
+              )}
             </div>
           ) : null}
         </Modal.Body>

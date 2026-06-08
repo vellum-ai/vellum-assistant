@@ -3,40 +3,43 @@ import { HardDrive, Loader2, RefreshCw, Server, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { Modal } from "@vellum/design-library/components/modal";
-import { Notice } from "@vellum/design-library/components/notice";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import type { Assistant } from "@/assistant/api";
 import { DetailCard } from "@/components/detail-card";
-import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-  assistantsResizeMutation,
-  organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveOptions,
+    assistantsResizeMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
-import type { Assistant, AssistantHealthz } from "@/assistant/api";
+import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import {
-  allowedMachineSizesForTier,
-  buildMachineSizeOptions,
-  machineSizeRank,
-  SIZE_LABEL,
+    allowedMachineSizesForTier,
+    buildMachineSizeOptions,
+    machineSizeRank,
+    SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export interface ResizeCardProps {
   assistant: Assistant;
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
   refetch: () => Promise<void> | void;
   /** Poll /v1/health until the allocation changes from `baseline` after a resize. */
-  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void> | void;
+  refetchUntilResized: (
+    baseline: HealthzGetResponse | null,
+  ) => Promise<void> | void;
 }
 
 export function ResizeCard({
@@ -89,12 +92,15 @@ export function ResizeCard({
   const currentGib: number | null = null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
-  const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
+  const largestSize =
+    allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
     null,
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState<
+    "storage" | "machine" | null
+  >(null);
   const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useMutation({
@@ -143,19 +149,20 @@ export function ResizeCard({
   }
 
   const effectiveSelectedSize =
-    isPro &&
-    allowedSizes.includes(displaySize) &&
-    displaySize !== currentSize
+    isPro && allowedSizes.includes(displaySize) && displaySize !== currentSize
       ? displaySize
       : null;
 
   const canGrowStorage =
-    isPro && availableGib != null && (currentGib == null || currentGib < availableGib);
+    isPro &&
+    availableGib != null &&
+    (currentGib == null || currentGib < availableGib);
 
   const canUpsize =
     isPro &&
     allowedSizes.length > 0 &&
-    machineSizeRank(currentSize) < machineSizeRank(allowedSizes[allowedSizes.length - 1]);
+    machineSizeRank(currentSize) <
+      machineSizeRank(allowedSizes[allowedSizes.length - 1]);
 
   // Keep resize CTAs disabled while the post-resize poll is in flight so the
   // user can't kick off a second resize before the first lands.
@@ -163,7 +170,9 @@ export function ResizeCard({
 
   // Fall back to the filesystem total only when no quota is known (free plan).
   const diskMaxMb =
-    availableGib != null ? availableGib * 1024 : healthz?.disk?.totalMb ?? null;
+    availableGib != null
+      ? availableGib * 1024
+      : (healthz?.disk?.totalMb ?? null);
 
   const diskBar =
     healthz?.disk && diskMaxMb != null
@@ -202,12 +211,21 @@ export function ResizeCard({
         Increase Storage
       </button>
     ) : (
-      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setResizeModalOpen(true)}>
+      <Button
+        variant="ghost"
+        size="compact"
+        disabled={isLoading}
+        onClick={() => setResizeModalOpen(true)}
+      >
         Resize
       </Button>
     )
   ) : (
-    <Button variant="ghost" size="compact" onClick={() => setUpgradeModalOpen("storage")}>
+    <Button
+      variant="ghost"
+      size="compact"
+      onClick={() => setUpgradeModalOpen("storage")}
+    >
       Resize
     </Button>
   );
@@ -224,12 +242,21 @@ export function ResizeCard({
         Increase Size
       </button>
     ) : (
-      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setResizeModalOpen(true)}>
+      <Button
+        variant="ghost"
+        size="compact"
+        disabled={isLoading}
+        onClick={() => setResizeModalOpen(true)}
+      >
         Resize
       </Button>
     )
   ) : (
-    <Button variant="ghost" size="compact" onClick={() => setUpgradeModalOpen("machine")}>
+    <Button
+      variant="ghost"
+      size="compact"
+      onClick={() => setUpgradeModalOpen("machine")}
+    >
       Resize
     </Button>
   );
@@ -253,9 +280,7 @@ export function ResizeCard({
               )
             }
             tooltip={
-              healthzPolling
-                ? "Applying resize…"
-                : "Refresh resource metrics"
+              healthzPolling ? "Applying resize…" : "Refresh resource metrics"
             }
             aria-label="Refresh resource metrics"
             disabled={healthzLoading || healthzPolling}
@@ -329,7 +354,9 @@ export function ResizeCard({
                     <Loader2 className="h-3 w-3 animate-spin" />
                   </div>
                 ) : (
-                  <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
+                  <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                    —
+                  </span>
                 )}
               </div>
               <div className="flex flex-col gap-1">
@@ -347,7 +374,9 @@ export function ResizeCard({
                     <Loader2 className="h-3 w-3 animate-spin" />
                   </div>
                 ) : (
-                  <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
+                  <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                    —
+                  </span>
                 )}
               </div>
             </div>
@@ -358,7 +387,9 @@ export function ResizeCard({
       {/* Upgrade modal (free plan) */}
       <Modal.Root
         open={upgradeModalOpen != null}
-        onOpenChange={(o) => { if (!o) setUpgradeModalOpen(null); }}
+        onOpenChange={(o) => {
+          if (!o) setUpgradeModalOpen(null);
+        }}
       >
         <Modal.Content size="sm">
           <Modal.Header>
@@ -400,7 +431,8 @@ export function ResizeCard({
           <Modal.Header>
             <Modal.Title icon={Server}>Resize Assistant</Modal.Title>
             <Modal.Description>
-              Resize your assistant's compute and storage. Your assistant will briefly restart.
+              Resize your assistant's compute and storage. Your assistant will
+              briefly restart.
             </Modal.Description>
           </Modal.Header>
           <Modal.Body>
@@ -431,16 +463,13 @@ export function ResizeCard({
                 </Notice>
               ) : currentGib != null ? (
                 <Notice tone="neutral">
-                  Storage is already at its provisioned size ({currentGib} GiB) and will not change.
+                  Storage is already at its provisioned size ({currentGib} GiB)
+                  and will not change.
                 </Notice>
               ) : (
-                <Notice tone="neutral">
-                  Storage will not change.
-                </Notice>
+                <Notice tone="neutral">Storage will not change.</Notice>
               )}
-              {resizeError && (
-                <Notice tone="error">{resizeError}</Notice>
-              )}
+              {resizeError && <Notice tone="error">{resizeError}</Notice>}
             </div>
           </Modal.Body>
           <Modal.Footer className="items-center justify-between">
@@ -466,13 +495,19 @@ export function ResizeCard({
                 Cancel
               </Button>
               <Button
-                disabled={(effectiveSelectedSize == null && !canGrowStorage) || isLoading}
+                disabled={
+                  (effectiveSelectedSize == null && !canGrowStorage) ||
+                  isLoading
+                }
                 leftIcon={
                   isLoading ? <Loader2 className="animate-spin" /> : undefined
                 }
                 onClick={() => {
                   setResizeError(null);
-                  const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
+                  const body: {
+                    machine_size?: MachineSizeEnum;
+                    storage_gib?: number;
+                  } = {};
                   if (effectiveSelectedSize != null) {
                     body.machine_size = effectiveSelectedSize;
                   }

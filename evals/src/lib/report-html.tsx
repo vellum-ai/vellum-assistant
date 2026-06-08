@@ -88,6 +88,46 @@ function statusClass(status: string): string {
   return "muted";
 }
 
+/**
+ * Argv tokens that contain none of these characters render as-is; any
+ * token containing one of them is wrapped in single quotes (with any
+ * embedded single quote escaped via the `'\''` Bourne idiom). Goal is a
+ * copy-pasteable shell command, not a perfect POSIX quoter — the evals
+ * CLI's flag values are typically alphanumerics, commas, hex ids, file
+ * paths without spaces, so the simple matcher covers the realistic
+ * surface without dragging in a dep.
+ */
+const SHELL_UNSAFE = /[^A-Za-z0-9_@%+=:,./-]/;
+
+function shellQuoteToken(token: string): string {
+  if (token === "") return "''";
+  if (!SHELL_UNSAFE.test(token)) return token;
+  return `'${token.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Reformat a raw `process.argv` snapshot as the canonical `evals …`
+ * command an operator would type at a shell.
+ *
+ * `argv[0]` is the runtime (bun / node) and `argv[1]` is the script
+ * path the runtime exec'd — both are env-specific noise once we know
+ * the invocation came through `evals run`. We drop them and prepend
+ * the canonical CLI name so the rendered line is the same whether the
+ * run originated from `bun src/cli.ts run …`, a compiled `evals` shim,
+ * or a future macOS bundle. Tokens get shell-quoted so the result is
+ * directly paste-runnable.
+ *
+ * Returns `undefined` when argv is missing or too short to be a real
+ * CLI invocation; the caller suppresses the section in that case.
+ */
+export function formatCliCommand(
+  argv: string[] | undefined,
+): string | undefined {
+  if (!argv || argv.length < 3) return undefined;
+  const args = argv.slice(2);
+  return ["evals", ...args.map(shellQuoteToken)].join(" ");
+}
+
 const STYLES = `
 :root {
   color-scheme: dark;
@@ -149,6 +189,9 @@ h1 { font-size: clamp(34px, 5vw, 64px); line-height: .95; margin: 10px 0; letter
 .run-heading { font-size: 32px; margin: 0 0 6px; letter-spacing: -.04em; }
 .run-heading-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin-bottom: 22px; }
 .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.cli-command { margin: 0 0 22px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 14px; background: rgba(0,0,0,.32); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; color: #dbeafe; word-break: break-all; }
+.cli-command-label { display: block; font-family: inherit; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; margin-bottom: 6px; font-weight: 800; }
+.cli-command code { font-family: inherit; }
 table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 16px; }
 th, td { padding: 13px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: top; }
 th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
@@ -356,6 +399,27 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
   );
 }
 
+/**
+ * Reproduction line shown at the top of the session and run pages.
+ *
+ * Surfaces the exact `evals …` command that produced the surrounding
+ * run/session so an operator can copy-paste it to rerun, share via
+ * Slack, or include in a PR description. Renders nothing when the
+ * underlying argv is missing (legacy runs predate the field) — the
+ * empty case is invisible rather than a "command unknown" placeholder
+ * since the rest of the page still tells the story.
+ */
+function CliCommandSection({ argv }: { argv: string[] | undefined }) {
+  const command = formatCliCommand(argv);
+  if (!command) return null;
+  return (
+    <div className="cli-command">
+      <span className="cli-command-label">CLI command</span>
+      <code>{command}</code>
+    </div>
+  );
+}
+
 function Crumbs({ trail }: { trail: Array<{ href?: string; label: string }> }) {
   return (
     <nav className="crumbs">
@@ -458,6 +522,8 @@ function SessionPage({ session }: { session: ReportSessionDetail }) {
         <span>{session.runCount} executions</span>
         <span>started {session.startedAt ?? "—"}</span>
       </div>
+
+      <CliCommandSection argv={session.cliArgv} />
 
       <section className="section">
         <h2>Profile scores</h2>
@@ -927,6 +993,8 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
         <span>started {run.startedAt ?? "—"}</span>
         <span>completed {run.completedAt ?? "—"}</span>
       </div>
+
+      <CliCommandSection argv={run.cliArgv} />
 
       <div className="cards">
         <StatCard label="Score" value={formatAggregateScore(run.scoreTotal)} />

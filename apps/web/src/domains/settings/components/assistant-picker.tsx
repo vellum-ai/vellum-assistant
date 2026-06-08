@@ -1,15 +1,15 @@
 import { Check, Monitor } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Tag } from "@vellum/design-library/components/tag";
-import { toast } from "@vellum/design-library/components/toast";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { DetailCard } from "@/components/detail-card";
 import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export function AssistantPicker() {
   const {
     assistantId: activeAssistantId,
-    setAssistantId,
     isLoading,
     platformAssistants,
   } = useCurrentPlatformAssistant();
@@ -33,7 +33,7 @@ export function AssistantPicker() {
               className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${
                 isActive
                   ? "border-[var(--border-focus)] bg-[var(--surface-lift)]"
-                  : "border-[var(--border-default)] bg-[var(--surface-default)]"
+                  : "border-[var(--border-base)] bg-[var(--surface-default)]"
               }`}
             >
               <div className="flex min-w-0 items-center gap-3">
@@ -62,7 +62,7 @@ export function AssistantPicker() {
                     size="compact"
                     disabled={a.status !== "active"}
                     onClick={() => {
-                      setAssistantId(a.id);
+                      void selectPlatformAssistant(a.id);
                       toast.success("Switched active assistant.");
                     }}
                   >

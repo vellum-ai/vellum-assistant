@@ -64,8 +64,15 @@ export async function run(
   benchmark: Benchmark,
   input: BenchmarkRunInput,
 ): Promise<BenchmarkRunResult> {
-  const { profiles, filterIds, filterFlag, session, sessionLabel, progress } =
-    input;
+  const {
+    profiles,
+    filterIds,
+    filterFlag,
+    session,
+    sessionLabel,
+    cliArgv,
+    progress,
+  } = input;
 
   const unitIds =
     filterIds.length > 0
@@ -94,6 +101,7 @@ export async function run(
           runId: id,
           sessionId: session,
           sessionLabel,
+          cliArgv,
           maxTurns: input.maxTurns,
           progress,
         });

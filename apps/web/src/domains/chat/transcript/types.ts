@@ -14,7 +14,6 @@ export type TranscriptItemKind =
   | "pendingConfirmation"
   | "pendingContactRequest"
   | "surface"
-  | "error"
   | "onboardingChoice";
 
 export interface TranscriptItemBase {
@@ -60,11 +59,6 @@ export interface SurfaceItem extends TranscriptItemBase {
   surface: Surface;
 }
 
-export interface ErrorItem extends TranscriptItemBase {
-  kind: "error";
-  message: string;
-}
-
 export interface ProfileAutoRoutedItem extends TranscriptItemBase {
   kind: "profileAutoRouted";
   profileLabel: string;
@@ -82,7 +76,6 @@ export type TranscriptItem =
   | PendingConfirmationItem
   | PendingContactRequestItem
   | SurfaceItem
-  | ErrorItem
   | OnboardingChoiceItem;
 
 /** Result of splitting the transcript into stable history and the
@@ -106,6 +99,12 @@ export interface PaginatedHistoryResult {
   oldestMessageId: string | null;
   /** Subagent notifications extracted from history messages for state reconstruction. */
   subagentNotifications?: RuntimeSubagentNotification[];
+  /** Global SSE `seq` this snapshot is durably persisted through for the
+   *  conversation, or `null` when the daemon reports no honest position
+   *  (cold conversation, post-restart, aged-out map, or an older daemon
+   *  that omits the field). Used to align the snapshot with the `/events`
+   *  stream. */
+  seq?: number | null;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

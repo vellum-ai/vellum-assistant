@@ -1,9 +1,6 @@
-
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
-  Contact,
   Globe,
   LayoutGrid,
   MessageSquare,
@@ -14,7 +11,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   type CommandPaletteItemData,
@@ -24,7 +21,7 @@ import {
   useCommandPalette,
   type UseCommandPaletteReturn,
 } from "@/components/command-palette/use-command-palette";
-import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { buildServerResultSections } from "@/domains/chat/hooks/command-palette-utils";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -41,22 +38,64 @@ function buildActionsSection(assistantName: string): CommandPaletteSection {
     id: "actions",
     label: "Actions",
     items: [
-      { id: "action-new-conversation", icon: SquarePen, title: "New Conversation", shortcutHint: "⌘N" },
-      { id: "action-current-conversation", icon: Monitor, title: "Current Conversation", shortcutHint: "⌘⇧N" },
-      { id: "action-settings", icon: Settings, title: "Settings", shortcutHint: "⌘," },
+      {
+        id: "action-new-conversation",
+        icon: SquarePen,
+        title: "New Conversation",
+        shortcutHint: "⌘N",
+      },
+      {
+        id: "action-current-conversation",
+        icon: Monitor,
+        title: "Current Conversation",
+        shortcutHint: "⌘⇧N",
+      },
+      {
+        id: "action-settings",
+        icon: Settings,
+        title: "Settings",
+        shortcutHint: "⌘,",
+      },
       { id: "action-library", icon: LayoutGrid, title: "Library" },
       { id: "action-intelligence", icon: Globe, title: assistantName },
-      { id: "action-back", icon: ChevronLeft, title: "Back", shortcutHint: "⌘[" },
-      { id: "action-forward", icon: ChevronRight, title: "Forward", shortcutHint: "⌘]" },
-      { id: "action-zoom-in", icon: ZoomIn, title: "Zoom In", shortcutHint: "⌘+" },
-      { id: "action-zoom-out", icon: ZoomOut, title: "Zoom Out", shortcutHint: "⌘−" },
-      { id: "action-actual-size", icon: SearchIcon, title: "Actual Size", shortcutHint: "⌘0" },
+      {
+        id: "action-back",
+        icon: ChevronLeft,
+        title: "Back",
+        shortcutHint: "⌘[",
+      },
+      {
+        id: "action-forward",
+        icon: ChevronRight,
+        title: "Forward",
+        shortcutHint: "⌘]",
+      },
+      {
+        id: "action-zoom-in",
+        icon: ZoomIn,
+        title: "Zoom In",
+        shortcutHint: "⌘+",
+      },
+      {
+        id: "action-zoom-out",
+        icon: ZoomOut,
+        title: "Zoom Out",
+        shortcutHint: "⌘−",
+      },
+      {
+        id: "action-actual-size",
+        icon: SearchIcon,
+        title: "Actual Size",
+        shortcutHint: "⌘0",
+      },
     ],
   };
 }
 
 /** Build the "Recent" section from the first 5 conversations. */
-function buildRecentsSection(conversations: Conversation[]): CommandPaletteSection {
+function buildRecentsSection(
+  conversations: Conversation[],
+): CommandPaletteSection {
   const recent = conversations.slice(0, 5);
   return {
     id: "conversations",
@@ -65,54 +104,11 @@ function buildRecentsSection(conversations: Conversation[]): CommandPaletteSecti
       id: `conv-${conv.conversationId}`,
       icon: MessageSquare,
       title: conv.title ?? "Untitled",
-      subtitle: conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : undefined,
+      subtitle: conv.lastMessageAt
+        ? formatRelativeTime(conv.lastMessageAt)
+        : undefined,
     })),
   };
-}
-
-/**
- * Build sections from server search results, deduplicating conversations
- * that already appear in the local recents section.
- */
-export function buildServerResultSections(
-  results: GlobalSearchResponse,
-  recentConversationIds: Set<string>,
-): CommandPaletteSection[] {
-  const sections: CommandPaletteSection[] = [];
-
-  const serverConvItems = results.conversations
-    .filter((c) => !recentConversationIds.has(c.id))
-    .map((c) => ({
-      id: `search-conv-${c.id}`,
-      icon: MessageSquare,
-      title: c.title ?? "Untitled",
-      subtitle: c.excerpt,
-    }));
-  if (serverConvItems.length > 0) {
-    sections.push({ id: "search-conversations", label: "Conversations", items: serverConvItems });
-  }
-
-  const scheduleItems = results.schedules.map((s) => ({
-    id: `search-schedule-${s.id}`,
-    icon: Calendar,
-    title: s.name,
-    subtitle: s.cronExpression,
-  }));
-  if (scheduleItems.length > 0) {
-    sections.push({ id: "search-schedules", label: "Schedules", items: scheduleItems });
-  }
-
-  const contactItems = results.contacts.map((c) => ({
-    id: `search-contact-${c.id}`,
-    icon: Contact,
-    title: c.name,
-    subtitle: c.email ?? c.phone,
-  }));
-  if (contactItems.length > 0) {
-    sections.push({ id: "search-contacts", label: "Contacts", items: contactItems });
-  }
-
-  return sections;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,10 +154,14 @@ function dispatchCommandPaletteAction(
       ctx.navigate(1);
       break;
     case "action-zoom-in":
-      document.body.style.zoom = String(parseFloat(document.body.style.zoom || "1") + 0.1);
+      document.body.style.zoom = String(
+        parseFloat(document.body.style.zoom || "1") + 0.1,
+      );
       break;
     case "action-zoom-out":
-      document.body.style.zoom = String(Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1));
+      document.body.style.zoom = String(
+        Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1),
+      );
       break;
     case "action-actual-size":
       document.body.style.zoom = "1";
@@ -199,7 +199,7 @@ interface UseCommandPaletteSectionsParams {
   navigateToSettings: () => void;
 }
 
-interface UseCommandPaletteSectionsReturn {
+export interface UseCommandPaletteSectionsReturn {
   commandPalette: UseCommandPaletteReturn;
   mergedSections: CommandPaletteSection[];
   handleItemSelect: (item: CommandPaletteItemData) => void;
@@ -239,7 +239,13 @@ export function useCommandPaletteSections({
         navigateToSettings,
       });
     },
-    [startNewConversation, switchConversation, navigate, activeConversationId, navigateToSettings],
+    [
+      startNewConversation,
+      switchConversation,
+      navigate,
+      activeConversationId,
+      navigateToSettings,
+    ],
   );
 
   // Ref-based indirection so the index-based onSelect callback doesn't
@@ -264,12 +270,15 @@ export function useCommandPaletteSections({
   );
 
   const commandPalette = useCommandPalette({
-    itemCount: () => mergedSectionsRef.current.reduce((acc, s) => acc + s.items.length, 0),
+    itemCount: () =>
+      mergedSectionsRef.current.reduce((acc, s) => acc + s.items.length, 0),
     onSelect: handleIndexSelect,
     assistantId,
   });
 
-  closeRef.current = commandPalette.close;
+  useLayoutEffect(() => {
+    closeRef.current = commandPalette.close;
+  });
 
   // Filter local sections by the current query.
   const filteredLocalSections = useMemo((): CommandPaletteSection[] => {
@@ -280,8 +289,8 @@ export function useCommandPaletteSections({
     return localSections
       .map((section) => ({
         ...section,
-        items: section.items.filter(
-          (item) => item.title.toLowerCase().includes(q),
+        items: section.items.filter((item) =>
+          item.title.toLowerCase().includes(q),
         ),
       }))
       .filter((section) => section.items.length > 0);
@@ -290,13 +299,22 @@ export function useCommandPaletteSections({
   // Merge local filtered sections with server search results.
   const mergedSections = useMemo((): CommandPaletteSection[] => {
     const serverSections = commandPalette.searchResults
-      ? buildServerResultSections(commandPalette.searchResults, recentConversationIds)
+      ? buildServerResultSections(
+          commandPalette.searchResults,
+          recentConversationIds,
+        )
       : [];
     return [...filteredLocalSections, ...serverSections];
-  }, [filteredLocalSections, commandPalette.searchResults, recentConversationIds]);
+  }, [
+    filteredLocalSections,
+    commandPalette.searchResults,
+    recentConversationIds,
+  ]);
 
   // Keep the ref in sync so keyboard nav and onSelect always use the latest sections.
-  mergedSectionsRef.current = mergedSections;
+  useLayoutEffect(() => {
+    mergedSectionsRef.current = mergedSections;
+  });
 
   const handleItemSelect = useCallback(
     (item: CommandPaletteItemData) => {

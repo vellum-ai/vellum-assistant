@@ -1,11 +1,13 @@
 import { useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { cn } from "@/utils/misc";
+import { routes } from "@/utils/routes";
 
 const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
@@ -17,12 +19,18 @@ type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DeveloperPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const activeTab: DeveloperTabId = useMemo(() => {
     const tabParam = searchParams.get("tab");
     const match = ALL_TABS.find((tab) => tab.id === tabParam);
     return match?.id ?? "feature-flags";
   }, [searchParams]);
+
+  if (hasHydrated && !settingsDeveloperNav) {
+    return <Navigate replace to={routes.settings.general} />;
+  }
 
   const setActiveTab = (tabId: DeveloperTabId) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -72,21 +80,13 @@ export function DeveloperPage() {
         className="flex min-h-0 flex-1 flex-col pt-6"
       >
         {activeTab === "feature-flags" && (
-          <div className="max-w-[940px] space-y-6">
+          <div className="space-y-6">
             <FeatureFlagsPanel />
             <EnvironmentConfigPanel />
           </div>
         )}
-        {activeTab === "lifecycle" && (
-          <div className="max-w-[940px]">
-            <AssistantLifecyclePanel />
-          </div>
-        )}
-        {activeTab === "sentry" && (
-          <div className="max-w-[940px]">
-            <SentryTestingPanel />
-          </div>
-        )}
+        {activeTab === "lifecycle" && <AssistantLifecyclePanel />}
+        {activeTab === "sentry" && <SentryTestingPanel />}
       </div>
     </div>
   );

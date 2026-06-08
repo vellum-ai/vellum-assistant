@@ -24,6 +24,7 @@ import type {
   Provider,
   ToolDefinition,
 } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import {
   type CompactionRunArgs,
@@ -39,7 +40,8 @@ const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 // ---------------------------------------------------------------------------
 // Public types — preserved for downstream consumers (agent loop, conversation,
-// plugin pipeline, applyCompactionResult, routes/playground/force-compact).
+// default compaction plugin, applyCompactionResult,
+// routes/playground/force-compact).
 // ---------------------------------------------------------------------------
 
 export interface ContextWindowResult {
@@ -89,7 +91,6 @@ export interface ShouldCompactResult {
 }
 
 export interface ContextWindowCompactOptions {
-  lastCompactedAt?: number;
   /** Skip the auto-threshold check (used for /compact and recovery). */
   force?: boolean;
   /**
@@ -103,14 +104,18 @@ export interface ContextWindowCompactOptions {
    */
   precomputedEstimate?: number;
   /**
-   * Legacy fields retained for backwards compatibility with existing
-   * callers. The new assistant-driven compactor does not consume them —
-   * the model decides where to cut and what to keep — but accepting them
+   * Legacy field retained for backwards compatibility with existing
+   * callers. The new assistant-driven compactor does not consume it —
+   * the model decides where to cut and what to keep — but accepting it
    * here lets callers keep their existing call sites unchanged.
    */
   minKeepRecentUserTurns?: number;
-  conversationOriginChannel?: string;
-  targetInputTokensOverride?: number;
+  /**
+   * Trust class of the actor whose turn triggered compaction. Forwarded to
+   * the compactor so the image manifest excludes guardian-only attachments
+   * for untrusted actors.
+   */
+  actorTrustClass?: TrustClass;
 }
 
 export interface ContextWindowManagerOptions {
@@ -194,8 +199,7 @@ export class ContextWindowManager {
    * `compactedMessages` so `compactedPersistedMessages` only reflects DB
    * rows. Decremented after a successful compaction.
    */
-  nonPersistedPrefixCount = 0;
-  summaryIsInjected = false;
+  private _nonPersistedPrefixCount = 0;
   private _resolvedSystemPrompt: string | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
@@ -209,6 +213,21 @@ export class ContextWindowManager {
 
   updateConfig(config: ContextWindowConfig): void {
     this.config = config;
+  }
+
+  /** Leading non-persisted inherited-context messages the compactor preserves. */
+  get nonPersistedPrefixCount(): number {
+    return this._nonPersistedPrefixCount;
+  }
+
+  /**
+   * Seed the non-persisted inherited-context prefix when a forked/sub
+   * conversation inherits its parent's in-memory context. The compactor folds
+   * this prefix into the summary and {@link consumeCompactionState} decrements
+   * it as the leading messages are compacted away.
+   */
+  seedNonPersistedPrefix(count: number): void {
+    this._nonPersistedPrefixCount = count;
   }
 
   private get estimationProviderName(): string {
@@ -347,7 +366,8 @@ export class ContextWindowManager {
       force: options?.force,
       signal,
       overrideProfile: options?.overrideProfile ?? null,
-      nonPersistedPrefixCount: this.nonPersistedPrefixCount,
+      actorTrustClass: options?.actorTrustClass,
+      nonPersistedPrefixCount: this._nonPersistedPrefixCount,
     };
 
     // Retry budget for the compactor itself. Lives here (not in the
@@ -385,7 +405,7 @@ export class ContextWindowManager {
         ...baseArgs,
         messages: result.messages,
         previousEstimatedInputTokens: previousEstimate,
-        nonPersistedPrefixCount: this.nonPersistedPrefixCount,
+        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
       });
       if (!nextResult.compacted) break;
       const nextEstimate = this.recomputePostCompactionEstimate(
@@ -429,21 +449,20 @@ export class ContextWindowManager {
   }
 
   /**
-   * Decrement the non-persisted prefix bookkeeping and clear the
-   * injected-summary flag after a productive compaction. Called once per
-   * successful internal attempt so multi-attempt runs keep the count
-   * honest as the leading injected messages get folded into the summary.
+   * Decrement the non-persisted prefix bookkeeping after a productive
+   * compaction. Called once per successful internal attempt so multi-attempt
+   * runs keep the count honest as the leading injected messages get folded
+   * into the summary.
    */
   private consumeCompactionState(compactedMessages: number): void {
     const compactedAway = Math.min(
-      this.nonPersistedPrefixCount,
+      this._nonPersistedPrefixCount,
       compactedMessages,
     );
-    this.nonPersistedPrefixCount = Math.max(
+    this._nonPersistedPrefixCount = Math.max(
       0,
-      this.nonPersistedPrefixCount - compactedAway,
+      this._nonPersistedPrefixCount - compactedAway,
     );
-    this.summaryIsInjected = false;
   }
 }
 

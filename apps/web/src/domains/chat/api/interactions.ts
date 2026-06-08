@@ -9,27 +9,32 @@ import type { ConfirmationDecision } from "@/types/event-types";
 import type { QuestionSubmission } from "@/domains/chat/api/event-types";
 import { client } from "@/generated/api/client.gen";
 import {
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/utils/api-errors";
+  confirmPost,
+  pendinginteractionsGet,
+  questionresponsePost,
+  secretPost,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  PendinginteractionsGetResponse,
+  QuestionresponsePostData,
+} from "@/generated/daemon/types.gen";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
+
+/**
+ * Subset of the pending-interactions response returned for a single
+ * conversation. The full response also carries the cross-conversation
+ * `interactions` list, which only the bulk reader below consumes.
+ */
+type ConversationPendingInteractions = Pick<
+  PendinginteractionsGetResponse,
+  "pendingConfirmation" | "pendingSecret"
+>;
 
 export async function getPendingInteractions(
   assistantId: string,
   conversationId: string,
-): Promise<{
-  pendingConfirmation?: Record<string, unknown>;
-  pendingSecret?: Record<string, unknown>;
-}> {
-  const { data, error, response } = await client.get<
-    {
-      pendingConfirmation?: Record<string, unknown>;
-      pendingSecret?: Record<string, unknown>;
-    },
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/pending-interactions/",
+): Promise<ConversationPendingInteractions> {
+  const { data, error, response } = await pendinginteractionsGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
     throwOnError: false,
@@ -59,9 +64,7 @@ export async function getPendingInteractions(
 export async function listConversationIdsWithPendingInteractions(
   assistantId: string,
 ): Promise<Set<string>> {
-  const { data, error, response } = await client.get<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/pending-interactions/",
+  const { data, error, response } = await pendinginteractionsGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -74,20 +77,10 @@ export async function listConversationIdsWithPendingInteractions(
     }
     return new Set();
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return new Set();
-  }
-  const payload = data as { interactions?: unknown };
-  const interactions = Array.isArray(payload.interactions)
-    ? payload.interactions
-    : [];
   const keys = new Set<string>();
-  for (const i of interactions) {
-    if (i && typeof i === "object") {
-      const conversationId = (i as { conversationId?: unknown }).conversationId;
-      if (typeof conversationId === "string" && conversationId) {
-        keys.add(conversationId);
-      }
+  for (const interaction of data?.interactions ?? []) {
+    if (interaction.conversationId) {
+      keys.add(interaction.conversationId);
     }
   }
   return keys;
@@ -104,9 +97,7 @@ export async function submitSecretResponse(
   delivery: string = "store",
 ): Promise<SubmitSecretResponseResult> {
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/secret/",
+    const { error, response } = await secretPost({
       path: { assistant_id: assistantId },
       body: { requestId, value, delivery },
       throwOnError: false,
@@ -133,9 +124,7 @@ export async function submitConfirmation(
   trustRule?: { selectedPattern: string; selectedScope: string },
 ): Promise<SubmitSecretResponseResult> {
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/confirm/",
+    const { error, response } = await confirmPost({
       path: { assistant_id: assistantId },
       body: { requestId, decision, ...trustRule },
       throwOnError: false,
@@ -165,7 +154,6 @@ export async function submitContactPrompt(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/contacts/prompt/submit/",
       path: { assistant_id: assistantId },
       body: { requestId, address, channelType, role, displayName },
@@ -207,7 +195,7 @@ export async function submitQuestionResponse(
   // strictly required. `skip` is not a legacy top-level kind, so we coerce it
   // to an empty `free_text` so the daemon resolves the interaction instead of
   // hanging on a malformed payload.
-  const body = (() => {
+  const body: QuestionresponsePostData["body"] = (() => {
     if (submission.kind === "close") {
       return { requestId, kind: "close" };
     }
@@ -227,12 +215,7 @@ export async function submitQuestionResponse(
     return { requestId, kind: "free_text", text: "" };
   })();
   try {
-    const { error, response: httpResponse } = await client.post<
-      unknown,
-      unknown
-    >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/question-response/",
+    const { error, response: httpResponse } = await questionresponsePost({
       path: { assistant_id: assistantId },
       body,
       throwOnError: false,
@@ -263,7 +246,6 @@ export async function submitTrustRule(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/trust-rules/",
       path: { assistant_id: assistantId },
       body: { requestId, ...rule },

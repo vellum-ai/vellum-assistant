@@ -239,3 +239,4 @@
 
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way
+  - **`metadata.vellum.category`** (required): every skill must declare a category slug matching an entry in `skills/skill-categories-catalog.yaml`. The linter validates this in both directions — skills must reference a valid category, and every category must be used by at least one skill. Pass `--skip-category` to the linter to skip this check for external/third-party skills.

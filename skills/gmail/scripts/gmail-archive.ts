@@ -13,7 +13,11 @@ import {
   optionalArg,
   parseCsv,
 } from "./lib/common.js";
-import { gmailGet, gmailPost, DailyQuotaExceededError } from "./lib/gmail-client.js";
+import {
+  gmailGet,
+  gmailPost,
+  DailyQuotaExceededError,
+} from "./lib/gmail-client.js";
 import { addToBlocklist } from "./gmail-prefs.js";
 import {
   generateRunId,
@@ -102,7 +106,12 @@ async function batchArchive(
   messageIds: string[],
   account?: string,
   opts?: { runId?: string; phase?: string; reason?: string; dryRun?: boolean },
-): Promise<{ runId: string; committed: number; failed: number; staged: number }> {
+): Promise<{
+  runId: string;
+  committed: number;
+  failed: number;
+  staged: number;
+}> {
   const runId = opts?.runId ?? generateRunId();
   let committed = 0;
   let failed = 0;
@@ -466,10 +475,7 @@ async function archiveSingleMessage(
  * Loads the op log, finds pending (staged but not committed/failed) ops,
  * and re-executes them.
  */
-async function resumeRun(
-  resumeRunId: string,
-  account?: string,
-): Promise<void> {
+async function resumeRun(resumeRunId: string, account?: string): Promise<void> {
   if (!runExists(resumeRunId)) {
     printError(`Run not found: ${resumeRunId}`);
     return;
@@ -575,7 +581,14 @@ async function main(): Promise<void> {
     );
   } else if (messageIdsRaw) {
     const messageIds = parseCsv(messageIdsRaw);
-    await archiveByMessageIds(messageIds, account, skipConfirm, runId, phase, dryRun);
+    await archiveByMessageIds(
+      messageIds,
+      account,
+      skipConfirm,
+      runId,
+      phase,
+      dryRun,
+    );
   } else if (messageId) {
     await archiveSingleMessage(messageId, account);
   } else {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { isElectron, type VellumCommand } from "@/runtime/is-electron";
 
@@ -17,21 +17,25 @@ import { isElectron, type VellumCommand } from "@/runtime/is-electron";
  * channel, and the latest handler closure is always invoked when a
  * command arrives (avoids stale-closure bugs without forcing callers to
  * memoize).
+ *
+ * Handlers receive the full command object. Payload-free commands can
+ * still use `() => void` — TypeScript's function compatibility rules
+ * allow functions with fewer parameters to satisfy a wider signature.
  */
 export type CommandHandlers = Partial<
-  Record<VellumCommand["kind"], () => void>
+  Record<VellumCommand["kind"], (command: VellumCommand) => void>
 >;
 
 export function useVellumCommands(handlers: CommandHandlers): void {
   const handlersRef = useRef<CommandHandlers>(handlers);
-  handlersRef.current = handlers;
+  useLayoutEffect(() => { handlersRef.current = handlers; });
 
   useEffect(() => {
     if (!isElectron()) return;
     const bridge = window.vellum;
     if (!bridge) return;
     return bridge.commands.on((command) => {
-      handlersRef.current[command.kind]?.();
+      handlersRef.current[command.kind]?.(command);
     });
   }, []);
 }

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
-import type { MutableRefObject } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
 import type { AssistantEvent } from "@/types/event-types";
+import { useStreamStore } from "@/domains/chat/stream-store";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
@@ -13,6 +13,9 @@ mock.module(
   () => ({
     handleAssistantTextDelta: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
+    },
+    handleAssistantThinkingDelta: (event: { conversationId?: string }) => {
+      handlerCalls.push({ kind: "assistant_thinking_delta", conversationId: event.conversationId });
     },
     handleAssistantTurnStart: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_turn_start", conversationId: event.conversationId });
@@ -38,35 +41,19 @@ const { useStreamEventHandler } = await import(
   "@/domains/chat/hooks/use-stream-event-handler"
 );
 
-function noopRefs() {
-  return {
-    streamEpochRef: { current: 0 } as MutableRefObject<number>,
-    activeConversationIdRef: {
-      current: "conv-A",
-    } as MutableRefObject<string | null>,
-    streamContextRef: {
-      current: { assistantId: "asst-1", conversationId: "conv-A" },
-    } as MutableRefObject<{ assistantId: string; conversationId: string } | null>,
-    assistantIdRef: { current: "asst-1" } as MutableRefObject<string | null>,
-    messagesRef: { current: [] } as MutableRefObject<unknown[]>,
-    streamRef: { current: null } as MutableRefObject<unknown>,
-    confirmationToolCallMapRef: { current: new Map() } as MutableRefObject<
-      Map<string, string>
-    >,
-    dismissedSurfaceIdsRef: { current: new Set() } as MutableRefObject<
-      Set<string>
-    >,
-    contextWindowUsageByConversationRef: { current: new Map() } as MutableRefObject<
-      Map<string, unknown>
-    >,
-    pendingQueuedMessageIdsRef: { current: [] } as MutableRefObject<string[]>,
-    requestIdToMessageIdRef: { current: new Map() } as MutableRefObject<
-      Map<string, string>
-    >,
-    pendingLocalDeletionsRef: { current: new Set() } as MutableRefObject<
-      Set<string>
-    >,
-  };
+function setupStreamStore(overrides?: {
+  streamEpoch?: number;
+  streamConversationId?: string | null;
+}) {
+  useStreamStore.setState({
+    streamEpoch: overrides?.streamEpoch ?? 0,
+    streamContext:
+      overrides?.streamConversationId === null
+        ? null
+        : overrides?.streamConversationId !== undefined
+          ? { assistantId: "asst-1", conversationId: overrides.streamConversationId }
+          : { assistantId: "asst-1", conversationId: "conv-A" },
+  });
 }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -77,41 +64,24 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 function renderHandler(
-  refs: ReturnType<typeof noopRefs>,
   overrides?: {
     streamEpoch?: number;
     streamConversationId?: string | null;
     activeConversationId?: string | null;
   },
 ) {
-  if (overrides?.streamEpoch !== undefined) {
-    refs.streamEpochRef.current = overrides.streamEpoch;
-  }
-  if (overrides?.streamConversationId !== undefined) {
-    refs.streamContextRef.current =
-      overrides.streamConversationId === null
-        ? null
-        : { assistantId: "asst-1", conversationId: overrides.streamConversationId };
-  }
-  if (overrides?.activeConversationId !== undefined) {
-    refs.activeConversationIdRef.current = overrides.activeConversationId;
-  }
+  setupStreamStore(overrides);
   const { result } = renderHook(
     () =>
       useStreamEventHandler({
         push: () => {},
         isNative: false,
-        ...refs,
-        setMessages: () => {},
-        setError: () => {},
         cancelReconciliation: () => {},
         startReconciliationLoop: () => {},
         setAssetsRefreshKey: () => {},
-        setContextWindowUsage: () => {},
         scheduleConversationListRefetch: () => {},
-        setCompactionCircuitOpenUntil: () => {},
         dispatchSyncChanged: () => {},
-      } as never),
+      }),
     { wrapper },
   );
   return result.current;
@@ -119,6 +89,7 @@ function renderHandler(
 
 beforeEach(() => {
   handlerCalls.length = 0;
+  setupStreamStore();
 });
 
 afterEach(() => {
@@ -127,8 +98,7 @@ afterEach(() => {
 
 describe("handleStreamEvent — defense-in-depth conversation routing guard", () => {
   test("forwards a conversation-scoped event whose key matches the stream context", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs);
+    const { handleStreamEvent } = renderHandler();
     handleStreamEvent(
       {
         type: "assistant_text_delta",
@@ -142,8 +112,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("rejects a conversation-scoped event whose key does NOT match the stream context", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs, {
+    const { handleStreamEvent } = renderHandler({
       streamConversationId: "conv-A",
     });
     handleStreamEvent(
@@ -159,8 +128,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("rejects a conversation-scoped event missing a conversationId entirely", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs);
+    const { handleStreamEvent } = renderHandler();
     handleStreamEvent(
       {
         type: "assistant_text_delta",
@@ -173,8 +141,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("rejects a conversation-scoped event when stream context is null", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs, {
+    const { handleStreamEvent } = renderHandler({
       streamConversationId: null,
     });
     handleStreamEvent(
@@ -190,9 +157,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("forwards a global event (sync_changed) regardless of conversation context", () => {
-    const refs = noopRefs();
-    refs.streamContextRef.current = null;
-    const { handleStreamEvent } = renderHandler(refs, {
+    const { handleStreamEvent } = renderHandler({
       streamConversationId: null,
     });
     handleStreamEvent(
@@ -210,8 +175,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("no-ops a cross-domain event (home_feed_updated) handled by bus subscribers", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs, {
+    const { handleStreamEvent } = renderHandler({
       streamConversationId: null,
     });
     handleStreamEvent(
@@ -228,8 +192,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
   });
 
   test("rejects events whose epoch is stale (regardless of conversation key)", () => {
-    const refs = noopRefs();
-    const { handleStreamEvent } = renderHandler(refs, { streamEpoch: 5 });
+    const { handleStreamEvent } = renderHandler({ streamEpoch: 5 });
     handleStreamEvent(
       {
         type: "assistant_text_delta",

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
-  type SyncChangedMessage,
+  type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -155,6 +156,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -209,6 +211,7 @@ let pendingRuns: PendingRun[] = [];
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -219,13 +222,20 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-    ): Promise<Message[]> {
-      return new Promise<Message[]>((resolve) => {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void | Promise<void>;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
+      const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });
+      return {
+        history,
+        exitReason: null,
+        appendedNewMessages: history.length > messages.length,
+        newMessages: history.slice(messages.length),
+      };
     }
   },
 }));
@@ -297,9 +307,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
   // Bypass real workspace git init: with "/tmp" as the workspace dir, a real
   // ensureInitialized() walks all of /tmp and can exceed the 2s waitForPendingRun
@@ -348,10 +358,10 @@ async function resolveRun(index: number) {
 }
 
 function syncChangedMessages(): {
-  messages: SyncChangedMessage[];
+  messages: SyncChangedEvent[];
   dispose: () => void;
 } {
-  const messages: SyncChangedMessage[] = [];
+  const messages: SyncChangedEvent[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {

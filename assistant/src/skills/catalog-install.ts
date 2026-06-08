@@ -29,17 +29,20 @@ export interface CatalogSkill {
   id: string;
   name: string;
   description: string;
+  icon?: string;
   emoji?: string;
   includes?: string[];
   version?: string;
   updatedAt?: string;
   metadata?: {
+    icon?: string;
     emoji?: string;
     vellum?: {
       "display-name"?: string;
       "activation-hints"?: string[];
       "avoid-when"?: string[];
       "feature-flag"?: string;
+      category?: string;
     };
   };
 }

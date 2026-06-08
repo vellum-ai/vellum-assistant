@@ -19,18 +19,11 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { parseDrfFieldError } from "@/domains/account/parse-drf-field-error";
 import {
   USERNAME_ERROR_COPY,
   type UsernameErrorCode,
 } from "@/domains/account/profile";
-
-// Mirror of ``apps/web/src/assistant/api.ts`` — when running under
-// `bun:test` there's no `window`, so point the SDK at localhost so it can
-// build URLs against the test-injected `globalThis.fetch`.
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,50 +63,10 @@ export type UpdateAssistantHandleResult =
   | { kind: "error"; message: string };
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a DRF validation error body into a ``{code, message}`` tuple.
- *
- * DRF returns two shapes depending on whether we raise with a ``code=``
- * keyword: ``{handle: [{code, string}]}`` (preferred) or
- * ``{handle: ["message"]}``. Accept both.
- */
-function parseValidationError(body: unknown): {
-  code: HandleErrorCode | null;
-  message: string;
-} {
-  if (body && typeof body === "object") {
-    const handleErr = (body as Record<string, unknown>).handle;
-    if (Array.isArray(handleErr) && handleErr.length > 0) {
-      const first = handleErr[0];
-      if (typeof first === "string") {
-        return { code: null, message: first };
-      }
-      if (first && typeof first === "object") {
-        const codeRaw = (first as Record<string, unknown>).code;
-        const messageRaw =
-          (first as Record<string, unknown>).string ??
-          (first as Record<string, unknown>).message;
-        return {
-          code: (typeof codeRaw === "string" ? codeRaw : null) as
-            | HandleErrorCode
-            | null,
-          message:
-            typeof messageRaw === "string"
-              ? messageRaw
-              : "Please choose a different handle.",
-        };
-      }
-    }
-    const detail = (body as Record<string, unknown>).detail;
-    if (typeof detail === "string") {
-      return { code: null, message: detail };
-    }
-  }
-  return { code: null, message: "Please choose a different handle." };
-}
+const DEFAULT_HANDLE_ERROR = "Please choose a different handle.";
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -129,7 +82,6 @@ export async function updateAssistantHandle(
   handle: string,
 ): Promise<UpdateAssistantHandleResult> {
   const { data, error, response } = await assistantsPartialUpdate({
-    ...SDK_BASE_OPTIONS,
     path: { id: assistantId },
     body: { handle },
     throwOnError: false,
@@ -145,20 +97,25 @@ export async function updateAssistantHandle(
   }
 
   if (response.ok && data) {
-    return { kind: "ok", data: data as Assistant };
+    return { kind: "ok", data };
   }
 
   if (response.status === 409) {
-    const body = error as Record<string, unknown> | undefined;
-    const message =
-      (body && typeof body.detail === "string" && body.detail) ||
-      HANDLE_ERROR_COPY.taken;
+    const { message } = parseDrfFieldError(
+      error,
+      "handle",
+      HANDLE_ERROR_COPY.taken,
+    );
     return { kind: "taken", message };
   }
 
   if (response.status === 400) {
-    const { code, message } = parseValidationError(error);
-    return { kind: "invalid", code, message };
+    const { code, message } = parseDrfFieldError(
+      error,
+      "handle",
+      DEFAULT_HANDLE_ERROR,
+    );
+    return { kind: "invalid", code: code as HandleErrorCode | null, message };
   }
 
   return {
@@ -180,7 +137,6 @@ export async function checkAssistantHandleAvailable(
   signal?: AbortSignal,
 ): Promise<HandleAvailability> {
   const { data, error, response } = await assistantsHandleAvailableRetrieve({
-    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     query: { handle },
     signal,
@@ -204,7 +160,7 @@ export async function checkAssistantHandleAvailable(
   // typed shape so consumers can switch on the code without casting.
   return {
     available: data.available,
-    code: (data.code ?? null) as HandleErrorCode | null,
+    code: (data.code ?? null) as HandleErrorCode | null, // server sends string|null; narrow to known codes
     message: data.message ?? null,
   };
 }

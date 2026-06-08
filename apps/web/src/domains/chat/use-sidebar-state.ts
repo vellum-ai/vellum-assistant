@@ -22,6 +22,12 @@ import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/schedul
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { mergeConversationLists } from "@/utils/conversation-cache";
+import {
+  useBackgroundConversationListQuery,
+  useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -63,6 +69,23 @@ export interface SidebarState {
   onOpenCustomGroupsChange: (next: string[]) => void;
 
   conversationGroupsEnabled: boolean;
+
+  /**
+   * Reveal the Background section, enabling its lazy fetch. Wired to the
+   * collapsed rail's flyout trigger, which opens without going through
+   * `onOpenCategoriesChange`.
+   */
+  activateBackground: () => void;
+  /** True once the Background section is revealed but its fetch is still in flight. */
+  backgroundLoading: boolean;
+  /**
+   * Reveal the Scheduled section, enabling its lazy fetch. Independent of
+   * `activateBackground` so opening Scheduled never fetches the background
+   * backlog.
+   */
+  activateScheduled: () => void;
+  /** True once the Scheduled section is revealed but its fetch is still in flight. */
+  scheduledLoading: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +106,9 @@ export function useSidebarState({
   attentionConversationIds,
 }: UseSidebarStateParams): SidebarState {
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const isAssistantActive = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind === "active",
+  );
 
   // --- Collapse store hydration ---
 
@@ -98,16 +124,60 @@ export function useSidebarState({
   const openCustomGroups = useSidebarCollapseStore.use.openCustomGroups();
   const setOpenCategories = useSidebarCollapseStore.use.setOpenCategories();
   const setOpenCustomGroups = useSidebarCollapseStore.use.setOpenCustomGroups();
+  const activateBackground = useSidebarCollapseStore.use.activateBackground();
+  const activateScheduled = useSidebarCollapseStore.use.activateScheduled();
+  const backgroundActivated = useSidebarCollapseStore.use.backgroundActivated();
+  const scheduledActivated = useSidebarCollapseStore.use.scheduledActivated();
+  const collapseAssistantId = useSidebarCollapseStore.use.assistantId();
+
+  // Background and scheduled jobs each load through their own lazy query,
+  // co-located here with the sections that toggle them. A query is enabled
+  // only once its section is revealed (`backgroundActivated` /
+  // `scheduledActivated`) and the collapse store has synced to the current
+  // assistant — so neither backlog touches the initial-load critical path,
+  // and revealing one section never pulls in the other. The activation flags
+  // briefly hold the previous assistant's values on a switch; gating on the
+  // sync guard stops a stale flag from fetching the new assistant's backlog
+  // on its first render.
+  const collapseSynced = collapseAssistantId === assistantId;
+  const backgroundReady = backgroundActivated && collapseSynced;
+  const scheduledReady = scheduledActivated && collapseSynced;
+  const {
+    conversations: backgroundConversations,
+    isPending: backgroundPending,
+  } = useBackgroundConversationListQuery(
+    assistantId,
+    isAssistantActive && backgroundReady,
+  );
+  const backgroundLoading = backgroundReady && backgroundPending;
+  const {
+    conversations: scheduledConversations,
+    isPending: scheduledPending,
+  } = useScheduledConversationListQuery(
+    assistantId,
+    isAssistantActive && scheduledReady,
+  );
+  const scheduledLoading = scheduledReady && scheduledPending;
+
+  const allConversations = useMemo(
+    () =>
+      mergeConversationLists(
+        conversations,
+        backgroundConversations,
+        scheduledConversations,
+      ),
+    [conversations, backgroundConversations, scheduledConversations],
+  );
 
   // --- Grouping (memoized per conversations reference) ---
 
   const grouped = useMemo(
     () =>
-      groupConversations(conversations, {
+      groupConversations(allConversations, {
         groups: conversationGroups,
         customGroupsEnabled: conversationGroupsUI,
       }),
-    [conversations, conversationGroups, conversationGroupsUI],
+    [allConversations, conversationGroups, conversationGroupsUI],
   );
 
   const scheduledSubGroups = useMemo(
@@ -254,5 +324,9 @@ export function useSidebarState({
     onOpenCategoriesChange: setOpenCategories,
     onOpenCustomGroupsChange: setOpenCustomGroups,
     conversationGroupsEnabled: conversationGroupsUI,
+    activateBackground,
+    backgroundLoading,
+    activateScheduled,
+    scheduledLoading,
   };
 }

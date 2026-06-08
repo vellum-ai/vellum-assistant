@@ -1,24 +1,34 @@
 /**
  * Message operations: history retrieval, polling, sending, and attachments.
  *
- * Includes `RuntimeMessage` / `RuntimeToolCall` types used for daemon
- * history payloads, content normalization helpers, and the `postChatMessage`
- * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
+ * The daemon's history-row wire contract is the canonical `ConversationMessage`
+ * schema from `@vellumai/assistant-api`, consumed here alongside content
+ * normalization helpers and the `postChatMessage` / `uploadChatAttachment` /
+ * `deleteQueuedMessage` writes.
  */
 
-import * as Sentry from "@sentry/react";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { captureError } from "@/lib/sentry/capture-error";
 import type {
-  DisplayMessage,
-  SlackRuntimeMessage,
-  Surface,
-} from "@/domains/chat/types/types";
-import { client } from "@/generated/api/client.gen";
+  ConversationContentBlock,
+  ConversationMessage,
+  ConversationMessageToolCall,
+  ConversationSubagentNotification,
+} from "@vellumai/assistant-api";
+import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/utils/api-errors";
+  attachmentsPost,
+  messagesGet,
+  messagesPost,
+  messagesQueuedByIdSteerPost,
+  messagesQueuedByIdDelete,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  MessagesGetResponse,
+  MessagesPostData,
+} from "@/generated/daemon/types.gen";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
@@ -26,118 +36,34 @@ import {
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
 
-/** Shape of a single tool call as returned by the daemon's history endpoint. */
-export interface RuntimeToolCall {
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
-  riskLevel?: string;
-  /** Human-readable reason for the risk classification. */
-  riskReason?: string;
-  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
-  autoApproved?: boolean;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached. */
-  approvalMode?: string;
-  /** Why the approval decision was reached. */
-  approvalReason?: string;
-  /** Snapshot of the auto-approve threshold at execution time. */
-  riskThreshold?: string;
-  /** Unix ms timestamp when the tool call started. Persisted by the daemon; used for duration display. */
-  startedAt?: number;
-  /** Unix ms timestamp when the tool call completed. Persisted by the daemon; used for duration display. */
-  completedAt?: number;
-  /** Explicit confirmation decision persisted by the daemon ("approved" | "denied" | "timed_out"). */
-  confirmationDecision?: string;
-}
-
-/** Attachment metadata returned by the daemon's message history endpoint. */
-export interface RuntimeAttachment {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
-  /** Base64-encoded file data. Only populated for images on history reload. */
-  data?: string;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
-
-/** Subagent notification embedded in assistant history messages. */
-export interface RuntimeSubagentNotification {
-  subagentId: string;
-  label: string;
-  status: string;
-  error?: string;
-  conversationId?: string;
+/**
+ * Subagent notification as carried by the web. The wire shape
+ * (`ConversationSubagentNotification`) is enriched during history
+ * reconstruction with the client-derived id of the parent assistant message
+ * that spawned the subagent (see `history.ts`); those fields are not part of
+ * the wire contract.
+ */
+export interface RuntimeSubagentNotification extends ConversationSubagentNotification {
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
 }
 
-export interface RuntimeMessage {
-  id: string;
-  /** Server message ids folded into this canonical history row. */
-  mergedMessageIds?: string[];
-  role: "user" | "assistant";
-  content: string;
-  surfaces?: Surface[];
-  textSegments?: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }>;
-  contentOrder?: Array<{ type: string; id: string }>;
-  metadata?: Record<string, unknown>;
-  slackMessage?: SlackRuntimeMessage;
-  toolCalls?: RuntimeToolCall[];
-  /** Structured attachment metadata from the daemon's history endpoint. */
-  attachments?: RuntimeAttachment[];
-  /** Server-provided timestamp as epoch milliseconds or an ISO string. */
-  timestamp?: number | string;
-  /** Subagent notification attached to this history message by the daemon. */
-  subagentNotification?: RuntimeSubagentNotification;
-}
-
-interface SendMessageResponse {
-  accepted: boolean;
-  messageId?: string;
-  queued?: boolean;
-  conversationId?: string;
-  assistantMessage?: RuntimeMessage;
-  /** Set when `queued` is true — the daemon's request id for the
-   *  queued message, used by the steer/cancel endpoints. Added by
-   *  #7484 (queue steering) but the interface field was missed. */
-  requestId?: string;
-}
-
-interface ListMessagesResponse {
-  messages: RuntimeMessage[];
-}
-
 export async function pollForResponse(
   assistantId: string,
   userMessageId: string,
   conversationId: string,
-): Promise<RuntimeMessage | null> {
+): Promise<ConversationMessage | null> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -153,7 +79,7 @@ export async function pollForResponse(
       throw new Error(msg);
     }
 
-    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    const messages = data?.messages ?? [];
 
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
@@ -174,50 +100,34 @@ export async function pollForResponse(
 }
 
 /**
- * Convert daemon-returned tool calls into the ChatMessageToolCall shape
- * used by the web client. The daemon returns `{ name, input, result?, isError? }`
- * while the UI expects `{ id, toolName, input, status, result?, isError? }`.
- * The synthesised `id` uses the array index, matching how contentOrder
- * references tool calls by index in history payloads.
+ * Project a canonical wire tool call onto the `ChatMessageToolCall` rendered in
+ * the transcript. The wire base already carries every shared field (`name`,
+ * `input`, `result`, the risk/approval fields, the `risk*Options` ladders), so
+ * we only layer the client-only live state: the stable `id`. The `id` is the
+ * provider tool-use id the wire now carries — the same id the live
+ * `tool_use_start` stream uses, so reconcile matches snapshot and stream tool
+ * calls by it. We fall back to a positional synthesized id only for daemons
+ * predating the wire `id` field. Execution `status` is not stored; it is
+ * derived on demand from `isError`/`result`/`completedAt` via the predicates
+ * in `tool-call-status.ts`.
  */
 export function mapRuntimeToolCalls(
-  toolCalls: RuntimeToolCall[],
+  toolCalls: ConversationMessageToolCall[],
   messageId: string,
 ): ChatMessageToolCall[] {
-  return toolCalls.map((tc, idx) => ({
-    id: `tool-history-${messageId}-${idx}`,
-    toolName: tc.name,
-    input: tc.input,
-    status: tc.isError
-      ? ("error" as const)
-      : tc.result === undefined
-        ? ("running" as const)
-        : ("completed" as const),
-    ...(tc.result !== undefined ? { result: tc.result } : {}),
-    ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
-    ...(tc.riskLevel !== undefined ? { riskLevel: tc.riskLevel } : {}),
-    ...(tc.riskReason !== undefined ? { riskReason: tc.riskReason } : {}),
-    ...(tc.matchedTrustRuleId !== undefined
-      ? { matchedTrustRuleId: tc.matchedTrustRuleId }
-      : {}),
-    ...(tc.approvalMode !== undefined ? { approvalMode: tc.approvalMode } : {}),
-    ...(tc.approvalReason !== undefined
-      ? { approvalReason: tc.approvalReason }
-      : {}),
-    ...(tc.riskThreshold !== undefined
-      ? { riskThreshold: tc.riskThreshold }
-      : {}),
-    ...(tc.startedAt !== undefined ? { startedAt: tc.startedAt } : {}),
-    ...(tc.completedAt !== undefined ? { completedAt: tc.completedAt } : {}),
-    ...(tc.confirmationDecision !== undefined
-      ? {
-          confirmationDecision: tc.confirmationDecision as
-            | "approved"
-            | "denied"
-            | "timed_out",
-        }
-      : {}),
-  }));
+  return toolCalls.map((tc, idx) => {
+    // Drop `confirmationDecision` from the spread and re-add it only when the
+    // wire row actually carries one. A history row that omits it must not
+    // materialize `confirmationDecision: undefined`, or reconciliation would
+    // spread that over a live `"denied"`/`"timed_out"` decision set locally by
+    // `useInteractionActions`.
+    const { confirmationDecision, ...rest } = tc;
+    return {
+      ...rest,
+      id: tc.id ?? `tool-history-${messageId}-${idx}`,
+      ...(confirmationDecision !== undefined ? { confirmationDecision } : {}),
+    };
+  });
 }
 
 /**
@@ -260,36 +170,78 @@ export function normalizeContentOrder(
 }
 
 /**
- * Normalize a textSegments array from the server. The server sends plain
- * strings, but the client expects objects with `{ type, content }`.
+ * Resolve a message's unified `contentBlocks` projection.
+ *
+ * The daemon emits `contentBlocks` directly from the model-native content
+ * (`renderHistoryContent`) as the authoritative, single-ordered list of
+ * text / thinking / tool_use / surface / attachment blocks. Any defined value
+ * — including an empty array — is returned verbatim: the server having sent
+ * the field at all means it is authoritative (an empty list is a genuinely
+ * contentless message, not a missing projection), so the renderer consumes
+ * the canonical wire shape with no client-side reshaping.
+ *
+ * The reconstruction path below exists solely for assistants versioned
+ * `< 0.8.8`, which predate the projection and omit `contentBlocks` entirely.
+ * Those ship only the positional
+ * `contentOrder`/`textSegments`/`thinkingSegments`/`toolCalls`/`surfaces`/
+ * `attachments` arrays, so we rebuild the same discriminated-union list from
+ * them and the renderer always has a wire-shaped list regardless of daemon
+ * version. The reconstruction mirrors the daemon's own builder: text segments
+ * are stripped of their inlined `[File attachment]` summary lines (attachments
+ * surface as `attachment` blocks, not text) and fully-consumed (empty) text
+ * segments are dropped, so a reconstructed row is indistinguishable from a
+ * daemon-provided one. It can be deleted once `< 0.8.8` assistants are no
+ * longer supported.
  */
-export function normalizeTextSegments(
-  raw: unknown[] | undefined,
-):
-  | Array<{ type: string; content: string; [key: string]: unknown }>
-  | undefined {
-  if (!raw || raw.length === 0) return undefined;
-  const result: Array<{
-    type: string;
-    content: string;
-    [key: string]: unknown;
-  }> = [];
-  for (const entry of raw) {
-    if (typeof entry === "string") {
-      result.push({ type: "text", content: entry });
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const obj = entry as Record<string, unknown>;
-      if (typeof obj.content === "string") {
-        const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as {
-          type: string;
-          content: string;
-          [key: string]: unknown;
-        });
+export function normalizeContentBlocks(
+  m: ConversationMessage,
+): ConversationContentBlock[] | undefined {
+  if (m.contentBlocks !== undefined) {
+    return m.contentBlocks;
+  }
+
+  const order = normalizeContentOrder(m.contentOrder);
+  if (!order) return undefined;
+
+  const blocks: ConversationContentBlock[] = [];
+  for (const { type, id } of order) {
+    const idx = Number.parseInt(id, 10);
+    if (Number.isNaN(idx)) continue;
+    switch (type) {
+      case "text": {
+        const raw = m.textSegments?.[idx];
+        if (raw == null) break;
+        const { cleanedContent } = parseAttachmentSummariesFromContent(raw);
+        if (cleanedContent.trim().length > 0) {
+          blocks.push({ type: "text", text: cleanedContent });
+        }
+        break;
+      }
+      case "thinking": {
+        const thinking = m.thinkingSegments?.[idx];
+        if (thinking != null) blocks.push({ type: "thinking", thinking });
+        break;
+      }
+      case "tool":
+      case "toolCall": {
+        const toolCall = m.toolCalls?.[idx];
+        if (toolCall) blocks.push({ type: "tool_use", toolCall });
+        break;
+      }
+      case "surface": {
+        const surface = m.surfaces?.[idx];
+        if (surface) blocks.push({ type: "surface", surface });
+        break;
+      }
+      case "attachment": {
+        const attachment = m.attachments[idx];
+        if (attachment) blocks.push({ type: "attachment", attachment });
+        break;
       }
     }
   }
-  return result.length > 0 ? result : undefined;
+
+  return blocks.length > 0 ? blocks : undefined;
 }
 
 export type ChatHistoryResult =
@@ -301,12 +253,7 @@ export async function getChatHistory(
   conversationId: string,
 ): Promise<ChatHistoryResult> {
   try {
-    const { data, error, response } = await client.get<
-      ListMessagesResponse,
-      unknown
-    >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/messages/",
+    const { data, error, response } = await messagesGet({
       path: { assistant_id: assistantId },
       query: { conversationId },
       throwOnError: false,
@@ -326,9 +273,7 @@ export async function getChatHistory(
       };
     }
 
-    const messages = (Array.isArray(data?.messages) ? data.messages : [])
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map(mapRuntimeToDisplayMessage);
+    const messages = (data?.messages ?? []).map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {
@@ -341,20 +286,21 @@ export async function getChatHistory(
 }
 
 /**
- * Fetch the server's authoritative message list for a conversation.
+ * Fetch the server's authoritative `/messages` snapshot for a conversation.
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
+ *
+ * Returns the raw daemon response, which carries the persisted
+ * `ConversationMessage` rows alongside the snapshot watermark `seq`. Callers
+ * read `messages` directly and use `seq` for the seq-aware reconcile, which
+ * compares it against the live applied frontier. `seq` is absent on daemons
+ * that predate the seq-on-snapshot contract.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
-): Promise<RuntimeMessage[]> {
-  const { data, error, response } = await client.get<
-    ListMessagesResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/messages/",
+): Promise<MessagesGetResponse | undefined> {
+  const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query: { conversationId },
     throwOnError: false,
@@ -365,7 +311,7 @@ export async function fetchConversationMessages(
       `Failed to fetch conversation messages (HTTP ${response.status})`,
     );
   }
-  return Array.isArray(data?.messages) ? data.messages : [];
+  return data;
 }
 
 export type PostMessageResult =
@@ -401,7 +347,7 @@ export type UploadAttachmentResult =
  * Upload a single file as a chat attachment and return the server-assigned id.
  *
  * The assistant backend exposes a multipart upload at
- * `/v1/assistants/{assistant_id}/attachments/` that accepts a `file` field
+ * `/v1/assistants/{assistant_id}/attachments` that accepts a `file` field
  * plus `filename` and `mimeType` text fields. The response body contains an
  * `id` that can be included in a subsequent `postChatMessage` call via
  * `attachmentIds`.
@@ -413,26 +359,9 @@ export async function uploadChatAttachment(
   const filename = file.name || "attachment";
   const mimeType = file.type || "application/octet-stream";
 
-  const form = new FormData();
-  form.append("filename", filename);
-  form.append("mimeType", mimeType);
-  form.append("file", file, filename);
-
-  const { data, error, response } = await client.post<
-    Record<string, unknown>,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/attachments/",
+  const { data, error, response } = await attachmentsPost({
     path: { assistant_id: assistantId },
-    body: form as unknown as Record<string, unknown>,
-    // Pass the FormData through without serialization so the browser sets
-    // the correct multipart boundary on Content-Type.
-    bodySerializer: (body: unknown) => body as BodyInit,
-    headers: {
-      // Let fetch compute the multipart boundary for us.
-      "Content-Type": null,
-    },
+    body: { file, filename, mimeType },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to upload attachment");
@@ -449,12 +378,7 @@ export async function uploadChatAttachment(
     return { ok: false, status: response.status, error: { detail } };
   }
 
-  const dataRecord =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const rawId = dataRecord?.id;
-  const id = typeof rawId === "string" ? rawId : undefined;
+  const id = data?.id;
   if (!id) {
     return {
       ok: false,
@@ -508,11 +432,20 @@ export async function postChatMessage(
   // Pre-0.8.6 assistants always receive `conversationKey` — including
   // `conversationKey: null` for safety, since they have no mint branch
   // and need the legacy create-or-lookup path either way.
-  const body: Record<string, unknown> = {
+  const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  // Read the effective timezone LIVE at send time (not from cached state) so
+  // every message carries the user's current zone, keeping the assistant's
+  // per-turn time awareness fresh as the OS/browser timezone changes. The
+  // daemon route consumes this field in its turn-timezone cascade (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`, where the request
+  // schema accepts `clientTimezone: z.string().optional()` and forwards it
+  // into `resolveTurnTimezoneContext`).
+  const clientTimezone = getEffectiveTimezone();
+  if (clientTimezone) body.clientTimezone = clientTimezone;
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
     body[conversationField] = conversationId;
@@ -524,11 +457,12 @@ export async function postChatMessage(
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
   if (normalizedOnboarding) {
-    const onboardingDict: Record<string, unknown> = {
-      tools: normalizedOnboarding.tools,
-      tasks: normalizedOnboarding.tasks,
-      tone: normalizedOnboarding.tone,
-    };
+    const onboardingDict: NonNullable<MessagesPostData["body"]["onboarding"]> =
+      {
+        tools: normalizedOnboarding.tools,
+        tasks: normalizedOnboarding.tasks,
+        tone: normalizedOnboarding.tone,
+      };
     if (normalizedOnboarding.userName !== undefined)
       onboardingDict.userName = normalizedOnboarding.userName;
     if (normalizedOnboarding.assistantName !== undefined)
@@ -545,8 +479,10 @@ export async function postChatMessage(
       onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
     if (
       normalizedOnboarding.initialMessage !== undefined &&
-      normalizedOnboarding.initialMessage.trim().toLowerCase().replace(/[.!?]+$/, "") !==
-        "wake up, my friend"
+      normalizedOnboarding.initialMessage
+        .trim()
+        .toLowerCase()
+        .replace(/[.!?]+$/, "") !== "wake up, my friend"
     )
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
@@ -554,17 +490,18 @@ export async function postChatMessage(
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
-    void persistPreChatOnboardingProfile(assistantId, normalizedOnboarding).catch(
-      (err) => Sentry.captureException(err, { tags: { operation: "persistPreChatOnboardingProfile" } }),
+    void persistPreChatOnboardingProfile(
+      assistantId,
+      normalizedOnboarding,
+    ).catch((err) =>
+      captureError(err, { context: "persistPreChatOnboardingProfile" }),
     );
   }
   const {
     data,
     error,
     response: sendResponse,
-  } = await client.post<SendMessageResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/messages/",
+  } = await messagesPost({
     path: { assistant_id: assistantId },
     body,
     throwOnError: false,
@@ -615,10 +552,7 @@ export async function postChatMessage(
     };
   }
 
-  const sendData =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as SendMessageResponse)
-      : undefined;
+  const sendData = data;
   if (!sendData?.accepted) {
     return {
       ok: false,
@@ -690,11 +624,8 @@ export async function steerToMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdSteerPost({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });
@@ -715,11 +646,8 @@ export async function deleteQueuedMessage(
   requestId: string,
 ): Promise<boolean> {
   try {
-    const encoded = encodeURIComponent(requestId);
-    const { response } = await client.delete<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
-      path: { assistant_id: assistantId },
+    const { response } = await messagesQueuedByIdDelete({
+      path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
       throwOnError: false,
     });

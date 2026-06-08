@@ -9,10 +9,9 @@ import type { WorkspaceMigration } from "./types.js";
  * `conversationSummarization` is invoked from `ContextWindowManager.
  * updateSummary()` during mid-loop compaction. Without a call-site entry it
  * falls through to `llm.default` (opus + `effort: "max"` + `thinking:
- * { enabled: true }` + `maxTokens: 64000`), which is far too expensive for
- * summarizing a ~150k-token transcript inside the agent-loop plugin
- * pipeline's 30s budget — we were hitting `PluginTimeoutError` and hard-
- * failing the turn.
+ * { enabled: true }` + `maxTokens: 64000`), which is far too expensive and
+ * slow for summarizing a ~150k-token transcript inside the agent loop —
+ * the summary call would stall the turn.
  *
  * This migration seeds `effort: "low"` and `thinking: { enabled: false }`
  * (and opus-4.7 as the model when absent) so the summary call runs cheaply
@@ -99,7 +98,7 @@ export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration 
     },
     down(_workspaceDir: string): void {
       // Forward-only: removing the seeded defaults would reintroduce the
-      // 30s pipeline-budget timeout this migration fixes.
+      // expensive, slow summary call this migration fixes.
     },
   };
 

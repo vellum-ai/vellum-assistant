@@ -1,11 +1,11 @@
 import type { MouseEvent } from "react";
-import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { cn } from "@vellum/design-library";
 import { openUrl } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { cn } from "@vellumai/design-library";
 
 interface HomeMarkdownContentProps {
   content: string;

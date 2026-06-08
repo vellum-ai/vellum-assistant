@@ -171,7 +171,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
-      "acp/prepare-agent-env.ts", // shared helper injects CLAUDE_CODE_OAUTH_TOKEN into claude-agent-acp subprocess env (called by route + skill tool spawn paths)
       "security/token-manager.ts", // OAuth token refresh flow
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
       "calls/call-domain.ts", // caller identity resolution (user phone number lookup)
@@ -231,7 +230,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
-      "plugins/external-api.ts", // globalThis runtime bridge that exposes getSecureKeyAsync to dynamically-imported workspace plugins (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

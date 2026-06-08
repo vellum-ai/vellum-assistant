@@ -12,6 +12,19 @@ import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/uti
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
+const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
+  "choice",
+  "oauth_connect",
+  "form",
+  "confirmation",
+  "file_upload",
+  "card",
+  "list",
+  "table",
+  "browser_view",
+  "task_preferences",
+];
+
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable
 // ---------------------------------------------------------------------------
@@ -32,7 +45,7 @@ export function clearConfirmationByRequestId(
     const updatedTcs = msg.toolCalls.map((tc) => {
       if (tc.pendingConfirmation?.requestId === requestId) {
         msgChanged = true;
-        return { ...tc, pendingConfirmation: null };
+        return { ...tc, pendingConfirmation: undefined };
       }
       return tc;
     });
@@ -59,7 +72,7 @@ export function clearPendingConfirmationsFromMessages(
     const updatedTcs = msg.toolCalls.map((tc) => {
       if (tc.pendingConfirmation) {
         msgChanged = true;
-        return { ...tc, pendingConfirmation: null };
+        return { ...tc, pendingConfirmation: undefined };
       }
       return tc;
     });
@@ -107,6 +120,42 @@ export function dismissInteractiveSurfaces(
   return { updatedMessages, dismissedIds: interactiveIds };
 }
 
+export function completeSubmittedSurface(
+  prev: DisplayMessage[],
+  surfaceId: string,
+  actionId: string,
+): DisplayMessage[] {
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
+    if (!surface) continue;
+    if (!OPTIMISTIC_COMPLETION_SURFACE_TYPES.includes(surface.surfaceType)) {
+      return prev;
+    }
+    const matchedAction = surface.actions?.find((a) => a.id === actionId);
+    const isCancellation =
+      actionId === "cancel" ||
+      actionId === "dismiss" ||
+      matchedAction?.style === "secondary";
+    const updated = [...prev];
+    updated[i] = {
+      ...prev[i]!,
+      surfaces: prev[i]!.surfaces?.map((s) =>
+        s.surfaceId === surfaceId
+          ? {
+              ...s,
+              completed: true,
+              completionSummary: isCancellation
+                ? "Cancelled"
+                : matchedAction?.label ?? undefined,
+            }
+          : s,
+      ),
+    };
+    return updated;
+  }
+  return prev;
+}
+
 /**
  * Resolve a human-readable error message from a POST result error.
  * Centralises the `ERROR_MESSAGES[code] ?? detail ?? fallback` pattern.
@@ -117,22 +166,6 @@ export function resolvePostError(
   fallback: string,
 ): string {
   return (code && ERROR_MESSAGES[code]) || detail || fallback;
-}
-
-/**
- * Compose clearing the streaming flag on the last assistant message with
- * clearing pending confirmations — a single pure transform for
- * `handleStopGenerating` (avoids two separate `setMessages` calls).
- */
-export function stopStreamingAndClearConfirmations(
-  prev: DisplayMessage[],
-): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  let updated = prev;
-  if (last?.role === "assistant" && last.isStreaming) {
-    updated = [...prev.slice(0, -1), { ...last, isStreaming: false }];
-  }
-  return clearPendingConfirmationsFromMessages(updated);
 }
 
 // ---------------------------------------------------------------------------

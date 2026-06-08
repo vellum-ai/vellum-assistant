@@ -310,6 +310,16 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
                 | sed 's/.*"\(.*\)"/\1/' || true)
         fi
 
+        # Fall back to an existing self-signed "Vellum Local Development" cert.
+        # These are CSSMERR_TP_NOT_TRUSTED so `-v` hides them; query without
+        # `-v` and use the SHA-1 hash (not the name) to avoid the "ambiguous"
+        # error when duplicate certs exist.
+        if [ -z "$SIGN_IDENTITY" ]; then
+            SIGN_IDENTITY=$(security find-identity -p codesigning 2>/dev/null \
+                | grep "Vellum Local Development" | grep -v "valid identities" | head -1 \
+                | awk '{print $2}' || true)
+        fi
+
         # No valid certificate found — create a self-signed one for local dev.
         # macOS 26+ requires a non-empty codeSigningID for apps that claim
         # security-sensitive entitlements (virtualization, audio-input, etc.).
@@ -395,12 +405,14 @@ CERTEOF
                 fi
                 rm -rf "$_CERT_DIR"
             fi
-            # Pick up the newly-created (or previously-created) cert.
-            # Self-signed certs show as CSSMERR_TP_NOT_TRUSTED which
-            # _valid_codesign_identities excludes, so query without -v.
+            # Pick up the newly-created (or previously-created) cert by SHA-1
+            # hash. Self-signed certs show as CSSMERR_TP_NOT_TRUSTED which
+            # _valid_codesign_identities excludes, so query without -v. Using
+            # the hash (not the name) avoids "ambiguous" errors if duplicate
+            # certs with the same CN exist in the keychain.
             SIGN_IDENTITY=$(security find-identity -p codesigning 2>/dev/null \
                 | grep "$_CERT_CN" | grep -v "valid identities" | head -1 \
-                | sed 's/.*"\(.*\)"/\1/' || true)
+                | awk '{print $2}' || true)
         fi
     fi
 

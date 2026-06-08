@@ -13,7 +13,10 @@
     "sourceMap": true,
     "outDir": "./dist",
     "jsx": "react-jsx",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@vellumai/plugin-api": ["./src/plugin-api/index.ts"]
+    }
   },
   "include": ["src/**/*", "src/**/*.tsx", "examples/**/*.ts"],
   "exclude": ["node_modules", "dist", "drizzle"]

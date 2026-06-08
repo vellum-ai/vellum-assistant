@@ -70,7 +70,7 @@ final class SkillsManager {
         }
     }
 
-    var selectedCategory: SkillCategory? {
+    var selectedCategory: String? {
         didSet { recomputeFilteredData() }
     }
 
@@ -83,8 +83,11 @@ final class SkillsManager {
     /// Skills filtered by search + category + skill filter, sorted for display.
     private(set) var filteredSkills: [SkillInfo] = []
 
-    /// Per-category counts from the server response, keyed by category raw value.
-    private(set) var categoryCounts: [SkillCategory: Int] = [:]
+    /// Skill category definitions fetched from the daemon.
+    private(set) var categories: [SkillCategoryDef] = []
+
+    /// Per-category counts from the server response, keyed by category slug.
+    private(set) var categoryCounts: [String: Int] = [:]
 
     /// Total count of skills matching the current filters (from server response).
     private(set) var searchFilteredCount: Int = 0
@@ -147,6 +150,7 @@ final class SkillsManager {
                 self.selectedSkillFiles = self.skillsStore.selectedSkillFiles
                 self.isLoadingSkillFiles = self.skillsStore.isLoadingSkillFiles
                 self.skillFilesError = self.skillsStore.skillFilesError
+                self.categories = self.skillsStore.categories
                 self.loadedFileContents = self.skillsStore.loadedFileContents
                 self.loadingFilePaths = self.skillsStore.loadingFilePaths
                 self.fileContentErrors = self.skillsStore.fileContentErrors
@@ -262,10 +266,9 @@ final class SkillsManager {
             }
         }
 
-        var counts: [SkillCategory: Int] = [:]
+        var counts: [String: Int] = [:]
         for skill in kindFiltered {
-            let cat = inferCategory(skill)
-            counts[cat, default: 0] += 1
+            counts[skill.category, default: 0] += 1
         }
         categoryCounts = counts
         searchFilteredCount = kindFiltered.count
@@ -274,7 +277,7 @@ final class SkillsManager {
         // accurate counts for all categories, not just the selected one).
         let categoryFiltered: [SkillInfo]
         if let category = selectedCategory {
-            categoryFiltered = kindFiltered.filter { inferCategory($0) == category }
+            categoryFiltered = kindFiltered.filter { $0.category == category }
         } else {
             categoryFiltered = kindFiltered
         }
@@ -344,6 +347,10 @@ final class SkillsManager {
         } else {
             skillsStore.fetchSkills(force: false)
         }
+    }
+
+    func fetchCategories() {
+        skillsStore.fetchCategories()
     }
 
     func fetchSkillBody(skillId: String) {

@@ -6,6 +6,14 @@ import (
 	"testing"
 )
 
+// optInConfigJSON is a minimal OCI config.json that carries the MITM opt-in
+// annotation, so mutateCreateBundle treats it as the run/species container.
+const optInConfigJSON = `{
+		"annotations": {"ai.vellum.evals.mitm": "1"},
+		"process": {"env": ["PATH=/usr/bin"]},
+		"linux": {"namespaces": [{"type": "network"}, {"type": "pid"}]}
+	}`
+
 // ---- detectSubcommand ----
 
 func TestDetectSubcommand(t *testing.T) {
@@ -95,11 +103,7 @@ func TestFindBundleDir_FlagWithoutValue(t *testing.T) {
 func TestMutateCreateBundle_RewritesConfigJSON(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	input := `{
-		"process": {"env": ["PATH=/usr/bin"]},
-		"linux": {"namespaces": [{"type": "network"}, {"type": "pid"}]}
-	}`
-	if err := os.WriteFile(configPath, []byte(input), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(optInConfigJSON), 0o644); err != nil {
 		t.Fatalf("seed write: %v", err)
 	}
 
@@ -132,6 +136,42 @@ func TestMutateCreateBundle_RewritesConfigJSON(t *testing.T) {
 	}
 }
 
+// TestMutateCreateBundle_SkipsWhenNotOptedIn is the security-critical case:
+// a container the orchestrator did NOT opt in must be left byte-for-byte
+// untouched, so its own network namespace and trust store survive.
+func TestMutateCreateBundle_SkipsWhenNotOptedIn(t *testing.T) {
+	// GIVEN a config.json that requests its own network namespace but carries
+	// no MITM opt-in annotation
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	input := `{
+		"process": {"env": ["PATH=/usr/bin"]},
+		"linux": {"namespaces": [{"type": "network"}, {"type": "pid"}]}
+	}`
+	if err := os.WriteFile(configPath, []byte(input), 0o644); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	// WHEN the runtime processes the create bundle
+	args := []string{"create", "--bundle", dir, "test-container"}
+	if err := mutateCreateBundle(args); err != nil {
+		t.Fatalf("mutateCreateBundle errored: %v", err)
+	}
+
+	// THEN the file is unchanged: the network namespace and default trust
+	// store are preserved (no CA env vars, no CA mount injected)
+	out, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read after mutate: %v", err)
+	}
+	if string(out) != input {
+		t.Errorf("non-opted-in config should be byte-identical; got:\n%s", out)
+	}
+	if containsBytes(out, "recording-ca.pem") {
+		t.Error("CA must not be injected into a container that did not opt in")
+	}
+}
+
 func TestMutateCreateBundle_MissingConfigErrors(t *testing.T) {
 	dir := t.TempDir()
 	args := []string{"create", "--bundle", dir, "test-container"}
@@ -144,7 +184,7 @@ func TestMutateCreateBundle_MissingConfigErrors(t *testing.T) {
 func TestMutateCreateBundle_RespectsCAHostPathEnv(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{}`), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"annotations": {"ai.vellum.evals.mitm": "1"}}`), 0o644); err != nil {
 		t.Fatalf("seed write: %v", err)
 	}
 

@@ -27,6 +27,7 @@ const ALLOWLIST = new Set([
   "clients/shared/App/Auth/PlatformOAuthService.swift", // comment explaining runtimeUrl vs platformUrl
   "clients/macos/vellum-assistant/App/AppDelegate.swift",
   "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
+  "apps/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
   ".claude/skills/update/SKILL.md", // daemon health check script
 
   // --- Test fixtures that poll the daemon directly (gateway may require auth) ---
@@ -84,12 +85,21 @@ function isGatewayInternal(filePath: string): boolean {
   return filePath.startsWith("gateway/");
 }
 
+/** Additional files allowed for the interpolated-port check only (use gateway port, not runtime). */
+const INTERPOLATED_PORT_ALLOWLIST = new Set([
+  "apps/macos/src/main/bundle-flow.ts",
+]);
+
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
-function filterViolations(files: string[]): string[] {
+function filterViolations(
+  files: string[],
+  extraAllowlist?: Set<string>,
+): string[] {
   return files.filter((f) => {
     if (isTestFile(f)) return false;
     if (isGatewayInternal(f)) return false;
     if (ALLOWLIST.has(f)) return false;
+    if (extraAllowlist?.has(f)) return false;
     return true;
   });
 }
@@ -181,7 +191,7 @@ describe("gateway-only API consumption guard", () => {
     }
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
-    const violations = filterViolations(files);
+    const violations = filterViolations(files, INTERPOLATED_PORT_ALLOWLIST);
 
     if (violations.length > 0) {
       const message = [

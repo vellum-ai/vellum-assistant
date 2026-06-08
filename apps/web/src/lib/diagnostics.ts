@@ -24,11 +24,46 @@ export interface DiagnosticsEvent {
 // Module state
 // ---------------------------------------------------------------------------
 
+/**
+ * High-volume ring: per-delta SSE diagnostics, history applies, and other
+ * frequently-emitted events. Capped low because a single active turn can
+ * emit dozens of entries per second.
+ */
 const MAX_EVENTS = 200;
-const STORAGE_KEY = "vellum:chat-diagnostics:v1";
 
-let loaded = false;
-let events: DiagnosticsEvent[] = [];
+/**
+ * Low-volume ring for discrete connection and app-lifecycle transitions
+ * (stream open / close / reconnect / watchdog, tab visibility, network,
+ * power). Kept in a separate buffer so a burst of high-volume per-delta
+ * events can never flush the lifecycle timeline — the signal a
+ * "stale content after the tab regains focus" report needs survives even
+ * after tens of minutes of streaming.
+ */
+const MAX_LIFECYCLE_EVENTS = 200;
+
+const STORAGE_KEY = "vellum:chat-diagnostics:v1";
+const LIFECYCLE_STORAGE_KEY = "vellum:chat-diagnostics-lifecycle:v1";
+
+interface Ring {
+  readonly storageKey: string;
+  readonly max: number;
+  loaded: boolean;
+  events: DiagnosticsEvent[];
+}
+
+const mainRing: Ring = {
+  storageKey: STORAGE_KEY,
+  max: MAX_EVENTS,
+  loaded: false,
+  events: [],
+};
+
+const lifecycleRing: Ring = {
+  storageKey: LIFECYCLE_STORAGE_KEY,
+  max: MAX_LIFECYCLE_EVENTS,
+  loaded: false,
+  events: [],
+};
 
 // ---------------------------------------------------------------------------
 // Storage helpers
@@ -43,41 +78,68 @@ function getSessionStorage(): Storage | null {
   }
 }
 
-function loadEvents(): void {
-  if (loaded) return;
-  loaded = true;
+function isDiagnosticsEvent(event: unknown): event is DiagnosticsEvent {
+  return (
+    event != null &&
+    typeof event === "object" &&
+    typeof (event as DiagnosticsEvent).ts === "string" &&
+    typeof (event as DiagnosticsEvent).kind === "string" &&
+    (event as DiagnosticsEvent).details != null &&
+    typeof (event as DiagnosticsEvent).details === "object" &&
+    !Array.isArray((event as DiagnosticsEvent).details)
+  );
+}
+
+function loadRing(ring: Ring): void {
+  if (ring.loaded) return;
+  ring.loaded = true;
   const storage = getSessionStorage();
   if (!storage) return;
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(ring.storageKey);
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
-    events = parsed
-      .filter(
-        (event): event is DiagnosticsEvent =>
-          event != null &&
-          typeof event === "object" &&
-          typeof event.ts === "string" &&
-          typeof event.kind === "string" &&
-          event.details != null &&
-          typeof event.details === "object" &&
-          !Array.isArray(event.details),
-      )
-      .slice(-MAX_EVENTS);
+    ring.events = parsed.filter(isDiagnosticsEvent).slice(-ring.max);
   } catch {
-    events = [];
+    ring.events = [];
   }
 }
 
-function saveEvents(): void {
+function saveRing(ring: Ring): void {
   const storage = getSessionStorage();
   if (!storage) return;
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(events));
+    storage.setItem(ring.storageKey, JSON.stringify(ring.events));
   } catch {
     // Diagnostics are best-effort and must never affect app behavior.
   }
+}
+
+function pushToRing(
+  ring: Ring,
+  kind: string,
+  details: Record<string, unknown>,
+): void {
+  loadRing(ring);
+  ring.events.push({
+    ts: new Date().toISOString(),
+    kind,
+    details: { platform: resolvePlatformTag(), ...details },
+  });
+  if (ring.events.length > ring.max) {
+    ring.events = ring.events.slice(-ring.max);
+  }
+  saveRing(ring);
+}
+
+function snapshotRing(ring: Ring): DiagnosticsEvent[] {
+  loadRing(ring);
+  return ring.events.map((event) => ({
+    ts: event.ts,
+    kind: event.kind,
+    details: { ...event.details },
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -103,31 +165,35 @@ export function resolvePlatformTag(): string {
 // Recording
 // ---------------------------------------------------------------------------
 
-/** Append a diagnostic event to the sessionStorage ring buffer. */
+/** Append a high-volume diagnostic event to the main ring buffer. */
 export function recordDiagnostic(
   kind: string,
   details: Record<string, unknown> = {},
 ): void {
-  loadEvents();
-  events.push({
-    ts: new Date().toISOString(),
-    kind,
-    details: { platform: resolvePlatformTag(), ...details },
-  });
-  if (events.length > MAX_EVENTS) {
-    events = events.slice(-MAX_EVENTS);
-  }
-  saveEvents();
+  pushToRing(mainRing, kind, details);
 }
 
-/** Return a defensive copy of all recorded diagnostic events. */
+/**
+ * Append a discrete connection / app-lifecycle transition to the durable
+ * lifecycle ring. Use this for low-frequency state changes (stream
+ * open / close / reconnect / watchdog, tab visibility, network, power) so
+ * the connection timeline is not flushed by high-volume per-delta events.
+ */
+export function recordLifecycleDiagnostic(
+  kind: string,
+  details: Record<string, unknown> = {},
+): void {
+  pushToRing(lifecycleRing, kind, details);
+}
+
+/** Return a defensive copy of the main (high-volume) ring buffer. */
 export function getDiagnosticsEvents(): DiagnosticsEvent[] {
-  loadEvents();
-  return events.map((event) => ({
-    ts: event.ts,
-    kind: event.kind,
-    details: { ...event.details },
-  }));
+  return snapshotRing(mainRing);
+}
+
+/** Return a defensive copy of the durable lifecycle ring buffer. */
+export function getLifecycleDiagnosticsEvents(): DiagnosticsEvent[] {
+  return snapshotRing(lifecycleRing);
 }
 
 /** Build a timestamped diagnostics snapshot for support submissions. */
@@ -135,9 +201,10 @@ export function buildDiagnosticsSnapshot(
   currentState: Record<string, unknown> | null,
 ): Record<string, unknown> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     collectedAt: new Date().toISOString(),
     currentState,
+    lifecycleEvents: getLifecycleDiagnosticsEvents(),
     events: getDiagnosticsEvents(),
   };
 }

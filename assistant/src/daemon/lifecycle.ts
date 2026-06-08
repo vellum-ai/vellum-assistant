@@ -60,8 +60,6 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { installPluginRuntime } from "../plugins/external-api.js";
-import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
@@ -100,6 +98,7 @@ import {
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
@@ -112,13 +111,14 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
-import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
+import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
+import { startOrphanReaper, stopOrphanReaper } from "./orphan-reaper.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -590,6 +590,26 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
+    // Re-run the adaptive thinking repair after overlay merge + profile seeding.
+    // Workspace migration 097 enables adaptive thinking on managed profiles, but
+    // it runs before mergeDefaultWorkspaceConfig() which can overwrite the fix
+    // with overlay profiles that have thinking disabled or absent. On-platform
+    // instances where the overlay supplies "balanced" / "quality-optimized"
+    // profiles without thinking enabled would be stuck permanently because the
+    // migration is already checkpointed as completed. This idempotent repair
+    // ensures thinking is enabled regardless of overlay ordering.
+    if (defaultConfigMerge.hadOverlay) {
+      try {
+        repairAdaptiveThinkingOnManagedProfiles(getWorkspaceDir());
+        log.info("Post-overlay adaptive thinking repair complete");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Post-overlay adaptive thinking repair failed — continuing startup",
+        );
+      }
+    }
+
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
@@ -710,38 +730,12 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
-    // for user plugins. Plugins that touch the bridge from their module body
-    // would throw without this — see `plugins/external-api.ts` for the
-    // rationale (compiled-binary module identity).
-    installPluginRuntime();
-
-    // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
-    // AFTER first-party plugins have already registered via their static
-    // side-effect imports. User plugins may fail to load individually; a
-    // failing user plugin is logged and skipped so one bad install can't
-    // prevent the daemon from starting. Ordering is load-bearing:
-    //   first-party registrations → user registrations → bootstrap (init).
-    // Both groups are fully registered before any `init()` runs so plugins
-    // that depend on each other's registration observably see a stable
-    // registry at init time.
-    await loadUserPlugins();
-
-    // Bootstrap registered plugins. Runs after the plugin registry is
-    // populated (first-party static side-effect imports + user plugins
-    // loaded above) and before the DaemonServer starts handling
-    // conversations. Credential resolution + per-plugin storage directory
-    // creation happen here. Wrapped in try/catch so a failing plugin can't
-    // block daemon startup — bootstrapPlugins internally tears down any
-    // partially-initialized plugins before throwing.
-    try {
-      await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
-    } catch (err) {
-      log.warn(
-        { err },
-        "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
-      );
-    }
+    // Bring up the plugin layer: install the runtime bridge, register the
+    // first-party defaults, load user plugins, and run every plugin's
+    // `init()`. Ordering is load-bearing (defaults register ahead of user
+    // plugins so they compose innermost) and plugin failures are contained so
+    // they can't block daemon startup.
+    await initializePlugins();
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
@@ -756,6 +750,7 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
     startDiskPressureGuardForLifecycle();
+    startOrphanReaper();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake
@@ -952,7 +947,6 @@ export async function runDaemon(): Promise<void> {
         await processMessage(
           conversationId,
           message,
-          undefined,
           options
             ? {
                 ...(options.trustClass
@@ -1135,25 +1129,27 @@ export async function runDaemon(): Promise<void> {
 
             let agentLoopError: string | undefined;
             let generatedText = "";
-            await conversation.runAgentLoop(instruction, messageId, (msg) => {
-              if (
-                "type" in msg &&
-                msg.type === "assistant_text_delta" &&
-                "text" in msg
-              ) {
-                generatedText += (msg as { text: string }).text;
-              }
-              if (
-                "type" in msg &&
-                (msg.type === "error" || msg.type === "conversation_error")
-              ) {
-                agentLoopError =
-                  "message" in msg
-                    ? (msg as { message: string }).message
-                    : "userMessage" in msg
-                      ? (msg as { userMessage: string }).userMessage
-                      : "Agent loop failed";
-              }
+            await conversation.runAgentLoop(instruction, messageId, {
+              onEvent: (msg) => {
+                if (
+                  "type" in msg &&
+                  msg.type === "assistant_text_delta" &&
+                  "text" in msg
+                ) {
+                  generatedText += (msg as { text: string }).text;
+                }
+                if (
+                  "type" in msg &&
+                  (msg.type === "error" || msg.type === "conversation_error")
+                ) {
+                  agentLoopError =
+                    "message" in msg
+                      ? (msg as { message: string }).message
+                      : "userMessage" in msg
+                        ? (msg as { userMessage: string }).userMessage
+                        : "Agent loop failed";
+                }
+              },
             });
 
             // Identify messages created during this run by diffing against
@@ -1351,6 +1347,7 @@ export async function runDaemon(): Promise<void> {
       cleanupPidFile: () => {
         stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
+        stopOrphanReaper();
         cleanupPidFile();
       },
     });
@@ -1365,6 +1362,7 @@ export async function runDaemon(): Promise<void> {
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
+    stopOrphanReaper();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }

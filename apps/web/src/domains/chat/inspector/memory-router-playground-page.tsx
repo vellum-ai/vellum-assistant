@@ -1,24 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Card } from "@vellum/design-library";
+import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import {
-  useCurrentNowText,
-  useDefaultRouterPromptTemplate,
-  useLlmProfiles,
-  useSimulateMemoryRouter,
-} from "@/domains/chat/inspector/memory-router-simulator-api";
 import type {
-  MemoryRouterSimulateRequest,
-  MemoryRouterSimulateResponse,
-  RecentTurnPair,
-  RouterSource,
+    MemoryRouterSimulateRequest,
+    MemoryRouterSimulateResponse,
+    RecentTurnPair,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
+import {
+    useCurrentNowText,
+    useDefaultRouterPromptTemplate,
+    useLlmProfiles,
+    useSimulateMemoryRouter,
+} from "@/domains/chat/inspector/memory-router-simulator-api";
+import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useAuthStore } from "@/stores/auth-store";
 
 /**
  * Developer-only page for dry-running the v4 memory router with custom
@@ -38,7 +37,7 @@ import { useAuthStore } from "@/stores/auth-store";
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const user = useAuthStore.use.user();
-  const authLoading = useAuthStore.use.isLoading();
+  const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 
   if (authLoading) {
@@ -122,7 +121,7 @@ function PlaygroundView(): ReactNode {
       configOverrides = buildOverrides(overrides);
     } catch (err) {
       setValidation(
-        err instanceof Error ? err.message : "Invalid override input"
+        err instanceof Error ? err.message : "Invalid override input",
       );
       return;
     }
@@ -139,7 +138,7 @@ function PlaygroundView(): ReactNode {
     const wirePairs = recentTurnPairs.map((p, i) =>
       i === recentTurnPairs.length - 1
         ? { ...p, userMessage: p.userMessage.trim() }
-        : p
+        : p,
     );
     mutation.mutate({
       recentTurnPairs: wirePairs,
@@ -238,7 +237,7 @@ function PlaygroundView(): ReactNode {
 // ── Input helpers ──────────────────────────────────────────────────────────
 
 function buildOverrides(
-  overrides: PaneOverrides
+  overrides: PaneOverrides,
 ): MemoryRouterSimulateRequest["configOverrides"] {
   const merged = {
     ...maybeOverride("tier1_size", overrides.tier1),
@@ -250,7 +249,7 @@ function buildOverrides(
 
 function maybeOverride(
   fieldName: string,
-  raw: string
+  raw: string,
 ): Record<string, number | null> {
   const trimmed = raw.trim();
   if (trimmed === "") return {};
@@ -258,7 +257,7 @@ function maybeOverride(
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(
-      `${fieldName} must be a positive integer or 'null' (got "${trimmed}")`
+      `${fieldName} must be a positive integer or 'null' (got "${trimmed}")`,
     );
   }
   return { [fieldName]: parsed };
@@ -308,10 +307,7 @@ function ConversationContextSection({
     onPairsChange(pairs.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
   const addOlderPair = () => {
-    onPairsChange([
-      { assistantMessage: "", userMessage: "" },
-      ...pairs,
-    ]);
+    onPairsChange([{ assistantMessage: "", userMessage: "" }, ...pairs]);
   };
   const removePair = (index: number) => {
     // Refuse to drop the most recent pair — its `userMessage` is the
@@ -428,9 +424,7 @@ function ConversationContextSection({
               <ContextField
                 id={`memory-router-playground-pair-${index}-user`}
                 label={
-                  isLast
-                    ? "Just-arrived [user]: message"
-                    : "[user]: message"
+                  isLast ? "Just-arrived [user]: message" : "[user]: message"
                 }
                 value={pair.userMessage}
                 onChange={(v) => updatePair(index, { userMessage: v })}
@@ -999,10 +993,10 @@ function ResultPanel({
   result: MemoryRouterSimulateResponse;
   otherResult: MemoryRouterSimulateResponse | undefined;
 }): ReactNode {
-  const diff = useMemo(() => classifySlugs(result, otherResult), [
-    result,
-    otherResult,
-  ]);
+  const diff = useMemo(
+    () => classifySlugs(result, otherResult),
+    [result, otherResult],
+  );
   const groups = useMemo(() => groupSlugsBySource(result), [result]);
   const counts = useMemo(() => countDiff(diff), [diff]);
   return (
@@ -1037,7 +1031,7 @@ function ResultPanel({
 
 function classifySlugs(
   own: MemoryRouterSimulateResponse,
-  other: MemoryRouterSimulateResponse | undefined
+  other: MemoryRouterSimulateResponse | undefined,
 ): Map<string, SlugDiff> {
   const out = new Map<string, SlugDiff>();
   if (other === undefined) {
@@ -1123,10 +1117,9 @@ function ConfigCard({
   ];
   const rows: Array<{ label: string; value: string }> = knobs.map((key) => {
     const eff = result.effectiveConfig[key];
-    const overrideValue = (result.overrides as Record<
-      string,
-      number | null | undefined
-    >)[key];
+    const overrideValue = (
+      result.overrides as Record<string, number | null | undefined>
+    )[key];
     const effStr = eff === null ? "null" : String(eff);
     const suffix = overrideValue !== undefined ? "  (override)" : "";
     return { label: key, value: `${effStr}${suffix}` };
@@ -1158,14 +1151,14 @@ function ConfigCard({
 }
 
 interface SourceGroup {
-  source: RouterSource;
+  source: string;
   slugs: string[];
 }
 
 function groupSlugsBySource(
-  result: MemoryRouterSimulateResponse
+  result: MemoryRouterSimulateResponse,
 ): SourceGroup[] {
-  const byKey = new Map<RouterSource, string[]>();
+  const byKey = new Map<string, string[]>();
   for (const slug of result.selectedSlugs) {
     const source = result.sourceBySlug[slug];
     if (source === undefined) continue;
@@ -1174,7 +1167,7 @@ function groupSlugsBySource(
     byKey.set(source, bucket);
   }
   const sorted = [...byKey.keys()].sort(
-    (a, b) => sourceOrder(a) - sourceOrder(b)
+    (a, b) => sourceOrder(a) - sourceOrder(b),
   );
   return sorted.map((source) => ({
     source,
@@ -1182,7 +1175,7 @@ function groupSlugsBySource(
   }));
 }
 
-function sourceOrder(source: RouterSource): number {
+function sourceOrder(source: string): number {
   if (source === "tier1") return 0;
   if (source === "tier2") return 1;
   if (source.startsWith("tier3:")) {
@@ -1191,7 +1184,7 @@ function sourceOrder(source: RouterSource): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
-function formatSourceLabel(source: RouterSource): string {
+function formatSourceLabel(source: string): string {
   if (source === "tier1") return "tier 1";
   if (source === "tier2") return "tier 2";
   if (source.startsWith("tier3:")) {
@@ -1206,7 +1199,7 @@ function paneAccentColor(paneId: PaneId): string {
 
 function slugStyle(
   paneId: PaneId,
-  diff: SlugDiff
+  diff: SlugDiff,
 ): { color: string; marker: string } {
   if (diff === "both") {
     return { color: "var(--content-default)", marker: "●" };
@@ -1225,7 +1218,7 @@ function TierSectionCard({
   diff,
 }: {
   paneId: PaneId;
-  source: RouterSource;
+  source: string;
   slugs: string[];
   scores: Record<string, number>;
   diff: Map<string, SlugDiff>;

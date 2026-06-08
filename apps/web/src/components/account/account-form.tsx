@@ -1,6 +1,6 @@
 import { type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
 
-import { Notice } from "@vellum/design-library";
+import { Notice } from "@vellumai/design-library";
 
 const ARROW_ICON = (
   <svg

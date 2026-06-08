@@ -213,29 +213,27 @@ describe("channel-retry-sweep", () => {
           }
         | undefined;
 
-      await sweepFailedEvents(
-        async (conversationId, _content, _attachmentIds, options) => {
-          capturedOptions = options as {
-            trustContext?: {
-              trustClass?: string;
-              guardianPrincipalId?: string;
-            };
-            isInteractive?: boolean;
+      await sweepFailedEvents(async (conversationId, _content, options) => {
+        capturedOptions = options as {
+          trustContext?: {
+            trustClass?: string;
+            guardianPrincipalId?: string;
           };
-          const messageId = `message-${c.trustClass}`;
-          const db = getDb();
-          db.insert(messages)
-            .values({
-              id: messageId,
-              conversationId,
-              role: "user",
-              content: JSON.stringify([{ type: "text", text: "retry me" }]),
-              createdAt: Date.now(),
-            })
-            .run();
-          return { messageId };
-        },
-      );
+          isInteractive?: boolean;
+        };
+        const messageId = `message-${c.trustClass}`;
+        const db = getDb();
+        db.insert(messages)
+          .values({
+            id: messageId,
+            conversationId,
+            role: "user",
+            content: JSON.stringify([{ type: "text", text: "retry me" }]),
+            createdAt: Date.now(),
+          })
+          .run();
+        return { messageId };
+      });
 
       expect(capturedOptions?.trustContext?.trustClass).toBe(c.trustClass);
       expect(capturedOptions?.trustContext?.guardianPrincipalId).toBe(
@@ -263,23 +261,21 @@ describe("channel-retry-sweep", () => {
       const eventId = seedFailedEventWithActorRoleOnly(actorRole);
       let processMessageCalled = false;
 
-      await sweepFailedEvents(
-        async (conversationId, _content, _attachmentIds, _options) => {
-          processMessageCalled = true;
-          const messageId = `message-legacy-${actorRole}`;
-          const db = getDb();
-          db.insert(messages)
-            .values({
-              id: messageId,
-              conversationId,
-              role: "user",
-              content: JSON.stringify([{ type: "text", text: "retry me" }]),
-              createdAt: Date.now(),
-            })
-            .run();
-          return { messageId };
-        },
-      );
+      await sweepFailedEvents(async (conversationId, _content, _options) => {
+        processMessageCalled = true;
+        const messageId = `message-legacy-${actorRole}`;
+        const db = getDb();
+        db.insert(messages)
+          .values({
+            id: messageId,
+            conversationId,
+            role: "user",
+            content: JSON.stringify([{ type: "text", text: "retry me" }]),
+            createdAt: Date.now(),
+          })
+          .run();
+        return { messageId };
+      });
 
       // Legacy payloads with trustCtx that can't be parsed into canonical form
       // must be marked as failed to prevent privilege escalation — processMessage
@@ -301,23 +297,21 @@ describe("channel-retry-sweep", () => {
     const eventId = seedFailedEventWithTrustClass("invalid_value");
     let processMessageCalled = false;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, _options) => {
-        processMessageCalled = true;
-        const messageId = "message-invalid";
-        const db = getDb();
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, _options) => {
+      processMessageCalled = true;
+      const messageId = "message-invalid";
+      const db = getDb();
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     // trustCtx was present but couldn't be parsed (invalid trustClass),
     // so the event must be failed rather than processed without trust context.
@@ -361,25 +355,23 @@ describe("channel-retry-sweep", () => {
         }
       | undefined;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as {
-          trustContext?: { trustClass?: string; sourceChannel?: string };
-          isInteractive?: boolean;
-        };
-        const messageId = "message-no-ctx";
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedOptions = options as {
+        trustContext?: { trustClass?: string; sourceChannel?: string };
+        isInteractive?: boolean;
+      };
+      const messageId = "message-no-ctx";
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     // When trustCtx is absent, the sweep synthesizes an explicit 'unknown'
     // trust context to prevent downstream defaults from granting guardian trust.
@@ -421,7 +413,7 @@ describe("channel-retry-sweep", () => {
     };
 
     let processMessageCalls = 0;
-    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
+    await sweepFailedEvents(async (conversationId, _content, options) => {
       processMessageCalls++;
       options?.onEvent?.({
         type: "message_complete",
@@ -487,7 +479,7 @@ describe("channel-retry-sweep", () => {
       .where(eq(channelInboundEvents.id, inbound.eventId))
       .run();
 
-    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
+    await sweepFailedEvents(async (conversationId, _content, options) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
         text: "Already delivered live response.",
@@ -590,7 +582,7 @@ describe("channel-retry-sweep", () => {
       ts: "1700000000.000044",
     });
 
-    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
+    await sweepFailedEvents(async (conversationId, _content, options) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
         text: "Live retry response.",
@@ -686,7 +678,7 @@ describe("channel-retry-sweep", () => {
       throw new Error("fetch failed before progress callback");
     };
 
-    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
+    await sweepFailedEvents(async (conversationId, _content, options) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
         text: "Live retry response.",

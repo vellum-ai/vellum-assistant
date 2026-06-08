@@ -3,8 +3,10 @@ name: gmail
 description: Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📨"
   vellum:
+    category: "email"
     display-name: "Gmail"
     user-invocable: true
 ---
@@ -34,7 +36,7 @@ All operations use CLI scripts that return JSON:
 | `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
 | `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
 | `gmail-archive.ts` | `archive --dry-run`     | Preview what would be archived without executing (writes staged ops to log)  |
-| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                    |
+| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                   |
 | `gmail-commit.ts`  | `commit`                | Execute all staged ops from a dry-run                                        |
 | `gmail-commit.ts`  | `cancel`                | Delete a run log without executing anything                                  |
 | `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
@@ -161,6 +163,7 @@ bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"
 ```
 
 Label and filter operations also support `--dry-run`:
+
 ```bash
 bun run scripts/gmail-manage.ts label --message-ids "..." --add-labels "..." --dry-run
 bun run scripts/gmail-manage.ts filters --action create --from "..." --remove-labels "INBOX" --dry-run
@@ -191,6 +194,7 @@ bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4" --thread "18f.
 ```
 
 Reversal semantics:
+
 - **archive** → adds INBOX label back (un-archives)
 - **label_add** → removes the labels that were added
 - **label_remove** → adds back the labels that were removed
@@ -230,13 +234,6 @@ Do not offer the assistant's own email as an option unless the user specifically
 
 1. **Check connection health first.** Run `assistant oauth status google`. This checks whether the user's Google account is connected and the token is valid.
 2. **If no connection is found or the status check fails:** Load the `vellum-oauth-integrations` skill. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
-
-## Communication Style
-
-- **Be action-oriented.** When the user asks to do something ("declutter", "check my email"), start doing it immediately. Don't ask for permission to read their inbox - that's obviously what they want.
-- **Keep it human.** Never mention OAuth, tokens, APIs, sandboxes, credential proxies, or other technical internals. If something isn't working, say "Gmail needs to be reconnected" - not "the OAuth2 access token for google has expired."
-- **Show progress.** When running a script that scans many emails, tell the user what you're doing: "Scanning your inbox for clutter..." Don't go silent.
-- **Be brief and warm.** One or two sentences per update is plenty. Don't over-explain what you're about to do - just do it and narrate lightly.
 
 ## Error Recovery
 

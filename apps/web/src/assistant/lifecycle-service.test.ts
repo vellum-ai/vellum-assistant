@@ -59,6 +59,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
 const isLocalModeMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
+  isLocalAssistant: () => false,
   getSelectedAssistant: () => null,
   getLocalGatewayUrl: () => null,
 }));
@@ -67,6 +68,7 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@sentry/react", () => ({
   captureException: () => {},
   captureMessage: () => {},
+  addBreadcrumb: () => {},
 }));
 
 mock.module("@/assistant/lifecycle", () => ({
@@ -82,7 +84,7 @@ mock.module("@/assistant/lifecycle", () => ({
 
 const { lifecycleService } = await import("./lifecycle-service");
 const { useAssistantLifecycleStore } = await import("./lifecycle-store");
-const { useAssistantSelectionStore } = await import("./selection-store");
+const { useResolvedAssistantsStore } = await import("@/stores/resolved-assistants-store");
 
 // --- fake query client --- //
 
@@ -96,8 +98,7 @@ function makeQueryClient(): QueryClient {
 }
 
 const baseInputs = {
-  isLoggedIn: true,
-  isLoading: false,
+  sessionStatus: "authenticated" as const,
   isRetired: false,
   isNonProduction: false,
   hasPlatformSession: true,
@@ -150,7 +151,7 @@ describe("lifecycleService — server state projection", () => {
     await lifecycleService.checkAssistant();
 
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "active",
@@ -183,7 +184,7 @@ describe("lifecycleService — server state projection", () => {
       token: "tok",
     });
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-local-1");
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "self_hosted",
@@ -192,7 +193,7 @@ describe("lifecycleService — server state projection", () => {
 });
 
 describe("lifecycleService — bootstrap branches", () => {
-  test("logout clears both stores", async () => {
+  test("respondToInputs with an unauthenticated session clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
     // legitimate path so its internal state mirrors the store.
     getAssistantMock.mockImplementationOnce(async () => ({
@@ -214,20 +215,112 @@ describe("lifecycleService — bootstrap branches", () => {
       "active",
     );
 
-    // Now flip isLoggedIn false and reconcile.
+    // Now flip the session unauthenticated and reconcile.
     lifecycleService.setInputs({
       ...baseInputs,
-      isLoggedIn: false,
+      sessionStatus: "unauthenticated",
       queryClient: makeQueryClient(),
     });
     await lifecycleService.respondToInputs();
 
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
     });
+  });
+
+  test("resetForLogout clears both stores synchronously without needing setInputs", async () => {
+    // Drive into active first via the normal flow.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-prev",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe("asst-prev");
+
+    // Synchronous reset — no `await`, no input flip needed.
+    lifecycleService.resetForLogout();
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+
+  test("resetForLogout drops the auto-greet one-shot so the next login doesn't inherit it", () => {
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+
+    lifecycleService.resetForLogout();
+
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
+  test("transition to error drops the auto-greet one-shot — a subsequent retry-to-existing-active won't show a spurious gate", async () => {
+    // Set the flag (as auto-hatch / hatchVersion would), then drive
+    // the service into the error state via the network-error catch
+    // in `checkAssistant` (the simplest reachable error transition
+    // without exhausting the hatch-retry budget or the watchdog).
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "error",
+    );
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
+  test("transition to awaiting_version_selection drops the flag — a recoverable nonprod hatch failure returns to the version picker, not a stale Connecting gate", async () => {
+    // Nonprod auto-hatch lands the user on the version picker
+    // *without* setting the flag (verified in a sibling test), so
+    // simulate the recovery-after-hatch-failure case directly:
+    // mark the flag (as `hatchVersion` would), then drive the
+    // service back to `awaiting_version_selection`.
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isNonProduction: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "awaiting_version_selection",
+    );
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
@@ -311,6 +404,86 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "retired",
     );
+  });
+
+  test("vanilla auto_hatch marks expecting-first-message — chat-page consumes it on mount", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+    hatchAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 201,
+      data: { id: "asst-fresh", status: "initializing" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+  });
+
+  test("auto_hatch + nonprod does NOT mark expecting-first-message — user has to pick a version first", async () => {
+    // The user clicking the version button is what fires the
+    // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
+    // doesn't hatch, so it shouldn't set the signal.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isNonProduction: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
+  test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isRetired: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
+  test("hatchVersion marks expecting-first-message — the nonprod version-selection greet", () => {
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    lifecycleService.hatchVersion("v1");
+
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+  });
+
+  test("clearExpectingFirstMessage flips the store back to false; subsequent reads stay false", () => {
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+    lifecycleService.clearExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    lifecycleService.clearExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
+  test("markExpectingFirstMessage is the public seam onboarding uses (bypasses hatchVersion / auto-hatch)", () => {
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
   });
 });
 

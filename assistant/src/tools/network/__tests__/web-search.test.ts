@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../web-search-error.js";
+
 // Mutable mock state - set per test
 let mockWebSearchProvider: string | undefined = "perplexity";
 let mockWebSearchMode: string | undefined = "your-own";
@@ -42,7 +44,9 @@ mock.module("../../../security/secure-keys.js", () => ({
   },
 }));
 
+const realLogger = await import("../../../util/logger.js");
 mock.module("../../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -201,7 +205,8 @@ describe("web_search tool", () => {
 
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("rate limit exceeded");
+    // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     // 1 initial + 3 retries = 4 calls
     expect(callCount).toBe(4);
   });
@@ -214,7 +219,9 @@ describe("web_search tool", () => {
 
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("status 500");
+    // 5xx is a backend failure -> friendly recoverable copy, no raw status.
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    expect(result.content).not.toContain("500");
   });
 
   // ---- Brave provider -----------------------------------------------------
@@ -673,7 +680,8 @@ describe("web_search tool", () => {
 
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("rate limit exceeded");
+    // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
+    expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(callCount).toBe(4);
   });
 

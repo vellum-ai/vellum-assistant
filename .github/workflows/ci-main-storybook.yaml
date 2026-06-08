@@ -1,0 +1,206 @@
+name: CI/CD Main Storybook
+
+# Build and publish Storybook off main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "packages/design-library/**"
+      - "apps/web/**"
+      - "packages/local-mode/**"
+      - "packages/environments/**"
+      - ".github/workflows/ci-main-storybook.yaml"
+      - ".github/actions/install-shared-packages/**"
+
+# Serialize per branch and cancel superseded runs so only the newest main
+# commit's Storybook publishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────── design-library ─────────────────────────
+  build-design-library-storybook:
+    name: Build design-library Storybook
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/design-library
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Storybook
+        run: STORYBOOK_BASE_PATH=/design-library/main/ bun run build-storybook
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: design-library-storybook
+          path: packages/design-library/storybook-static
+          if-no-files-found: error
+
+  deploy-design-library-storybook:
+    name: Deploy design-library Storybook
+    needs: [build-design-library-storybook]
+    # workflow_dispatch has no branch filter; guard the privileged publish.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: design-library-storybook
+          path: storybook-static
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Publish to GCS
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          PREFIX: design-library/main
+        run: |
+          set -euo pipefail
+          if [ ! -f storybook-static/index.html ]; then
+            echo "::error::storybook-static/index.html missing — empty build."
+            exit 1
+          fi
+          DEST="gs://${PROJECT_ID}-assistant-storybook/${PREFIX}"
+
+          # 1. Content hashed assets can be cached indefinitely.
+          gcloud storage rsync -r \
+            --cache-control="public, max-age=31536000, immutable" \
+            storybook-static/assets "${DEST}/assets"
+
+          # 2. Everything else except the root entrypoints/manifests should have
+          #    a moderate cache TTL.
+          #    Storybook has some stable-ish sb-*/ files that might be tied to
+          #    particular versions, so don't mark them as immutable.
+          gcloud storage rsync -r \
+            --exclude='^assets/.*|^[^/]*\.(html|json)$' \
+            --cache-control="public, max-age=3600" \
+            storybook-static "${DEST}"
+
+          # 3. Root entrypoints/manifests change every deploy, so don't cache them.
+          for f in index.html iframe.html index.json project.json; do
+            if [ -f "storybook-static/${f}" ]; then
+              gcloud storage cp \
+                --cache-control="no-cache, max-age=0, must-revalidate" \
+                "storybook-static/${f}" "${DEST}/${f}"
+            fi
+          done
+          echo "Published Storybook to ${DEST}/"
+
+  # ───────────────────────────── web ─────────────────────────────
+  build-web-storybook:
+    name: Build web Storybook
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate API clients
+        run: bun run openapi-ts
+
+      # apps/web pulls in @vellumai/local-mode and its transitive
+      # @vellumai/environments file: dep; both need their own node_modules so
+      # vite.config.ts loads at build time.
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Build Storybook
+        run: STORYBOOK_BASE_PATH=/web/main/ bun run build-storybook
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-storybook
+          path: apps/web/storybook-static
+          if-no-files-found: error
+
+  deploy-web-storybook:
+    name: Deploy web Storybook
+    needs: [build-web-storybook]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: web-storybook
+          path: storybook-static
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Publish to GCS
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          PREFIX: web/main
+        run: |
+          set -euo pipefail
+          if [ ! -f storybook-static/index.html ]; then
+            echo "::error::storybook-static/index.html missing — empty build."
+            exit 1
+          fi
+          DEST="gs://${PROJECT_ID}-assistant-storybook/${PREFIX}"
+
+          # Same cache strategy as above.
+          gcloud storage rsync -r \
+            --cache-control="public, max-age=31536000, immutable" \
+            storybook-static/assets "${DEST}/assets"
+
+          gcloud storage rsync -r \
+            --exclude='^assets/.*|^[^/]*\.(html|json)$' \
+            --cache-control="public, max-age=3600" \
+            storybook-static "${DEST}"
+
+          for f in index.html iframe.html index.json project.json; do
+            if [ -f "storybook-static/${f}" ]; then
+              gcloud storage cp \
+                --cache-control="no-cache, max-age=0, must-revalidate" \
+                "storybook-static/${f}" "${DEST}/${f}"
+            fi
+          done
+          echo "Published Storybook to ${DEST}/"

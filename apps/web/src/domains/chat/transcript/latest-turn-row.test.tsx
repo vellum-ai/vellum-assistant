@@ -53,11 +53,12 @@ import type {
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -66,7 +67,7 @@ function assistantMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -76,10 +77,11 @@ const noop = () => {};
 const sharedProps = {
   expandedToolCallIds: new Set<string>(),
   expandedCardIds: new Map<string, boolean>(),
+  expandedThinkingKeys: new Map<string, boolean>(),
   onSurfaceAction: noop,
   onSecretSubmit: noop,
   onConfirmationDecision: noop,
-  onRetryError: noop,
+
 };
 
 describe("LatestTurnRow render order", () => {

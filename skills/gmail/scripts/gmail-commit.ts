@@ -9,12 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-  parseArgs,
-  printError,
-  ok,
-  optionalArg,
-} from "./lib/common.js";
+import { parseArgs, printError, ok, optionalArg } from "./lib/common.js";
 import { gmailPost, DailyQuotaExceededError } from "./lib/gmail-client.js";
 import {
   readLog,
@@ -38,10 +33,7 @@ const OPS_DIR = path.join(SKILL_ROOT, "data", "ops");
 // Commit
 // ---------------------------------------------------------------------------
 
-async function commitRun(
-  runId: string,
-  account?: string,
-): Promise<void> {
+async function commitRun(runId: string, account?: string): Promise<void> {
   if (!runExists(runId)) {
     printError(`Run not found: ${runId}`);
     return;
@@ -118,9 +110,7 @@ async function commitRun(
         }
       } else if (entry.op === "filter_create") {
         // Filter ops store criteria in the reason field as JSON
-        const filterData = entry.reason
-          ? JSON.parse(entry.reason)
-          : null;
+        const filterData = entry.reason ? JSON.parse(entry.reason) : null;
         if (filterData) {
           const resp = await gmailPost(
             "/settings/filters",
@@ -150,7 +140,9 @@ async function commitRun(
           run_id: runId,
           committed,
           failed,
-          note: "Daily quota exceeded. Resume with: bun run scripts/gmail-commit.ts commit " + runId,
+          note:
+            "Daily quota exceeded. Resume with: bun run scripts/gmail-commit.ts commit " +
+            runId,
         });
         return;
       }

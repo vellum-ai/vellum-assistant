@@ -4,10 +4,11 @@
 
 import { client } from "@/generated/api/client.gen";
 import {
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/utils/api-errors";
+  surfaceactionsPost,
+  surfacesBySurfaceIdGet,
+} from "@/generated/daemon/sdk.gen";
+import type { SurfacesBySurfaceIdGetResponse } from "@/generated/daemon/types.gen";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export async function submitSurfaceAction(
   assistantId: string,
@@ -15,20 +16,22 @@ export async function submitSurfaceAction(
   actionId: string,
   data?: Record<string, unknown>,
 ): Promise<{ ok: boolean }> {
-  if (!surfaceId || typeof surfaceId !== "string" || !actionId || typeof actionId !== "string") {
+  if (
+    !surfaceId ||
+    typeof surfaceId !== "string" ||
+    !actionId ||
+    typeof actionId !== "string"
+  ) {
     return { ok: false };
   }
 
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/surface-actions/",
+    const { response } = await surfaceactionsPost({
       path: { assistant_id: assistantId },
       body: { surfaceId, actionId, data },
       throwOnError: false,
     });
-    assertHasResponse(response, error, "Failed to submit surface action");
-    if (!response.ok) {
+    if (!response?.ok) {
       return { ok: false };
     }
     return { ok: true };
@@ -41,28 +44,20 @@ export async function submitSurfaceAction(
 // Surface content re-fetch (matches macOS SurfaceClient.fetchSurfaceContent)
 // ---------------------------------------------------------------------------
 
-export interface SurfaceContentResponse {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string | null;
-  data: Record<string, unknown>;
-}
-
 export async function fetchSurfaceContent(
   assistantId: string,
   surfaceId: string,
   conversationId: string,
-): Promise<SurfaceContentResponse | null> {
+): Promise<SurfacesBySurfaceIdGetResponse | null> {
   try {
-    const { data, error, response } = await client.get<SurfaceContentResponse, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/surfaces/{surface_id}",
-      path: { assistant_id: assistantId, surface_id: surfaceId },
+    const { data, response } = await surfacesBySurfaceIdGet({
+      path: { assistant_id: assistantId, surfaceId },
       query: { conversationId },
       throwOnError: false,
     });
-    assertHasResponse(response, error, "Failed to fetch surface content");
-    if (!response.ok || !data) return null;
+    if (!response?.ok || !data) {
+      return null;
+    }
     return data;
   } catch {
     return null;
@@ -79,7 +74,6 @@ export async function downloadArtifact(
   filename: string,
 ): Promise<void> {
   const { data, error, response } = await client.get<Blob | File, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/artifacts/{artifact_path}",
     path: { assistant_id: assistantId, artifact_path: artifactPath },
     parseAs: "blob",
@@ -88,7 +82,11 @@ export async function downloadArtifact(
   assertHasResponse(response, error, "Failed to download artifact");
 
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to download artifact");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to download artifact",
+    );
     throw new Error(msg);
   }
 

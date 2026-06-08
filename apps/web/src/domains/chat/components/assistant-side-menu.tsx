@@ -1,46 +1,48 @@
 import {
-  Brain,
-  Calendar,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Globe,
-  Hash,
-  Layers,
-  LayoutGrid,
-  Pin,
-  Search,
-  SquarePen,
-  X,
+    Brain,
+    Calendar,
+    ChevronDown,
+    ChevronRight,
+    Clock,
+    Hash,
+    Layers,
+    LayoutGrid,
+    Pin,
+    Rocket,
+    Search,
+    SquarePen,
+    X,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
-import {
-  ConversationActionsMenu,
-  renderConversationMenuItems,
-  type ConversationMenuItemsProps,
-} from "@/domains/chat/components/conversation-actions-menu";
-import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
-import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
-import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
-import {
-  formatBackgroundSubGroupLabel,
-  groupBackgroundConversationsBySource,
-} from "@/domains/chat/utils/background-sub-groups";
-import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
-import {
-  Button,
-  ContextMenu,
-  PanelItem,
-  SideMenu,
-} from "@vellum/design-library";
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
+
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
+import {
+    ConversationActionsMenu,
+    renderConversationMenuItems,
+    type ConversationMenuItemsProps,
+} from "@/domains/chat/components/conversation-actions-menu";
+import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
+import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import {
+    formatBackgroundSubGroupLabel,
+    groupBackgroundConversationsBySource,
+} from "@/domains/chat/utils/background-sub-groups";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+    Button,
+    ContextMenu,
+    PanelItem,
+    SideMenu,
+} from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
@@ -62,7 +64,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   onClose?: () => void;
-  onSearchClick?: () => void;
+
   onPinConversation?: (conversation: Conversation) => void;
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
@@ -73,12 +75,31 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
+  onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+}
+
+function SearchButton({ onClose }: { onClose?: () => void }) {
+  const toggle = useCommandPaletteStore.use.toggle();
+  const handleClick = useCallback(() => {
+    onClose?.();
+    toggle();
+  }, [onClose, toggle]);
+  return (
+    <Button
+      variant="ghost"
+      iconOnly={<Search />}
+      aria-label="Search (⌘K)"
+      title="Search (⌘K)"
+      onClick={handleClick}
+    />
+  );
 }
 
 /**
@@ -131,8 +152,9 @@ export function AssistantSideMenu({
   onRemoveFromGroup,
   onRenameGroup,
   onDeleteGroup,
+  onMarkAllReadInGroup,
+  onArchiveAllInGroup,
   onClose,
-  onSearchClick,
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
@@ -250,6 +272,32 @@ export function AssistantSideMenu({
     );
   };
 
+  const buildGroupContextMenu = (
+    groupName: string,
+    conversations: Conversation[],
+    options?: { onRename?: () => void; onDelete?: () => void },
+  ) => {
+    const hasAnyAction =
+      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
+    if (!hasAnyAction) return undefined;
+
+    return renderGroupMenuItems({
+      Primitive: ContextMenu,
+      onMarkAllRead: onMarkAllReadInGroup
+        ? () => onMarkAllReadInGroup(conversations)
+        : undefined,
+      hasUnreadConversations: conversations.some(
+        (c) => c.hasUnseenLatestAssistantMessage,
+      ),
+      onArchiveAll: onArchiveAllInGroup
+        ? () => onArchiveAllInGroup(groupName, conversations)
+        : undefined,
+      hasConversations: conversations.length > 0,
+      onRename: options?.onRename,
+      onDelete: options?.onDelete,
+    });
+  };
+
   // --- Shared sub-component props ---
 
   const subGroupProps = {
@@ -278,6 +326,7 @@ export function AssistantSideMenu({
       iconOnly={<SquarePen />}
       aria-label="New conversation"
       tooltip="New conversation"
+      tooltipSide="right"
       onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;
@@ -290,9 +339,8 @@ export function AssistantSideMenu({
     onShowMore?: () => void,
     showLess = false,
     onShowLess?: () => void,
-    className?: string,
   ): ReactNode => (
-    <SideMenu.SubList className={className}>
+    <SideMenu.SubList>
       {items.map((c) =>
         renderThreadRow(
           c,
@@ -329,12 +377,13 @@ export function AssistantSideMenu({
 
   // --- Collapsed-rail popover content renderer ---
 
-  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void): ReactNode => (
+  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void, emptyState?: ReactNode): ReactNode => (
     <div className="pb-1">
       <div className="flex items-center justify-between px-4 py-1">
         <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
       </div>
       <div className="px-2">
+        {conversations.length === 0 ? emptyState : null}
         {conversations.map((c) => (
           <PanelItem
             key={c.conversationId}
@@ -370,18 +419,7 @@ export function AssistantSideMenu({
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              {onSearchClick ? (
-                <Button
-                  variant="ghost"
-                  iconOnly={<Search />}
-                  aria-label="Search (⌘K)"
-                  title="Search (⌘K)"
-                  onClick={() => {
-                    onClose?.();
-                    onSearchClick();
-                  }}
-                />
-              ) : null}
+              <SearchButton onClose={onClose} />
             </div>
             <div className="flex items-center gap-2">{headerActions}</div>
           </div>
@@ -389,6 +427,7 @@ export function AssistantSideMenu({
         <SideMenu.Item
           icon={Brain}
           label={assistantName || "Your Assistant"}
+          showCollapsedTooltip
           active={isIntelligenceActive}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
         />
@@ -396,6 +435,7 @@ export function AssistantSideMenu({
           <SideMenu.Item
             icon={LayoutGrid}
             label="Library"
+            showCollapsedTooltip
             active={isLibraryActive}
             onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
           />
@@ -403,8 +443,12 @@ export function AssistantSideMenu({
         {pinnedApps.map((app) => (
           <SideMenu.Item
             key={app.appId}
-            icon={Globe}
+            // Apps source their icon as an emoji string on the manifest
+            // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
+            // apps still get a leading icon in the rail.
+            icon={app.icon ?? Rocket}
             label={app.name}
+            showCollapsedTooltip
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
           />
@@ -412,7 +456,7 @@ export function AssistantSideMenu({
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="pt-3 max-md:pt-4">
+      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
@@ -444,29 +488,33 @@ export function AssistantSideMenu({
             <CollapsedGroupIcon
               icon={Calendar}
               label="Scheduled"
-              disabled={sidebar.scheduled.length === 0}
+              onOpenChange={(open) => {
+                if (open) {
+                  sidebar.activateScheduled();
+                }
+              }}
               indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
             >
-              {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
+              {(close) =>
+                renderCollapsedGroupContent(
+                  "Scheduled",
+                  sidebar.scheduled,
+                  close,
+                  <CollapsedGroupEmptyState loading={sidebar.scheduledLoading} />,
+                )
+              }
             </CollapsedGroupIcon>
-            {sidebar.background.length > 0 ? (
-              <CollapsedBackgroundGroup
-                conversations={sidebar.background}
-                activeConversationId={activeConversationId}
-                onSelectConversation={selectAndClose}
-                renderActions={renderThreadActions}
-                renderPinToggle={renderThreadPinToggle}
-                processingConversationIds={processingConversationIds}
-                attentionConversationIds={attentionConversationIds}
-              />
-            ) : (
-              <CollapsedGroupIcon
-                icon={Layers}
-                label="Background"
-                disabled
-                indicatorState={null}
-              />
-            )}
+            <CollapsedBackgroundGroup
+              conversations={sidebar.background}
+              loading={sidebar.backgroundLoading}
+              onReveal={sidebar.activateBackground}
+              activeConversationId={activeConversationId}
+              onSelectConversation={selectAndClose}
+              renderActions={renderThreadActions}
+              renderPinToggle={renderThreadPinToggle}
+              processingConversationIds={processingConversationIds}
+              attentionConversationIds={attentionConversationIds}
+            />
           </div>
         ) : (
           <>
@@ -475,16 +523,13 @@ export function AssistantSideMenu({
                 {renderFlatList(
                   sidebar.pinned,
                   false,
-                  undefined,
-                  false,
-                  undefined,
-                  "-ml-[10px] w-[calc(100%+10px)]",
                 )}
               </SideMenu.Section>
             ) : null}
 
             <SideMenu.Section
               title="Conversations"
+              className="gap-1"
               actions={variant === "overlay" ? undefined : headerActions}
             >
               {renderFlatList(
@@ -493,11 +538,11 @@ export function AssistantSideMenu({
                 sidebar.recents.onShowMore,
                 sidebar.recents.showLess,
                 sidebar.recents.onShowLess,
-                "-ml-[10px] w-[calc(100%+10px)]",
               )}
 
               <CollapsibleNavSection.Root
                 type="multiple"
+                className="gap-1"
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
@@ -506,6 +551,7 @@ export function AssistantSideMenu({
                     value="slack"
                     icon={Hash}
                     label="Slack"
+                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
                   >
                     {renderFlatList(
                       sidebar.slack.items,
@@ -521,9 +567,11 @@ export function AssistantSideMenu({
                   value="scheduled"
                   icon={Calendar}
                   label="Scheduled"
+                  contextMenuContent={buildGroupContextMenu("Scheduled", sidebar.scheduled)}
                 >
                   <ScheduledSubGroups
                     subGroups={sidebar.scheduledSubGroups}
+                    loading={sidebar.scheduledLoading}
                     {...subGroupProps}
                   />
                 </CollapsibleNavSection.Section>
@@ -532,9 +580,11 @@ export function AssistantSideMenu({
                   value="background"
                   icon={Layers}
                   label="Background"
+                  contextMenuContent={buildGroupContextMenu("Background", sidebar.background)}
                 >
                   <BackgroundSubGroups
                     subGroups={sidebar.backgroundSubGroups}
+                    loading={sidebar.backgroundLoading}
                     {...subGroupProps}
                   />
                 </CollapsibleNavSection.Section>
@@ -546,6 +596,7 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
+                      className="gap-1"
                       value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >
@@ -563,6 +614,18 @@ export function AssistantSideMenu({
                               />
                             ) : null
                           }
+                          contextMenuContent={buildGroupContextMenu(
+                            group.name,
+                            group.conversations,
+                            {
+                              onRename: onRenameGroup
+                                ? () => onRenameGroup(group.id)
+                                : undefined,
+                              onDelete: onDeleteGroup
+                                ? () => onDeleteGroup(group.id)
+                                : undefined,
+                            },
+                          )}
                         >
                           <SideMenu.SubList>
                             {group.conversations.map((c) =>
@@ -601,11 +664,31 @@ export function AssistantSideMenu({
 }
 
 // ---------------------------------------------------------------------------
+// Collapsed-rail lazy-section placeholder
+// ---------------------------------------------------------------------------
+
+/**
+ * Placeholder shown inside a collapsed-rail flyout for the Background and
+ * Scheduled sections, which are openable before their lazy fetch resolves.
+ */
+function CollapsedGroupEmptyState({ loading }: { loading: boolean }) {
+  return (
+    <div className="px-4 py-2 text-body-small-default text-[var(--content-tertiary)]">
+      {loading ? "Loading…" : "No conversations"}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsed background group — extracted so it can own sub-group expand state
 // ---------------------------------------------------------------------------
 
 interface CollapsedBackgroundGroupProps {
   conversations: Conversation[];
+  /** True while the lazy background fetch is in flight after a reveal. */
+  loading?: boolean;
+  /** Called when the flyout opens, to enable the lazy background fetch. */
+  onReveal?: () => void;
   activeConversationId?: string;
   onSelectConversation: (conversationId: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
@@ -616,6 +699,8 @@ interface CollapsedBackgroundGroupProps {
 
 function CollapsedBackgroundGroup({
   conversations,
+  loading = false,
+  onReveal,
   activeConversationId,
   onSelectConversation,
   renderActions,
@@ -661,6 +746,11 @@ function CollapsedBackgroundGroup({
     <CollapsedGroupIcon
       icon={Layers}
       label="Background"
+      onOpenChange={(open) => {
+        if (open) {
+          onReveal?.();
+        }
+      }}
       indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
     >
       {(closePopover) => (
@@ -669,6 +759,9 @@ function CollapsedBackgroundGroup({
             <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
           </div>
           <div className="px-2">
+            {conversations.length === 0 ? (
+              <CollapsedGroupEmptyState loading={loading} />
+            ) : null}
             {subGroups.map((group) => {
               const isSingle = group.key.startsWith("__single__:");
               if (isSingle) {

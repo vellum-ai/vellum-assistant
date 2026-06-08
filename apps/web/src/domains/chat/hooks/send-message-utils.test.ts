@@ -3,13 +3,13 @@ import { describe, expect, it } from "bun:test";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
+  completeSubmittedSurface,
   clearPendingConfirmationsFromMessages,
   dismissInteractiveSurfaces,
   newTurnId,
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-  stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
@@ -22,7 +22,6 @@ function msg(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
     role: "assistant",
     content: "hello",
     toolCalls: [],
-    isStreaming: false,
     ...overrides,
   } as DisplayMessage;
 }
@@ -47,7 +46,7 @@ describe("clearPendingConfirmationsFromMessages", () => {
     ];
     const result = clearPendingConfirmationsFromMessages(messages);
     expect(result).not.toBe(messages);
-    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeNull();
+    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeUndefined();
   });
 
   it("leaves tool calls without pendingConfirmation untouched", () => {
@@ -90,6 +89,53 @@ describe("dismissInteractiveSurfaces", () => {
 });
 
 // ---------------------------------------------------------------------------
+// completeSubmittedSurface
+// ---------------------------------------------------------------------------
+
+describe("completeSubmittedSurface", () => {
+  it("optimistically completes choice surfaces after submit", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-choice",
+            surfaceType: "choice",
+            completed: false,
+            data: {},
+            actions: [{ id: "inbox", label: "Clean up my inbox" }],
+          } as never,
+        ],
+      }),
+    ];
+
+    const result = completeSubmittedSurface(messages, "s-choice", "inbox");
+
+    expect(result).not.toBe(messages);
+    expect(result[0]!.surfaces![0]!.completed).toBe(true);
+    expect(result[0]!.surfaces![0]!.completionSummary).toBe(
+      "Clean up my inbox",
+    );
+  });
+
+  it("leaves non-completing surfaces unchanged", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-copy",
+            surfaceType: "copy_block",
+            completed: false,
+            data: {},
+          } as never,
+        ],
+      }),
+    ];
+
+    expect(completeSubmittedSurface(messages, "s-copy", "copy")).toBe(messages);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // resolvePostError
 // ---------------------------------------------------------------------------
 
@@ -112,42 +158,6 @@ describe("resolvePostError", () => {
   it("returns the fallback when code is empty and detail is undefined", () => {
     const result = resolvePostError("", undefined, "fallback");
     expect(result).toBe("fallback");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stopStreamingAndClearConfirmations
-// ---------------------------------------------------------------------------
-
-describe("stopStreamingAndClearConfirmations", () => {
-  it("clears isStreaming on the last assistant message", () => {
-    const messages = [
-      msg({ id: "msg-1", role: "user", content: "hi" }),
-      msg({ id: "msg-2", role: "assistant", isStreaming: true }),
-    ];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[1]!.isStreaming).toBe(false);
-  });
-
-  it("does not touch non-assistant or non-streaming last messages", () => {
-    const messages = [msg({ role: "user", content: "hi", isStreaming: false })];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[0]!.isStreaming).toBe(false);
-  });
-
-  it("clears pending confirmations in the same pass", () => {
-    const messages = [
-      msg({
-        role: "assistant",
-        isStreaming: true,
-        toolCalls: [
-          { toolCallId: "tc-1", toolName: "run", pendingConfirmation: { title: "ok?" } } as never,
-        ],
-      }),
-    ];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[0]!.isStreaming).toBe(false);
-    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeNull();
   });
 });
 

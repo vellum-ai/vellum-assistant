@@ -27,11 +27,7 @@ import {
   type GmailMessage,
   type GmailMessagePart,
 } from "./lib/gmail-client.js";
-import {
-  generateRunId,
-  writeStaged,
-  type OpType,
-} from "./lib/op-log.js";
+import { generateRunId, writeStaged, type OpType } from "./lib/op-log.js";
 
 // ---------------------------------------------------------------------------
 // label
@@ -60,7 +56,9 @@ async function handleLabel(
     if (dryRun) {
       const rid = runId ?? generateRunId();
       const opType: OpType = addLabelIds?.length ? "label_add" : "label_remove";
-      const labelIds = addLabelIds?.length ? addLabelIds : (removeLabelIds ?? []);
+      const labelIds = addLabelIds?.length
+        ? addLabelIds
+        : (removeLabelIds ?? []);
       writeStaged({
         run_id: rid,
         phase,
@@ -93,7 +91,9 @@ async function handleLabel(
     if (dryRun) {
       const rid = runId ?? generateRunId();
       const opType: OpType = addLabelIds?.length ? "label_add" : "label_remove";
-      const labelIds = addLabelIds?.length ? addLabelIds : (removeLabelIds ?? []);
+      const labelIds = addLabelIds?.length
+        ? addLabelIds
+        : (removeLabelIds ?? []);
       writeStaged({
         run_id: rid,
         phase,

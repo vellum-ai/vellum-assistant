@@ -15,7 +15,7 @@ import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the
@@ -27,7 +27,7 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-d
  *     per-step content; the web card passes a `renderStep` override so
  *     `web_search` steps keep their favicon-chip cluster)
  *   - `WebSearchStepRow` / `WebSearchErrorRow` (shared with the unified
- *     `ToolCallProgressCard`'s `ExpandedStep` — single source of truth for
+ *     `ActivityRunCard`'s `ExpandedStep` — single source of truth for
  *     the favicon chip cluster, overflow pill, and error chip)
  *   - `WebsiteCarousel` (collapsed-header info slot during an active search
  *     with at least one completed `web_search` to feed the rotation)
@@ -46,9 +46,11 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-d
  * A single sub-step inside the expanded card. Discriminated by `kind`:
  * - `"thinking"` → renders the step's text inside the default phase pill.
  * - `"web_search"` → renders one `FaviconChip` per result (up to the supplied
- *   list) followed by an optional `+N more` overflow chip when `overflow > 0`.
- *   `title` is supplied by the selector so the phase header label can switch
- *   between "Searching the web" (in-flight) and "Searched the web" (terminal).
+ *   list) followed by an optional `+N more` overflow pill when
+ *   `overflowResults` is non-empty. The pill opens a popover listing those
+ *   additional sources as links. `title` is supplied by the selector so the
+ *   phase header label can switch between "Searching the web" (in-flight) and
+ *   "Searched the web" (terminal).
  * - `"web_search_error"` → renders an `ErrorChip` with the provider's
  *   `errorMessage`. Used when the search itself failed and there are no
  *   results to surface.
@@ -64,7 +66,7 @@ export type StepDescriptor =
       durationLabel: string;
       linkCount: number;
       results: WebSearchResultItem[];
-      overflow?: number;
+      overflowResults?: WebSearchResultItem[];
     }
   | {
       kind: "web_search_error";
@@ -93,6 +95,10 @@ export interface WebSearchProgressCardProps {
   steps: StepDescriptor[];
   /** Whether the card starts expanded. Uncontrolled by default. */
   defaultExpanded?: boolean;
+  /** Controlled expanded value. Pairs with `onExpandChange`. */
+  expanded?: boolean;
+  /** Notified when the user toggles the expand/collapse button. */
+  onExpandChange?: (next: boolean) => void;
   /**
    * Drives the header chrome:
    * - `"loading"` (default) → animated `ThreeDotIndicator` + rotating
@@ -131,6 +137,8 @@ export function WebSearchProgressCard({
   stepCount,
   steps,
   defaultExpanded = false,
+  expanded,
+  onExpandChange,
   state = "loading",
   carouselItems = EMPTY_CAROUSEL_ITEMS,
 }: WebSearchProgressCardProps) {
@@ -162,6 +170,8 @@ export function WebSearchProgressCard({
       currentStepInfo={headerInfo}
       stepCount={stepCount}
       defaultExpanded={defaultExpanded}
+      expanded={expanded}
+      onExpandChange={onExpandChange}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
         <PhaseGroupedStepList

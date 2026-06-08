@@ -770,6 +770,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
     @ObservationIgnored private var needsReconnectCatchUp: Bool = false
+    /// One-shot: clear send/think state from authoritative history on the next
+    /// reconnect catch-up. Set when the conversation's server id is adopted after
+    /// a turn may have already completed (e.g. the instant canned first greeting,
+    /// whose terminal events are stamped with the server id and broadcast before
+    /// the server→local remap exists, so the still-synthetic view model never
+    /// routes the completion). The catch-up's own merge does not derive the
+    /// turn-complete transition, so this flag lets it reconcile the stuck spinner.
+    @ObservationIgnored private var reconcileSendStateOnNextCatchUp: Bool = false
     /// Snapshot of `pendingMessageIds` captured before clearing on reconnect.
     /// Used by the reconnect catch-up path in `populateFromHistory` to dedup
     /// local messages that were pending when the connection dropped (the live
@@ -1400,6 +1408,52 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// path, which is only safe for initial history races.
     public func prepareForLatestHistoryReconciliation() {
         needsReconnectCatchUp = true
+    }
+
+    /// Prepare a latest-history reconciliation that also clears stuck send/think
+    /// state once authoritative history confirms the turn already completed.
+    ///
+    /// Used right after the conversation's synthetic id is resolved to the real
+    /// server id: a turn can finish server-side in the window before the id is
+    /// adopted, broadcasting terminal events the still-synthetic view model could
+    /// not route. Unlike a plain catch-up — which only restores message content —
+    /// this re-derives the turn-complete transition so the send spinner clears.
+    public func prepareForConversationIdAdoptionReconciliation() {
+        needsReconnectCatchUp = true
+        reconcileSendStateOnNextCatchUp = true
+    }
+
+    /// Clear send/think state left stuck by a terminal event the view model
+    /// could not route. Runs only when armed by
+    /// `prepareForConversationIdAdoptionReconciliation()`, and only acts when the
+    /// just-merged authoritative history shows the latest turn already completed:
+    /// an assistant message tails the conversation with no queued sends, no
+    /// streaming message in flight, and no unfinished tool calls. A genuinely
+    /// in-flight turn fails these checks (history tails with the user message or
+    /// an unfinished assistant turn), so a real send is never cleared early.
+    ///
+    /// Recovering a missed `message_complete` also means the per-turn accounting
+    /// that completion would have settled never ran, so reset it here too: zero
+    /// `pendingUserTurnCount` and `staleCancelEventsExpected` (otherwise a later
+    /// daemon-initiated completion in this conversation would consume the stale
+    /// user-turn credit and be misclassified as user-initiated, playing the
+    /// task-complete chime) and clear per-turn tracking. Zeroing is correct
+    /// because the guards above establish that no user turn is still in flight.
+    private func reconcileStuckSendStateAfterCatchUp() {
+        guard reconcileSendStateOnNextCatchUp else { return }
+        reconcileSendStateOnNextCatchUp = false
+        guard pendingQueuedCount == 0,
+              currentAssistantMessageId == nil,
+              !hasIncompleteToolCalls else { return }
+        let lastUserIndex = messages.lastIndex(where: { $0.role == .user })
+        let lastAssistantIndex = messages.lastIndex(where: { $0.role == .assistant })
+        guard let lastAssistantIndex,
+              lastUserIndex.map({ lastAssistantIndex > $0 }) ?? true else { return }
+        clearCurrentTurnTracking()
+        isThinking = false
+        isSending = false
+        messageManager.pendingUserTurnCount = 0
+        messageManager.staleCancelEventsExpected = 0
     }
 
     /// Prepare the view model for a notification catch-up history fetch.
@@ -2382,6 +2436,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
             refreshModelMetadataIfNeeded(hasModelCommand)
+            reconcileStuckSendStateAfterCatchUp()
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
