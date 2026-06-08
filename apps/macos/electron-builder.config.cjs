@@ -70,10 +70,8 @@ module.exports = {
       ],
     },
     target: [
-      {
-        target: "dmg",
-        arch: ["arm64"],
-      },
+      { target: "dmg", arch: ["arm64"] },
+      { target: "zip", arch: ["arm64"] },
     ],
   },
 };
