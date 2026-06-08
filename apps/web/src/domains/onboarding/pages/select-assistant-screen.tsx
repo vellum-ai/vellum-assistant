@@ -63,6 +63,7 @@ export function SelectAssistantScreen() {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
         await selectPlatformAssistant(assistant.id);
+        await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
     } catch {
