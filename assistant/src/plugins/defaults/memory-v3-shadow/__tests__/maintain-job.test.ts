@@ -1,21 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { MemoryJob } from "../../../../memory/jobs-store.js";
-import { readPage, writePage } from "../../../../memory/v2/page-store.js";
-import type { ConceptPage } from "../../../../memory/v2/types.js";
-import type { AssignPageResult, AssignPagesOptions } from "../assign.js";
 import {
-  type ClassifyCandidate,
-  computeClassifyTargets,
+  type ChangedPageCandidate,
+  computeChangedPages,
   maintainJob,
   type MaintainJobDeps,
 } from "../maintain-job.js";
-import type { LeafNode, LeafPath, LeafTree, Slug } from "../types.js";
+import type { Section, SectionIndex, Slug } from "../types.js";
 
 const FLAG_SHADOW = "memory-v3-shadow";
 const FLAG_LIVE = "memory-v3-live";
@@ -25,66 +19,61 @@ const FLAG_LIVE = "memory-v3-live";
 // `setOverridesForTesting` below.
 const CONFIG = {} as AssistantConfig;
 
-function makeLeaf(path: LeafPath): LeafNode {
+function makeSection(article: Slug, ordinal: number): Section {
   return {
-    path,
-    frontmatter: { path, in_core: false },
-    description: `${path} description`,
-    members: [],
-    domain: path.split("/")[0],
+    article,
+    title: "",
+    text: `text for ${article}#${ordinal}`,
+    ordinal,
   };
 }
 
-function makeTree(paths: LeafPath[]): LeafTree {
-  const leaves = new Map<LeafPath, LeafNode>();
-  for (const path of paths) leaves.set(path, makeLeaf(path));
-  return { leaves, byPage: new Map<Slug, LeafPath[]>() };
-}
-
-function makePage(slug: string, leaves?: string[]): ConceptPage {
-  return {
-    slug,
-    frontmatter: {
-      summary: `Summary for ${slug}`,
-      edges: [],
-      ref_files: [],
-      ref_urls: [],
-      leaves,
-    },
-    body: `Body content for ${slug}`,
-  };
+function makeIndex(slugs: Slug[]): SectionIndex {
+  const sections: Section[] = slugs.map((slug) => makeSection(slug, 0));
+  const byArticle = new Map<Slug, number[]>();
+  sections.forEach((s, i) => byArticle.set(s.article, [i]));
+  return { sections, byArticle };
 }
 
 const JOB = { id: "job-1", type: "memory_v3_maintain" } as unknown as MemoryJob;
 
 describe("maintainJob", () => {
-  let workspaceDir: string;
-
-  beforeEach(async () => {
-    workspaceDir = await mkdtemp(join(tmpdir(), "v3-maintain-"));
-  });
-
-  afterEach(async () => {
+  afterEach(() => {
     setOverridesForTesting({});
-    await rm(workspaceDir, { recursive: true, force: true });
   });
 
   function deps(overrides: Partial<MaintainJobDeps> = {}): {
     deps: MaintainJobDeps;
-    calls: { assign: number; invalidate: number; commit: number };
+    calls: {
+      built: Slug[][];
+      deleted: string[];
+      upserted: Section[][];
+      invalidate: number;
+      commit: number;
+    };
   } {
-    const calls = { assign: 0, invalidate: 0, commit: 0 };
+    const calls = {
+      built: [] as Slug[][],
+      deleted: [] as string[],
+      upserted: [] as Section[][],
+      invalidate: 0,
+      commit: 0,
+    };
     const base: MaintainJobDeps = {
-      workspaceDir,
-      loadTree: async () => makeTree(["domain/topic-a", "domain/topic-b"]),
-      assignPages: async (
-        _opts: AssignPagesOptions,
-      ): Promise<AssignPageResult[]> => {
-        calls.assign += 1;
-        return [];
+      config: CONFIG,
+      selectChangedPages: async () => [],
+      buildSectionIndex: async (slugs) => {
+        calls.built.push(slugs);
+        return makeIndex(slugs);
       },
-      selectClassifyTargets: async () => [],
-      commitClassifyHighWater: () => {
+      readPageBody: async (slug) => `body for ${slug}`,
+      deleteSectionsForArticle: async (_config, article) => {
+        calls.deleted.push(article);
+      },
+      upsertSections: async (_config, sections) => {
+        calls.upserted.push(sections);
+      },
+      commitEmbedHighWater: () => {
         calls.commit += 1;
       },
       invalidateLanes: () => {
@@ -96,193 +85,161 @@ describe("maintainJob", () => {
 
   test("no-op when both v3 flags are off", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: false, [FLAG_LIVE]: false });
-    const { deps: d, calls } = deps();
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a"],
+    });
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.disabled).toBe(true);
-    expect(calls.assign).toBe(0);
+    expect(calls.built.length).toBe(0);
     expect(calls.invalidate).toBe(0);
   });
 
-  test("runs assign + invalidate when shadow flag is on", async () => {
+  test("re-chunks + re-embeds changed pages and invalidates lanes (shadow on)", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
-    const { deps: d, calls } = deps();
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a", "page-b"],
+    });
     const outcome = await maintainJob(JOB, CONFIG, d);
+
     expect(outcome.disabled).toBe(false);
-    expect(calls.assign).toBe(1);
-    expect(calls.invalidate).toBe(1);
+    expect(outcome.reembedded).toBe(2);
+    expect(outcome.reembedFailures).toBe(0);
     expect(outcome.invalidated).toBe(true);
+
+    // Each changed page: delete its stale sections, then upsert fresh ones.
+    expect(calls.built).toEqual([["page-a"], ["page-b"]]);
+    expect(calls.deleted).toEqual(["page-a", "page-b"]);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "page-a",
+      "page-b",
+    ]);
+    expect(calls.invalidate).toBe(1);
+    expect(calls.commit).toBe(1);
   });
 
   test("runs when only the live flag is on", async () => {
     setOverridesForTesting({ [FLAG_LIVE]: true });
-    const { deps: d, calls } = deps();
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a"],
+    });
     await maintainJob(JOB, CONFIG, d);
-    expect(calls.assign).toBe(1);
+    expect(calls.built).toEqual([["page-a"]]);
     expect(calls.invalidate).toBe(1);
   });
 
-  test("counts pages newly assigned by the classify-union stage", async () => {
+  test("skips the dense store entirely when no pages changed", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
-    const { deps: d } = deps({
-      assignPages: async () => [
-        { slug: "p1", before: [], after: ["domain/topic-a"], failed: false },
-        { slug: "p2", before: [], after: [], failed: true },
-        {
-          slug: "p3",
-          before: ["domain/topic-a"],
-          after: ["domain/topic-a"],
-          failed: false,
-        },
-      ],
-    });
+    const { deps: d, calls } = deps({ selectChangedPages: async () => [] });
     const outcome = await maintainJob(JOB, CONFIG, d);
-    expect(outcome.assigned).toBe(1);
+    expect(outcome.reembedded).toBe(0);
+    expect(calls.built.length).toBe(0);
+    expect(calls.deleted.length).toBe(0);
+    expect(calls.upserted.length).toBe(0);
+    // The pass still advances the high-water mark and invalidates lanes.
+    expect(calls.commit).toBe(1);
+    expect(calls.invalidate).toBe(1);
   });
 
-  test("prune drops dangling leaf refs and rewrites the page", async () => {
+  test("a single failing page is contained; other pages still re-embed", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
-    await writePage(
-      workspaceDir,
-      makePage("dangling", ["domain/topic-a", "domain/gone"]),
-    );
-    await writePage(workspaceDir, makePage("clean", ["domain/topic-b"]));
-    await writePage(workspaceDir, makePage("empty", []));
-
-    const { deps: d } = deps();
-    const outcome = await maintainJob(JOB, CONFIG, d);
-
-    expect(outcome.pruned).toBe(1);
-    expect(outcome.prunedRefs).toBe(1);
-
-    const dangling = await readPage(workspaceDir, "dangling");
-    expect(dangling?.frontmatter.leaves).toEqual(["domain/topic-a"]);
-
-    const clean = await readPage(workspaceDir, "clean");
-    expect(clean?.frontmatter.leaves).toEqual(["domain/topic-b"]);
-  });
-
-  test("contains an assign failure without aborting prune or invalidate", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    await writePage(
-      workspaceDir,
-      makePage("dangling", ["domain/topic-a", "domain/gone"]),
-    );
     const { deps: d, calls } = deps({
-      assignPages: async () => {
-        throw new Error("assign boom");
+      selectChangedPages: async () => ["page-ok", "page-bad", "page-ok-2"],
+      upsertSections: async (_config, sections) => {
+        if (sections.some((s) => s.article === "page-bad")) {
+          throw new Error("embed boom");
+        }
+        calls.upserted.push(sections);
       },
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
-    expect(outcome.failures).toContain("assign");
-    expect(outcome.pruned).toBe(1);
+
+    expect(outcome.reembedded).toBe(2);
+    expect(outcome.reembedFailures).toBe(1);
+    // Both good pages were upserted; the lanes were still invalidated.
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "page-ok",
+      "page-ok-2",
+    ]);
     expect(calls.invalidate).toBe(1);
     expect(outcome.invalidated).toBe(true);
   });
 
-  test("contains a tree-load failure but still invalidates lanes", async () => {
+  test("a thrown re-embed stage does not abort lane invalidation", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
-      loadTree: async () => {
-        throw new Error("load boom");
+      selectChangedPages: async () => {
+        throw new Error("select boom");
       },
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
-    expect(outcome.failures).toContain("load_tree");
-    expect(calls.assign).toBe(0);
+    expect(outcome.failures).toContain("reembed");
+    expect(calls.commit).toBe(0);
     expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
   });
 
-  test("classifies the selected delta targets (passes them to assignPages)", async () => {
+  test("advances the high-water mark after a successful re-embed pass", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
-    let seenSlugs: Slug[] | undefined;
-    const { deps: d } = deps({
-      selectClassifyTargets: async () => ["p-new", "p-edited"],
-      assignPages: async (opts: AssignPagesOptions) => {
-        seenSlugs = opts.slugs;
-        return [];
-      },
+    const { deps: d, calls } = deps({
+      selectChangedPages: async () => ["page-a"],
     });
-    await maintainJob(JOB, CONFIG, d);
-    expect(seenSlugs).toEqual(["p-new", "p-edited"]);
-  });
-
-  test("advances the high-water mark after a successful classify pass", async () => {
-    setOverridesForTesting({ [FLAG_SHADOW]: true });
-    const { deps: d, calls } = deps();
     await maintainJob(JOB, CONFIG, d);
     expect(calls.commit).toBe(1);
   });
 
-  test("does not advance the high-water mark when classify throws", async () => {
+  test("does not advance the high-water mark when selection throws", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
-      assignPages: async () => {
-        throw new Error("assign boom");
+      selectChangedPages: async () => {
+        throw new Error("select boom");
       },
     });
     const outcome = await maintainJob(JOB, CONFIG, d);
-    expect(outcome.failures).toContain("assign");
+    expect(outcome.failures).toContain("reembed");
     expect(calls.commit).toBe(0);
   });
 });
 
-describe("computeClassifyTargets", () => {
-  const page = (
-    slug: string,
-    modifiedAt: number,
-    leaves: string[] = [],
-  ): ClassifyCandidate => ({ slug, modifiedAt, leaves });
+describe("computeChangedPages", () => {
+  const page = (slug: string, modifiedAt: number): ChangedPageCandidate => ({
+    slug,
+    modifiedAt,
+  });
 
-  test("first run (null high-water) classifies only unassigned pages", () => {
-    const targets = computeClassifyTargets(
-      [page("unassigned", 100, []), page("assigned-recent", 200, ["domain/a"])],
+  test("first run (null high-water) selects every real page", () => {
+    const changed = computeChangedPages(
+      [page("page-a", 100), page("page-b", 200)],
       null,
     );
-    expect(targets).toEqual(["unassigned"]);
+    expect(changed).toEqual(["page-a", "page-b"]);
   });
 
-  test("re-classifies an already-assigned page edited since the high-water", () => {
-    const targets = computeClassifyTargets(
-      [page("assigned-edited", 300, ["domain/a"])],
+  test("selects only pages edited since the high-water", () => {
+    const changed = computeChangedPages(
+      [page("stale", 150), page("fresh", 300)],
       200,
     );
-    expect(targets).toEqual(["assigned-edited"]);
+    expect(changed).toEqual(["fresh"]);
   });
 
-  test("skips an assigned page untouched since the high-water (no self-trigger / drift)", () => {
-    const targets = computeClassifyTargets(
-      [page("assigned-stale", 150, ["domain/a"])],
-      200,
-    );
-    expect(targets).toEqual([]);
+  test("skips a page untouched since the high-water (no self-trigger)", () => {
+    const changed = computeChangedPages([page("stale", 150)], 200);
+    expect(changed).toEqual([]);
   });
 
-  test("still classifies unassigned pages regardless of mtime", () => {
-    const targets = computeClassifyTargets(
-      [page("unassigned-old", 10, [])],
+  test("excludes synthetic skill/CLI rows (modifiedAt 0)", () => {
+    const changed = computeChangedPages(
+      [page("skills/meet-join", 0), page("real", 300)],
       200,
     );
-    expect(targets).toEqual(["unassigned-old"]);
+    expect(changed).toEqual(["real"]);
   });
 
-  test("excludes synthetic skill/CLI rows (modifiedAt 0) despite empty leaves", () => {
-    const targets = computeClassifyTargets(
-      [page("skills/meet-join", 0, []), page("real", 300, [])],
-      200,
+  test("excludes synthetic rows even on the first run", () => {
+    const changed = computeChangedPages(
+      [page("skills/x", 0), page("real", 10)],
+      null,
     );
-    expect(targets).toEqual(["real"]);
-  });
-
-  test("targets = unassigned ∪ recently-edited, excluding assigned-and-stale", () => {
-    const targets = computeClassifyTargets(
-      [
-        page("unassigned-old", 10, []),
-        page("assigned-stale", 150, ["domain/a"]),
-        page("assigned-fresh", 300, ["domain/a"]),
-        page("skills/x", 0, []),
-      ],
-      200,
-    );
-    expect(targets).toEqual(["unassigned-old", "assigned-fresh"]);
+    expect(changed).toEqual(["real"]);
   });
 });
