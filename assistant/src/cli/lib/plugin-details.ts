@@ -14,9 +14,10 @@
  *      `package.json` fields the manifest doesn't carry.
  *
  * Name-collision precedence matches {@link ./search-plugins} and
- * {@link ./install-from-github}: a first-party in-repo plugin wins a name also
- * claimed by the marketplace, so the detail page advertises the same source the
- * catalog and installer would use.
+ * {@link ./install-from-github}: a marketplace entry owns its name, so the
+ * detail page advertises the external source the catalog and installer use. A
+ * same-named `experimental/plugins/<name>/` directory is that plugin's adapter
+ * stub, not a standalone first-party plugin, so it does not override the claim.
  *
  * Designed for direct programmatic use with an injected `fetch`, mirroring the
  * sibling plugin libraries.
@@ -130,22 +131,28 @@ export async function getPluginDetails(
   const local = readLocalPlugin(pluginsDir, name);
 
   const marketplaceEntry = await findMarketplaceEntry(name, ref, fetchFn);
-  const firstPartyEntries = await listDirSafe(
-    PLUGIN_SOURCE_OWNER,
-    PLUGIN_SOURCE_REPO,
-    `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
-    ref,
-    fetchFn,
-  );
+
+  // A marketplace entry owns its name (the same-named in-repo directory, if
+  // any, is its adapter stub) — so only probe the first-party directory when
+  // the name is unclaimed, which also spares a GitHub request in the common
+  // external case.
+  const firstPartyEntries =
+    marketplaceEntry === null
+      ? await listDirSafe(
+          PLUGIN_SOURCE_OWNER,
+          PLUGIN_SOURCE_REPO,
+          `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
+          ref,
+          fetchFn,
+        )
+      : null;
   const firstPartyExists = firstPartyEntries !== null;
 
   if (!local.installed && !firstPartyExists && !marketplaceEntry) {
     throw new PluginDetailsNotFoundError(name, ref);
   }
 
-  // First-party wins a name collision, so probe the in-repo directory before
-  // honouring a marketplace claim — the same precedence the catalog applies.
-  const useExternal = !firstPartyExists && marketplaceEntry !== null;
+  const useExternal = marketplaceEntry !== null;
 
   const source: PluginMatchSource = useExternal
     ? {

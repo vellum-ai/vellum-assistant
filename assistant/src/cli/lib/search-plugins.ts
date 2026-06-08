@@ -200,21 +200,27 @@ export async function loadPluginCatalog(
 
   const matches: PluginSearchMatch[] = [];
   const seen = new Set<string>();
+
+  // Whitelisted external entries own their name. A same-named
+  // `experimental/plugins/<name>/` directory is that plugin's curated adapter
+  // stub (overlaid onto the clone at install time), not a standalone
+  // first-party plugin — so it must surface once, as the external entry.
+  for (const entry of marketplace) {
+    if (seen.has(entry.name)) continue;
+    matches.push(marketplaceMatch(entry));
+    seen.add(entry.name);
+  }
+
+  // First-party plugins are the in-repo directories whose name the marketplace
+  // does not claim.
   for (const entry of entries) {
     if (entry.type !== "dir") continue;
+    if (seen.has(entry.name)) continue;
     matches.push({
       name: entry.name,
       path: entry.path,
       source: { kind: "first-party" },
     });
-    seen.add(entry.name);
-  }
-
-  for (const entry of marketplace) {
-    // First-party plugins win a name collision — the curated manifest is
-    // additive, never an override of what ships in-repo.
-    if (seen.has(entry.name)) continue;
-    matches.push(marketplaceMatch(entry));
     seen.add(entry.name);
   }
 

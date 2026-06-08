@@ -357,8 +357,8 @@ describe("searchPlugins", () => {
     expect(result.matches).toEqual([]);
   });
 
-  test("first-party dirs win a name collision with the marketplace", async () => {
-    // GIVEN both a first-party dir and a marketplace entry named "caveman"
+  test("a marketplace entry owns a name shared by an in-repo stub dir", async () => {
+    // GIVEN a marketplace entry named "caveman"
     const manifest = {
       name: "vellum-assistant",
       plugins: [
@@ -372,6 +372,8 @@ describe("searchPlugins", () => {
         },
       ],
     };
+    // AND a same-named in-repo directory, which is caveman's adapter stub
+    // rather than a standalone first-party plugin
     const fetch: FetchLike = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("marketplace.json")) {
@@ -394,12 +396,17 @@ describe("searchPlugins", () => {
     // WHEN we search
     const result = await searchPlugins({ query: "caveman" }, { fetch });
 
-    // THEN only the first-party entry surfaces — the manifest is additive
+    // THEN the name surfaces once, as the external marketplace entry — the
+    // stub dir is its adapter overlay, not a competing first-party listing
     expect(result.matches).toEqual([
       {
         name: "caveman",
-        path: "experimental/plugins/caveman",
-        source: { kind: "first-party" },
+        path: "github:JuliusBrussee/caveman@63a91ecadbf4c4719a4602a5abb00883f9966034",
+        source: {
+          kind: "github",
+          repo: "JuliusBrussee/caveman",
+          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+        },
       },
     ]);
   });
