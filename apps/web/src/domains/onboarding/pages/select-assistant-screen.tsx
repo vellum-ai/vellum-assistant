@@ -6,6 +6,7 @@ import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { isPlatformLocal } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
@@ -87,6 +88,15 @@ export function SelectAssistantScreen() {
 
   const onBack = () => {
     void navigate(routes.onboarding.welcome);
+  };
+
+  const handleCancelLogin = () => {
+    loginFlowIdRef.current++;
+    setLoginLoading(false);
+    setError(null);
+    if (isElectron()) {
+      void window.vellum?.auth?.cancelOAuth();
+    }
   };
 
   const handleLogin = async () => {
@@ -187,10 +197,10 @@ export function SelectAssistantScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={() => void handleLogin()}
-              disabled={connecting || loginLoading}
+              onClick={loginLoading ? handleCancelLogin : () => void handleLogin()}
+              disabled={connecting}
             >
-              {loginLoading ? "Logging in…" : "Log In"}
+              {loginLoading ? "Cancel" : "Log In"}
             </Button>
           )}
           <Button
