@@ -84,6 +84,13 @@ mock.module("electron", () => ({
     // `net.fetch` locally with their own fixture.
     fetch: () => Promise.resolve(new Response("")),
   },
+  safeStorage: {
+    // Use no-op shims by default instead of touching keychain.
+    // Re-mock `safeStorage` locally if needed for tests.
+    isEncryptionAvailable: () => false,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (blob: Buffer) => blob.toString(),
+  },
   screen: {
     getDisplayMatching: () => ({
       workArea: { x: 0, y: 0, width: 1920, height: 1080 },
