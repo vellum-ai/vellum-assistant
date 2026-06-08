@@ -100,6 +100,7 @@ interface ResolvedAssistantsState {
 interface ResolvedAssistantsActions {
   setFromLockfile: (lockfile: Lockfile) => void;
   setFromApi: (assistants: Assistant[]) => void;
+  remove: (assistantId: string) => void;
   clear: () => void;
   setActiveAssistantId: (assistantId: string | null) => void;
   setSelectedPlatformAssistant: (orgId: string, id: string | null) => void;
@@ -131,6 +132,11 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           isLocal: a.is_local,
         })),
       }),
+
+    remove: (assistantId) =>
+      set((state) => ({
+        assistants: state.assistants.filter((a) => a.id !== assistantId),
+      })),
 
     clear: () => set({ assistants: [] }),
 

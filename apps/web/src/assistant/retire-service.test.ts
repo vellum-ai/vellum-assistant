@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let isLocalModeValue = false;
 let lockfileAssistants: Array<{ assistantId: string; cloud?: string }> = [];
+let storeAssistants: Array<{ id: string }> = [];
 let retireByIdResult: { ok: true } | { ok: false; status: number; error: Record<string, unknown> } = { ok: true };
 let retireLocalResult: { ok: true } | { ok: false; error?: string } = { ok: true };
 
@@ -47,12 +48,21 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
   },
 }));
 mock.module("@/lib/navigation/build-state", () => ({
-  buildNavigationState: (overrides?: Record<string, unknown>) => ({
+  buildNavigationState: () => ({
     isLocalMode: isLocalModeValue,
     isAuthenticated: false,
     platformSession: "absent",
-    ...overrides,
+    hasAssistants: storeAssistants.length > 0,
   }),
+}));
+
+const removeMock = mock((assistantId: string) => {
+  storeAssistants = storeAssistants.filter((a) => a.id !== assistantId);
+});
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({ remove: removeMock }),
+  },
 }));
 
 const clearOnboardingFlagsMock = mock(() => {});
@@ -78,6 +88,7 @@ const { retireAssistant } = await import("./retire-service");
 beforeEach(() => {
   isLocalModeValue = false;
   lockfileAssistants = [];
+  storeAssistants = [];
   retireByIdResult = { ok: true };
   retireLocalResult = { ok: true };
   retireAssistantByIdMock.mockClear();
@@ -85,6 +96,7 @@ beforeEach(() => {
   retireLocalAssistantMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   clearOnboardingFlagsMock.mockClear();
+  removeMock.mockClear();
 });
 
 afterEach(() => {
@@ -95,6 +107,7 @@ describe("retireAssistant", () => {
   test("platform assistant routes through the platform delete by id", async () => {
     // GIVEN a platform-hosted target in web mode
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    storeAssistants = [{ id: "p1" }];
 
     // WHEN retiring it
     const outcome = await retireAssistant("p1");
@@ -113,6 +126,7 @@ describe("retireAssistant", () => {
     // GIVEN a local target in local mode
     isLocalModeValue = true;
     lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
+    storeAssistants = [{ id: "l1" }];
 
     // WHEN retiring it
     const outcome = await retireAssistant("l1");
@@ -127,6 +141,7 @@ describe("retireAssistant", () => {
     // GIVEN local mode but the *target* is a platform assistant
     isLocalModeValue = true;
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    storeAssistants = [{ id: "p1" }];
 
     // WHEN retiring the platform target
     const outcome = await retireAssistant("p1");
@@ -140,6 +155,7 @@ describe("retireAssistant", () => {
 
   test("a 404 from the platform delete is treated as success", async () => {
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    storeAssistants = [{ id: "p1" }];
     retireByIdResult = { ok: false, status: 404, error: {} };
 
     const outcome = await retireAssistant("p1");
@@ -150,6 +166,7 @@ describe("retireAssistant", () => {
 
   test("a non-404 platform failure surfaces the error detail", async () => {
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    storeAssistants = [{ id: "p1" }];
     retireByIdResult = { ok: false, status: 500, error: { detail: "boom" } };
 
     const outcome = await retireAssistant("p1");
@@ -167,6 +184,7 @@ describe("retireAssistant", () => {
       { assistantId: "l1", cloud: "local" },
       { assistantId: "p1", cloud: "vellum" },
     ];
+    storeAssistants = [{ id: "l1" }, { id: "p1" }];
 
     const outcome = await retireAssistant("l1");
 
@@ -179,6 +197,7 @@ describe("retireAssistant", () => {
   test("post-retire redirects to welcome when no assistants and not logged in", async () => {
     isLocalModeValue = true;
     lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
+    storeAssistants = [{ id: "l1" }];
 
     const outcome = await retireAssistant("l1");
 
