@@ -39,6 +39,7 @@ import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { UpdateBanner } from "@/components/update-banner";
 import { retireAssistant } from "@/assistant/retire-service";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -247,9 +248,12 @@ export function RootLayout() {
         paddingRight:
           "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
         isolation: "isolate",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
+      <UpdateBanner />
+      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>
 
