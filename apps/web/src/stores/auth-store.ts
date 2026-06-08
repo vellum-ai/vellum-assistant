@@ -98,6 +98,7 @@ interface AuthState {
 interface AuthActions {
   initSession: () => Promise<void>;
   connectLocalAssistant: (assistantId: string) => Promise<void>;
+  connectPlatformAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
@@ -441,6 +442,17 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     await primeLocalGatewayConnectionWithRepair();
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
+  },
+
+  connectPlatformAssistant: async (assistantId: string) => {
+    setSelectedAssistantId(assistantId);
+    const result = await getSession();
+    if (!result.ok || !result.data.user) {
+      throw new Error("Platform authentication required");
+    }
+    const user = toAuthUser(result.data.user);
+    syncUserScopedState(user?.id ?? null);
+    set(authenticatedPlatformUser(user));
   },
 
   refreshSession: async () => {
