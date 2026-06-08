@@ -159,7 +159,12 @@ function resolveRouteGuard(
     return { action: "redirect", to: routes.onboarding.welcome };
   }
 
-  // 6. All clear
+  // 6. Authenticated, platform mode, onboarding not completed
+  if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
+    return { action: "redirect", to: routes.onboarding.privacy };
+  }
+
+  // 7. All clear
   return { action: "allow" };
 }
 
