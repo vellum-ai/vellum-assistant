@@ -325,7 +325,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-05T22:44:27.000Z"
+      "updatedAt": "2026-06-05T23:44:29.000Z"
     },
     {
       "id": "inbox-management",
@@ -451,7 +451,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-08T20:46:51.000Z"
+      "updatedAt": "2026-06-08T20:48:43.000Z"
     },
     {
       "id": "meet-join",
