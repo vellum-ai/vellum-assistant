@@ -5,3 +5,4 @@ build/
 resources/bun
 resources/hotkey-helper
 resources/web-dist
+resources/cli-lockfile

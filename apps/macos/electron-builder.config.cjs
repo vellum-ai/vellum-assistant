@@ -28,6 +28,7 @@ module.exports = {
     { from: "resources/bun", to: "bun" },
     { from: "resources/hotkey-helper", to: "hotkey-helper" },
     { from: "resources/web-dist", to: "web-dist" },
+    { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
   ],
   afterPack: "./scripts/afterPack.js",
