@@ -258,7 +258,7 @@ class HotkeyHelperClient {
   private writeFrame(
     child: ChildProcessWithoutNullStreams,
     frame: Record<string, unknown>,
-    callback?: (err?: Error) => void,
+    callback?: (err?: Error | null) => void,
   ): void {
     const line = JSON.stringify(frame);
     if (line.includes("\n") || line.includes("\r")) {
