@@ -216,22 +216,6 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-FFF");
   });
 
-  test("injects the token for the bunx-rewritten claude adapter (adapterCommand gate)", async () => {
-    // The resolver rewrites a missing claude-agent-acp binary to run via
-    // `bun x --bun <pkg>` and preserves the canonical identity on
-    // `adapterCommand`. Without this gate, bunx-resolved spawns would start
-    // with no auth and die as zombies on the first prompt.
-    seedVaultToken("vault-bunx");
-
-    const prepared = await prepareAgentEnv({
-      command: "bun",
-      args: ["x", "--bun", "@agentclientprotocol/claude-agent-acp"],
-      adapterCommand: "claude-agent-acp",
-    });
-
-    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-bunx");
-  });
-
   test("does NOT mutate the caller's agentConfig", async () => {
     seedVaultToken("vault-GGG");
     const original = {
@@ -274,18 +258,6 @@ describe("prepareAgentEnv - gemini gating", () => {
     const meta = metadataStore.get("acp/gemini_api_key");
     expect(meta).toBeDefined();
     expect(meta!.allowedTools).toContain("acp_spawn");
-  });
-
-  test("injects the key for the bunx-rewritten gemini CLI (adapterCommand gate)", async () => {
-    seedVaultGeminiKey("vault-gem-bunx");
-
-    const prepared = await prepareAgentEnv({
-      command: "bun",
-      args: ["x", "--bun", "@google/gemini-cli", "--acp"],
-      adapterCommand: "gemini",
-    });
-
-    expect(prepared.env?.GEMINI_API_KEY).toBe("vault-gem-bunx");
   });
 
   test("a vault miss does NOT throw and spawns without GEMINI_API_KEY (key is optional)", async () => {
@@ -364,18 +336,6 @@ describe("prepareAgentEnv — non-claude commands", () => {
     const prepared = await prepareAgentEnv({
       command: "codex-acp",
       args: [],
-    });
-
-    expect(prepared.env).toEqual({});
-  });
-
-  test("no injection for a bunx-rewritten non-claude adapter", async () => {
-    seedVaultToken("vault-should-not-leak");
-
-    const prepared = await prepareAgentEnv({
-      command: "bun",
-      args: ["x", "--bun", "@zed-industries/codex-acp"],
-      adapterCommand: "codex-acp",
     });
 
     expect(prepared.env).toEqual({});

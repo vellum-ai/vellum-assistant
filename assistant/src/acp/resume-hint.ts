@@ -5,9 +5,7 @@
  * adapter binary). Other adapters resume differently or not at all, so the
  * hint is gated by the resolved adapter, not the agent id - this stays
  * correct when a user aliases an id to a different binary. Callers pass the
- * CANONICAL adapter command (`adapterCommandOf` in `resolve-agent.ts`), not
- * the raw spawn command, so the hint still fires when the claude adapter is
- * run via `bun x` (spawn command "bun").
+ * resolved command basename, which is always the real adapter binary.
  *
  * Used by the `acp_spawn` tool's success payload and the session manager's
  * completion notification so both surfaces render identical copy. Returns

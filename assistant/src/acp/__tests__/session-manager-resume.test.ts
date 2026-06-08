@@ -9,7 +9,8 @@
  * VellumAcpClientHandler so replay suppression is exercised end to end.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -52,7 +53,7 @@ class FakeAcpAgentProcess {
     public readonly config: {
       command: string;
       args: string[];
-      adapterCommand?: string;
+      env?: Record<string, string | undefined>;
     },
     private readonly clientFactory: (agent: unknown) => FakeClient,
   ) {
@@ -123,14 +124,30 @@ mock.module("../agent-process.js", () => ({
   AcpAgentProcess: FakeAcpAgentProcess,
 }));
 
-// Identity env-prep: credential-broker plumbing has its own suite. Tests
-// that need to observe the manager mid-resume (dispose, pending-id
-// visibility) set `prepareAgentEnvGate` to stall the resume here.
+// Env-prep stub: credential-broker plumbing has its own suite. Tests that
+// need to observe the manager mid-resume (dispose, pending-id visibility)
+// set `prepareAgentEnvGate` to stall the resume here. Each resolved command
+// it is called with is recorded so resume tests can assert it ran AFTER
+// resolution (the real helper is the sole token-injection point), and it
+// mirrors that contract by injecting CLAUDE_CODE_OAUTH_TOKEN into the
+// returned config — at spawn time only, never during the auto-install phase.
 let prepareAgentEnvGate: Promise<void> | null = null;
+let prepareAgentEnvCommands: string[] = [];
 mock.module("../prepare-agent-env.js", () => ({
-  prepareAgentEnv: async (agentConfig: unknown) => {
+  prepareAgentEnv: async (agentConfig: {
+    command: string;
+    args: string[];
+    env?: Record<string, string | undefined>;
+  }) => {
     if (prepareAgentEnvGate) await prepareAgentEnvGate;
-    return agentConfig;
+    prepareAgentEnvCommands.push(agentConfig.command);
+    return {
+      ...agentConfig,
+      env: {
+        ...agentConfig.env,
+        CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+      },
+    };
   },
 }));
 
@@ -138,7 +155,7 @@ mock.module("../prepare-agent-env.js", () => ({
 type ResolveResult =
   | {
       ok: true;
-      agent: { command: string; args: string[]; adapterCommand?: string };
+      agent: { command: string; args: string[] };
     }
   | { ok: false; reason: "binary_not_found"; hint: string; command: string };
 let resolveImpl: (id: string) => ResolveResult = () => ({
@@ -150,6 +167,23 @@ mock.module("../resolve-agent.js", () => ({
   ...realResolveModule,
   resolveAcpAgent: (id: string) => resolveImpl(id),
 }));
+
+// Auto-install stubs: resume now resolves through resolveAgentWithAutoInstall
+// (the same sandboxed `bun` path as spawn), so a binary_not_found resolution
+// reaches `ensureAdapterInstalled`, which probes `bun` via Bun.which and
+// shells out via execFile. Stub both — process-global, installed BEFORE the
+// session-manager (and thus auto-install) module is imported below — so the
+// install is never a real one. Default: bun absent (no install attempted).
+import { installExecFileStub } from "./helpers/exec-file-stub.js";
+import { installWhichStub } from "./helpers/which-stub.js";
+
+const { execScripts, execFileMock, reset: resetExecStub } =
+  installExecFileStub();
+const which = installWhichStub();
+/** Fixed resolved `bun` path so install script keys are predictable. */
+const BUN_BIN = "/usr/local/bin/bun";
+/** Key the exec stub uses for the global install. */
+const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
@@ -164,6 +198,9 @@ import {
 
 const { AcpResumeError, AcpSessionManager, AcpSessionNotFoundError } =
   await import("../session-manager.js");
+// Imported dynamically (after the exec/which stubs above) so auto-install.js
+// binds to the mocked node:child_process, exactly like session-manager.js.
+const { _resetAdapterInstallCacheForTests } = await import("../auto-install.js");
 
 initializeDb();
 
@@ -190,6 +227,10 @@ function internals(
   return manager as unknown as ManagerInternals;
 }
 
+afterAll(() => {
+  which.restore();
+});
+
 beforeEach(() => {
   clearHistory();
   fakeInstances.length = 0;
@@ -198,11 +239,17 @@ beforeEach(() => {
   replayChunks = [];
   promptThrowsSync = false;
   prepareAgentEnvGate = null;
+  prepareAgentEnvCommands = [];
   resumeSessionGate = null;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
   });
+  // Default: bun absent, no install scripts, install cache cleared. Tests
+  // that exercise the auto-install path opt in via which/execScripts.
+  resetExecStub();
+  _resetAdapterInstallCacheForTests();
+  which.setWhich({});
 });
 
 const PERSISTED_EVENT: AcpSessionUpdate = {
@@ -329,55 +376,160 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(internals(manager).eventBuffers.has("no-caps-1")).toBe(false);
   });
 
-  test("bunx-rewritten resolver output flows through resume with the canonical adapter command", async () => {
-    // resolveAcpAgent rewrites a missing claude-agent-acp binary to run via
-    // `bun x --bun <pkg>`; resumeFromHistory re-resolves through it, so the
-    // rewritten config must reach the agent process while the SessionEntry
-    // keeps the canonical adapter command (resume hints gate on it).
+  test("re-resolves via resolveAgentWithAutoInstall: an already-installed real binary flows through resume", async () => {
+    // resumeFromHistory resolves through resolveAgentWithAutoInstall. When the
+    // adapter is already on PATH the resolver returns the real binary (a full
+    // path here) with no install, and the SessionEntry tracks its basename for
+    // resume-hint gating.
     fakeCaps.resume = true;
-    insertHistoryRow({ id: "bunx-resume-1" });
+    insertHistoryRow({ id: "installed-resume-1" });
     resolveImpl = () => ({
       ok: true,
       agent: {
-        command: "bun",
-        args: ["x", "--bun", "@agentclientprotocol/claude-agent-acp"],
-        adapterCommand: "claude-agent-acp",
+        command: "/usr/local/bin/claude-agent-acp",
+        args: [],
       },
     });
 
     const manager = new AcpSessionManager(4);
-    await manager.resumeFromHistory("bunx-resume-1", () => {});
+    await manager.resumeFromHistory("installed-resume-1", () => {});
 
     const fake = fakeInstances[0]!;
-    expect(fake.config.command).toBe("bun");
-    expect(fake.config.args).toEqual([
-      "x",
-      "--bun",
+    expect(fake.config.command).toBe("/usr/local/bin/claude-agent-acp");
+    expect(fake.resumeSessionCalls).toEqual([
+      { sessionId: "proto-old", cwd: "/tmp/proj" },
+    ]);
+    // The SessionEntry command is the basename (resume hints gate on it).
+    expect(
+      internals(manager).sessions.get("installed-resume-1")!.command,
+    ).toBe("claude-agent-acp");
+  });
+
+  test("missing adapter on resume: installs via sandboxed bun, then resumes against the real binary", async () => {
+    // The adapter binary is missing but maps to an allowlisted package and
+    // bun is present. resumeFromHistory must trigger the same one-time
+    // sandboxed install as spawn, then resume against the now-installed real
+    // binary, with the OAuth token injected only at spawn (never during the
+    // install).
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "resume-install-1" });
+
+    // Resolver: binary missing until the install flips `installed`, then the
+    // real installed binary (a full path, as a global bin would resolve).
+    let installed = false;
+    resolveImpl = () =>
+      installed
+        ? {
+            ok: true,
+            agent: { command: "/usr/local/bin/claude-agent-acp", args: [] },
+          }
+        : {
+            ok: false,
+            reason: "binary_not_found",
+            hint: "bun add -g @agentclientprotocol/claude-agent-acp",
+            command: "claude-agent-acp",
+          };
+    which.setWhich({ bun: BUN_BIN });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installed = true;
+      },
+    });
+
+    // Seed the secrets on the ambient env so we can assert they are stripped
+    // from the installer env and only reappear at spawn time.
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "should-not-leak";
+    process.env.GEMINI_API_KEY = "should-not-leak-either";
+
+    const manager = new AcpSessionManager(4);
+    try {
+      await manager.resumeFromHistory("resume-install-1", () => {});
+    } finally {
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      delete process.env.GEMINI_API_KEY;
+    }
+
+    // The install ran via bun (never npm) in a sandboxed temp dir (NOT the
+    // project dir), with the secrets stripped from its env.
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [command, args, options] = execFileMock.mock.calls[0];
+    expect(command).toBe(BUN_BIN);
+    expect(command).not.toBe("npm");
+    expect(args).toEqual([
+      "add",
+      "--global",
       "@agentclientprotocol/claude-agent-acp",
     ]);
+    const { cwd, env } = options as { cwd?: string; env?: NodeJS.ProcessEnv };
+    expect(cwd).toBeDefined();
+    expect(cwd!.startsWith(tmpdir())).toBe(true);
+    expect(cwd).not.toBe(process.cwd());
+    expect(cwd).toContain("vellum-acp-install-");
+    expect(env!.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env!.GEMINI_API_KEY).toBeUndefined();
+
+    // Resume then succeeded against the now-installed real binary.
+    const fake = fakeInstances[0]!;
+    expect(fake.config.command).toBe("/usr/local/bin/claude-agent-acp");
     expect(fake.resumeSessionCalls).toEqual([
       { sessionId: "proto-old", cwd: "/tmp/proj" },
     ]);
     expect(
-      internals(manager).sessions.get("bunx-resume-1")!.command,
-    ).toBe("claude-agent-acp");
+      (manager.getStatus("resume-install-1") as AcpSessionState).status,
+    ).toBe("running");
+
+    // prepareAgentEnv ran AFTER resolution, on the resolved real binary, and
+    // injected the token at spawn time — the sole point the token is in scope.
+    expect(prepareAgentEnvCommands).toEqual(["/usr/local/bin/claude-agent-acp"]);
+    expect(fake.config.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("should-not-leak");
   });
 
-  test("resolver failures surface the actionable hint", async () => {
+  test("install failure on resume surfaces the actionable error (no process spawned)", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({ id: "resume-install-fail-1" });
+    resolveImpl = () => ({
+      ok: false,
+      reason: "binary_not_found",
+      hint: "bun add -g @agentclientprotocol/claude-agent-acp",
+      command: "claude-agent-acp",
+    });
+    which.setWhich({ bun: BUN_BIN });
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+
+    const manager = new AcpSessionManager(4);
+    const promise = manager.resumeFromHistory("resume-install-fail-1", () => {});
+    await expect(promise).rejects.toThrow(/claude-agent-acp is not on PATH/);
+    await expect(promise).rejects.toThrow(
+      /auto-install failed: .*network is down/,
+    );
+
+    // The install was attempted via bun (never npm) but no child process
+    // spawned, and the reservation was released.
+    for (const call of execFileMock.mock.calls) {
+      expect(call[0]).not.toBe("npm");
+    }
+    expect(fakeInstances).toHaveLength(0);
+    expect(internals(manager).pendingResumes.size).toBe(0);
+  });
+
+  test("bun absent on resume surfaces the actionable install hint, attempts no install", async () => {
     insertHistoryRow({ id: "no-bin-1" });
     resolveImpl = () => ({
       ok: false,
       reason: "binary_not_found",
-      hint: "npm i -g @agentclientprotocol/claude-agent-acp",
+      hint: "bun add -g @agentclientprotocol/claude-agent-acp",
       command: "claude-agent-acp",
     });
+    which.setWhich({}); // bun not on PATH (the beforeEach default, made explicit)
 
     const manager = new AcpSessionManager(4);
     await expect(
       manager.resumeFromHistory("no-bin-1", () => {}),
     ).rejects.toThrow(
-      "claude-agent-acp is not on PATH. npm i -g @agentclientprotocol/claude-agent-acp",
+      "claude-agent-acp is not on PATH. bun add -g @agentclientprotocol/claude-agent-acp",
     );
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   test("already-active id and concurrency limit reuse spawn's guards", async () => {
