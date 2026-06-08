@@ -440,6 +440,12 @@ export function ChatMainPanel({
       const allowed = activeModelSupportsVision
         ? arr
         : arr.filter((f) => !f.type.startsWith("image/"));
+      if (allowed.length < arr.length) {
+        useComposerStore.setState({
+          attachmentLastError:
+            "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
+        });
+      }
       if (allowed.length > 0) addChatAttachmentFiles(allowed);
     },
     [addChatAttachmentFiles, activeModelSupportsVision],
