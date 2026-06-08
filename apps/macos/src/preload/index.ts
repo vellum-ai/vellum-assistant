@@ -98,9 +98,15 @@ export interface PowerEvent {
 }
 
 export type HotkeyEventState = "down" | "up";
+export type HotkeyModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
 
 export interface HotkeyEvent {
-  kind: "fnPushToTalk";
+  kind: "pushToTalk" | "fnPushToTalk";
   state: HotkeyEventState;
 }
 
@@ -257,9 +263,13 @@ export interface VellumBridge {
     ping(): Promise<"pong">;
     hotkey: {
       /**
-       * Enable or disable the native Fn-key push-to-talk registration.
+       * Enable or disable a native modifier-only push-to-talk registration.
        * The native helper emits `hotkey-event` notifications while enabled.
        */
+      pushToTalk(
+        enable: boolean,
+        modifiers: HotkeyModifier[],
+      ): Promise<FnPushToTalkResult>;
       fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
       /**
        * Subscribe to native hotkey down/up events streamed from the helper.
@@ -567,6 +577,15 @@ const bridge: VellumBridge = {
   helper: {
     ping: notImplemented("helper.ping"),
     hotkey: {
+      pushToTalk: (
+        enable: boolean,
+        modifiers: HotkeyModifier[],
+      ): Promise<FnPushToTalkResult> =>
+        ipcRenderer.invoke(
+          "vellum:helper:hotkey:pushToTalk",
+          enable,
+          modifiers,
+        ) as Promise<FnPushToTalkResult>,
       fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
         ipcRenderer.invoke(
           "vellum:helper:hotkey:fnPushToTalk",

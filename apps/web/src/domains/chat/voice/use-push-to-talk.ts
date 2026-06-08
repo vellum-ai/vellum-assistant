@@ -13,10 +13,11 @@ import {
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
-  setFnPushToTalkEnabled,
+  setNativePushToTalkEnabled,
   subscribeToHotkeyEvents,
-  supportsFnPushToTalk,
+  supportsNativePushToTalk,
   type HotkeyEvent,
+  type HotkeyModifier,
 } from "@/runtime/hotkey";
 
 /**
@@ -46,6 +47,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 /** Minimum hold duration (ms) before PTT activates, matching macOS PTTActivator. */
 const PTT_HOLD_DELAY_MS = 300;
+
+function nativeModifierKey(modifiers: readonly HotkeyModifier[]): string {
+  return modifiers.join("+");
+}
+
+function nativeModifiersForActivator(
+  activator: PTTActivator,
+): HotkeyModifier[] | null {
+  if (!isFnPushToTalkActivator(activator)) {
+    return null;
+  }
+  return ["function"];
+}
 
 /**
  * Play a short activation blip via the Web Audio API to provide audible
@@ -129,21 +143,39 @@ export function usePushToTalk(
       return;
     }
 
-    let nativeFnAvailable = supportsFnPushToTalk();
-    let nativeFnRegistered = false;
+    let nativeAvailable = supportsNativePushToTalk();
+    let nativeRegisteredKey: string | null = null;
 
     const updateNativeRegistration = () => {
-      const shouldRegister =
-        nativeFnAvailable && isFnPushToTalkActivator(activatorRef.current);
-      if (nativeFnRegistered === shouldRegister) {
+      const nativeModifiers = nativeAvailable
+        ? nativeModifiersForActivator(activatorRef.current)
+        : null;
+      const nextKey = nativeModifiers
+        ? nativeModifierKey(nativeModifiers)
+        : null;
+
+      if (nativeRegisteredKey === nextKey) {
         return;
       }
-      nativeFnRegistered = shouldRegister;
-      void setFnPushToTalkEnabled(shouldRegister).then((ok) => {
-        if (shouldRegister && !ok) {
-          nativeFnRegistered = false;
-          nativeFnAvailable = false;
-          if (isFnPushToTalkActivator(activatorRef.current)) {
+
+      const previousKey = nativeRegisteredKey;
+      nativeRegisteredKey = nextKey;
+
+      if (nativeModifiers === null) {
+        if (previousKey !== null) {
+          void setNativePushToTalkEnabled(false, []);
+        }
+        return;
+      }
+
+      void setNativePushToTalkEnabled(true, nativeModifiers).then((ok) => {
+        if (!ok) {
+          nativeRegisteredKey = null;
+          nativeAvailable = false;
+          if (
+            activatorRef.current.kind !== "off" &&
+            activatorRef.current.modifiers.includes("function")
+          ) {
             activatorRef.current = CTRL_PTT_ACTIVATOR;
           }
         }
@@ -153,8 +185,8 @@ export function usePushToTalk(
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
-        ? parseActivator(raw, { preserveFunction: nativeFnAvailable })
-        : nativeFnAvailable
+        ? parseActivator(raw, { preserveFunction: nativeAvailable })
+        : nativeAvailable
           ? FN_PTT_ACTIVATOR
           : { kind: "off" };
       updateNativeRegistration();
@@ -256,7 +288,10 @@ export function usePushToTalk(
     };
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
-      if (!isFnPushToTalkActivator(activatorRef.current)) {
+      if (
+        nativeRegisteredKey === null ||
+        !isFnPushToTalkActivator(activatorRef.current)
+      ) {
         return;
       }
       if (event.state === "down") {
@@ -307,9 +342,9 @@ export function usePushToTalk(
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();
-      if (nativeFnRegistered) {
-        nativeFnRegistered = false;
-        void setFnPushToTalkEnabled(false);
+      if (nativeRegisteredKey !== null) {
+        nativeRegisteredKey = null;
+        void setNativePushToTalkEnabled(false, []);
       }
       cancelHold();
       if (activeRef.current) {

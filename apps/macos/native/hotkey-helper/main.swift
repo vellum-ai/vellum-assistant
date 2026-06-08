@@ -1,10 +1,60 @@
 import AppKit
-import ApplicationServices
+import Carbon
 import Darwin
 import Foundation
 
+private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
+private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
+
+private func hotkeyEventHandler(
+    _ nextHandler: EventHandlerCallRef?,
+    _ event: EventRef?,
+    _ userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let event, let userData else {
+        return OSStatus(eventNotHandledErr)
+    }
+
+    let helper = Unmanaged<HotkeyHelper>.fromOpaque(userData).takeUnretainedValue()
+    switch GetEventKind(event) {
+    case UInt32(kEventRawKeyModifiersChanged):
+        helper.handleRawKeyModifiersChanged(event)
+    case UInt32(kEventHotKeyPressed):
+        guard isFnHotkeyEvent(event) else {
+            return OSStatus(eventNotHandledErr)
+        }
+        helper.emitHotkey(state: "down")
+    case UInt32(kEventHotKeyReleased):
+        guard isFnHotkeyEvent(event) else {
+            return OSStatus(eventNotHandledErr)
+        }
+        helper.emitHotkey(state: "up")
+    default:
+        return CallNextEventHandler(nextHandler, event)
+    }
+
+    return noErr
+}
+
+private func isFnHotkeyEvent(_ event: EventRef) -> Bool {
+    var hotkeyId = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotkeyId
+    )
+    return status == noErr &&
+        hotkeyId.signature == hotkeySignature &&
+        hotkeyId.id == fnHotkeyId.id
+}
+
 final class HotkeyHelper {
-    private var fnMonitor: Any?
+    private var hotkeyRef: EventHotKeyRef?
+    private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
     private let outputLock = NSLock()
 
@@ -12,7 +62,8 @@ final class HotkeyHelper {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.readCommands()
         }
-        RunLoop.main.run()
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        NSApplication.shared.run()
     }
 
     func emitHotkey(state: String) {
@@ -31,6 +82,28 @@ final class HotkeyHelper {
                 "state": state,
             ],
         ])
+        log("event fnPushToTalk \(state)")
+    }
+
+    func handleRawKeyModifiersChanged(_ event: EventRef) {
+        var modifiers: UInt32 = 0
+        let status = GetEventParameter(
+            event,
+            EventParamName(kEventParamKeyModifiers),
+            EventParamType(typeUInt32),
+            nil,
+            MemoryLayout<UInt32>.size,
+            nil,
+            &modifiers
+        )
+        guard status == noErr else {
+            log("GetEventParameter(kEventParamKeyModifiers) failed with status \(status)")
+            return
+        }
+
+        emitHotkey(
+            state: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0 ? "down" : "up"
+        )
     }
 
     private func readCommands() {
@@ -78,10 +151,39 @@ final class HotkeyHelper {
             case "hotkey.fnPushToTalk":
                 let params = object["params"] as? [String: Any]
                 guard let enable = params?["enable"] as? Bool else {
-                    self.writeError(id: id, message: "hotkey.fnPushToTalk requires enable")
+                    self.writeError(
+                        id: id,
+                        message: "hotkey.fnPushToTalk requires enable"
+                    )
                     return
                 }
                 self.setFnPushToTalk(enable: enable, id: id)
+
+            case "hotkey.pushToTalk":
+                let params = object["params"] as? [String: Any]
+                guard let enable = params?["enable"] as? Bool else {
+                    self.writeError(
+                        id: id,
+                        message: "hotkey.pushToTalk requires enable"
+                    )
+                    return
+                }
+
+                if !enable {
+                    self.setFnPushToTalk(enable: false, id: id)
+                    return
+                }
+
+                let modifiers = params?["modifiers"] as? [String] ?? ["function"]
+                guard modifiers == ["function"] else {
+                    self.writeError(
+                        id: id,
+                        message: "Native push-to-talk currently supports Fn only"
+                    )
+                    return
+                }
+                self.setFnPushToTalk(enable: true, id: id)
+
             default:
                 self.writeError(id: id, message: "Unknown method \(method)")
             }
@@ -91,66 +193,127 @@ final class HotkeyHelper {
     private func setFnPushToTalk(enable: Bool, id: Int?) {
         if enable {
             do {
-                try registerFnMonitor()
+                try registerFnHotkey()
                 writeResult(id: id, result: ["enabled": true])
             } catch {
                 writeError(id: id, message: error.localizedDescription)
             }
         } else {
-            unregisterFnMonitor()
+            unregisterFnHotkey()
             writeResult(id: id, result: ["enabled": false])
         }
     }
 
-    private func registerFnMonitor() throws {
-        if fnMonitor != nil {
+    private func registerFnHotkey() throws {
+        if !handlerRefs.isEmpty {
             return
         }
 
-        guard accessibilityTrusted(prompt: true) else {
-            throw HelperError.accessibilityRequired
+        do {
+            try installEventHandlers()
+        } catch {
+            removeEventHandlers()
+            throw error
         }
 
-        guard let monitor = NSEvent.addGlobalMonitorForEvents(
-            matching: .flagsChanged,
-            handler: { [weak self] event in
-                DispatchQueue.main.async {
-                    self?.handleFlagsChanged(event)
-                }
-            }
-        ) else {
-            throw HelperError.monitor("NSEvent flagsChanged monitor could not be installed")
+        var registeredHotkey: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            UInt32(kVK_Function),
+            0,
+            fnHotkeyId,
+            GetApplicationEventTarget(),
+            0,
+            &registeredHotkey
+        )
+        if status == noErr {
+            hotkeyRef = registeredHotkey
+            log("registered Fn Carbon EventHotKey and raw modifier monitor")
+        } else {
+            log("RegisterEventHotKey failed with status \(status); raw modifier monitor remains active")
         }
-
-        fnMonitor = monitor
-        handleFnHeld(NSEvent.modifierFlags.contains(.function))
     }
 
-    private func unregisterFnMonitor() {
+    private func unregisterFnHotkey() {
         if isFnDown {
             emitHotkey(state: "up")
         }
-        if let monitor = fnMonitor {
-            NSEvent.removeMonitor(monitor)
-            fnMonitor = nil
+        if let ref = hotkeyRef {
+            UnregisterEventHotKey(ref)
+            hotkeyRef = nil
         }
+        removeEventHandlers()
     }
 
-    private func handleFlagsChanged(_ event: NSEvent) {
-        handleFnHeld(event.modifierFlags.contains(.function))
+    private func installEventHandlers() throws {
+        let rawModifierEvents = [
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventRawKeyModifiersChanged)
+            ),
+        ]
+        try installHandler(
+            target: GetEventMonitorTarget(),
+            eventTypes: rawModifierEvents,
+            operation: "InstallEventHandler(GetEventMonitorTarget)"
+        )
+
+        let applicationEvents = [
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventRawKeyModifiersChanged)
+            ),
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventHotKeyPressed)
+            ),
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventHotKeyReleased)
+            ),
+        ]
+        try installHandler(
+            target: GetApplicationEventTarget(),
+            eventTypes: applicationEvents,
+            operation: "InstallEventHandler(GetApplicationEventTarget)"
+        )
     }
 
-    private func handleFnHeld(_ isHeld: Bool) {
-        emitHotkey(state: isHeld ? "down" : "up")
+    private func installHandler(
+        target: EventTargetRef?,
+        eventTypes: [EventTypeSpec],
+        operation: String
+    ) throws {
+        guard let target else {
+            throw HelperError.carbon(operation, OSStatus(eventNotHandledErr))
+        }
+
+        var installedHandler: EventHandlerRef?
+        let userData = Unmanaged.passUnretained(self).toOpaque()
+        let status = eventTypes.withUnsafeBufferPointer { buffer in
+            InstallEventHandler(
+                target,
+                hotkeyEventHandler,
+                buffer.count,
+                buffer.baseAddress,
+                userData,
+                &installedHandler
+            )
+        }
+        guard status == noErr, let installedHandler else {
+            throw HelperError.carbon(operation, status)
+        }
+        handlerRefs.append(installedHandler)
     }
 
-    private func accessibilityTrusted(prompt: Bool) -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
+    private func removeEventHandlers() {
+        for ref in handlerRefs {
+            RemoveEventHandler(ref)
+        }
+        handlerRefs.removeAll()
     }
 
     private func shutdown() {
-        unregisterFnMonitor()
+        unregisterFnHotkey()
     }
 
     private func writeResult(id: Int?, result: [String: Any]) {
@@ -183,18 +346,19 @@ final class HotkeyHelper {
             FileHandle.standardOutput.write(Data([0x0A]))
         }
     }
+
+    private func log(_ message: String) {
+        FileHandle.standardError.write(Data("[hotkey-helper] \(message)\n".utf8))
+    }
 }
 
 private enum HelperError: LocalizedError {
-    case accessibilityRequired
-    case monitor(String)
+    case carbon(String, OSStatus)
 
     var errorDescription: String? {
         switch self {
-        case .accessibilityRequired:
-            return "Accessibility permission is required for Fn push-to-talk"
-        case let .monitor(message):
-            return message
+        case let .carbon(operation, status):
+            return "\(operation) failed with status \(status)"
         }
     }
 }

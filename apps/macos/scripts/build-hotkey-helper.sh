@@ -17,5 +17,5 @@ if ! command -v xcrun >/dev/null 2>&1; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-xcrun swiftc "$SOURCE" -framework AppKit -framework ApplicationServices -o "$OUTPUT"
+xcrun swiftc "$SOURCE" -framework AppKit -framework Carbon -o "$OUTPUT"
 chmod 755 "$OUTPUT"
