@@ -76,6 +76,7 @@ mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => mockIsLocalMode,
   isLocalAssistant: (a: { cloud?: string; resources?: { gatewayPort?: number } }) =>
     a.cloud !== "vellum" && a.resources?.gatewayPort != null,
+  isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   clearSelectedAssistant: () => {},
