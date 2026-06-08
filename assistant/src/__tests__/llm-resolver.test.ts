@@ -1249,3 +1249,67 @@ describe("resolveDefaultProfileKey", () => {
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
   });
 });
+
+describe("resolveCallSiteConfig logitBias provenance", () => {
+  const kimi = "accounts/fireworks/models/kimi-k2p6";
+
+  test("forwards logitBias from the active profile that opted in", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+      },
+      activeProfile: "balanced-economy",
+    });
+    expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBe(
+      "suppress-cjk",
+    );
+  });
+
+  test("a higher-precedence override profile that omits logitBias clears it", () => {
+    // Active profile opts in, but a pinned (override) Kimi profile did not —
+    // the override must not inherit suppress-cjk just because it resolves to
+    // Fireworks.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+        "my-kimi": { provider: "fireworks", model: kimi },
+      },
+      activeProfile: "balanced-economy",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "my-kimi",
+    });
+    expect(resolved.logitBias).toBeUndefined();
+  });
+
+  test("does not leak the active profile's logitBias into a call site's own profile", () => {
+    // For non-main call sites the call-site profile wins; since it didn't opt
+    // in, the active profile's preset must not bleed through.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+        plain: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
+      activeProfile: "balanced-economy",
+      callSites: { memoryExtraction: { profile: "plain" } },
+    });
+    expect(
+      resolveCallSiteConfig("memoryExtraction", llm).logitBias,
+    ).toBeUndefined();
+  });
+});
