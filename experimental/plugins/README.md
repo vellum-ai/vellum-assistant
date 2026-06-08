@@ -55,7 +55,7 @@ my-plugin/
 │   ├── pre-model-call.ts      # Per-call request edit / output-defer
 │   ├── post-tool-use.ts       # Per-tool-result transform
 │   ├── stop.ts                # Per-run stop-boundary decision
-│   ├── assistant-message.ts   # Per-message reply transform
+│   ├── post-model-call.ts     # Per-call reply transform
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -233,7 +233,7 @@ export default async function preModelCall(
   // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
   // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
   // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
-  //                            (an `assistant-message` hook then emits the text)
+  //                            (a `post-model-call` hook then emits the text)
   // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
 }
 ```
@@ -313,7 +313,7 @@ with a nudge when a turn comes back empty after tool use, or with a
 refusal nudge on a first-call refusal; because defaults register first,
 it runs ahead of user hooks.
 
-### `assistant-message`
+### `post-model-call`
 
 Fires for **each finalized assistant message** — once per model call, at the
 message-complete boundary, before the message is persisted and (if deferred)
@@ -325,12 +325,12 @@ message. Fires on tool-bearing turns too (a reply can carry both text and
 `ctx.callSite` / `ctx.conversationId`.
 
 ```ts
-// hooks/assistant-message.ts
-import type { AssistantMessageContext } from "@vellumai/plugin-api";
+// hooks/post-model-call.ts
+import type { PostModelCallContext } from "@vellumai/plugin-api";
 
 // In-place mutation style (return void):
-export default async function assistantMessage(
-  ctx: AssistantMessageContext,
+export default async function postModelCall(
+  ctx: PostModelCallContext,
 ): Promise<void> {
   // ctx.conversationId — ID of the conversation the message belongs to
   // ctx.callSite       — call site ("mainAgent" for the user-facing reply)

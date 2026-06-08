@@ -30,7 +30,7 @@
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, fired when the model yields
  *   a response with no tool calls
- * - {@link AssistantMessageContext} — passed to `assistant-message` hook,
+ * - {@link PostModelCallContext} — passed to `post-model-call` hook,
  *   fired for each finalized assistant message to transform its content
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
@@ -43,11 +43,11 @@
 export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
 export type {
-  AssistantMessageContext,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
   PluginShutdownContext,
+  PostModelCallContext,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,
