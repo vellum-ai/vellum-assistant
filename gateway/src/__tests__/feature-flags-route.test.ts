@@ -80,6 +80,8 @@ afterEach(() => {
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
   clearRemoteFeatureFlagStoreCache();
+  resetEnvOverridesCache();
+  delete process.env.VELLUM_FLAG_A2A_CHANNEL;
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
@@ -93,6 +95,8 @@ const { clearFeatureFlagStoreCache, readPersistedFeatureFlags } =
   await import("../feature-flag-store.js");
 const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
   await import("../feature-flag-remote-store.js");
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 
 describe("GET /v1/feature-flags handler", () => {
   test("returns all declared assistant-scope flags with defaults when no persisted file exists", async () => {
@@ -509,6 +513,36 @@ describe("GET /v1/feature-flags handler", () => {
     );
     expect(modelFlag).toBeDefined();
     expect(modelFlag.enabled).toBe("gpt-4");
+  });
+
+  test("env override takes precedence over persisted and default values", async () => {
+    // Persisted value sets a2a-channel to false
+    writeFileSync(
+      featureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "a2a-channel": false },
+      }),
+    );
+    clearFeatureFlagStoreCache();
+
+    // Env override sets it to true
+    process.env.VELLUM_FLAG_A2A_CHANNEL = "true";
+    resetEnvOverridesCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const a2aFlag = body.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
+    );
+    expect(a2aFlag).toBeDefined();
+    expect(a2aFlag.enabled).toBe(true);
   });
 
   test("returns flags when invoked via assistants path without trailing slash", async () => {
