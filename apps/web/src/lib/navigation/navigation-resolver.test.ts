@@ -334,43 +334,39 @@ describe("resolveNavigation", () => {
     const postRetire = (state: NavigationState) =>
       resolveNavigation(state, { kind: "post-retire" });
 
-    test("redirects to select-assistant when other assistants remain", () => {
-      expect(postRetire(s({ hasAssistants: true }))).toEqual({
+    test("redirects to select-assistant in local mode when other assistants remain", () => {
+      expect(postRetire(s({ hasAssistants: true, isLocalMode: true }))).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/select-assistant",
       });
     });
 
-    test("redirects to hosting when no assistants and platform session present", () => {
+    test("redirects to /assistant in platform mode when other assistants remain", () => {
+      expect(postRetire(s({ hasAssistants: true, isLocalMode: false }))).toEqual({
+        action: "redirect",
+        to: "/assistant",
+      });
+    });
+
+    test("redirects to privacy in platform mode when no assistants remain", () => {
+      expect(postRetire(s({ hasAssistants: false, isLocalMode: false }))).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+    });
+
+    test("redirects to hosting in local mode when platform session present", () => {
       expect(
-        postRetire(s({ hasAssistants: false, platformSession: "present" })),
+        postRetire(s({ hasAssistants: false, isLocalMode: true, platformSession: "present" })),
       ).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hosting",
       });
     });
 
-    test("redirects to hosting when no assistants and authenticated in non-local mode", () => {
+    test("redirects to welcome in local mode when no platform session", () => {
       expect(
-        postRetire(s({ hasAssistants: false, isAuthenticated: true, isLocalMode: false })),
-      ).toEqual({
-        action: "redirect",
-        to: "/assistant/onboarding/hosting",
-      });
-    });
-
-    test("redirects to welcome when local-mode gateway auth but no platform session", () => {
-      expect(
-        postRetire(s({ hasAssistants: false, isAuthenticated: true, isLocalMode: true, platformSession: "absent" })),
-      ).toEqual({
-        action: "redirect",
-        to: "/assistant/onboarding/welcome",
-      });
-    });
-
-    test("redirects to welcome when no assistants and not logged in", () => {
-      expect(
-        postRetire(s({ hasAssistants: false, isAuthenticated: false, platformSession: "absent" })),
+        postRetire(s({ hasAssistants: false, isLocalMode: true, platformSession: "absent" })),
       ).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/welcome",

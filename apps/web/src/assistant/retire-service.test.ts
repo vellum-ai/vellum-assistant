@@ -40,8 +40,9 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
     query: { kind: string },
   ) => {
     if (query.kind !== "post-retire") return { action: "allow" };
-    if (state.hasAssistants) return { action: "redirect", to: "/assistant/onboarding/select-assistant" };
-    if (state.platformSession === "present" || (!state.isLocalMode && state.isAuthenticated)) return { action: "redirect", to: "/assistant/onboarding/hosting" };
+    if (state.hasAssistants) return { action: "redirect", to: state.isLocalMode ? "/assistant/onboarding/select-assistant" : "/assistant" };
+    if (!state.isLocalMode) return { action: "redirect", to: "/assistant/onboarding/privacy" };
+    if (state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
     return { action: "redirect", to: "/assistant/onboarding/welcome" };
   },
 }));
@@ -103,7 +104,7 @@ describe("retireAssistant", () => {
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      expect(outcome.nextRoute).toBe("/assistant/onboarding/welcome");
+      expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");
     }
     expect(clearOnboardingFlagsMock).toHaveBeenCalled();
   });

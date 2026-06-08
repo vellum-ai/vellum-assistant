@@ -223,11 +223,17 @@ function resolvePostAuth(
 
 function resolvePostRetire(state: NavigationState): NavigationDecision {
   if (state.hasAssistants) {
-    return { action: "redirect", to: routes.onboarding.selectAssistant };
+    // select-assistant is local-only; platform users go straight to /assistant
+    // where the app picks up the next available assistant.
+    return {
+      action: "redirect",
+      to: state.isLocalMode ? routes.onboarding.selectAssistant : routes.assistant,
+    };
   }
-  // In local mode, gateway auth sets isAuthenticated without a platform login,
-  // so only platformSession is a reliable signal for "logged into the platform".
-  if (state.platformSession === "present" || (!state.isLocalMode && state.isAuthenticated)) {
+  if (!state.isLocalMode) {
+    return { action: "redirect", to: routes.onboarding.privacy };
+  }
+  if (state.platformSession === "present") {
     return { action: "redirect", to: routes.onboarding.hosting };
   }
   return { action: "redirect", to: routes.onboarding.welcome };
