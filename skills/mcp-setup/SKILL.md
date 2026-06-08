@@ -1,6 +1,6 @@
 ---
 name: mcp-setup
-description: Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service to the assistant. Works with Figma, Linear, GitHub, Notion, Slack, Jira, Sentry, Stripe, Postgres, Google Drive, Vercel, GitLab, Cloudflare, Brave Search, and any other service that publishes an MCP endpoint
+description: Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant
 compatibility: "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment."
 metadata:
   emoji: "🔌"
