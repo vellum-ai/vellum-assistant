@@ -24,7 +24,7 @@ import {
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
-import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configLlmCallsitesGetOptions, inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
 export function LanguageModelCard() {
   const {
@@ -45,6 +45,8 @@ export function LanguageModelCard() {
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
   const openAICompatibleEndpoints =
     useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
+  const analyzeConversationEnabled =
+    useAssistantFeatureFlagStore.use.analyzeConversation();
 
   const defaultProfilePickerEntries = useMemo(
     () =>
@@ -78,10 +80,23 @@ export function LanguageModelCard() {
     (p) => p.source !== "managed" && p.name !== AUTO_PROFILE_NAME,
   ).length;
 
+  // Call-site catalog — fetched for the true total count
+  const { data: catalogData } = useQuery({
+    ...configLlmCallsitesGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: !!assistantId,
+    staleTime: 60_000,
+  });
+  const totalCallSiteCount = useMemo(() => {
+    const all = (catalogData?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
+    if (analyzeConversationEnabled) return all.length;
+    return all.filter((cs) => cs.id !== "analyzeConversation").length;
+  }, [catalogData, analyzeConversationEnabled]);
+
   const overrideCount = Object.entries(callSites).filter(
     ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
-  const totalCallSiteCount = Object.keys(callSites).filter((id) => id !== "mainAgent").length;
 
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
 
