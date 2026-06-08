@@ -25,7 +25,6 @@ import {
     setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
     THRESHOLD_PRESETS,
     overrideAction,
@@ -304,11 +303,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
-  // Quick-add "+" is part of the provider-first profile-creation UX and is
-  // gated by the same client flag. When off, the Model Profile header renders
-  // no "+" and the quick-add modal is unreachable from chat.
-  const providerFirstEnabled =
-    useClientFeatureFlagStore.use.providerFirstProfileCreation();
 
   const visibleProfileEntries = useMemo(
     () =>
@@ -333,9 +327,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   // The "+" quick-add affordance rendered in both the desktop Menu.Label and
   // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
-  // Disabled until `profilesLoaded` (see its declaration for why). Gated to
-  // `null` when the provider-first flag is off, so neither header shows a "+".
-  const quickAddButton = !providerFirstEnabled ? null : (
+  // Disabled until `profilesLoaded` (see its declaration for why).
+  const quickAddButton = (
     <Tooltip
       content={profilesLoaded ? "New Profile" : "Loading profiles…"}
       side="top"
