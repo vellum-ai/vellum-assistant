@@ -24,14 +24,6 @@
 
 const USER_PREFIX = "vellum:";
 
-// Onboarding consent keys use the `vellum:` prefix but must survive logout.
-// syncOnboardingUser() already clears them when a *different* user signs in,
-// so the logout sweep would only destroy same-user state.
-const ONBOARDING_CONSENT_KEYS = new Set([
-  "vellum:onboarding:tosAccepted",
-  "vellum:onboarding:aiDataConsent",
-]);
-
 /**
  * Legacy key prefixes that were user-scoped before the `vellum:`
  * standardization. Swept as a fallback in case startup migration failed.
@@ -67,7 +59,6 @@ const LEGACY_DEVICE_KEYS = new Set([
 ]);
 
 function isUserScopedKey(key: string): boolean {
-  if (ONBOARDING_CONSENT_KEYS.has(key)) return false;
   if (key.startsWith(USER_PREFIX)) return true;
   if (LEGACY_DEVICE_KEYS.has(key)) return false;
   return LEGACY_USER_PREFIXES.some((prefix) => key.startsWith(prefix));

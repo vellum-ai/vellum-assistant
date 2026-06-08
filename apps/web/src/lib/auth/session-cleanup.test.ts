@@ -33,6 +33,8 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("vellum:ctxwindow:asst-1", "4096");
     localStorage.setItem("vellum:dismissed-surfaces:asst-1", "[]");
     localStorage.setItem("vellum:ff:some-flag", "true");
+    localStorage.setItem("vellum:onboarding:tosAccepted", "true");
+    localStorage.setItem("vellum:onboarding:aiDataConsent", "true");
     localStorage.setItem("vellum:onboarding:completed", "true");
     localStorage.setItem("vellum:onboarding:selectedVersion", "v1.0");
     localStorage.setItem("vellum:integrations:bannerDismissed", "true");
@@ -78,16 +80,6 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("device:media_embeds_enabled")).toBe("false");
     expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
-  });
-
-  test("preserves onboarding consent keys across logout", () => {
-    localStorage.setItem("vellum:onboarding:tosAccepted", "true");
-    localStorage.setItem("vellum:onboarding:aiDataConsent", "true");
-
-    clearUserScopedStorage();
-
-    expect(localStorage.getItem("vellum:onboarding:tosAccepted")).toBe("true");
-    expect(localStorage.getItem("vellum:onboarding:aiDataConsent")).toBe("true");
   });
 
   test("automatically clears future vellum: keys without needing explicit registration", () => {
