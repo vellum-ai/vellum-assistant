@@ -32,6 +32,7 @@ import type { Assistant } from "@/generated/api/types.gen";
 export interface ResolvedAssistant {
   id: string;
   name?: string;
+  hatchedAt?: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
 }
@@ -121,6 +122,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         assistants: lockfile.assistants.map((a) => ({
           id: a.assistantId,
           name: a.name,
+          hatchedAt: a.hatchedAt,
           isLocal: isLocalAssistant(a),
           isPlatformHosted: isPlatformAssistant(a),
         })),
@@ -131,6 +133,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         assistants: assistants.map((a) => ({
           id: a.id,
           name: a.name,
+          hatchedAt: a.created,
           isLocal: a.is_local,
           isPlatformHosted: !a.is_local,
         })),

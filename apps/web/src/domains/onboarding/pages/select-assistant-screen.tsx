@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
@@ -20,8 +21,9 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: ResolvedAssistant): string {
-  return a.isLocal ? "Running locally on this device" : "Hosted on Vellum Cloud";
+function assistantSubtitle(a: ResolvedAssistant): string | undefined {
+  if (!a.hatchedAt) return undefined;
+  return `Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
 export function SelectAssistantScreen() {
@@ -253,9 +255,11 @@ function AssistantCard({
             </span>
           )}
         </div>
-        <span className="mt-0.5 line-clamp-2 text-body-small-default text-[var(--content-tertiary)]">
-          {assistantSubtitle(assistant)}
-        </span>
+        {assistantSubtitle(assistant) && (
+          <span className="mt-0.5 block text-body-small-default text-[var(--content-tertiary)]">
+            {assistantSubtitle(assistant)}
+          </span>
+        )}
       </div>
       {!disabled && (
         <div
