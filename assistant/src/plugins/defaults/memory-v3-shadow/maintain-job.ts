@@ -1,28 +1,31 @@
 /**
  * Memory v3 — `memory_v3_maintain` job handler.
  *
- * A flag-gated, best-effort self-maintenance pass over the v3 topic tree and
- * its page→leaf assignments. It runs three independent stages, in order:
+ * A flag-gated, best-effort self-maintenance pass over the v3 section dense
+ * store and the in-memory lanes. It runs two independent stages, in order:
  *
- *   1. **Classify-union** — `assignPages` over the delta: every page that is
- *      still unassigned (empty `leaves:`) plus every page edited since the last
- *      successful pass (the high-water mark below), UNIONing freshly classified
- *      leaves into each page (never dropping existing picks). Re-touching
- *      already-assigned-but-recently-edited pages lets the classifier enrich the
- *      assistant's own in-consolidation labels with any leaves it missed.
- *   2. **Prune** — drop any frontmatter `leaves:` entry that points at a leaf
- *      path no longer present in the tree (dangling references left behind when
- *      a leaf is renamed or removed). Read + rewrite only the affected pages.
- *   3. **Needle rebuild** — `invalidateLanes()` so the next turn rebuilds the
- *      leaf tree and BM25 needle from the freshly-updated assignments.
+ *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
+ *      last successful pass (the high-water mark below), and for every page that
+ *      is new or edited since then, re-chunk it into sections
+ *      (`buildSectionIndex`) and refresh its dense points
+ *      (`deleteSectionsForArticle` + `upsertSections`). This keeps the
+ *      section-grain Qdrant collection in sync with on-disk page edits so the
+ *      dense lane retrieves against current content. The high-water mark is
+ *      advanced only after the pass completes (captured before any potential
+ *      mtime bumps) so a page is not re-embedded forever.
+ *   2. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *      in-memory section index, needle, and edge graph from the freshly-updated
+ *      pages.
  *
  * Best-effort by construction: each stage is wrapped so a failure in one is
- * logged and recorded in the outcome but does NOT abort the others. The job is
- * a no-op (returns a disabled outcome) unless `memory-v3-shadow` OR
+ * logged and recorded in the outcome but does NOT abort the others. A single
+ * page whose embed fails does not abort the rest of the re-embed stage. The job
+ * is a no-op (returns a disabled outcome) unless `memory-v3-shadow` OR
  * `memory-v3-live` is enabled — the same flags that gate the v3 plugin.
  *
- * Dependency-injectable: `deps` lets tests substitute the tree loader,
- * `assignPages`, and `invalidateLanes` without process-global module mocks.
+ * Dependency-injectable: `deps` lets tests substitute the page-index reader,
+ * section builder, dense-store ops, and `invalidateLanes` without process-global
+ * module mocks.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
@@ -33,186 +36,177 @@ import {
 } from "../../../memory/checkpoints.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
-import {
-  listPages,
-  readPage,
-  writePage,
-} from "../../../memory/v2/page-store.js";
+import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
-import { assignPages as realAssignPages } from "./assign.js";
+import {
+  deleteSectionsForArticle as realDeleteSectionsForArticle,
+  upsertSections as realUpsertSections,
+} from "./section-dense-store.js";
+import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
-import { loadLeafTree as realLoadLeafTree, resolveDataDir } from "./tree.js";
-import type { LeafPath, LeafTree, Slug } from "./types.js";
+import type { Slug } from "./types.js";
 
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
 /**
  * Durable checkpoint holding the epoch-ms high-water mark of the last successful
- * classify-union pass. Pages whose mtime is past this mark are re-classified
- * (enrichment); the mark is advanced only after a pass completes, captured after
- * its writes so the pass's own frontmatter rewrites do not re-trigger it.
+ * re-embed pass. Pages whose mtime is past this mark are re-chunked + re-embedded
+ * into the section dense store; the mark is advanced only after a pass completes,
+ * captured before the pass so a transient embed write does not re-trigger itself.
  * Distinct from `memory_v3_maintain_last_run` (the enqueue-cadence checkpoint in
  * `jobs-worker.ts`), which advances on every backstop enqueue rather than on an
  * actual maintenance run.
  */
-const MAINTAIN_ENRICH_HIGH_WATER_KEY =
+const MAINTAIN_EMBED_HIGH_WATER_KEY =
   "memory_v3_maintain:enriched_through_ms" as const;
 
 const log = getLogger("memory-v3-maintain");
 
+/** Page-index projection the changed-page selector reads. */
+export interface ChangedPageCandidate {
+  slug: Slug;
+  /** File mtime in epoch ms; 0 for synthetic skill/CLI rows (excluded). */
+  modifiedAt: number;
+}
+
 /** Injectable collaborators; defaults wire the real implementations. */
 export interface MaintainJobDeps {
-  /** Load the v3 leaf tree (page→leaf membership resolved from frontmatter). */
-  loadTree: () => Promise<LeafTree>;
-  /** Classify-union pass over pages. */
-  assignPages: typeof realAssignPages;
   /**
-   * The slugs to classify this pass: unassigned pages plus pages edited since
-   * the last successful pass. See {@link computeClassifyTargets}.
+   * The slugs whose sections to re-embed this pass: pages new or edited since
+   * the last successful pass. See {@link computeChangedPages}.
    */
-  selectClassifyTargets: () => Promise<Slug[]>;
+  selectChangedPages: () => Promise<Slug[]>;
+  /** Re-chunk pages into the flat section index (pure; reads page bodies). */
+  buildSectionIndex: typeof realBuildSectionIndex;
+  /** Read a page's frontmatter-stripped body for `buildSectionIndex`. */
+  readPageBody: (slug: Slug) => Promise<string>;
+  /** Clear an article's stale section points before re-upserting. */
+  deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
+  /** Embed + upsert an article's current sections into the dense store. */
+  upsertSections: typeof realUpsertSections;
   /**
-   * Persist the enrichment high-water mark after a successful classify pass. The
-   * value is captured after the pass's writes (see the key docstring).
+   * Persist the high-water mark after a successful re-embed pass. The value is
+   * captured before the pass's writes (see the key docstring).
    */
-  commitClassifyHighWater: (highWaterMs: number) => void;
-  /** Drop the memoized v3 lanes so the next turn rebuilds tree + needle. */
+  commitEmbedHighWater: (highWaterMs: number) => void;
+  /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
-  /** Workspace root; pages live under `<workspaceDir>/memory/concepts/`. */
-  workspaceDir: string;
+  /** Active assistant config (for the dense-store/embedding calls). */
+  config: AssistantConfig;
 }
 
 /** Per-stage outcome surfaced in the structured log line. */
 export interface MaintainOutcome {
   /** True when both v3 flags were off and the job no-opped. */
   disabled: boolean;
-  /** Pages newly assigned by the classify-union stage. */
-  assigned: number;
-  /** Pages whose dangling refs were pruned. */
-  pruned: number;
-  /** Dangling leaf references dropped across all pruned pages. */
-  prunedRefs: number;
-  /** Whether the needle/tree lanes were invalidated. */
+  /** Pages whose sections were re-chunked + re-embedded this pass. */
+  reembedded: number;
+  /** Pages whose re-embed threw (and was contained). */
+  reembedFailures: number;
+  /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
   failures: string[];
 }
 
 /**
- * Load the v3 leaf tree the same way the live plugin does: resolve the data
- * dir, build the page→leaf membership map from the page index frontmatter, and
- * hand both to `loadLeafTree`.
+ * Pick the pages the re-embed stage should refresh this pass: every page whose
+ * mtime is past `prevHighWaterMs` (new or edited since the last successful run).
+ * Synthetic skill/CLI rows (`modifiedAt === 0`) are excluded — they are
+ * capability entries with no on-disk page to chunk. On the first run
+ * (`prevHighWaterMs` null) every real page is selected so a fresh or
+ * freshly-backfilled install seeds the section dense store once.
  */
-async function loadTreeFromWorkspace(workspaceDir: string): Promise<LeafTree> {
-  const pageIndex = await getPageIndex(workspaceDir);
-  const pageLeaves = new Map<Slug, LeafPath[]>();
-  for (const entry of pageIndex.entries) {
-    pageLeaves.set(entry.slug, entry.leaves);
-  }
-  return realLoadLeafTree(resolveDataDir(), pageLeaves);
-}
-
-/** Page-index projection the classify-target selector reads. */
-export interface ClassifyCandidate {
-  slug: Slug;
-  /** File mtime in epoch ms; 0 for synthetic skill/CLI rows (excluded). */
-  modifiedAt: number;
-  /** Leaf assignments from frontmatter; `[]` when unassigned. */
-  leaves: LeafPath[];
-}
-
-/**
- * Pick the pages the classify-union stage should run this pass:
- *
- *  - **Unassigned** pages (empty `leaves:`) — always classified so a page is
- *    never left permanently unrouted (the pre-enrichment behavior).
- *  - **Recently edited** pages (mtime past `prevHighWaterMs`) — even when
- *    already assigned, so the classifier can enrich the assistant's own
- *    in-consolidation labels with leaves it missed. `assignPages` UNIONs, so a
- *    page's existing picks are never dropped — only added to.
- *
- * Synthetic skill/CLI rows (`modifiedAt === 0`) are excluded: they are
- * capability entries, not topic-tree pages. On the first run (`prevHighWaterMs`
- * null) the recency arm is disabled, so a fresh or freshly-backfilled install
- * does a single unassigned-only pass instead of re-classifying the whole corpus.
- */
-export function computeClassifyTargets(
-  pages: ReadonlyArray<ClassifyCandidate>,
+export function computeChangedPages(
+  pages: ReadonlyArray<ChangedPageCandidate>,
   prevHighWaterMs: number | null,
 ): Slug[] {
-  const targets: Slug[] = [];
+  const changed: Slug[] = [];
   for (const page of pages) {
     if (page.modifiedAt <= 0) continue; // synthetic capability row
-    const unassigned = page.leaves.length === 0;
-    const recentlyEdited =
-      prevHighWaterMs !== null && page.modifiedAt > prevHighWaterMs;
-    if (unassigned || recentlyEdited) targets.push(page.slug);
+    if (prevHighWaterMs === null || page.modifiedAt > prevHighWaterMs) {
+      changed.push(page.slug);
+    }
   }
-  return targets;
+  return changed;
 }
 
 /** Read the persisted high-water mark, treating missing/garbage as first-run. */
-function readClassifyHighWater(): number | null {
-  const raw = getMemoryCheckpoint(MAINTAIN_ENRICH_HIGH_WATER_KEY);
+function readEmbedHighWater(): number | null {
+  const raw = getMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY);
   if (raw === null) return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-/** Default target selector: page index → {@link computeClassifyTargets}. */
-async function selectClassifyTargetsFromWorkspace(
+/** Default selector: page index → {@link computeChangedPages}. */
+async function selectChangedPagesFromWorkspace(
   workspaceDir: string,
 ): Promise<Slug[]> {
   const index = await getPageIndex(workspaceDir);
-  return computeClassifyTargets(index.entries, readClassifyHighWater());
+  return computeChangedPages(index.entries, readEmbedHighWater());
 }
 
-function commitClassifyHighWater(highWaterMs: number): void {
-  setMemoryCheckpoint(MAINTAIN_ENRICH_HIGH_WATER_KEY, String(highWaterMs));
+function commitEmbedHighWater(highWaterMs: number): void {
+  setMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY, String(highWaterMs));
 }
 
-function defaultDeps(): MaintainJobDeps {
+/** Read a page's frontmatter-stripped body; missing/failed reads degrade to "". */
+async function readPageBodyFromWorkspace(
+  workspaceDir: string,
+  slug: Slug,
+): Promise<string> {
+  try {
+    const page = await readPage(workspaceDir, slug);
+    return page?.body ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function defaultDeps(config: AssistantConfig): MaintainJobDeps {
   const workspaceDir = getWorkspaceDir();
   return {
-    loadTree: () => loadTreeFromWorkspace(workspaceDir),
-    assignPages: realAssignPages,
-    selectClassifyTargets: () =>
-      selectClassifyTargetsFromWorkspace(workspaceDir),
-    commitClassifyHighWater,
+    selectChangedPages: () => selectChangedPagesFromWorkspace(workspaceDir),
+    buildSectionIndex: realBuildSectionIndex,
+    readPageBody: (slug) => readPageBodyFromWorkspace(workspaceDir, slug),
+    deleteSectionsForArticle: realDeleteSectionsForArticle,
+    upsertSections: realUpsertSections,
+    commitEmbedHighWater,
     invalidateLanes: realInvalidateLanes,
-    workspaceDir,
+    config,
   };
 }
 
 /**
- * Prune dangling `leaves:` references: for every page, drop frontmatter leaf
- * paths that are not present in `tree`. Read + rewrite only pages that actually
- * change. Returns the number of pages rewritten and total refs dropped.
+ * Re-chunk + re-embed each changed page into the section dense store. Each page
+ * is refreshed independently: a single page whose delete/build/upsert throws is
+ * logged and counted in `reembedFailures` without aborting the rest. Returns the
+ * counts of successfully refreshed and failed pages.
  */
-async function prunePages(
-  tree: LeafTree,
-  workspaceDir: string,
-): Promise<{ pruned: number; prunedRefs: number }> {
-  const validLeaves = tree.leaves;
-  const slugs = await listPages(workspaceDir);
-  let pruned = 0;
-  let prunedRefs = 0;
+async function reembedChangedPages(
+  slugs: Slug[],
+  deps: MaintainJobDeps,
+): Promise<{ reembedded: number; reembedFailures: number }> {
+  let reembedded = 0;
+  let reembedFailures = 0;
   for (const slug of slugs) {
-    const page = await readPage(workspaceDir, slug);
-    const leaves = page?.frontmatter.leaves;
-    if (!page || !leaves || leaves.length === 0) continue;
-    const kept = leaves.filter((leaf) => validLeaves.has(leaf));
-    if (kept.length === leaves.length) continue;
-    prunedRefs += leaves.length - kept.length;
-    pruned += 1;
-    await writePage(workspaceDir, {
-      ...page,
-      frontmatter: { ...page.frontmatter, leaves: kept },
-    });
+    try {
+      const index = await deps.buildSectionIndex([slug], deps.readPageBody);
+      await deps.deleteSectionsForArticle(deps.config, slug);
+      await deps.upsertSections(deps.config, index.sections);
+      reembedded += 1;
+    } catch (err) {
+      reembedFailures += 1;
+      log.warn(
+        { slug, err: err instanceof Error ? err.message : String(err) },
+        "memory-v3 maintain: page re-embed failed (non-fatal)",
+      );
+    }
   }
-  return { pruned, prunedRefs };
+  return { reembedded, reembedFailures };
 }
 
 /**
@@ -223,13 +217,12 @@ async function prunePages(
 export async function maintainJob(
   _job: MemoryJob,
   config: AssistantConfig,
-  deps: MaintainJobDeps = defaultDeps(),
+  deps: MaintainJobDeps = defaultDeps(config),
 ): Promise<MaintainOutcome> {
   const outcome: MaintainOutcome = {
     disabled: false,
-    assigned: 0,
-    pruned: 0,
-    prunedRefs: 0,
+    reembedded: 0,
+    reembedFailures: 0,
     invalidated: false,
     failures: [],
   };
@@ -242,59 +235,28 @@ export async function maintainJob(
     return outcome;
   }
 
-  // The tree is shared input for both the assign and prune stages. If it can't
-  // load, those two stages are skipped (recorded as a failure), but we still
-  // invalidate the lanes so a transient load error doesn't wedge the next turn.
-  let tree: LeafTree | null = null;
+  // Stage 1: re-chunk + re-embed pages changed since the last pass. Capture the
+  // high-water mark BEFORE the pass so an embed write that bumps a page's mtime
+  // does not re-trigger it next pass; advance it only on success.
   try {
-    tree = await deps.loadTree();
+    const startedAtMs = Date.now();
+    const changed = await deps.selectChangedPages();
+    const { reembedded, reembedFailures } = await reembedChangedPages(
+      changed,
+      deps,
+    );
+    outcome.reembedded = reembedded;
+    outcome.reembedFailures = reembedFailures;
+    deps.commitEmbedHighWater(startedAtMs);
   } catch (err) {
-    outcome.failures.push("load_tree");
+    outcome.failures.push("reembed");
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
-      "memory-v3 maintain: tree load failed (non-fatal)",
+      "memory-v3 maintain: section re-embed failed (non-fatal)",
     );
   }
 
-  if (tree) {
-    // Stage 1: classify-union over the delta (unassigned ∪ recently-edited).
-    try {
-      const targets = await deps.selectClassifyTargets();
-      const results = await deps.assignPages({
-        tree,
-        workspaceDir: deps.workspaceDir,
-        slugs: targets,
-      });
-      outcome.assigned = results.filter(
-        (r) => !r.failed && r.after.length > r.before.length,
-      ).length;
-      // Advance the high-water mark only on success, captured AFTER the writes
-      // above so pages this pass just rewrote (mtime now bumped) sit at-or-below
-      // the mark and do not re-trigger themselves next pass.
-      deps.commitClassifyHighWater(Date.now());
-    } catch (err) {
-      outcome.failures.push("assign");
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "memory-v3 maintain: classify-union failed (non-fatal)",
-      );
-    }
-
-    // Stage 2: prune dangling refs.
-    try {
-      const { pruned, prunedRefs } = await prunePages(tree, deps.workspaceDir);
-      outcome.pruned = pruned;
-      outcome.prunedRefs = prunedRefs;
-    } catch (err) {
-      outcome.failures.push("prune");
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "memory-v3 maintain: prune failed (non-fatal)",
-      );
-    }
-  }
-
-  // Stage 3: rebuild tree + needle on the next turn.
+  // Stage 2: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -308,9 +270,8 @@ export async function maintainJob(
 
   log.info(
     {
-      assigned: outcome.assigned,
-      pruned: outcome.pruned,
-      prunedRefs: outcome.prunedRefs,
+      reembedded: outcome.reembedded,
+      reembedFailures: outcome.reembedFailures,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },
