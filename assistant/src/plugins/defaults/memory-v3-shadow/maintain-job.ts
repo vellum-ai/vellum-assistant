@@ -39,8 +39,10 @@ import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
+import { isCapabilitySlug, renderCapabilityContent } from "./capabilities.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
+  ensureSectionCollection as realEnsureSectionCollection,
   upsertSections as realUpsertSections,
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
@@ -95,6 +97,44 @@ export interface MaintainJobDeps {
   invalidateLanes: () => void;
   /** Active assistant config (for the dense-store/embedding calls). */
   config: AssistantConfig;
+}
+
+/**
+ * Injectable collaborators for the one-time {@link backfillAllSections} pass.
+ * Distinct from {@link MaintainJobDeps}: the backfill embeds EVERY page
+ * (including synthetic capability rows the incremental selector excludes), so it
+ * uses an all-pages selector, a capability-aware body reader, and an explicit
+ * collection-ensure step rather than the change-delta machinery.
+ */
+export interface BackfillJobDeps {
+  /** All page-index slugs, including synthetic skill/CLI capability rows. */
+  selectAllPages: () => Promise<Slug[]>;
+  /** Create the section collection if absent before the first upsert. */
+  ensureSectionCollection: typeof realEnsureSectionCollection;
+  /** Re-chunk pages into the flat section index (pure; reads page bodies). */
+  buildSectionIndex: typeof realBuildSectionIndex;
+  /** Read a page's body; capability slugs resolve their rendered content. */
+  readPageBody: (slug: Slug) => Promise<string>;
+  /** Clear an article's stale section points before re-upserting. */
+  deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
+  /** Embed + upsert an article's current sections into the dense store. */
+  upsertSections: typeof realUpsertSections;
+  /** Persist the high-water mark after the backfill completes. */
+  commitEmbedHighWater: (highWaterMs: number) => void;
+  /** Epoch-ms stamped as the new high-water mark; injectable for tests. */
+  nowMs: () => number;
+  /** Active assistant config (for the dense-store/embedding calls). */
+  config: AssistantConfig;
+}
+
+/** Counts surfaced by {@link backfillAllSections}. */
+export interface BackfillOutcome {
+  /** Pages whose sections were (re-)embedded this pass. */
+  articles: number;
+  /** Total section points upserted across all articles. */
+  sections: number;
+  /** Pages whose embed threw (and was contained). */
+  failures: number;
 }
 
 /** Per-stage outcome surfaced in the structured log line. */
@@ -166,6 +206,29 @@ async function readPageBodyFromWorkspace(
   }
 }
 
+/**
+ * Capability-aware page-body reader for the full backfill: synthetic skill/CLI
+ * slugs have no on-disk page, so they contribute their rendered capability
+ * content (exactly what `page-content.ts` injects for them) while real pages
+ * read from disk. Mirrors `shadow-plugin.ts` `initLanes`' `pageBody`; the two
+ * could later share a small helper.
+ */
+async function backfillPageBodyFromWorkspace(
+  workspaceDir: string,
+  slug: Slug,
+): Promise<string> {
+  if (isCapabilitySlug(slug)) return renderCapabilityContent(slug) ?? "";
+  return readPageBodyFromWorkspace(workspaceDir, slug);
+}
+
+/** All page-index slugs, including synthetic skill/CLI capability rows. */
+async function selectAllPagesFromWorkspace(
+  workspaceDir: string,
+): Promise<Slug[]> {
+  const index = await getPageIndex(workspaceDir);
+  return index.entries.map((entry) => entry.slug);
+}
+
 function defaultDeps(config: AssistantConfig): MaintainJobDeps {
   const workspaceDir = getWorkspaceDir();
   return {
@@ -176,6 +239,21 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     upsertSections: realUpsertSections,
     commitEmbedHighWater,
     invalidateLanes: realInvalidateLanes,
+    config,
+  };
+}
+
+function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
+  const workspaceDir = getWorkspaceDir();
+  return {
+    selectAllPages: () => selectAllPagesFromWorkspace(workspaceDir),
+    ensureSectionCollection: realEnsureSectionCollection,
+    buildSectionIndex: realBuildSectionIndex,
+    readPageBody: (slug) => backfillPageBodyFromWorkspace(workspaceDir, slug),
+    deleteSectionsForArticle: realDeleteSectionsForArticle,
+    upsertSections: realUpsertSections,
+    commitEmbedHighWater,
+    nowMs: () => Date.now(),
     config,
   };
 }
@@ -207,6 +285,65 @@ async function reembedChangedPages(
     }
   }
   return { reembedded, reembedFailures };
+}
+
+/**
+ * One-time full backfill of the section dense store. Unlike {@link maintainJob}
+ * (which only re-embeds pages changed since the high-water mark and EXCLUDES
+ * synthetic capability rows), this embeds EVERY page in the index — including
+ * synthetic skill/CLI rows, whose `modifiedAt` is 0 and which the incremental
+ * selector therefore never picks. It exists for the operator transition before
+ * A/B/cutover: the `memory_v3_sections` collection starts empty, so on an
+ * existing install most pages were never embedded into the dense lane.
+ *
+ * Each article is refreshed independently (delete its stale points, then
+ * re-upsert its current sections); a single article whose build/delete/upsert
+ * throws is logged and counted in `failures` without aborting the rest. After
+ * the pass completes the high-water mark is advanced to the timestamp captured
+ * BEFORE the pass, so the next incremental maintain run deltas from here instead
+ * of re-embedding the whole corpus again. The timestamp is captured up-front (as
+ * in `maintainJob`) so an embed write that bumps a page's mtime does not
+ * re-trigger it next pass.
+ */
+export async function backfillAllSections(
+  config: AssistantConfig,
+  deps: BackfillJobDeps = defaultBackfillDeps(config),
+): Promise<BackfillOutcome> {
+  // Capture the high-water stamp before any writes (see the function docstring).
+  const startedAtMs = deps.nowMs();
+
+  const slugs = await deps.selectAllPages();
+  await deps.ensureSectionCollection(deps.config);
+
+  let articles = 0;
+  let sections = 0;
+  let failures = 0;
+  for (const slug of slugs) {
+    try {
+      const index = await deps.buildSectionIndex([slug], deps.readPageBody);
+      await deps.deleteSectionsForArticle(deps.config, slug);
+      await deps.upsertSections(deps.config, index.sections);
+      articles += 1;
+      sections += index.sections.length;
+    } catch (err) {
+      failures += 1;
+      log.warn(
+        { slug, err: err instanceof Error ? err.message : String(err) },
+        "memory-v3 backfill: page embed failed (non-fatal)",
+      );
+    }
+  }
+
+  // Advance the maintain high-water mark so the next incremental pass deltas
+  // from here rather than re-embedding everything.
+  deps.commitEmbedHighWater(startedAtMs);
+
+  log.info(
+    { articles, sections, failures },
+    "memory-v3 section backfill complete",
+  );
+
+  return { articles, sections, failures };
 }
 
 /**

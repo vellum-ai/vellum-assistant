@@ -15854,6 +15854,31 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/backfill-sections:
+    post:
+      operationId: memory_v3_backfillsections_post
+      summary: "One-time: embed every page's sections (incl synthetic skill/CLI rows) into the dense store"
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  articles:
+                    type: number
+                  sections:
+                    type: number
+                  failures:
+                    type: number
+                required:
+                  - articles
+                  - sections
+                  - failures
+                additionalProperties: false
   /v1/memory/v3/health:
     post:
       operationId: memory_v3_health_post
