@@ -1,6 +1,7 @@
 import { ChevronLeft } from "lucide-react";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { isElectron } from "@/runtime/is-electron";
 import {
     PERSONALITY_GROUPS,
     type PersonalityGroup,
@@ -33,9 +34,13 @@ export function NameExchangeScreen({
   onComplete,
   onSkip,
 }: NameExchangeScreenProps) {
+  const electron = isElectron();
+
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+      <div
+        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}
+      >
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -50,8 +55,7 @@ export function NameExchangeScreen({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}>
             Let&apos;s get to know each other.
           </h1>
           {onBack ? <div aria-hidden="true" className="h-8 w-8" /> : null}
@@ -65,7 +69,7 @@ export function NameExchangeScreen({
         </p>
 
         <div
-          className="mt-8 flex w-full flex-col gap-6"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col ${electron ? "gap-4" : "gap-6"}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Input

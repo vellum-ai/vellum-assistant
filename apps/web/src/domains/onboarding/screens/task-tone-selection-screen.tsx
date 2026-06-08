@@ -2,6 +2,7 @@ import { Check, ChevronLeft } from "lucide-react";
 
 import { TASK_ICONS } from "@/components/prechat-task-icons";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { isElectron } from "@/runtime/is-electron";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -20,6 +21,8 @@ export function TaskToneSelectionScreen({
   onContinue,
   onSkip,
 }: TaskToneSelectionScreenProps) {
+  const electron = isElectron();
+
   const toggle = (id: string) => {
     const next = new Set(selectedTasks);
     if (next.has(id)) {
@@ -32,7 +35,7 @@ export function TaskToneSelectionScreen({
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}>
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -45,15 +48,14 @@ export function TaskToneSelectionScreen({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}>
             What are you working on?
           </h1>
           <div aria-hidden="true" className="h-8 w-8" />
         </div>
 
         <p
-          className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
+          className={`${electron ? "mt-2" : "mt-4"} text-center text-body-medium-lighter text-[var(--content-${electron ? "secondary" : "tertiary"})]`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
         >
           Pick the one or two you do most — you can select more if it
@@ -61,7 +63,7 @@ export function TaskToneSelectionScreen({
         </p>
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col ${electron ? "gap-1" : "gap-2"}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
           {PRECHAT_TASKS.map((task) => {
@@ -73,7 +75,7 @@ export function TaskToneSelectionScreen({
                 type="button"
                 onClick={() => toggle(task.id)}
                 aria-pressed={isSelected}
-                className={`group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                className={`group flex w-full cursor-pointer items-center ${electron ? "gap-2 p-3" : "gap-3 px-4 py-3"} rounded-lg border text-left transition-colors ${
                   isSelected
                     ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
                     : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]"
@@ -108,7 +110,7 @@ export function TaskToneSelectionScreen({
         </div>
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col gap-2`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Button

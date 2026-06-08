@@ -6,6 +6,7 @@ import {
     PRECHAT_TOOLS,
     type PreChatToolItem,
 } from "@/domains/onboarding/prechat-tools";
+import { isElectron } from "@/runtime/is-electron";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
@@ -25,6 +26,8 @@ export function ToolSelectionScreen({
   onContinue,
   onSkip,
 }: ToolSelectionScreenProps) {
+  const electron = isElectron();
+
   const [otherText, setOtherText] = useState<string>(() =>
     deriveOtherText(selectedTools),
   );
@@ -91,7 +94,7 @@ export function ToolSelectionScreen({
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}>
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -106,14 +109,13 @@ export function ToolSelectionScreen({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}>
             What do you use?
           </h1>
           {onBack ? <div aria-hidden="true" className="h-8 w-8" /> : null}
         </div>
         <p
-          className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
+          className={`${electron ? "mt-3" : "mt-4"} text-center text-body-medium-lighter text-[var(--content-${electron ? "secondary" : "tertiary"})]`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
         >
           This helps me tailor how I assist you. No connections needed — you
@@ -121,7 +123,7 @@ export function ToolSelectionScreen({
         </p>
 
         <div
-          className="mt-8 grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+          className={`${electron ? "mt-4" : "mt-8"} grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
           {PRECHAT_TOOLS.map((tool) => (
@@ -188,7 +190,7 @@ export function ToolSelectionScreen({
         ) : null}
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col gap-2`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Button
