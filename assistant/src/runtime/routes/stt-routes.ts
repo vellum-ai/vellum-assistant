@@ -17,6 +17,7 @@ import { listProviderEntries } from "../../providers/speech-to-text/provider-cat
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
 import type { BatchTranscriber, SttErrorCategory } from "../../stt/types.js";
+import { SttError } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
 import {
   FFMPEG_TRANSCODE_TIMEOUT_MS,
@@ -141,6 +142,27 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
   return wavPath;
 }
 
+/**
+ * Call the provider and tag any failure as an {@link SttError} so callers can
+ * distinguish provider failures (categorized HTTP statuses) from local
+ * preprocessing failures (ffmpeg/ffprobe), which stay on the bad-gateway path.
+ */
+async function transcribeChunk(
+  transcriber: BatchTranscriber,
+  audioBuffer: Buffer,
+): Promise<string> {
+  try {
+    const result = await transcriber.transcribe({
+      audio: audioBuffer,
+      mimeType: "audio/wav",
+      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+    });
+    return result.text;
+  } catch (err) {
+    throw normalizeSttError(err);
+  }
+}
+
 async function transcribeWithProvider(
   audioPath: string,
   transcriber: BatchTranscriber,
@@ -151,12 +173,7 @@ async function transcribeWithProvider(
   // If small enough, send directly
   if (fileSize <= STT_CHUNK_MAX_BYTES) {
     const audioBuffer = await readFile(audioPath);
-    const result = await transcriber.transcribe({
-      audio: audioBuffer,
-      mimeType: "audio/wav",
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
-    });
-    return result.text;
+    return transcribeChunk(transcriber, audioBuffer);
   }
 
   // Split into chunks for large files
@@ -175,12 +192,8 @@ async function transcribeWithProvider(
         `  Transcribing chunk ${i + 1}/${chunks.length}...\n`,
       );
       const audioBuffer = await readFile(chunks[i]);
-      const result = await transcriber.transcribe({
-        audio: audioBuffer,
-        mimeType: "audio/wav",
-        signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
-      });
-      if (result.text) parts.push(result.text);
+      const text = await transcribeChunk(transcriber, audioBuffer);
+      if (text) parts.push(text);
     }
 
     return parts.join(" ");
@@ -363,20 +376,30 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
       durationSeconds,
     };
   } catch (err) {
-    const sttErr = normalizeSttError(err);
-    // Auth/rate-limit/timeout/invalid-audio are user-config or transient
-    // conditions, not daemon defects, so log them at warn to keep them out of
-    // error telemetry. Reserve error level (with the raw err for a Sentry
-    // stack) for genuine provider/unexpected failures (e.g. ffmpeg, network).
-    if (sttErr.category === "provider-error") {
-      log.error({ err, filePath }, "File transcription failed");
-    } else {
-      log.warn(
-        { category: sttErr.category, message: sttErr.message, filePath },
-        "File transcription failed",
-      );
+    // Only provider failures (tagged as SttError by transcribeChunk) are
+    // categorized into HTTP statuses. Local preprocessing failures (ffmpeg/
+    // ffprobe) stay on the bad-gateway path so their stderr never decides the
+    // category (e.g. a path under a dir named "403" must not become a 401).
+    if (err instanceof SttError) {
+      // Auth/rate-limit/timeout/invalid-audio are user-config or transient
+      // conditions, not daemon defects, so log them at warn to keep them out
+      // of error telemetry. Reserve error level (with the raw err for a Sentry
+      // stack) for genuine provider/unexpected failures.
+      if (err.category === "provider-error") {
+        log.error({ err, filePath }, "File transcription failed");
+      } else {
+        log.warn(
+          { category: err.category, message: err.message, filePath },
+          "File transcription failed",
+        );
+      }
+      throw STT_ERROR_MAP[err.category]();
     }
-    throw STT_ERROR_MAP[sttErr.category]();
+
+    log.error({ err, filePath }, "File transcription failed");
+    throw new BadGatewayError(
+      err instanceof Error ? err.message : "Transcription failed",
+    );
   } finally {
     if (wavPath) {
       await unlink(wavPath).catch(() => {});

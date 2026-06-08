@@ -460,10 +460,13 @@ describe("stt-routes", () => {
     });
   });
 
-  test("transcribe-file maps ffmpeg failures to 502", async () => {
+  test("transcribe-file maps ffmpeg failures to 502 even when stderr contains a status-like number", async () => {
+    // Guards against ffmpeg stderr (or a user-supplied path) deciding the HTTP
+    // category: a conversion failure whose message contains "403" must stay a
+    // 502 conversion error, not become a misleading 401 auth error.
     spawnOverride = (args) =>
       args[0] === "ffmpeg"
-        ? { exitCode: 1, stdout: "", stderr: "ffmpeg boom" }
+        ? { exitCode: 1, stdout: "", stderr: "Error opening /tmp/403/clip.wav" }
         : { exitCode: 0, stdout: "1.0", stderr: "" };
 
     await withTempAudioFile(async (filePath) => {
