@@ -341,19 +341,30 @@ describe("resolveNavigation", () => {
       });
     });
 
-    test("redirects to hosting when no assistants and authenticated", () => {
-      expect(postRetire(s({ hasAssistants: false, isAuthenticated: true }))).toEqual({
+    test("redirects to hosting when no assistants and platform session present", () => {
+      expect(
+        postRetire(s({ hasAssistants: false, platformSession: "present" })),
+      ).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hosting",
       });
     });
 
-    test("redirects to hosting when no assistants and platform session present", () => {
+    test("redirects to hosting when no assistants and authenticated in non-local mode", () => {
       expect(
-        postRetire(s({ hasAssistants: false, isAuthenticated: false, platformSession: "present" })),
+        postRetire(s({ hasAssistants: false, isAuthenticated: true, isLocalMode: false })),
       ).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hosting",
+      });
+    });
+
+    test("redirects to welcome when local-mode gateway auth but no platform session", () => {
+      expect(
+        postRetire(s({ hasAssistants: false, isAuthenticated: true, isLocalMode: true, platformSession: "absent" })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/welcome",
       });
     });
 

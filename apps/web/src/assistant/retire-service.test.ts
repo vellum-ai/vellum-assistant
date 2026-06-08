@@ -41,7 +41,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
   ) => {
     if (query.kind !== "post-retire") return { action: "allow" };
     if (state.hasAssistants) return { action: "redirect", to: "/assistant/onboarding/select-assistant" };
-    if (state.isAuthenticated || state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
+    if (state.platformSession === "present" || (!state.isLocalMode && state.isAuthenticated)) return { action: "redirect", to: "/assistant/onboarding/hosting" };
     return { action: "redirect", to: "/assistant/onboarding/welcome" };
   },
 }));

@@ -225,7 +225,9 @@ function resolvePostRetire(state: NavigationState): NavigationDecision {
   if (state.hasAssistants) {
     return { action: "redirect", to: routes.onboarding.selectAssistant };
   }
-  if (state.isAuthenticated || state.platformSession === "present") {
+  // In local mode, gateway auth sets isAuthenticated without a platform login,
+  // so only platformSession is a reliable signal for "logged into the platform".
+  if (state.platformSession === "present" || (!state.isLocalMode && state.isAuthenticated)) {
     return { action: "redirect", to: routes.onboarding.hosting };
   }
   return { action: "redirect", to: routes.onboarding.welcome };
