@@ -102,6 +102,9 @@ export class SidecarSupervisor {
     this.crashTimestamps = [];
     this.attempt = 0;
     this.stopping = false;
+    if (this.state.status === "circuit-open") {
+      this.setState({ status: "idle" });
+    }
     if (this.child) {
       this.replaceChild();
     }

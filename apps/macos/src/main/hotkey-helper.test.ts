@@ -221,6 +221,39 @@ describe("installHotkeyHelper", () => {
     expect(lastChild).not.toBe(original);
   });
 
+  test("user-initiated restart reopens a circuit-open helper", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+      circuitCrashCount: 2,
+      circuitWindowMs: 1_000,
+    });
+    installHotkeyHelper();
+
+    expect(invokeRestart()).toEqual({
+      ok: true,
+      state: { status: "running" },
+    });
+
+    const first = lastChild;
+    first?.emit("close", 1, null);
+    await wait(5);
+    expect(spawnCalls).toHaveLength(2);
+
+    const second = lastChild;
+    second?.emit("close", 1, null);
+    await wait(0);
+    expect(invokeGetState()).toEqual(
+      expect.objectContaining({ status: "circuit-open" }),
+    );
+
+    expect(invokeRestart()).toEqual({
+      ok: true,
+      state: { status: "running" },
+    });
+    expect(spawnCalls).toHaveLength(3);
+  });
+
   test("sends hotkey.fnPushToTalk to the helper process", async () => {
     installHotkeyHelper();
     const pending = invokeFnPushToTalk(true);
