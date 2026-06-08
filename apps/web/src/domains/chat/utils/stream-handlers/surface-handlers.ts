@@ -4,6 +4,7 @@ import {
   type Surface,
 } from "@/domains/chat/types/types";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   attachSurface,
   completeSurface,
@@ -58,13 +59,13 @@ export function handleUISurfaceDismiss(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.dismissSurface();
-  ctx.dismissedSurfaceIds.add(event.surfaceId);
+  ctx.addDismissedSurfaceId(event.surfaceId);
   const streamCtx = ctx.streamContext;
   if (streamCtx) {
     saveDismissedSurfaceIds(
       streamCtx.assistantId,
       streamCtx.conversationId,
-      ctx.dismissedSurfaceIds,
+      useChatSessionStore.getState().dismissedSurfaceIds,
     );
   }
   ctx.setMessages((prev) => dismissSurface(prev, event.surfaceId));

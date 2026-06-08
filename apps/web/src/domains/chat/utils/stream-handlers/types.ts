@@ -20,10 +20,9 @@ export interface Router {
  * Shared context passed to every domain handler function.
  * Built once per `handleStreamEvent` call from the hook's params and store.
  *
- * Store-backed mutable state (Maps, Sets, arrays) is passed by reference
- * from `useChatSessionStore.getState()`. Handlers mutate them in place —
- * this matches the pre-store ref semantics. The context is rebuilt per-event,
- * so each event gets the store's current references.
+ * All state mutations go through store actions (not in-place mutation).
+ * The context exposes action functions for collections that handlers write
+ * to; handlers read store state via `getState()` when needed.
  */
 export interface StreamHandlerContext {
   // --- Navigation ---
@@ -68,10 +67,10 @@ export interface StreamHandlerContext {
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
-  dismissedSurfaceIds: Set<string>;
+  addDismissedSurfaceId: (surfaceId: string) => void;
 
   // --- Context window ---
-  contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
+  setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
@@ -83,9 +82,10 @@ export interface StreamHandlerContext {
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // --- Queue management ---
-  pendingQueuedMessageIds: string[];
-  requestIdToMessageId: Map<string, string>;
-  pendingLocalDeletions: Set<string>;
+  shiftPendingQueuedMessageId: () => string | undefined;
+  setRequestIdMapping: (requestId: string, messageId: string) => void;
+  popRequestIdMapping: (requestId: string) => string | undefined;
+  consumePendingLocalDeletion: (messageId: string) => boolean;
 
   // --- Hook-owned refs ---
   lastActivityVersionRef: MutableRefObject<Map<string, number>>;

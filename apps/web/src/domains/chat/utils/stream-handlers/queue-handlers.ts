@@ -19,13 +19,12 @@ export function handleMessageQueued(
 ): void {
   ctx.turnActions.enqueueMessage();
   const { requestId, position } = event;
-  const messageId = ctx.pendingQueuedMessageIds.shift();
+  const messageId = ctx.shiftPendingQueuedMessageId();
   if (!messageId) return;
 
-  ctx.requestIdToMessageId.set(requestId, messageId);
+  ctx.setRequestIdMapping(requestId, messageId);
 
-  if (ctx.pendingLocalDeletions.has(messageId)) {
-    ctx.pendingLocalDeletions.delete(messageId);
+  if (ctx.consumePendingLocalDeletion(messageId)) {
     const conversationId =
       useConversationStore.getState().activeConversationId;
     if (ctx.assistantId && conversationId) {
@@ -45,10 +44,7 @@ export function handleMessageDequeued(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.dequeueMessage();
-  const dequeuedMessageId = ctx.requestIdToMessageId.get(
-    event.requestId,
-  );
-  ctx.requestIdToMessageId.delete(event.requestId);
+  const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (dequeuedMessageId) {
     ctx.setMessages((prev) => clearQueueStatus(prev, dequeuedMessageId));
   }
@@ -59,10 +55,7 @@ export function handleMessageQueuedDeleted(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.deleteQueuedMessage();
-  const deletedMessageId = ctx.requestIdToMessageId.get(
-    event.requestId,
-  );
-  ctx.requestIdToMessageId.delete(event.requestId);
+  const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (deletedMessageId) {
     ctx.setMessages((prev) => removeQueuedMessage(prev, deletedMessageId));
   }

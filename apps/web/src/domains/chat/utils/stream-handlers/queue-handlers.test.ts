@@ -23,7 +23,8 @@ describe("handleMessageQueued", () => {
       ctx,
     );
     expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToMessageId.get("req-1")).toBe("stable-1");
+    expect(ctx.shiftPendingQueuedMessageId).toHaveBeenCalled();
+    expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "stable-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -57,15 +58,16 @@ describe("handleMessageQueued", () => {
       },
       ctx,
     );
-    expect(ctx.pendingLocalDeletions.has("stable-1")).toBe(false);
+    expect(ctx.consumePendingLocalDeletion).toHaveBeenCalledWith("stable-1");
     expect(ctx.setMessages).not.toHaveBeenCalled();
   });
 });
 
 describe("handleMessageDequeued", () => {
   it("clears queue status when messageId mapping exists", () => {
-    const ctx = makeCtx();
-    ctx.requestIdToMessageId.set("req-1", "stable-1");
+    const ctx = makeCtx({
+      requestIdToMessageId: new Map([["req-1", "stable-1"]]),
+    });
     handleMessageDequeued(
       {
         type: "message_dequeued",
@@ -75,7 +77,7 @@ describe("handleMessageDequeued", () => {
       ctx,
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToMessageId.has("req-1")).toBe(false);
+    expect(ctx.popRequestIdMapping).toHaveBeenCalledWith("req-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -96,8 +98,9 @@ describe("handleMessageDequeued", () => {
 
 describe("handleMessageQueuedDeleted", () => {
   it("removes queued message when messageId mapping exists", () => {
-    const ctx = makeCtx();
-    ctx.requestIdToMessageId.set("req-1", "stable-1");
+    const ctx = makeCtx({
+      requestIdToMessageId: new Map([["req-1", "stable-1"]]),
+    });
     handleMessageQueuedDeleted(
       {
         type: "message_queued_deleted",
@@ -107,7 +110,7 @@ describe("handleMessageQueuedDeleted", () => {
       ctx,
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToMessageId.has("req-1")).toBe(false);
+    expect(ctx.popRequestIdMapping).toHaveBeenCalledWith("req-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 

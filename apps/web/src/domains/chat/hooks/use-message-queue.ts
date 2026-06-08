@@ -77,7 +77,7 @@ export function useMessageQueue({
       if (targetRequestId) {
         void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
       } else {
-        useChatSessionStore.getState().pendingLocalDeletions.add(messageId);
+        useChatSessionStore.getState().addPendingLocalDeletion(messageId);
         useTurnStore.getState().deleteQueuedMessage();
       }
     },

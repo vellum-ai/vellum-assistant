@@ -31,13 +31,10 @@ describe("handleUsageUpdate", () => {
       ctx,
     );
     expect(ctx.setContextWindowUsage).toHaveBeenCalled();
-    expect(
-      ctx.contextWindowUsageByConversation.get("conv-1"),
-    ).toEqual({
-      tokens: 5000,
-      maxTokens: 10000,
-      fillRatio: 0.5,
-    });
+    expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
+      "conv-1",
+      { tokens: 5000, maxTokens: 10000, fillRatio: 0.5 },
+    );
   });
 
   it("returns early for non-finite token counts", () => {
@@ -49,13 +46,10 @@ describe("handleUsageUpdate", () => {
   it("sets fillRatio to null when maxTokens is missing", () => {
     const ctx = makeCtx();
     handleUsageUpdate({ ...baseUsage, contextWindowTokens: 5000 }, ctx);
-    expect(
-      ctx.contextWindowUsageByConversation.get("conv-1"),
-    ).toEqual({
-      tokens: 5000,
-      maxTokens: null,
-      fillRatio: null,
-    });
+    expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
+      "conv-1",
+      { tokens: 5000, maxTokens: null, fillRatio: null },
+    );
   });
 
   it("clamps fillRatio to [0, 1]", () => {
@@ -68,9 +62,10 @@ describe("handleUsageUpdate", () => {
       },
       ctx,
     );
-    expect(
-      ctx.contextWindowUsageByConversation.get("conv-1")?.fillRatio,
-    ).toBe(1);
+    expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
+      "conv-1",
+      expect.objectContaining({ fillRatio: 1 }),
+    );
   });
 });
 

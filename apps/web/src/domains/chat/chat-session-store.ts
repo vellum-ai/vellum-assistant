@@ -4,10 +4,12 @@
  * Owns the mutable data (messages, errors, pagination, transient maps/sets)
  * that hooks and stream handlers read and write during a conversation.
  *
- * Reactive state (messages, error, isLoadingHistory, …) drives UI via `.use.*`
- * selectors. Imperative-only state (streamingMessageIds, pendingLocalDeletions,
- * …) is read via `getState()` in async callbacks and stream handlers — it never
- * triggers re-renders directly.
+ * All mutations go through store actions that call `set()`, producing new
+ * collection instances. Reactive state (messages, error, isLoadingHistory, …)
+ * drives UI via `.use.*` selectors. Non-reactive state (streamingMessageIds,
+ * pendingLocalDeletions, …) is read via `getState()` in async callbacks and
+ * stream handlers — it never triggers re-renders directly but still uses
+ * actions for consistency and correctness.
  *
  * `switchToConversation()` atomically resets all per-conversation state when
  * the active conversation changes.
@@ -53,9 +55,9 @@ export interface ChatSessionState {
   compactionCircuitOpenUntil: Date | null;
 
   // --- Per-conversation mutable maps/sets ---
-  // Imperative-only: mutated in-place by stream handlers via getState().
-  // Do not subscribe to these fields with .use.*() — mutations bypass
-  // Zustand's set() and won't trigger re-renders.
+  // Managed through store actions so mutations go through Zustand's set().
+  // These fields are read via getState() in async callbacks and stream
+  // handlers — they are not subscribed to reactively (no .use.*()).
   dismissedSurfaceIds: Set<string>;
   streamingMessageIds: Set<string>;
   pendingQueuedMessageIds: string[];
@@ -139,6 +141,24 @@ export interface ChatSessionActions {
   setConfirmationToolCall: (requestId: string, toolCallId: string) => void;
   deleteConfirmationToolCall: (requestId: string) => void;
   clearConfirmationToolCallMap: () => void;
+
+  // --- Dismissed surfaces ---
+  addDismissedSurfaceId: (surfaceId: string) => void;
+  addDismissedSurfaceIds: (surfaceIds: Iterable<string>) => void;
+
+  // --- Streaming message tracking ---
+  batchUpdateStreamingMessageIds: (toAdd: string[], toRemove: string[]) => void;
+
+  // --- Queue management ---
+  pushPendingQueuedMessageId: (messageId: string) => void;
+  shiftPendingQueuedMessageId: () => string | undefined;
+  setRequestIdMapping: (requestId: string, messageId: string) => void;
+  popRequestIdMapping: (requestId: string) => string | undefined;
+  addPendingLocalDeletion: (messageId: string) => void;
+  consumePendingLocalDeletion: (messageId: string) => boolean;
+
+  // --- Context window cache ---
+  setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
 
   // --- Data-apply coordination ---
   consumeSwitchReset: () => void;
@@ -335,6 +355,86 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   clearConfirmationToolCallMap: () =>
     set({ confirmationToolCallMap: new Map() }),
+
+  // --- Dismissed surfaces ---
+  addDismissedSurfaceId: (surfaceId) =>
+    set((s) => {
+      const next = new Set(s.dismissedSurfaceIds);
+      next.add(surfaceId);
+      return { dismissedSurfaceIds: next };
+    }),
+
+  addDismissedSurfaceIds: (surfaceIds) =>
+    set((s) => {
+      const next = new Set(s.dismissedSurfaceIds);
+      for (const id of surfaceIds) next.add(id);
+      return { dismissedSurfaceIds: next };
+    }),
+
+  // --- Streaming message tracking ---
+  batchUpdateStreamingMessageIds: (toAdd, toRemove) =>
+    set((s) => {
+      const next = new Set(s.streamingMessageIds);
+      for (const id of toAdd) next.add(id);
+      for (const id of toRemove) next.delete(id);
+      return { streamingMessageIds: next };
+    }),
+
+  // --- Queue management ---
+  pushPendingQueuedMessageId: (messageId) =>
+    set((s) => ({
+      pendingQueuedMessageIds: [...s.pendingQueuedMessageIds, messageId],
+    })),
+
+  shiftPendingQueuedMessageId: () => {
+    const current = get().pendingQueuedMessageIds;
+    if (current.length === 0) return undefined;
+    const [first, ...rest] = current;
+    set({ pendingQueuedMessageIds: rest });
+    return first;
+  },
+
+  setRequestIdMapping: (requestId, messageId) =>
+    set((s) => {
+      const next = new Map(s.requestIdToMessageId);
+      next.set(requestId, messageId);
+      return { requestIdToMessageId: next };
+    }),
+
+  popRequestIdMapping: (requestId) => {
+    const current = get().requestIdToMessageId;
+    const value = current.get(requestId);
+    if (value !== undefined) {
+      const next = new Map(current);
+      next.delete(requestId);
+      set({ requestIdToMessageId: next });
+    }
+    return value;
+  },
+
+  addPendingLocalDeletion: (messageId) =>
+    set((s) => {
+      const next = new Set(s.pendingLocalDeletions);
+      next.add(messageId);
+      return { pendingLocalDeletions: next };
+    }),
+
+  consumePendingLocalDeletion: (messageId) => {
+    const current = get().pendingLocalDeletions;
+    if (!current.has(messageId)) return false;
+    const next = new Set(current);
+    next.delete(messageId);
+    set({ pendingLocalDeletions: next });
+    return true;
+  },
+
+  // --- Context window cache ---
+  setContextWindowUsageForConversation: (conversationId, usage) =>
+    set((s) => {
+      const next = new Map(s.contextWindowUsageByConversation);
+      next.set(conversationId, usage);
+      return { contextWindowUsageByConversation: next };
+    }),
 
   // --- Data-apply coordination ---
   consumeSwitchReset: () =>

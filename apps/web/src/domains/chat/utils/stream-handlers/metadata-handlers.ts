@@ -29,10 +29,7 @@ export function handleUsageUpdate(
   };
   const streamCtx = ctx.streamContext;
   if (streamCtx) {
-    ctx.contextWindowUsageByConversation.set(
-      streamCtx.conversationId,
-      usage,
-    );
+    ctx.setContextWindowUsageForConversation(streamCtx.conversationId, usage);
     saveContextWindowUsage(
       streamCtx.assistantId,
       streamCtx.conversationId,

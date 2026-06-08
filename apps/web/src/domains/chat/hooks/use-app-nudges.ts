@@ -105,20 +105,25 @@ export function useAppNudges(
     if (assistantTurnsSeen >= nudgeMinTurns) return;
 
     let newlyCompleted = 0;
+    const streamingIds = useChatSessionStore.getState().streamingMessageIds;
+    const toAdd: string[] = [];
+    const toRemove: string[] = [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]!;
       if (m.role !== "assistant") {
         continue;
       }
-      const streamingIds = useChatSessionStore.getState().streamingMessageIds;
       if (m.id === liveAssistantMessageId) {
-        streamingIds.add(m.id);
+        toAdd.push(m.id);
       } else if (streamingIds.has(m.id)) {
-        streamingIds.delete(m.id);
+        toRemove.push(m.id);
         newlyCompleted++;
       } else {
         break;
       }
+    }
+    if (toAdd.length > 0 || toRemove.length > 0) {
+      useChatSessionStore.getState().batchUpdateStreamingMessageIds(toAdd, toRemove);
     }
 
     if (newlyCompleted > 0) {

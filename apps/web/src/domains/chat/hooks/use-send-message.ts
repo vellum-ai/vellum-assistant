@@ -190,16 +190,13 @@ export function useSendMessage({
    */
   const persistDismissedSurfaces = useCallback(
     (dismissedIds: Set<string>) => {
-      const store = useChatSessionStore.getState();
-      for (const id of dismissedIds) {
-        store.dismissedSurfaceIds.add(id);
-      }
+      useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
       const streamCtx = useStreamStore.getState().streamContext;
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
           streamCtx.conversationId,
-          store.dismissedSurfaceIds,
+          useChatSessionStore.getState().dismissedSurfaceIds,
         );
       }
     },
@@ -426,19 +423,19 @@ export function useSendMessage({
               { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
             ];
           });
-          if (restoredConfData) {
+          if (restoredConfData && isCurrentSendScope(effectiveConversationId)) {
             const capturedConfData = restoredConfData;
-            setMessages((prev) => {
-              if (!isCurrentSendScope(effectiveConversationId)) return prev;
-              const result = attachConfirmationToToolCall(prev, capturedConfData);
-              if (result.attachedToolCallId) {
-                useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-                useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
-              } else {
-                useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-              }
-              return result.updatedMessages;
-            });
+            // Zustand set() is synchronous — messages already reflect the
+            // setMessages call above, so getState() gives us fresh state.
+            const currentMessages = useChatSessionStore.getState().messages;
+            const result = attachConfirmationToToolCall(currentMessages, capturedConfData);
+            if (result.attachedToolCallId) {
+              useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
+              useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
+            } else {
+              useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+            }
+            setMessages(() => result.updatedMessages);
           }
           startReconciliationLoop(epoch);
         })
@@ -538,7 +535,7 @@ export function useSendMessage({
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        useChatSessionStore.getState().pendingQueuedMessageIds.push(userMessage.id);
+        useChatSessionStore.getState().pushPendingQueuedMessageId(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
@@ -589,7 +586,7 @@ export function useSendMessage({
             return;
           }
           if (postResult.requestId) {
-            useChatSessionStore.getState().requestIdToMessageId.set(postResult.requestId, userMessage.id);
+            useChatSessionStore.getState().setRequestIdMapping(postResult.requestId, userMessage.id);
           }
         } catch (err) {
           captureError(err, { context: "send_message_queue" });

@@ -61,7 +61,7 @@ describe("handleUISurfaceDismiss", () => {
       ctx,
     );
     expect(ctx.turnActions.dismissSurface).toHaveBeenCalled();
-    expect(ctx.dismissedSurfaceIds.has("s-1")).toBe(true);
+    expect(ctx.addDismissedSurfaceId).toHaveBeenCalledWith("s-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
