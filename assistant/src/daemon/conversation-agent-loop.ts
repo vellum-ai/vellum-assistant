@@ -64,7 +64,6 @@ import {
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
-  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -871,16 +870,22 @@ export async function runAgentLoopImpl(
       state.pendingNotifiedInferenceProfile = effectiveProfileKey;
     }
 
-    // Memory retrieval — fetches PKB, NOW.md, and memory-graph outputs and
-    // persists the retrieval's own side effects (injected-block metadata,
-    // recall log, `memory_recalled` event). Runs at the early "prompt
-    // submitted, before context assembly" moment because its outputs feed the
-    // injection and overflow-reduction transforms below. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
-    // must run early, while the canonical late `user-prompt-submit` hook
-    // (history repair, title) runs after those transforms, so the two cannot
+    // Memory retrieval + runtime injection — fetches PKB / NOW.md / memory-graph
+    // outputs, persists the retrieval's own side effects (injected-block
+    // metadata, recall log, `memory_recalled` event), and assembles the turn's
+    // runtime-injection blocks onto the history (persisting those blocks too).
+    // Runs at the early "prompt submitted, before context assembly" moment
+    // because its output feeds the overflow-reduction transform below. It is
+    // shaped as the `user-prompt-submit-temp` hook handler but invoked directly
+    // for now: it must run early, while the canonical late `user-prompt-submit`
+    // hook (history repair, title) runs after that transform, so the two cannot
     // share a fire site until compaction is cleared from the gap between them.
+    // The injection inputs (`mode`, `isNonInteractive`, `modelProfile`,
+    // `actorContext`) are resolved once at turn start and threaded in so
+    // post-compaction re-injection reuses the same snapshot rather than live
+    // state that can flip mid-turn.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    let currentInjectionMode: InjectionMode = "full";
     const memoryCtx: MemoryRetrievalHookContext = {
       graphMemory: ctx.graphMemory,
       config: getConfig(),
@@ -893,81 +898,22 @@ export async function runAgentLoopImpl(
       // to completion after the turn has already been torn down.
       signal: abortController.signal,
       latestMessages: ctx.messages,
-    };
-    await userPromptSubmitMemoryRetrieval(memoryCtx);
-
-    // The retriever owns its side effects (injected-block metadata, recall
-    // log, `memory_recalled` event) and records the dense/sparse PKB query
-    // pair on the graph handle for the PKB-reminder injector to read back; the
-    // loop only reuses the injected message list downstream.
-    let runMessages = memoryCtx.latestMessages;
-
-    // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    let currentInjectionMode: InjectionMode = "full";
-
-    // `applyRuntimeInjections` self-resolves every per-turn injection input —
-    // the Slack chronological transcript, the unified `<turn_context>` block,
-    // channel/voice/transport hints, and the turn's trust/index/call-site —
-    // from the live conversation, so we only hand in the request id (the one
-    // turn-identity field it can't recover) plus the conversation id that keys
-    // that lookup. `isNonInteractive`, `modelProfile`, and `actorContext` are
-    // resolved once at turn start and threaded per call site so post-compaction
-    // re-injection receives them as explicit inputs rather than via live state
-    // that can flip mid-turn.
-    const injection = await applyRuntimeInjections(runMessages, {
+      requestId: reqId,
+      mode: currentInjectionMode,
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
-      mode: currentInjectionMode,
-      requestId: reqId,
-      conversationId: ctx.conversationId,
-    });
-    runMessages = injection.messages;
+    };
+    await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // Persist injected blocks in message metadata so they survive conversation
-    // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
-    // Only the first call site persists — the overflow-recovery re-entry sites
-    // send identical bytes and the tail row may not correspond to
-    // `userMessageId`. All blocks are written in a single call to avoid
-    // doubling SQLite SELECT+UPDATE work on every turn.
-    if (
-      injection.blocks.unifiedTurnContext ||
-      injection.blocks.pkbSystemReminder ||
-      injection.blocks.workspaceBlock ||
-      injection.blocks.nowScratchpadBlock ||
-      injection.blocks.pkbContextBlock ||
-      injection.blocks.memoryV2StaticBlock
-    ) {
-      try {
-        const metadataUpdates: Record<string, unknown> = {};
-        if (injection.blocks.unifiedTurnContext) {
-          metadataUpdates.turnContextBlock =
-            injection.blocks.unifiedTurnContext;
-        }
-        if (injection.blocks.pkbSystemReminder) {
-          metadataUpdates.pkbSystemReminderBlock =
-            injection.blocks.pkbSystemReminder;
-        }
-        if (injection.blocks.workspaceBlock) {
-          metadataUpdates.workspaceBlock = injection.blocks.workspaceBlock;
-        }
-        if (injection.blocks.nowScratchpadBlock) {
-          metadataUpdates.nowScratchpadBlock =
-            injection.blocks.nowScratchpadBlock;
-        }
-        if (injection.blocks.pkbContextBlock) {
-          metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
-        }
-        if (injection.blocks.memoryV2StaticBlock) {
-          metadataUpdates.memoryV2StaticBlock =
-            injection.blocks.memoryV2StaticBlock;
-        }
-        updateMessageMetadata(userMessageId, metadataUpdates);
-      } catch (err) {
-        rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
-      }
-    }
+    // The hook owns its side effects (injected-block metadata, recall log,
+    // `memory_recalled` event, and the runtime-injection metadata persist) and
+    // records the dense/sparse PKB query pair on the graph handle for the
+    // PKB-reminder injector to read back; the loop reuses the fully injected
+    // message list downstream.
+    let runMessages = memoryCtx.latestMessages;
+
+    // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     // ── Preflight budget evaluation ──────────────────────────────
     // After runtime injections are applied, estimate the prompt token count

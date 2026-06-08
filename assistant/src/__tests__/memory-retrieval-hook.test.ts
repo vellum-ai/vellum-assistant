@@ -1,12 +1,15 @@
 /**
- * Tests for the default `user-prompt-submit-temp` hook (memory retrieval).
+ * Tests for the default `user-prompt-submit-temp` hook (memory retrieval +
+ * runtime injection).
  *
  * Covers the retrieval behavior, the side effects the hook owns (injected-block
- * metadata, recall log, `memory_recalled` event), trust gating, error
- * propagation, and abort-signal forwarding. Uses `mock.module` to stub the
- * persistence helpers so the test doesn't touch the developer's real
- * `~/.vellum` or database. The memory graph handle is a hand-rolled fake
- * passed on the hook context — the hook only needs `prepareMemory`.
+ * metadata, recall log, `memory_recalled` event), trust gating, the runtime
+ * injection the hook applies for every actor (and the assembled-block persist),
+ * error propagation, and abort-signal forwarding. Uses `mock.module` to stub
+ * the persistence helpers and `applyRuntimeInjections` so the test doesn't touch
+ * the developer's real `~/.vellum`, database, or live conversation state. The
+ * memory graph handle is a hand-rolled fake passed on the hook context — the
+ * hook only needs `prepareMemory`.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -21,6 +24,17 @@ mock.module("../memory/conversation-crud.js", () => ({
 const recordMemoryRecallLogMock = mock((_entry: unknown) => {});
 mock.module("../memory/memory-recall-log-store.js", () => ({
   recordMemoryRecallLog: recordMemoryRecallLogMock,
+}));
+
+// Pass-through injection stub: returns the input messages unchanged with no
+// assembled blocks, so existing array-identity assertions hold. Individual
+// tests override it via `mockImplementationOnce` to exercise injected blocks.
+const applyRuntimeInjectionsMock = mock(async (messages: unknown) => ({
+  messages,
+  blocks: {},
+}));
+mock.module("../daemon/conversation-runtime-assembly.js", () => ({
+  applyRuntimeInjections: applyRuntimeInjectionsMock,
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
@@ -117,6 +131,11 @@ function makeHookCtx(
     } as unknown as MemoryRetrievalHookContext["logger"],
     signal: new AbortController().signal,
     latestMessages: [],
+    requestId: "req-test",
+    mode: "full",
+    isNonInteractive: false,
+    modelProfile: null,
+    actorContext: null,
     ...overrides,
   };
 }
@@ -124,6 +143,7 @@ function makeHookCtx(
 beforeEach(() => {
   updateMessageMetadataMock.mockReset();
   recordMemoryRecallLogMock.mockReset();
+  applyRuntimeInjectionsMock.mockClear();
 });
 
 describe("user-prompt-submit-temp hook (memory retrieval)", () => {
@@ -175,6 +195,53 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       summaryDense,
       summarySparse,
     );
+  });
+
+  test("applies runtime injection on the retrieved history and persists the assembled blocks", async () => {
+    const retrieved: Message[] = [
+      { role: "user", content: [{ type: "text", text: "retrieved" }] },
+    ];
+    const injected: Message[] = [
+      { role: "user", content: [{ type: "text", text: "injected" }] },
+    ];
+    const { memory } = makeFakeGraphMemory({ messages: retrieved });
+    applyRuntimeInjectionsMock.mockImplementationOnce(async () => ({
+      messages: injected,
+      blocks: { unifiedTurnContext: "tc-block" },
+    }));
+    const ctx = makeHookCtx({ graphMemory: memory, userMessageId: "msg-77" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    // Injection runs on the retrieved history; its result becomes the working
+    // list the loop reads back.
+    expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
+    expect(applyRuntimeInjectionsMock.mock.calls[0]?.[0]).toBe(retrieved);
+    expect(ctx.latestMessages).toBe(injected);
+    // The assembled blocks are persisted onto the user message metadata.
+    expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-77", {
+      turnContextBlock: "tc-block",
+    });
+  });
+
+  test("applies runtime injection for untrusted actors despite skipping retrieval", async () => {
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    const seeded: Message[] = [
+      { role: "user", content: [{ type: "text", text: "seeded" }] },
+    ];
+    const ctx = makeHookCtx({
+      graphMemory: memory,
+      isTrustedActor: false,
+      latestMessages: seeded,
+    });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    // The memory-graph step is gated on trust, but injection runs for everyone
+    // — on the seeded history, since no retrieval replaced it.
+    expect(prepareMemoryMock).not.toHaveBeenCalled();
+    expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
+    expect(applyRuntimeInjectionsMock.mock.calls[0]?.[0]).toBe(seeded);
   });
 
   test("skips graph retrieval and side effects for untrusted actors", async () => {
