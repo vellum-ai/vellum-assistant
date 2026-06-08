@@ -247,8 +247,8 @@ describe("bundled acp skill discoverability", () => {
     expect(skillFlagKey(skill!)).toBeUndefined();
 
     const config = makeConfig({
-      acp: { enabled: true, maxConcurrentSessions: 4, agents: {} },
-    } as Partial<AssistantConfig>);
+      acp: { maxConcurrentSessions: 4, agents: {} },
+    });
 
     const resolved = resolveSkillStates([skill!], config);
     expect(resolved.length).toBe(1);
