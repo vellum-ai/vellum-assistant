@@ -141,6 +141,37 @@ describe("activation moment emission from ui_show surface commits", () => {
     expect(rows[0]!.sessionId).toBe("conv-marked");
   });
 
+  test("a queue-rejected commit does NOT emit; the tag survives for the retry", async () => {
+    markActivationSession("conv-rejected");
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext("conv-rejected", sent);
+    const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
+
+    // First click while the queue is full: enqueue rejects, action not
+    // accepted. Must NOT record a milestone, and must leave the one-shot tag
+    // intact so the user's retry still emits.
+    ctx.enqueueMessage = () => ({
+      queued: false,
+      requestId: "req-rejected",
+      rejected: true,
+    });
+    await handleSurfaceAction(ctx, surfaceId, "inbox", {
+      choiceId: "inbox",
+      selectedIds: ["inbox"],
+    });
+    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+
+    // Retry is accepted → records exactly one row.
+    ctx.enqueueMessage = () => ({ queued: false, requestId: "req-ok" });
+    await handleSurfaceAction(ctx, surfaceId, "inbox", {
+      choiceId: "inbox",
+      selectedIds: ["inbox"],
+    });
+    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
+  });
+
   test("first_wow_executed records at SHOW time (no commit) and never double-emits", async () => {
     markActivationSession("conv-wow");
     const sent: ServerMessage[] = [];

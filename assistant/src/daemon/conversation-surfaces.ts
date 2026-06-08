@@ -1526,11 +1526,6 @@ export async function handleSurfaceAction(
       return;
     }
 
-    // Terminal user commit on a history-restored surface — record an
-    // activation milestone if this surface was tagged (best-effort, no-op
-    // otherwise). Runs after the non-terminal early returns above.
-    maybeEmitActivationMoment(ctx, surfaceId);
-
     // Determine message content from the action.
     const stored = ctx.surfaceState.get(surfaceId);
     const actionDef = stored?.actions?.find((a) => a.id === actionId);
@@ -1649,6 +1644,12 @@ export async function handleSurfaceAction(
       return;
     }
 
+    // Terminal user commit accepted — record the activation milestone if this
+    // surface was tagged (best-effort, no-op otherwise). Deferred until after
+    // the rejection check so a queue-full click doesn't over-report a moment
+    // (and the one-shot tag stays intact for the user's retry).
+    maybeEmitActivationMoment(ctx, surfaceId);
+
     const requestedCompletionSummary =
       getRequestedSurfaceCompletionSummary(mergedData);
     if (requestedCompletionSummary) {
@@ -1735,12 +1736,6 @@ export async function handleSurfaceAction(
     handleStateUpdate(ctx, surfaceId, data);
     return;
   }
-
-  // Terminal user commit on a pending surface — record an activation milestone
-  // if this surface was tagged (best-effort, no-op otherwise). Runs after the
-  // non-terminal early returns above so intermediate selection/state events
-  // never emit.
-  maybeEmitActivationMoment(ctx, surfaceId);
 
   // Merge stored action-level data (from ui_show definition) with client-sent
   // data. This is critical for relay_prompt buttons: the client only sends the
@@ -1893,6 +1888,12 @@ export async function handleSurfaceAction(
     ctx.surfaceActionRequestIds.delete(requestId);
     return;
   }
+
+  // Terminal user commit accepted — record the activation milestone if this
+  // surface was tagged (best-effort, no-op otherwise). Deferred until after the
+  // rejection check so a queue-full click doesn't over-report a moment (and the
+  // one-shot tag stays intact for the user's retry).
+  maybeEmitActivationMoment(ctx, surfaceId);
 
   const requestedCompletionSummary =
     getRequestedSurfaceCompletionSummary(mergedData);
