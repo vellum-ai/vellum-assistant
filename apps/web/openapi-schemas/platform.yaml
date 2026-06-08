@@ -2043,6 +2043,51 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{id}/operational/status/:
+    get:
+      operationId: assistants_operational_status_detail_read
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalStatus'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{id}/resize/:
     post:
       operationId: assistants_resize
@@ -4949,12 +4994,15 @@ components:
         next_trigger_amount_usd:
           type: string
           nullable: true
+        disabled_due_to_repeated_failures:
+          type: boolean
         stubbed:
           type: boolean
       required:
       - amount_usd
       - current_month_charged_usd
       - current_month_credits_purchased_usd
+      - disabled_due_to_repeated_failures
       - enabled
       - has_payment_method
       - last_charge_at
@@ -5186,7 +5234,9 @@ components:
         flags:
           type: object
           additionalProperties:
-            type: boolean
+            oneOf:
+            - type: boolean
+            - type: string
       required:
       - flags
     CodeEnum:
@@ -5250,7 +5300,7 @@ components:
       properties:
         state:
           allOf:
-          - $ref: '#/components/schemas/StateEnum'
+          - $ref: '#/components/schemas/ConnectionStatusStateEnum'
           description: |-
             Coarse reachability bucket. 'ready' means the pod is serving traffic; 'waking' means it is scaling up from idle-sleep; 'crash_loop' means the pod is reporting an error; 'unreachable' means the probe itself failed and the caller should retry.
 
@@ -5304,6 +5354,20 @@ components:
         * `ACTIVE` - Active
         * `REVOKED` - Revoked
         * `ERROR` - Error
+    ConnectionStatusStateEnum:
+      enum:
+      - ready
+      - waking
+      - crash_loop
+      - not_found
+      - unreachable
+      type: string
+      description: |-
+        * `ready` - ready
+        * `waking` - waking
+        * `crash_loop` - crash_loop
+        * `not_found` - not_found
+        * `unreachable` - unreachable
     CreateAssistantDomainRequest:
       type: object
       properties:
@@ -6311,6 +6375,191 @@ components:
       - pvc_ready
       - selected_storage_gib
       - selected_storage_tier
+    OperationalStatus:
+      type: object
+      properties:
+        state:
+          $ref: '#/components/schemas/OperationalStatusStateEnum'
+        detail_state:
+          type: string
+        poll_after_ms:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+        state_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        active_operation:
+          allOf:
+          - $ref: '#/components/schemas/OperationalStatusOperation'
+          nullable: true
+        assistant:
+          $ref: '#/components/schemas/OperationalStatusAssistant'
+        pod:
+          $ref: '#/components/schemas/OperationalStatusPod'
+        runtime:
+          $ref: '#/components/schemas/OperationalStatusRuntime'
+        storage:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        detail:
+          $ref: '#/components/schemas/OperationalStatusDetail'
+      required:
+      - active_operation
+      - assistant
+      - detail
+      - detail_state
+      - pod
+      - poll_after_ms
+      - runtime
+      - state
+      - state_started_at
+      - storage
+      - updated_at
+    OperationalStatusAssistant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        machine_id:
+          type: string
+          nullable: true
+        vembda_cluster_id:
+          type: string
+          nullable: true
+      required:
+      - id
+      - machine_id
+      - status
+      - vembda_cluster_id
+    OperationalStatusDetail:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      required:
+      - message
+      - reason
+    OperationalStatusOperation:
+      type: object
+      properties:
+        operation:
+          type: string
+        operation_id:
+          type: string
+        phase:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        target:
+          type: object
+          additionalProperties: {}
+      required:
+      - operation
+      - operation_id
+      - phase
+      - started_at
+      - target
+      - updated_at
+    OperationalStatusPod:
+      type: object
+      properties:
+        statefulset_found:
+          type: boolean
+          nullable: true
+        spec_replicas:
+          type: integer
+          nullable: true
+        ready_replicas:
+          type: integer
+          nullable: true
+        pod_name:
+          type: string
+          nullable: true
+        pod_phase:
+          type: string
+          nullable: true
+        has_restart_history:
+          type: boolean
+        max_restart_count:
+          type: integer
+          nullable: true
+        fatal_reason:
+          type: string
+          nullable: true
+      required:
+      - fatal_reason
+      - has_restart_history
+      - max_restart_count
+      - pod_name
+      - pod_phase
+      - ready_replicas
+      - spec_replicas
+      - statefulset_found
+    OperationalStatusRuntime:
+      type: object
+      properties:
+        healthz_ok:
+          type: boolean
+        assistant_version:
+          type: string
+          nullable: true
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - assistant_version
+      - checked_at
+      - healthz_ok
+    OperationalStatusStateEnum:
+      enum:
+      - initializing
+      - provisioning
+      - active
+      - sleeping
+      - waking
+      - restarting
+      - restoring_backup
+      - upgrading_assistant_version
+      - resizing_machine
+      - resizing_storage
+      - maintenance_mode
+      - crash_loop
+      - unreachable
+      - not_found
+      - retiring
+      type: string
+      description: |-
+        * `initializing` - initializing
+        * `provisioning` - provisioning
+        * `active` - active
+        * `sleeping` - sleeping
+        * `waking` - waking
+        * `restarting` - restarting
+        * `restoring_backup` - restoring_backup
+        * `upgrading_assistant_version` - upgrading_assistant_version
+        * `resizing_machine` - resizing_machine
+        * `resizing_storage` - resizing_storage
+        * `maintenance_mode` - maintenance_mode
+        * `crash_loop` - crash_loop
+        * `unreachable` - unreachable
+        * `not_found` - not_found
+        * `retiring` - retiring
     OrganizationRead:
       type: object
       properties:
@@ -6952,20 +7201,6 @@ components:
       description: |-
         * `django` - Django
         * `vembda` - Vembda
-    StateEnum:
-      enum:
-      - ready
-      - waking
-      - crash_loop
-      - not_found
-      - unreachable
-      type: string
-      description: |-
-        * `ready` - ready
-        * `waking` - waking
-        * `crash_loop` - crash_loop
-        * `not_found` - not_found
-        * `unreachable` - unreachable
     StorageTier:
       type: object
       properties:
