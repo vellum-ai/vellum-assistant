@@ -11,8 +11,10 @@
  *      (`deleteSectionsForArticle` + `upsertSections`). This keeps the
  *      section-grain Qdrant collection in sync with on-disk page edits so the
  *      dense lane retrieves against current content. The high-water mark is
- *      advanced only after the pass completes (captured before any potential
- *      mtime bumps) so a page is not re-embedded forever.
+ *      advanced only after the pass completes with zero page failures (and is
+ *      captured before any potential mtime bumps) so a page is not re-embedded
+ *      forever, yet a page whose embed failed (and whose sections were therefore
+ *      left deleted) stays above the mark and is retried next pass.
  *   2. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
@@ -97,8 +99,9 @@ export interface MaintainJobDeps {
   /** Embed + upsert an article's current sections into the dense store. */
   upsertSections: typeof realUpsertSections;
   /**
-   * Persist the high-water mark after a successful re-embed pass. The value is
-   * captured before the pass's writes (see the key docstring).
+   * Persist the high-water mark after a re-embed pass with zero failures. The
+   * value is captured before the pass's writes (see the key docstring); the
+   * caller skips this when any page failed so failed pages retry next pass.
    */
   commitEmbedHighWater: (highWaterMs: number) => void;
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
@@ -127,7 +130,10 @@ export interface BackfillJobDeps {
   deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
   /** Embed + upsert an article's current sections into the dense store. */
   upsertSections: typeof realUpsertSections;
-  /** Persist the high-water mark after the backfill completes. */
+  /**
+   * Persist the high-water mark after the backfill completes with zero
+   * failures. Skipped when any page failed so failed pages retry next pass.
+   */
   commitEmbedHighWater: (highWaterMs: number) => void;
   /** Epoch-ms stamped as the new high-water mark; injectable for tests. */
   nowMs: () => number;
@@ -307,12 +313,15 @@ async function reembedChangedPages(
  *
  * Each article is refreshed independently (delete its stale points, then
  * re-upsert its current sections); a single article whose build/delete/upsert
- * throws is logged and counted in `failures` without aborting the rest. After
- * the pass completes the high-water mark is advanced to the timestamp captured
- * BEFORE the pass, so the next incremental maintain run deltas from here instead
- * of re-embedding the whole corpus again. The timestamp is captured up-front (as
- * in `maintainJob`) so an embed write that bumps a page's mtime does not
- * re-trigger it next pass.
+ * throws is logged and counted in `failures` without aborting the rest. When the
+ * pass completes with zero failures the high-water mark is advanced to the
+ * timestamp captured BEFORE the pass, so the next incremental maintain run
+ * deltas from here instead of re-embedding the whole corpus again. The timestamp
+ * is captured up-front (as in `maintainJob`) so an embed write that bumps a
+ * page's mtime does not re-trigger it next pass. If any page failed the
+ * checkpoint is held (not advanced): a failed page was delete-then-upsert'd and
+ * so has no sections, and advancing past its mtime would hide it from the
+ * incremental selector forever — holding the mark lets the next pass re-embed it.
  */
 export async function backfillAllSections(
   config: AssistantConfig,
@@ -343,9 +352,21 @@ export async function backfillAllSections(
     }
   }
 
-  // Advance the maintain high-water mark so the next incremental pass deltas
-  // from here rather than re-embedding everything.
-  deps.commitEmbedHighWater(startedAtMs);
+  // Advance the maintain high-water mark only when every page embedded cleanly,
+  // so the next incremental pass deltas from here rather than re-embedding
+  // everything. A failed page was delete-then-upsert'd, so it now has no
+  // sections; advancing past its mtime would hide it from `computeChangedPages`
+  // forever. Holding the checkpoint keeps failed pages above the mark so the
+  // next pass re-embeds them — re-embedding the succeeded pages too is
+  // idempotent and cheap.
+  if (failures === 0) {
+    deps.commitEmbedHighWater(startedAtMs);
+  } else {
+    log.info(
+      { articles, sections, failures },
+      "memory-v3 backfill: embed checkpoint held (page failures) — failed pages retry next pass",
+    );
+  }
 
   log.info(
     { articles, sections, failures },
@@ -383,7 +404,7 @@ export async function maintainJob(
 
   // Stage 1: re-chunk + re-embed pages changed since the last pass. Capture the
   // high-water mark BEFORE the pass so an embed write that bumps a page's mtime
-  // does not re-trigger it next pass; advance it only on success.
+  // does not re-trigger it next pass; advance it only when every page succeeded.
   try {
     const startedAtMs = Date.now();
     const changed = await deps.selectChangedPages();
@@ -393,7 +414,21 @@ export async function maintainJob(
     );
     outcome.reembedded = reembedded;
     outcome.reembedFailures = reembedFailures;
-    deps.commitEmbedHighWater(startedAtMs);
+    // Only advance the high-water mark when nothing failed. A failed page is
+    // processed as delete-then-upsert, so a transient embed/Qdrant error leaves
+    // its sections deleted; if we advanced past its mtime, `computeChangedPages`
+    // would never re-select it (mtime <= high-water) and it would stay missing.
+    // Holding the checkpoint keeps every failed page above the mark so it
+    // retries next pass — the handful of already-succeeded pages re-embedding
+    // again is idempotent and cheap.
+    if (reembedFailures === 0) {
+      deps.commitEmbedHighWater(startedAtMs);
+    } else {
+      log.info(
+        { reembedded, reembedFailures },
+        "memory-v3 maintain: embed checkpoint held (page failures) — failed pages retry next pass",
+      );
+    }
   } catch (err) {
     outcome.failures.push("reembed");
     log.warn(
