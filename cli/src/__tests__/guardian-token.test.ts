@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import {
   getOrCreatePersistedDeviceId,
+  guardianTokenDueForRenewal,
   loadGuardianToken,
   refreshGuardianToken,
   saveGuardianToken,
@@ -414,5 +415,61 @@ describe("refreshGuardianToken", () => {
       console.warn = origWarn;
     }
     expect(called).toBe(false);
+  });
+});
+
+describe("guardianTokenDueForRenewal", () => {
+  const FUTURE = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+
+  function token(over: Partial<GuardianTokenData>): GuardianTokenData {
+    return {
+      guardianPrincipalId: "p",
+      accessToken: "a",
+      accessTokenExpiresAt: FUTURE,
+      refreshToken: "r",
+      refreshTokenExpiresAt: FUTURE,
+      refreshAfter: "",
+      isNew: false,
+      deviceId: "d",
+      leasedAt: new Date().toISOString(),
+      ...over,
+    };
+  }
+
+  test("past refreshAfter → due", () => {
+    expect(guardianTokenDueForRenewal(token({ refreshAfter: PAST }))).toBe(
+      true,
+    );
+  });
+
+  test("future refreshAfter → not due", () => {
+    expect(guardianTokenDueForRenewal(token({ refreshAfter: FUTURE }))).toBe(
+      false,
+    );
+  });
+
+  test("empty refreshAfter falls back to accessTokenExpiresAt (past → due)", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "", accessTokenExpiresAt: PAST }),
+      ),
+    ).toBe(true);
+  });
+
+  test("empty refreshAfter falls back to accessTokenExpiresAt (future → not due)", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "", accessTokenExpiresAt: FUTURE }),
+      ),
+    ).toBe(false);
+  });
+
+  test("unparseable timestamp → not due", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "not-a-date", accessTokenExpiresAt: "nope" }),
+      ),
+    ).toBe(false);
   });
 });

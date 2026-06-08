@@ -20,6 +20,7 @@ import { saveGuardianToken } from "../lib/guardian-token";
 
 const RUNTIME = "https://gw.example.com";
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const past = () => new Date(Date.now() - 60_000).toISOString();
 
 function seedEntry(cloud: string, localUrl?: string): void {
   saveAssistantEntry({
@@ -33,14 +34,19 @@ function seedEntry(cloud: string, localUrl?: string): void {
   });
 }
 
-function seedToken(accessToken: string, refreshToken: string): void {
+function seedToken(
+  accessToken: string,
+  refreshToken: string,
+  opts?: { due?: boolean },
+): void {
+  const due = opts?.due ?? true;
   saveGuardianToken("px", {
     guardianPrincipalId: "imported",
     accessToken,
-    accessTokenExpiresAt: future(),
+    accessTokenExpiresAt: due ? past() : future(),
     refreshToken,
     refreshTokenExpiresAt: refreshToken ? future() : 0,
-    refreshAfter: "",
+    refreshAfter: due ? past() : future(),
     isNew: false,
     deviceId: "dev",
     leasedAt: new Date().toISOString(),
@@ -201,5 +207,19 @@ describe("maybeRefreshAuthHeaders", () => {
 
     expect(ok).toBe(false);
     expect(auth.Authorization).toBe("Bearer old-acc");
+  });
+
+  test("does NOT refresh when the stored token is not due for renewal", async () => {
+    // A forged 401 on a still-valid token must not coax out the refresh token.
+    seedEntry("paired");
+    seedToken("old-acc", "ref", { due: false });
+    const refresh = stubRefresh(true);
+    const auth = { Authorization: "Bearer old-acc" };
+
+    const ok = await maybeRefreshAuthHeaders(RUNTIME, "px", auth);
+
+    expect(ok).toBe(false);
+    expect(auth.Authorization).toBe("Bearer old-acc"); // unchanged
+    expect(refresh.hit()).toBe(false); // refresh not attempted
   });
 });

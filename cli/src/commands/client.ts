@@ -16,7 +16,11 @@ import {
   GATEWAY_PORT,
   type Species,
 } from "../lib/constants";
-import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+  guardianTokenDueForRenewal,
+} from "../lib/guardian-token";
 import { normalizeRuntimeUrl, trustedRefreshUrl } from "../lib/runtime-url";
 import {
   CLI_INTERFACE_ID,
@@ -876,11 +880,8 @@ export async function resolveFreshBearerToken(
     return bearerToken;
   }
 
-  // new Date() handles both ISO strings and epoch-ms numbers; Date.parse of an
-  // epoch-ms string would be NaN.
-  const renewAtRaw = stored.refreshAfter || stored.accessTokenExpiresAt;
-  const renewAt = new Date(renewAtRaw).getTime();
-  if (!Number.isFinite(renewAt) || renewAt > Date.now()) return bearerToken;
+  // Only refresh once the stored token is actually due for renewal.
+  if (!guardianTokenDueForRenewal(stored)) return bearerToken;
 
   // SECURITY: bind the refresh to the entry's persisted URL. `--url`/`-u` can
   // override `runtimeUrl` while still reusing this stored guardian token, so a
