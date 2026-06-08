@@ -31,7 +31,10 @@ mock.module("../memory/attachments-store.js", () => ({
   getAttachmentContent: () => null,
 }));
 
-import { runAssistantDrivenCompaction } from "../context/compactor.js";
+import {
+  runAssistantDrivenCompaction,
+  runEmergencyCompaction,
+} from "../context/compactor.js";
 import type { Message, Provider } from "../providers/types.js";
 
 const TAIL_TIMESTAMP =
@@ -92,12 +95,43 @@ const assistantWithWebSearch = (): Message => ({
   ],
 });
 
+const assistantToolUse = (): Message => ({
+  role: "assistant",
+  content: [
+    { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+  ],
+});
+
+const toolResult = (): Message => ({
+  role: "user",
+  content: [{ type: "tool_result", tool_use_id: "tu_1", content: "ok" }],
+});
+
 function serializeBlocks(messages: Message[]): string {
   return JSON.stringify(messages);
 }
 
-describe("runAssistantDrivenCompaction — historical web-search sanitization", () => {
-  test("strips expired encrypted_content from the summary request while leaving durable history untouched", async () => {
+// Records the exact message list the provider is asked to summarize.
+function recordingProvider(sink: { sent: Message[] }): Provider {
+  return {
+    name: "mock-provider",
+    sendMessage: async (msgs: Message[]) => {
+      sink.sent = msgs;
+      return {
+        content: [{ type: "text", text: compactionResponse }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "end_turn",
+      };
+    },
+  };
+}
+
+// Expired Anthropic web-search tokens must never reach the summarization LLM:
+// both compaction provider calls funnel through the same request builder, so
+// each is guarded here.
+describe("compaction summary calls — historical web-search sanitization", () => {
+  test("runAssistantDrivenCompaction strips expired encrypted_content from the request while leaving durable history untouched", async () => {
     // GIVEN a history whose older turn contains a native web_search_tool_result
     // block carrying an opaque, expired `encrypted_content` token
     const messages: Message[] = [
@@ -109,27 +143,13 @@ describe("runAssistantDrivenCompaction — historical web-search sanitization", 
 
     // AND a snapshot of the caller's array so we can assert it is not mutated
     const inputSnapshot = serializeBlocks(messages);
-
-    // AND a provider that records the exact messages it is asked to summarize
-    let sentMessages: Message[] = [];
-    const provider: Provider = {
-      name: "mock-provider",
-      sendMessage: async (msgs: Message[]) => {
-        sentMessages = msgs;
-        return {
-          content: [{ type: "text", text: compactionResponse }],
-          model: "mock-model",
-          usage: { inputTokens: 100, outputTokens: 50 },
-          stopReason: "end_turn",
-        };
-      },
-    };
+    const sink = { sent: [] as Message[] };
 
     // WHEN compaction runs over that history
     const result = await runAssistantDrivenCompaction({
       conversationId: "conv-web-search",
       messages,
-      provider,
+      provider: recordingProvider(sink),
       systemPrompt: "system",
       compaction: { enabled: true, autoThreshold: 0.7 },
       maxInputTokens: 1000,
@@ -137,18 +157,56 @@ describe("runAssistantDrivenCompaction — historical web-search sanitization", 
     });
 
     // THEN the summary request the provider received carries no expired token
-    // and no native web_search_tool_result block
-    const sentSerialized = serializeBlocks(sentMessages);
+    // and no native web_search blocks, but keeps the search content as text
+    const sentSerialized = serializeBlocks(sink.sent);
     expect(sentSerialized).not.toContain(ENCRYPTED_TOKEN);
     expect(sentSerialized).not.toContain("web_search_tool_result");
     expect(sentSerialized).not.toContain("server_tool_use");
-
-    // AND the search content survives as a readable text summary
     expect(sentSerialized).toContain("All About Cats");
     expect(sentSerialized).toContain("https://cats.example");
 
     // AND the caller's durable history array is left byte-for-byte untouched,
     // so persisted messages keep the original rich blocks
+    expect(serializeBlocks(messages)).toBe(inputSnapshot);
+    expect(result.compacted).toBe(true);
+  });
+
+  test("runEmergencyCompaction strips expired encrypted_content from the prefix request", async () => {
+    // GIVEN a mid-turn history whose prefix (before the last tool pair) holds a
+    // web_search_tool_result block with an expired token
+    const messages: Message[] = [
+      userText("old user turn"),
+      assistantWithWebSearch(),
+      userText("keep going"),
+      assistantToolUse(),
+      toolResult(),
+    ];
+
+    const inputSnapshot = serializeBlocks(messages);
+    const sink = { sent: [] as Message[] };
+
+    // WHEN emergency compaction splits at the last tool pair and summarizes the
+    // prefix
+    const result = await runEmergencyCompaction({
+      conversationId: "conv-web-search-emergency",
+      messages,
+      provider: recordingProvider(sink),
+      systemPrompt: "system",
+      compaction: { enabled: true, autoThreshold: 0.7 },
+      // Large budget so the prefix is not front-truncated — this test exercises
+      // the web-search sanitizer, not the truncation fallback.
+      maxInputTokens: 100000,
+      previousEstimatedInputTokens: 90000,
+    });
+
+    // THEN the prefix sent to the provider carries no expired token
+    const sentSerialized = serializeBlocks(sink.sent);
+    expect(sentSerialized).not.toContain(ENCRYPTED_TOKEN);
+    expect(sentSerialized).not.toContain("web_search_tool_result");
+    expect(sentSerialized).not.toContain("server_tool_use");
+    expect(sentSerialized).toContain("All About Cats");
+
+    // AND the caller's durable history is untouched
     expect(serializeBlocks(messages)).toBe(inputSnapshot);
     expect(result.compacted).toBe(true);
   });

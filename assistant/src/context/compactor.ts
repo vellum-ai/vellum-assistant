@@ -686,6 +686,25 @@ function extractTextFromResponse(content: ContentBlock[]): string {
     .join("\n");
 }
 
+// Build the outbound message list for a compaction provider call: convert
+// historical web_search_tool_result blocks to text, then append the
+// summarization instruction at the tail.
+//
+// Anthropic's opaque `encrypted_content` tokens are route-scoped and expire, so
+// replaying a stale one is rejected with `Invalid encrypted_content in
+// search_result block`. Sanitizing here — the single seam every compaction
+// provider call funnels through — keeps that error away from both the
+// assistant-driven and emergency summarization calls. Only this outbound copy
+// is sanitized; tail resolution and the persisted compaction result read the
+// caller's original messages, so durable history keeps the rich blocks. The
+// instruction stays at the tail so the prefix cache stays warm.
+function buildCompactionRequest(
+  history: Message[],
+  instruction: Message,
+): Message[] {
+  return [...stripHistoricalWebSearchResults(history).messages, instruction];
+}
+
 export async function runAssistantDrivenCompaction(
   args: CompactionRunArgs,
 ): Promise<CompactionRunResult> {
@@ -719,17 +738,7 @@ export async function runAssistantDrivenCompaction(
     manifestText,
   );
 
-  // Convert historical web_search_tool_result blocks to text for the summary
-  // request: Anthropic's opaque `encrypted_content` tokens expire / are
-  // route-scoped, so replaying a stale one is rejected with `Invalid
-  // encrypted_content in search_result block`. Only the outbound summary copy
-  // is sanitized — tail resolution and the persisted compaction result read
-  // the original `args.messages`, so durable history keeps the rich blocks.
-  // The instruction is appended at the tail so the prefix cache stays warm.
-  const requestMessages = [
-    ...stripHistoricalWebSearchResults(args.messages).messages,
-    instruction,
-  ];
+  const requestMessages = buildCompactionRequest(args.messages, instruction);
 
   let response: ProviderResponse;
   try {
@@ -1099,7 +1108,7 @@ export async function runEmergencyCompaction(
     role: "user",
     content: [{ type: "text", text: EMERGENCY_COMPACTION_PROMPT }],
   };
-  const requestMessages = [...prefix, instruction];
+  const requestMessages = buildCompactionRequest(prefix, instruction);
 
   let response: ProviderResponse;
   try {
