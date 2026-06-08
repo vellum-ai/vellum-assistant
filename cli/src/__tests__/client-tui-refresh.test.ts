@@ -17,7 +17,7 @@ import { resolveFreshBearerToken } from "../commands/client.js";
 import { saveAssistantEntry } from "../lib/assistant-config.js";
 import { saveGuardianToken } from "../lib/guardian-token.js";
 
-const RUNTIME = "http://10.0.0.9:7830";
+const RUNTIME = "https://gw.example.com";
 const past = () => new Date(Date.now() - 60_000).toISOString();
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 

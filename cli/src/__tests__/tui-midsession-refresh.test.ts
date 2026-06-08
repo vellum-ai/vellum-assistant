@@ -18,7 +18,7 @@ import { maybeRefreshAuthHeaders } from "../components/DefaultMainScreen";
 import { saveAssistantEntry } from "../lib/assistant-config";
 import { saveGuardianToken } from "../lib/guardian-token";
 
-const RUNTIME = "http://10.0.0.9:7830";
+const RUNTIME = "https://gw.example.com";
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
 function seedEntry(cloud: string, localUrl?: string): void {
