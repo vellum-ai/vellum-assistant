@@ -838,11 +838,6 @@ export class AgentLoop {
     // prior post-call placement, plus the first call when
     // `compactInPlace` is set (the primary run's turn-start compaction).
     let budgetGateArmed = compactInPlace;
-    // Distinguishes the first-call gate from mid-loop re-entries within the
-    // shared gate body: the first-call pass compacts-or-proceeds (never yields)
-    // and honors the compaction circuit breaker, matching the orchestrator's
-    // turn-start compaction. Consumed once on the first iteration.
-    let firstCallGate = compactInPlace;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -902,8 +897,12 @@ export class AgentLoop {
         // escalate.
         if (budgetGateArmed) {
           budgetGateArmed = false;
-          const isFirstCallGate = firstCallGate;
-          firstCallGate = false;
+          // The gate only re-arms after a completed tool-use iteration
+          // (`toolUseTurns` is incremented first), so reaching it with
+          // `toolUseTurns === 0` uniquely identifies the first-call pass: it
+          // compacts-or-proceeds (never yields) and honors the compaction
+          // circuit breaker, matching the orchestrator's turn-start compaction.
+          const isFirstCallGate = toolUseTurns === 0;
           const contextWindow = resolveContextWindow?.();
           if (contextWindow?.overflowRecovery.enabled) {
             const { maxInputTokens, overflowRecovery } = contextWindow;
