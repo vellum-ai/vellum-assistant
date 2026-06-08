@@ -52,7 +52,7 @@ mock.module("../../../../util/logger.js", () => ({
 // the real `denseLane` unless this file's tests are running (`denseMockActive`),
 // so the process-global `mock.module` cannot leak fake behavior into
 // dense.test.ts (which exercises the real lane). Spread the real module so
-// every other export (`_resetDenseLaneForTests`, `OVERSAMPLE`) stays present.
+// every other export (`OVERSAMPLE`) stays present.
 const realDense = { ...(await import("../dense.js")) };
 let denseMockActive = false;
 let denseHits: Array<{ article: Slug; section: number }> = [];

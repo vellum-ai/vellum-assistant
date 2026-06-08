@@ -16,8 +16,8 @@
  *      section against the query. The synthetic capability slugs (skills / CLI
  *      commands) are always appended (lane-ranking of synthetic pages is a
  *      documented fast-follow).
- *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool, replacing
- *      the per-leaf L2 fan-out. The result is this turn's selections.
+ *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
+ *      result is this turn's selections.
  *   4. Age the carry-forward working set to this turn (evict stale non-pinned
  *      entries, then the cap) and snapshot it — the pages carried in from
  *      EARLIER turns.
@@ -50,12 +50,6 @@ import { WorkingSet } from "./working-set.js";
 export const DEFAULT_NEEDLE_K = 100;
 /** Default number of dense-lane articles to fold into the pool. */
 export const DEFAULT_DENSE_K = 100;
-/** Default number of top needle+dense seeds expanded by the edge lane. */
-export const DEFAULT_EDGE_SEEDS = 18;
-/** Default neighbours surfaced per expanded edge seed. */
-export const DEFAULT_EDGE_PER_SEED = 6;
-/** Default hard cap on the total number of articles the edge lane surfaces. */
-export const DEFAULT_EDGE_CAP = 45;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;
@@ -72,14 +66,14 @@ export interface OrchestrateDeps {
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
   denseK?: number;
-  /** Number of top needle+dense seeds expanded. Defaults to
-   *  {@link DEFAULT_EDGE_SEEDS}. */
+  /** Number of top needle+dense seeds expanded. When omitted, the edge lane's
+   *  own default applies (canonical value: `memory.v3.edge.seedCount`). */
   edgeSeeds?: number;
-  /** Neighbours surfaced per expanded edge seed. Defaults to
-   *  {@link DEFAULT_EDGE_PER_SEED}. */
+  /** Neighbours surfaced per expanded edge seed. When omitted, the edge lane's
+   *  own default applies (canonical value: `memory.v3.edge.perSeed`). */
   edgePerSeed?: number;
-  /** Hard cap on total edge-lane surfaced articles. Defaults to
-   *  {@link DEFAULT_EDGE_CAP}. */
+  /** Hard cap on total edge-lane surfaced articles. When omitted, the edge
+   *  lane's own default applies (canonical value: `memory.v3.edge.cap`). */
   edgeCap?: number;
 }
 
@@ -92,8 +86,8 @@ export interface OrchestrateResult {
   /** Slugs to inject: this turn's selections ∪ the carried-forward working set. */
   finalInjection: Slug[];
   /** The matched `Section` for each pooled slug that had one, keyed by slug.
-   *  Populated from the lane hits; unused downstream until matched-section
-   *  injection lands (PR 8). */
+   *  Populated from the lane hits and consumed by the injector to render each
+   *  selected slug's matched section (progressive disclosure). */
   sectionBySlug: Map<Slug, Section>;
 }
 
@@ -108,9 +102,6 @@ export async function orchestrate(
 ): Promise<OrchestrateResult> {
   const needleK = deps.needleK ?? DEFAULT_NEEDLE_K;
   const denseK = deps.denseK ?? DEFAULT_DENSE_K;
-  const edgeSeeds = deps.edgeSeeds ?? DEFAULT_EDGE_SEEDS;
-  const edgePerSeed = deps.edgePerSeed ?? DEFAULT_EDGE_PER_SEED;
-  const edgeCap = deps.edgeCap ?? DEFAULT_EDGE_CAP;
   const { sections } = deps.sectionIndex;
 
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
@@ -169,9 +160,9 @@ export async function orchestrate(
     ...densed.map((h) => h.article),
   ]);
   const surfaced = edgeExpand(deps.edgeGraph, seeds, {
-    seedCount: edgeSeeds,
-    perSeed: edgePerSeed,
-    cap: edgeCap,
+    seedCount: deps.edgeSeeds,
+    perSeed: deps.edgePerSeed,
+    cap: deps.edgeCap,
     alive: (slug) => !poolBySlug.has(slug),
   });
   for (const neighbor of surfaced) {
