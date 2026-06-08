@@ -110,8 +110,14 @@ export function resolveCallSiteConfig(
   const resolved = finalize(
     deepMerge(...layers.map(withImpliedProviderForKnownModel)),
   );
+  // `logitBias` is profile-scoped: the winning profile is its only source.
+  // Overwrite — or clear — whatever the deep-merge may have copied from a
+  // non-profile layer (`llm.default` or a call-site fragment), so a preset set
+  // outside a profile can't apply to a profile that didn't opt in.
   if (biasRef.preset !== undefined) {
     resolved.logitBias = biasRef.preset;
+  } else {
+    delete (resolved as { logitBias?: unknown }).logitBias;
   }
   return resolved;
 }

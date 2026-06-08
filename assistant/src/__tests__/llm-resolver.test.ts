@@ -1312,4 +1312,13 @@ describe("resolveCallSiteConfig logitBias provenance", () => {
       resolveCallSiteConfig("memoryExtraction", llm).logitBias,
     ).toBeUndefined();
   });
+
+  test("a logitBias on a non-profile layer (llm.default) does not apply when the winning profile omits it", () => {
+    const llm = LLMSchema.parse({
+      default: { ...fullDefault, logitBias: "suppress-cjk" },
+      profiles: { plain: { provider: "anthropic", model: "claude-opus-4-7" } },
+      activeProfile: "plain",
+    });
+    expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBeUndefined();
+  });
 });
