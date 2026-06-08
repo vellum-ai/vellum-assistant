@@ -68,6 +68,7 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
   last_charge_at: null,
   last_failure_at: null,
   last_failure_reason: null,
+  disabled_due_to_repeated_failures: false,
   paused_until: null,
   current_month_credits_purchased_usd: "0.00",
   current_month_charged_usd: "0.00",
