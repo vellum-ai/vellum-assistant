@@ -481,14 +481,6 @@
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
       "defaultEnabled": false
-    },
-    {
-      "id": "acp",
-      "scope": "assistant",
-      "key": "acp",
-      "label": "ACP Coding Agents",
-      "description": "Enable spawning and steering external coding agents (Claude Code, Codex, Gemini) via the Agent Client Protocol. Alternative gate to the acp.enabled workspace config field; either enables the subsystem.",
-      "defaultEnabled": false
     }
   ]
 }
