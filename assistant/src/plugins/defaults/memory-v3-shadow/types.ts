@@ -94,4 +94,17 @@ export interface MemoryRoutingTurn {
  * tightening needs no migration (any historical rows with the old labels still
  * read back fine via the permissive `z.string()` row schema).
  */
-export type SelectionSource = "needle" | "dense" | "edge" | "carry-forward";
+/**
+ * Canonical ordered list of the lane sources. The {@link SelectionSource} type
+ * is derived from this so a new lane is added in exactly one place and the
+ * runtime list (used for telemetry roll-ups and source validation) can never
+ * drift from the type.
+ */
+export const SELECTION_SOURCES = [
+  "needle",
+  "dense",
+  "edge",
+  "carry-forward",
+] as const;
+
+export type SelectionSource = (typeof SELECTION_SOURCES)[number];

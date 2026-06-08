@@ -106,7 +106,7 @@ mock.module("../page-content.js", () => ({
       : realPageContent.renderV3SectionContent(slug, undefined),
 }));
 
-const { getMemoryV3SelectionForInspector } =
+const { getMemoryV3SelectionForInspector, summarizeSelections } =
   await import("../selection-log-store.js");
 
 beforeEach(() => {
@@ -178,5 +178,57 @@ describe("getMemoryV3SelectionForInspector", () => {
     const on = await getMemoryV3SelectionForInspector("conv-5", 1);
     expect(on?.live).toBe(true);
     expect(on?.shadow).toBe(true);
+  });
+});
+
+describe("summarizeSelections", () => {
+  test("aggregates per-source counts, turn count, and distinct slugs", () => {
+    // Turn 1: a needle + an edge selection.
+    seed("conv-a", 1, [
+      { slug: "domain-a/page-1", source: "needle" },
+      { slug: "domain-b/page-2", source: "edge" },
+    ]);
+    // Turn 2: page-1 re-selected (needle) + page-2 carried forward.
+    seed("conv-a", 2, [
+      { slug: "domain-a/page-1", source: "needle", pinned: true },
+      { slug: "domain-b/page-2", source: "carry-forward" },
+    ]);
+    // A different conversation must not bleed into the aggregate.
+    seed("conv-b", 1, [{ slug: "domain-c/page-9", source: "dense" }]);
+
+    const summary = summarizeSelections("conv-a");
+    expect(summary.bySource).toEqual({
+      needle: 2,
+      dense: 0,
+      edge: 1,
+      "carry-forward": 1,
+    });
+    expect(summary.turns).toBe(2);
+    // page-1 and page-2 — distinct across the two turns.
+    expect(summary.distinctSlugs).toBe(2);
+  });
+
+  test("returns zeroed counts for a conversation with no rows", () => {
+    expect(summarizeSelections("conv-none")).toEqual({
+      bySource: { needle: 0, dense: 0, edge: 0, "carry-forward": 0 },
+      turns: 0,
+      distinctSlugs: 0,
+    });
+  });
+
+  test("ignores unknown/free-text historical source labels in bySource but counts the turn", () => {
+    // A pre-lane historical row with a legacy label (column is free-text).
+    seed("conv-c", 1, [
+      { slug: "domain-a/page-1", source: "l1+l2" },
+      { slug: "domain-a/page-2", source: "needle" },
+    ]);
+    const summary = summarizeSelections("conv-c");
+    expect(summary.bySource.needle).toBe(1);
+    // The unknown label is not counted in any known bucket.
+    const total = Object.values(summary.bySource).reduce((a, b) => a + b, 0);
+    expect(total).toBe(1);
+    // But the turn and both distinct slugs are still reflected.
+    expect(summary.turns).toBe(1);
+    expect(summary.distinctSlugs).toBe(2);
   });
 });
