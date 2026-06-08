@@ -16,6 +16,7 @@ import path from "node:path";
 
 import { BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { createVellumAppHandler } from "./vellumapp-protocol";
+import { denyAllPermissions } from "./permissions";
 import { hardenedWebPreferences } from "./windows";
 
 const openBundleWindows = new Map<string, BrowserWindow>();
@@ -34,6 +35,7 @@ export const openBundleWindow = (
   const bundleSession = session.fromPartition(`persist:bundle-${uuid}`, {
     cache: true,
   });
+  denyAllPermissions(bundleSession);
 
   const bundlesRoot = path.join(app.getPath("userData"), BUNDLES_DIR_NAME);
   bundleSession.protocol.handle(

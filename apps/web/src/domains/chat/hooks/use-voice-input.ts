@@ -9,9 +9,9 @@ import {
 } from "@/domains/chat/components/mic-permission-primer";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
+import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
-import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,10 +97,10 @@ export function useVoiceInput({
   const primerResolveRef = useRef<((v: boolean) => void) | null>(null);
   const isNative = useIsNativePlatform();
 
-  // Push-to-talk is a hardware-keyboard-only affordance: the activator is a
-  // configurable modifier-key hold (e.g. Right-Option) that touch soft
-  // keyboards cannot produce.
-  usePushToTalk(voiceInputRef, { enabled: !isPointerCoarse() });
+  // Push-to-talk is a hardware-keyboard-only affordance. Keep it disabled for
+  // touch-first web/iOS surfaces, but always enable it in Electron so the
+  // native Fn helper can register and desktop fallback modifiers still work.
+  usePushToTalk(voiceInputRef, { enabled: shouldEnablePushToTalk() });
 
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);

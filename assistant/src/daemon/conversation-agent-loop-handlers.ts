@@ -1482,6 +1482,13 @@ function annotatePersistedAssistantMessage(
         display: surface.display,
         ...(surface.persistent ? { persistent: true } : {}),
         ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+        // Daemon-only commit-timing activation tag, persisted so
+        // restoreSurfaceStateFromHistory can rehydrate it after a reload. This
+        // block lives only in server-side conversation history, never in the
+        // client `ui_surface_show` message.
+        ...(surface.activationMoment
+          ? { activationMoment: surface.activationMoment }
+          : {}),
       } as unknown as ContentBlock);
     }
     modified = true;

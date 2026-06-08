@@ -26,6 +26,7 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
+    { from: "resources/hotkey-helper", to: "hotkey-helper" },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "build/icon.icns", to: "icon.icns" },
   ],

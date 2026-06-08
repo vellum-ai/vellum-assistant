@@ -1,5 +1,7 @@
 import { Brain, X } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo } from "react";
+
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -56,19 +58,10 @@ const HEADER_INFO_MAX_CHARS = 80;
 
 export interface ActivityRunCardProps {
   toolCalls: ChatMessageToolCall[];
-  expandedToolCallIds: Set<string>;
-  onExpandChange: (toolCallId: string, expanded: boolean) => void;
-  /**
-   * Persistent map of card expansion overrides. Keyed by the first tool-call
-   * id in the group so the user's explicit toggle survives component remounts
-   * (e.g. when items transition from latest-turn to history). `true` = user
-   * explicitly expanded, `false` = user explicitly collapsed.
-   */
-  expandedCardIds: Map<string, boolean>;
   /**
    * Ephemeral parent-driven expansion for the currently active tool-call
-   * group. Unlike `expandedCardIds`, this is not persisted; explicit user
-   * toggles still win.
+   * group. Unlike store-persisted `expandedCardIds`, this is not persisted;
+   * explicit user toggles still win.
    */
   autoExpand?: boolean;
   onOpenRuleEditor?: (context: {
@@ -239,11 +232,7 @@ export function ActivityRunCard(props: ActivityRunCardProps) {
   );
   const cardData = useToolCallCardDataFromItems(effectiveItems);
   const cardId = toolCalls[0]?.id ?? null;
-  const expanded = useCardExpanded(
-    cardId,
-    props.expandedCardIds,
-    autoExpand,
-  );
+  const expanded = useCardExpanded(cardId, autoExpand);
 
   // Confirmation short-circuit — render the inline approve/deny UI via the
   // existing chip-based rendering. Bypasses the progress-card chrome
@@ -555,29 +544,30 @@ function UnifiedActivityRunCard({
  * Drives the unified card's expand/collapse state. Tool progress cards default
  * collapsed in chat so past tool activity stays compact. The transcript can
  * temporarily expand the current active group via `autoExpand`; a user toggle
- * (now or in a previous mount, recorded in `expandedCardIds`) wins across
- * state transitions and remounts.
+ * (recorded in `expandedCardIds` in the session store) wins across state
+ * transitions and remounts.
  *
- * `localToggle` mirrors the map mutation so React re-renders on click —
- * mutating the map alone wouldn't trigger one.
+ * Subscribes reactively via a Zustand selector — the store action produces a
+ * new Map instance on toggle, so this component re-renders without needing a
+ * local useState mirror.
  */
 function useCardExpanded(
   cardId: string | null,
-  expandedCardIds: Map<string, boolean>,
   autoExpand: boolean,
 ): { value: boolean; onChange: (next: boolean) => void } {
-  const [localToggle, setLocalToggle] = useState<boolean | undefined>(
-    undefined,
+  const persisted = useChatSessionStore(
+    (s) => (cardId != null ? s.expandedCardIds.get(cardId) : undefined),
   );
-  const persisted =
-    cardId != null ? expandedCardIds.get(cardId) : undefined;
-  const userChoice = localToggle ?? persisted;
-  const value = userChoice ?? autoExpand;
+  const value = persisted ?? autoExpand;
 
-  const onChange = (next: boolean) => {
-    setLocalToggle(next);
-    if (cardId != null) expandedCardIds.set(cardId, next);
-  };
+  const onChange = useCallback(
+    (next: boolean) => {
+      if (cardId != null) {
+        useChatSessionStore.getState().setExpandedCardId(cardId, next);
+      }
+    },
+    [cardId],
+  );
 
   return { value, onChange };
 }
@@ -664,8 +654,6 @@ function ExpandedStep({ step }: { step: ToolCallCardStep }) {
  */
 function ConfirmationView({
   toolCalls,
-  expandedToolCallIds,
-  onExpandChange,
   onOpenRuleEditor,
   onConfirmationSubmit,
   onAllowAndCreateRule,
@@ -681,10 +669,6 @@ function ConfirmationView({
             <Fragment key={tc.id}>
               <ToolCallChip
                 toolCall={tc}
-                defaultExpanded={expandedToolCallIds.has(tc.id)}
-                onExpandChange={(isExpanded) =>
-                  onExpandChange(tc.id, isExpanded)
-                }
                 onOpenRuleEditor={onOpenRuleEditor}
                 embedded
                 {...(isConfirmationTarget

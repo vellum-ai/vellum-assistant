@@ -17,7 +17,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
-  AssistantMessageContext,
+  PostModelCallContext,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,
@@ -1114,7 +1114,7 @@ export class AgentLoop {
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
-        // `assistant-message` hook can emit the finalized (transformed) text
+        // `post-model-call` hook can emit the finalized (transformed) text
         // instead. Reset per model call.
         let deferAssistantOutput = false;
 
@@ -1128,7 +1128,7 @@ export class AgentLoop {
           onEvent: (event) => {
             if (event.type === "text_delta") {
               // Held when the turn's output is deferred — the final text is
-              // emitted once, after the `assistant-message` hook runs.
+              // emitted once, after the `post-model-call` hook runs.
               if (deferAssistantOutput) return;
               // Apply sensitive-output placeholder substitution (chunk-safe)
               if (substitutionMap.size > 0) {
@@ -1298,7 +1298,7 @@ export class AgentLoop {
           streamingPending = "";
         }
 
-        // Run the `assistant-message` hook on a finalized message and, when
+        // Run the `post-model-call` hook on a finalized message and, when
         // output was deferred, emit the finalized text once (with sensitive-output
         // substitution applied, matching the live stream). Fail-open: the hook
         // receives a clone, so a throw — even mid in-place mutation — leaves the
@@ -1308,19 +1308,19 @@ export class AgentLoop {
         ): Promise<Message> => {
           let finalized = message;
           try {
-            const ctx: AssistantMessageContext = {
+            const ctx: PostModelCallContext = {
               conversationId: this.conversationId,
               callSite,
               content: structuredClone(message.content),
               stopReason: response.stopReason,
               logger: rlog,
             };
-            const result = await runHook(HOOKS.ASSISTANT_MESSAGE, ctx);
+            const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
             finalized = { role: "assistant", content: result.content };
           } catch (assistantMessageError) {
             rlog.error(
               { err: assistantMessageError },
-              "assistant-message hook failed — keeping the original content",
+              "post-model-call hook failed — keeping the original content",
             );
             finalized = message;
           }
@@ -1460,7 +1460,7 @@ export class AgentLoop {
           }
         }
 
-        // Run the `assistant-message` hook + emit any deferred final text.
+        // Run the `post-model-call` hook + emit any deferred final text.
         // On a no-tool turn this point is reached only after the `stop` hook
         // resolves to "stop" (a `continue` already re-queried above), so a
         // re-queried reply is never transformed-then-discarded.

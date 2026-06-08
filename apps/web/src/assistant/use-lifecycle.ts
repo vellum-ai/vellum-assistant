@@ -19,6 +19,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -52,13 +53,20 @@ export function useAssistantLifecycle({
 }: UseAssistantLifecycleOptions): void {
   const queryClient = useQueryClient();
 
+  const isOrgReady = useIsOrgReady();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
+
   // Whether to query the server-side status at all. Gateway-auth
   // mode and "local mode without platform session" short-circuit
   // to local states without ever calling /assistant/.
+  // Platform API calls require the Vellum-Organization-Id header;
+  // wait for the org store to resolve before firing them.
   const shouldQueryServer =
     isAuthenticated(sessionStatus) &&
     !isGatewayAuthMode() &&
-    (hasPlatformSession || !isLocalMode());
+    (hasPlatformSession || !isLocalMode()) &&
+    isOrgReady;
 
   // Which platform assistant the user has selected, gated by the
   // multi-platform-assistant flag. When the flag is off (or no
@@ -67,8 +75,6 @@ export function useAssistantLifecycle({
   // pre-multi-assistant behavior.
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
   const byOrg =
     useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
   const selectedPlatformAssistantId =
@@ -97,6 +103,7 @@ export function useAssistantLifecycle({
       resolveOnboardingRedirect,
       queryClient,
       selectedPlatformAssistantId,
+      isOrgReady,
     });
     void lifecycleService.respondToInputs();
   }, [
@@ -108,6 +115,7 @@ export function useAssistantLifecycle({
     resolveOnboardingRedirect,
     queryClient,
     selectedPlatformAssistantId,
+    isOrgReady,
   ]);
 
   // Hand poll results to the service — it decides whether to

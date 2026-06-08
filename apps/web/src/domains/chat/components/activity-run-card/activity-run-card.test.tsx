@@ -25,27 +25,39 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/hooks/tool-call-card-utils";
 import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 
-// The viewer store (pulled in transitively for `openToolDetail`) imports the
-// generated daemon SDK, which isn't built in CI/worktree checkouts. Stub the
-// two endpoints it references so the module loads; the card never invokes
-// them. Mirrors the `mock.module` pattern used across the conversations
-// tests. The component + store are imported dynamically below so the mock is
-// registered first.
-mock.module("@/generated/daemon/sdk.gen", () => ({
-  appsByIdOpenPost: async () => ({ data: undefined }),
-  documentsByIdGet: async () => ({ data: undefined }),
-}));
+// The viewer store and chat-session-store (pulled in transitively) import the
+// generated daemon SDK, which isn't built in CI/worktree checkouts. Stub all
+// endpoints so the module loads; the card never invokes them.
+// We read the real module's export names and build a stub object dynamically.
+const sdkStub = async () => ({ data: undefined });
+const realSdkPath = new URL(
+  "../../../../generated/daemon/sdk.gen.ts",
+  import.meta.url,
+).pathname;
+const sdkSource = await Bun.file(realSdkPath).text();
+const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
+  (m) => m[1]!,
+);
+const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
+mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
 const { ActivityRunCard } = await import(
   "@/domains/chat/components/activity-run-card/activity-run-card"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useChatSessionStore } = await import(
+  "@/domains/chat/chat-session-store"
+);
 
 afterEach(() => {
   cleanup();
-  // The pill click writes to the real viewer store — reset the drawer state
-  // between tests so assertions don't bleed across cases.
+  // Reset drawer state and expansion state between tests so assertions
+  // don't bleed across cases.
   useViewerStore.setState({ activeToolDetail: null, mainView: "chat" });
+  useChatSessionStore.setState({
+    expandedCardIds: new Map(),
+    expandedToolCallIds: new Set(),
+  });
 });
 
 function makeToolCall(
@@ -72,9 +84,6 @@ function renderCard(
   return render(
     <ActivityRunCard
       toolCalls={toolCalls}
-      expandedToolCallIds={new Set()}
-      onExpandChange={() => {}}
-      expandedCardIds={new Map()}
       {...overrides}
     />,
   );
@@ -151,9 +160,8 @@ describe("ActivityRunCard — tool step pill", () => {
         riskLevel: "high",
       }),
     ];
-    const { getByTestId } = renderCard(toolCalls, {
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId } = renderCard(toolCalls);
     const pill = getByTestId("tool-step-pill");
     expect(pill).toBeTruthy();
     // Activity sentence wins over the terse command info (it also surfaces in
@@ -180,9 +188,8 @@ describe("ActivityRunCard — tool step pill", () => {
         // Keep the card expanded so the pill is in the DOM post-completion.
       }),
     ];
-    const { getByTestId } = renderCard(toolCalls, {
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId } = renderCard(toolCalls);
     fireEvent.click(getByTestId("tool-step-pill"));
     const detail = useViewerStore.getState().activeToolDetail;
     expect(detail).not.toBeNull();
@@ -219,7 +226,6 @@ describe("ActivityRunCard — web tool group regression", () => {
   });
 
   test("web_search-only groups honor autoExpand through the shared shell", () => {
-    const expandedCardIds = new Map<string, boolean>();
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -231,9 +237,6 @@ describe("ActivityRunCard — web tool group regression", () => {
     const { getByRole, rerender } = render(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
         autoExpand
       />,
     );
@@ -242,9 +245,6 @@ describe("ActivityRunCard — web tool group regression", () => {
     rerender(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
         autoExpand={false}
       />,
     );
@@ -363,9 +363,8 @@ describe("ActivityRunCard — subagent_spawn filtering", () => {
         input: { command: "ls" },
       }),
     ];
-    const { getByTestId, queryByText } = renderCard(toolCalls, {
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId, queryByText } = renderCard(toolCalls);
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     // Single non-spawn tool call → step pill suppressed (only fires at 2+).
     expect(queryByText(/^\d+ steps?$/)).toBeNull();
@@ -384,13 +383,11 @@ describe("ActivityRunCard — unknown-command nudge", () => {
         input: { command: "frobnicate" },
       }),
     ];
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const { getByText } = renderCard(toolCalls, {
       unknownNudgeToolCallIds: new Set(["tc-1"]),
       onOpenRuleEditor: () => {},
       onDismissUnknownNudge: () => {},
-      // Force the body open so the nudge inside the expanded region is in
-      // the DOM regardless of the collapsed-by-default behavior.
-      expandedCardIds: new Map([["tc-1", true]]),
     });
     expect(getByText("This command wasn't recognized.")).toBeTruthy();
     expect(getByText("Create a rule")).toBeTruthy();
@@ -412,13 +409,13 @@ describe("ActivityRunCard — unknown-command nudge", () => {
       }),
     ];
     let captured: { toolName?: string; riskLevel?: string } = {};
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const { getByText } = renderCard(toolCalls, {
       unknownNudgeToolCallIds: new Set(["tc-1"]),
       onOpenRuleEditor: (ctx) => {
         captured = { toolName: ctx.toolName, riskLevel: ctx.riskLevel };
       },
       onDismissUnknownNudge: () => {},
-      expandedCardIds: new Map([["tc-1", true]]),
     });
     fireEvent.click(getByText("Create a rule"));
     expect(captured.toolName).toBe("bash");
@@ -435,13 +432,13 @@ describe("ActivityRunCard — unknown-command nudge", () => {
       }),
     ];
     const dismissed: { value: string | null } = { value: null };
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const { getByLabelText } = renderCard(toolCalls, {
       unknownNudgeToolCallIds: new Set(["tc-1"]),
       onOpenRuleEditor: () => {},
       onDismissUnknownNudge: (id) => {
         dismissed.value = id;
       },
-      expandedCardIds: new Map([["tc-1", true]]),
     });
     fireEvent.click(getByLabelText("Dismiss"));
     expect(dismissed.value).toBe("tc-1");
@@ -456,10 +453,10 @@ describe("ActivityRunCard — unknown-command nudge", () => {
         input: { command: "ls" },
       }),
     ];
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const { queryByText } = renderCard(toolCalls, {
       unknownNudgeToolCallIds: new Set([]),
       onOpenRuleEditor: () => {},
-      expandedCardIds: new Map([["tc-1", true]]),
     });
     expect(queryByText("This command wasn't recognized.")).toBeNull();
   });
@@ -495,7 +492,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
   });
 
   test("stays collapsed on the loading → complete transition without a user toggle", () => {
-    const expandedCardIds = new Map<string, boolean>();
     const running = [
       makeToolCall({
         id: "tc-1",
@@ -507,9 +503,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const { getByRole, rerender } = render(
       <ActivityRunCard
         toolCalls={running}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
@@ -527,16 +520,12 @@ describe("ActivityRunCard — expansion derived from state", () => {
     rerender(
       <ActivityRunCard
         toolCalls={completed}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
   test("user toggle wins after a state transition (manual expand survives → complete)", () => {
-    const expandedCardIds = new Map<string, boolean>();
     const running = [
       makeToolCall({
         id: "tc-1",
@@ -548,9 +537,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const { getByRole, rerender } = render(
       <ActivityRunCard
         toolCalls={running}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     // Card mounts collapsed; user expands it manually.
@@ -571,9 +557,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
     rerender(
       <ActivityRunCard
         toolCalls={completed}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
@@ -583,7 +566,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     // Simulates a user who collapsed a running card; after the turn finishes
     // the card remounts in `complete` (e.g. latest-turn → history transition)
     // and must respect the persisted collapse decision.
-    const expandedCardIds = new Map<string, boolean>([["tc-1", false]]);
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", false]]) });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -597,16 +580,13 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const { getByRole } = render(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
   test("persisted expanded=true overrides the collapsed default on completion", () => {
-    const expandedCardIds = new Map<string, boolean>([["tc-1", true]]);
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -620,16 +600,13 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const { getByRole } = render(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
       />,
     );
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
   });
 
   test("persisted expanded=true overrides the collapsed default while loading", () => {
-    const expandedCardIds = new Map<string, boolean>([["tc-1", true]]);
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -638,12 +615,11 @@ describe("ActivityRunCard — expansion derived from state", () => {
         input: { command: "ls" },
       }),
     ];
-    const { getByRole } = renderCard(toolCalls, { expandedCardIds });
+    const { getByRole } = renderCard(toolCalls);
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
   });
 
   test("autoExpand opens the current loading card without persisting a user choice", () => {
-    const expandedCardIds = new Map<string, boolean>();
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -653,15 +629,15 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = renderCard(toolCalls, {
-      expandedCardIds,
       autoExpand: true,
     });
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
-    expect(expandedCardIds.size).toBe(0);
+    // autoExpand does not persist the choice — store remains empty.
+    expect(useChatSessionStore.getState().expandedCardIds.size).toBe(0);
   });
 
   test("persisted collapse overrides autoExpand", () => {
-    const expandedCardIds = new Map<string, boolean>([["tc-1", false]]);
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", false]]) });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -671,14 +647,12 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = renderCard(toolCalls, {
-      expandedCardIds,
       autoExpand: true,
     });
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
   test("collapses when autoExpand turns off and the user has not toggled", () => {
-    const expandedCardIds = new Map<string, boolean>();
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -690,9 +664,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
     const { getByRole, rerender } = render(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
         autoExpand
       />,
     );
@@ -701,9 +672,6 @@ describe("ActivityRunCard — expansion derived from state", () => {
     rerender(
       <ActivityRunCard
         toolCalls={toolCalls}
-        expandedToolCallIds={new Set()}
-        onExpandChange={() => {}}
-        expandedCardIds={expandedCardIds}
         autoExpand={false}
       />,
     );
@@ -765,10 +733,9 @@ describe("ActivityRunCard — mixed group web_search_error rendering", () => {
         completedAt: 100,
       }),
     ];
-    const { getByTestId, getByText } = renderCard(toolCalls, {
-      // Force expand so the step body is in the DOM regardless of state.
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    // Force expand so the step body is in the DOM regardless of state.
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId, getByText } = renderCard(toolCalls);
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     expect(getByTestId("web-search-error-chip")).toBeTruthy();
     expect(getByText("Provider returned max_uses_exceeded.")).toBeTruthy();
@@ -789,10 +756,8 @@ describe("ActivityRunCard — ordered thinking items", () => {
       { kind: "thinking", text: "Let me check the directory first." },
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
-    const { getByText } = renderCard(toolCalls, {
-      items,
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByText } = renderCard(toolCalls, { items });
     // The thinking text appears as a separate step row in the expanded body.
     expect(getByText("Let me check the directory first.")).toBeTruthy();
     // The step count reflects the interleaved thinking step.
@@ -867,10 +832,8 @@ describe("ActivityRunCard — thinking pill", () => {
       { kind: "thinking", text: LONG_THINKING },
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
-    const { getByLabelText } = renderCard(toolCalls, {
-      items,
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByLabelText } = renderCard(toolCalls, { items });
     // The thinking step renders as a clickable pill (a <button>), not a
     // plain row. Scoped by its aria-label so it isn't confused with the
     // sibling bash tool pill.
@@ -897,10 +860,8 @@ describe("ActivityRunCard — thinking pill", () => {
       { kind: "thinking", text: LONG_THINKING },
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
-    const { getByLabelText } = renderCard(toolCalls, {
-      items,
-      expandedCardIds: new Map([["tc-1", true]]),
-    });
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByLabelText } = renderCard(toolCalls, { items });
     fireEvent.click(getByLabelText("View thinking"));
     const detail = useViewerStore.getState().activeToolDetail;
     expect(detail).not.toBeNull();

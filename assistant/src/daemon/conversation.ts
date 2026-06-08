@@ -68,7 +68,10 @@ import {
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import {
+  applyBootstrapTemplate,
+  buildSystemPrompt,
+} from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import {
@@ -79,6 +82,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import {
+  type ActivationMomentParam,
+  isActivationMomentParam,
+} from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
@@ -266,6 +273,8 @@ export class Conversation {
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
+  /** @internal */ currentTurnAuthContext?: AuthContext;
+  /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -338,6 +347,12 @@ export class Conversation {
         style?: string;
         data?: Record<string, unknown>;
       }>;
+      /**
+       * Commit-timing activation-rail tag (daemon-only). Rehydrated by
+       * `restoreSurfaceStateFromHistory` so a post-reload commit still records
+       * its funnel milestone. Never sent to the client.
+       */
+      activationMoment?: ActivationMomentParam;
     }
   >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
@@ -568,6 +583,7 @@ export class Conversation {
               trustContext: this.currentTurnTrustContext,
               channelCapabilities: this.currentTurnChannelCapabilities,
               onboardingContext: this.getOnboardingContext(),
+              conversationId: this.conversationId,
             }),
       };
       if (configuredMaxTokens !== undefined) {
@@ -646,6 +662,13 @@ export class Conversation {
 
   setOnboardingContext(ctx: OnboardingContext): void {
     this.onboardingContext = ctx;
+    // Reseed BOOTSTRAP.md and mark the activation session at the earliest point
+    // the conversation knows its bootstrap selection — before the first turn's
+    // tool resolution, which `buildSystemPrompt` is too late for. See
+    // `applyBootstrapTemplate`.
+    if (ctx.bootstrapTemplate) {
+      applyBootstrapTemplate(ctx.bootstrapTemplate, this.conversationId);
+    }
   }
 
   getOnboardingContext(): OnboardingContext | undefined {
@@ -687,6 +710,7 @@ export class Conversation {
           trustContext: this.currentTurnTrustContext,
           channelCapabilities: this.currentTurnChannelCapabilities,
           onboardingContext: this.getOnboardingContext(),
+          conversationId: this.conversationId,
         });
     const tools = getAllToolDefinitions();
     const provider = this.provider;
@@ -990,6 +1014,14 @@ export class Conversation {
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
+          // Rehydrate the daemon-only commit-timing activation tag so a commit
+          // after reload still records its funnel milestone. Validated and
+          // dropped if malformed; this field never reaches the client.
+          const activationMoment =
+            typeof b.activationMoment === "string" &&
+            isActivationMomentParam(b.activationMoment)
+              ? b.activationMoment
+              : undefined;
           this.surfaceState.set(b.surfaceId, {
             surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
             data: (b.data ?? {}) as SurfaceData,
@@ -1002,6 +1034,7 @@ export class Conversation {
                   data?: Record<string, unknown>;
                 }>)
               : undefined,
+            ...(activationMoment ? { activationMoment } : {}),
           });
         }
       }
@@ -1330,7 +1363,9 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
-    sourceActorPrincipalId = this.trustContext?.guardianPrincipalId,
+    sourceActorPrincipalId = this.currentTurnSourceActorPrincipalId ??
+      this.currentTurnAuthContext?.actorPrincipalId ??
+      this.authContext?.actorPrincipalId,
   ): void {
     if (
       shouldAttachHostProxyForCapability(

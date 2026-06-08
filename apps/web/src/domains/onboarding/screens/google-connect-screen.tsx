@@ -17,6 +17,7 @@ import {
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
 import { publicAsset } from "@/utils/public-asset";
@@ -57,6 +58,7 @@ export function GoogleConnectScreen({
   onSkip,
   onBack,
 }: GoogleConnectScreenProps) {
+  const electron = isElectron();
   const queryClient = useQueryClient();
   const isNative = useIsNativePlatform();
 
@@ -372,8 +374,8 @@ export function GoogleConnectScreen({
   const assistantSentenceName = assistantName || "Your assistant";
 
   return (
-    <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-md flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+    <OnboardingLayout showCreatureFooter={false}>
+      <div className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-7 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -386,8 +388,7 @@ export function GoogleConnectScreen({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}>
             Connect Google
           </h1>
           <div aria-hidden="true" className="h-8 w-8" />
@@ -441,7 +442,7 @@ export function GoogleConnectScreen({
             fullWidth
             onClick={handleConnect}
             disabled={oauthInProgress || startOAuth.isPending}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {oauthInProgress || startOAuth.isPending ? (
               <span className="flex items-center justify-center gap-2">
@@ -458,7 +459,7 @@ export function GoogleConnectScreen({
             fullWidth
             onClick={onSkip}
             disabled={oauthInProgress || startOAuth.isPending}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             Skip for now
           </Button>

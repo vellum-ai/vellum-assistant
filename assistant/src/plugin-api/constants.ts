@@ -26,8 +26,8 @@ export const HOOKS = {
   POST_TOOL_USE: "post-tool-use",
   /** Fires when the model yields a response with no tool calls — the run's stop boundary. Decides whether to stop or continue with a follow-up turn. */
   STOP: "stop",
-  /** Fires for each finalized assistant message, before it is persisted/streamed-final. A hook may transform the message content. */
-  ASSISTANT_MESSAGE: "assistant-message",
+  /** Fires for each finalized assistant message, once per model call, before it is persisted/streamed-final. A hook may transform the message content. */
+  POST_MODEL_CALL: "post-model-call",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

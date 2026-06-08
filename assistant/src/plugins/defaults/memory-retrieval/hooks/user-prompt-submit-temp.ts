@@ -38,7 +38,6 @@ import { findConversationOrSubagent } from "../../../../daemon/conversation-regi
 import {
   applyRuntimeInjections,
   type InboundActorContext,
-  type InjectionMode,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
@@ -78,12 +77,6 @@ export interface MemoryRetrievalHookContext {
    * context. The one turn-identity field the live conversation can't recover.
    */
   readonly requestId: string | undefined;
-  /**
-   * Injection volume for the assembled blocks. `"full"` on the first call;
-   * overflow reduction downgrades subsequent re-injection, but the first-call
-   * assembly this hook performs runs at the loop's committed mode.
-   */
-  readonly mode: InjectionMode;
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once at turn start and threaded in so injection uses
@@ -309,13 +302,15 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // input — the Slack chronological transcript, the unified `<turn_context>`
   // block, channel/voice/transport hints, and the turn's trust/index/call-site
   // — from the live conversation, so we hand in only the request id and
-  // conversation id plus the fields resolved once at turn start (`mode`,
-  // `isNonInteractive`, `modelProfile`, `actorContext`).
+  // conversation id plus the fields resolved once at turn start
+  // (`isNonInteractive`, `modelProfile`, `actorContext`). This first-call
+  // assembly always runs at `"full"` volume; overflow reduction only
+  // downgrades the mode on later re-injection.
   const injection = await applyRuntimeInjections(ctx.latestMessages, {
     isNonInteractive: ctx.isNonInteractive,
     modelProfile: ctx.modelProfile,
     actorContext: ctx.actorContext,
-    mode: ctx.mode,
+    mode: "full",
     requestId: ctx.requestId,
     conversationId: ctx.conversationId,
   });

@@ -7,6 +7,28 @@ body {
   color: var(--content-default);
 }
 
+/* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
+ * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
+ * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
+ * web/iOS funnel and the rest of the app are unchanged. The design-library type
+ * tokens read their weight from `--text-*-weight` custom properties, so we just
+ * rebind those vars; values mirror the Swift VFont tokens:
+ *   titleLarge 24/400 · bodyMediumLighter 14/300 · labelDefault 11/400 ·
+ *   bodySmallDefault 12/400. `bodyMediumDefault` intentionally stays 500
+ *   (Swift `bodyMediumEmphasised`) for buttons + vibe-card titles; section
+ *   headers / row labels opt down to 400 via `.prechat-md-regular`. */
+.electron-prechat-type {
+  --text-title-large-weight: 400;
+  --text-body-medium-lighter-weight: 300;
+  --text-label-medium-default-weight: 400;
+  --text-label-small-default-weight: 400;
+  --text-body-small-default-weight: 400;
+}
+
+.electron-prechat-type .prechat-md-regular {
+  --text-body-medium-default-weight: 400;
+}
+
 /* Functional keyframes — app-only animations. Animations consumed by
  * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
  * collapsible-slide-*) live in the library's tokens.css. */

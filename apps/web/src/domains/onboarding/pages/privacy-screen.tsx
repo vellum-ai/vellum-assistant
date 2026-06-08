@@ -18,6 +18,7 @@ import {
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
+import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -71,6 +72,7 @@ export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const userId = useAuthStore.use.user()?.id ?? null;
+  const electron = isElectron();
   const isNative = useIsNativePlatform();
   const preChatExperimentArm =
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
@@ -173,7 +175,17 @@ export function PrivacyScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 py-16 text-[var(--content-default)]">
+      <div
+        className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "pb-16" : "py-16"} text-[var(--content-default)]`}
+        style={
+          electron
+            ? {
+                paddingTop:
+                  "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1.5rem)",
+              }
+            : undefined
+        }
+      >
         {isNative && (
           <div
             className="mb-8 flex w-full justify-center"
@@ -182,7 +194,6 @@ export function PrivacyScreen() {
             <StepIndicatorDots current={2} total={3} />
           </div>
         )}
-        {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
         <h1 className="text-3xl font-semibold tracking-tight">
           {isReturningUser ? "Review Terms" : "Before You Start"}
         </h1>

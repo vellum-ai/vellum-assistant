@@ -6,6 +6,8 @@
  * subscribe to SSE events (use `vellum events` for that).
  */
 
+import { readFileSync } from "node:fs";
+
 import { extractFlag } from "../lib/arg-utils.js";
 import { AssistantClient } from "../lib/assistant-client.js";
 
@@ -14,21 +16,111 @@ function printUsage(): void {
 
 USAGE:
     vellum message [assistant] <message>
+    vellum message [assistant] --file <path>
 
 ARGUMENTS:
     [assistant]    Instance name (default: active assistant)
-    <message>      Message content to send
+    <message>      Message content to send (omit when using --file)
 
 OPTIONS:
+    --file <path>             Read message content from a file ("-" reads stdin)
     --conversation-key <key>  Conversation key (default: stable key per channel/interface)
     --json                    Output raw JSON response
 
 EXAMPLES:
     vellum message "hello"
     vellum message my-assistant "ping"
+    vellum message --file prompt.txt
+    vellum message my-assistant --file prompt.txt
+    cat prompt.txt | vellum message --file -
     vellum message --conversation-key my-thread "hello"
     vellum message --json "hello"
 `);
+}
+
+interface ParsedMessageArgs {
+  assistantId?: string;
+  conversationKey?: string;
+  jsonOutput: boolean;
+  /** Path to read message content from, or undefined for an inline message. */
+  filePath?: string;
+  /** Inline message content, present only when --file was not used. */
+  inlineMessage?: string;
+}
+
+type ParseResult =
+  | { ok: true; value: ParsedMessageArgs }
+  | { ok: false; error: string };
+
+/**
+ * Parse `vellum message` arguments. Pure: does no I/O and never exits, so the
+ * positional/flag rules can be unit-tested. File reading and validation of the
+ * resolved content happen in {@link message}.
+ */
+export function parseMessageArgs(rawArgs: string[]): ParseResult {
+  const jsonOutput = rawArgs.includes("--json");
+  let args = rawArgs.filter((a) => a !== "--json");
+
+  const [conversationKey, afterConversationKey] = extractFlag(
+    args,
+    "--conversation-key",
+  );
+  args = afterConversationKey;
+
+  const fileFlagPresent = args.includes("--file");
+  const [filePath, afterFile] = extractFlag(args, "--file");
+  args = afterFile;
+
+  // `extractFlag` strips a trailing value-less `--file`, which would otherwise
+  // make the next positional masquerade as the message content. Reject it.
+  if (fileFlagPresent && filePath === undefined) {
+    return { ok: false, error: "--file requires a path argument." };
+  }
+
+  if (filePath !== undefined) {
+    // vellum message [assistant] --file <path>
+    // The message content comes from the file, so any remaining positional
+    // arg is the assistant target.
+    if (args.length >= 2) {
+      return {
+        ok: false,
+        error: "--file cannot be combined with an inline message argument.",
+      };
+    }
+    return {
+      ok: true,
+      value: { assistantId: args[0], conversationKey, jsonOutput, filePath },
+    };
+  }
+
+  if (args.length >= 2) {
+    // vellum message <assistant> <message>
+    return {
+      ok: true,
+      value: {
+        assistantId: args[0],
+        conversationKey,
+        jsonOutput,
+        inlineMessage: args[1],
+      },
+    };
+  }
+  if (args.length === 1) {
+    // vellum message <message>  (uses active/latest assistant)
+    return {
+      ok: true,
+      value: { conversationKey, jsonOutput, inlineMessage: args[0] },
+    };
+  }
+
+  return { ok: false, error: "message content is required." };
+}
+
+function exitWithUsage(error: string): never {
+  console.error(`Error: ${error}`);
+  console.error("");
+  printUsage();
+  process.exit(1);
 }
 
 export async function message(): Promise<void> {
@@ -39,32 +131,30 @@ export async function message(): Promise<void> {
     return;
   }
 
-  const jsonOutput = rawArgs.includes("--json");
-  let args = rawArgs.filter((a) => a !== "--json");
-
-  const [conversationKey, filteredArgs] = extractFlag(
-    args,
-    "--conversation-key",
-  );
-  args = filteredArgs;
-
-  let assistantId: string | undefined;
-  let messageContent: string | undefined;
-
-  if (args.length >= 2) {
-    // vellum message <assistant> <message>
-    assistantId = args[0];
-    messageContent = args[1];
-  } else if (args.length === 1) {
-    // vellum message <message>  (uses active/latest assistant)
-    messageContent = args[0];
+  const parsed = parseMessageArgs(rawArgs);
+  if (!parsed.ok) {
+    exitWithUsage(parsed.error);
   }
 
-  if (!messageContent) {
-    console.error("Error: message content is required.");
-    console.error("");
-    printUsage();
-    process.exit(1);
+  const { assistantId, conversationKey, jsonOutput, filePath, inlineMessage } =
+    parsed.value;
+
+  let messageContent: string;
+  if (filePath !== undefined) {
+    try {
+      messageContent = readFileSync(filePath === "-" ? 0 : filePath, "utf-8");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(
+        `Error: could not read message file "${filePath}": ${reason}`,
+      );
+      process.exit(1);
+    }
+    if (messageContent.length === 0) {
+      exitWithUsage(`message file "${filePath}" is empty.`);
+    }
+  } else {
+    messageContent = inlineMessage ?? "";
   }
 
   const client = new AssistantClient({ assistantId });

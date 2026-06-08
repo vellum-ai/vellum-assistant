@@ -183,6 +183,19 @@ export interface OnboardingTelemetryEvent extends TelemetryEventBase {
   google_connected?: boolean;
   google_scopes?: string[];
   ab_variant?: string;
+  /**
+   * Activation-funnel fields (mirror the web funnel shape and the platform
+   * serializer). The platform accepts an onboarding event via either the
+   * legacy `screen` path or the all-funnel-fields path (`session_id` +
+   * `step_name` + `step_index` + `completed_at` + `funnel_version` +
+   * `ab_variant`).
+   */
+  session_id?: string;
+  step_name?: string;
+  step_index?: number;
+  completed_at?: string;
+  funnel_version?: string;
+  user_id?: string;
 }
 
 /**

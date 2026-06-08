@@ -9,6 +9,8 @@
 export {
   stripSensitiveFields,
   isLoopbackAddr,
+  headerHostIsLoopback,
+  originIsAllowed,
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";
@@ -19,6 +21,7 @@ export {
   getLockfileData,
   upsertLockfileAssistant,
   replacePlatformAssistants,
+  isActiveAssistant,
 } from "./lockfile";
 export type { LockfileResult, WriteResult } from "./lockfile";
 export { parseLockfile } from "./lockfile-contract";

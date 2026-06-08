@@ -55,7 +55,7 @@ export interface PluginLogger {
  *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
- *   - `assistant-message` — {@link AssistantMessageContext}
+ *   - `post-model-call` — {@link PostModelCallContext}
  */
 export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
@@ -137,6 +137,13 @@ export interface UserPromptSubmitContext {
    * row id rather than the in-memory message arrays, whose entries carry no id.
    */
   readonly userMessageId: string;
+  /**
+   * Stable ID for the request that drives this turn. Hooks that perform
+   * runtime injection forward it onto the injector turn context so the
+   * assembled blocks are attributed to the originating request; it is fixed
+   * for the turn and cannot be recovered from the message arrays.
+   */
+  readonly requestId: string;
   /**
    * The text of the user prompt that triggered this turn — the resolved
    * user message (after slash-command expansion), independent of any
@@ -328,7 +335,7 @@ export interface PreModelCallContext {
   systemPrompt: string | undefined;
   /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
-   * live assistant `text_delta` stream; an `assistant-message` hook is then
+   * live assistant `text_delta` stream; a `post-model-call` hook is then
    * expected to produce the text the client sees (emitted once, after the reply
    * is finalized). Lets a plugin replace streamed output wholesale — e.g.
    * redaction that needs the full message — instead of leaking the raw stream.
@@ -338,10 +345,10 @@ export interface PreModelCallContext {
   readonly logger: PluginLogger;
 }
 
-// ─── Assistant-message hook context ──────────────────────────────────────────
+// ─── Post-model-call hook context ────────────────────────────────────────────
 
 /**
- * Context passed to the `assistant-message` hook. Fires for each finalized
+ * Context passed to the `post-model-call` hook. Fires for each finalized
  * assistant message — once per model call, at the message-complete boundary —
  * before the message is persisted and (if deferred) streamed-final. Unlike
  * {@link StopContext}'s read-only `responseContent` (which exists for the stop
@@ -355,7 +362,7 @@ export interface PreModelCallContext {
  * place or return a new context; throwing is contained by the loop (the original
  * content is kept).
  */
-export interface AssistantMessageContext {
+export interface PostModelCallContext {
   /** Conversation ID the message belongs to. */
   readonly conversationId: string;
   /** The call site this message serves — `"mainAgent"` for the user-facing reply. */

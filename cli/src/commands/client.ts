@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { hostname } from "node:os";
 import path from "node:path";
 
 import {
@@ -18,7 +17,7 @@ import {
   type Species,
 } from "../lib/constants";
 import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
-import { getLocalLanIPv4 } from "../lib/local";
+import { normalizeRuntimeUrl, trustedRefreshUrl } from "../lib/runtime-url";
 import {
   CLI_INTERFACE_ID,
   WEB_INTERFACE_ID,
@@ -28,6 +27,7 @@ import {
   getLockfileData,
   upsertLockfileAssistant,
   replacePlatformAssistants,
+  isActiveAssistant,
   runHatch,
   runRetire,
   getGuardianAccessToken,
@@ -35,6 +35,8 @@ import {
   resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
   isLoopbackAddr,
+  headerHostIsLoopback,
+  originIsAllowed,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -212,7 +214,7 @@ export function parseArgs(): ParsedArgs {
   }
 
   return {
-    runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
+    runtimeUrl: normalizeRuntimeUrl(runtimeUrl),
     assistantId,
     assistantName,
     species,
@@ -221,45 +223,6 @@ export function parseArgs(): ParsedArgs {
     bearerToken,
     interfaceId,
   };
-}
-
-/**
- * If the hostname in `url` matches this machine's local DNS name, LAN IP, or
- * raw hostname, replace it with 127.0.0.1 so the client avoids mDNS round-trips
- * when talking to an assistant running on the same machine.
- */
-function maybeSwapToLocalhost(url: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return url;
-  }
-
-  const urlHost = parsed.hostname.toLowerCase();
-
-  const localNames: string[] = [];
-
-  const host = hostname();
-  if (host) {
-    localNames.push(host.toLowerCase());
-    // Also consider the bare name without .local suffix
-    if (host.toLowerCase().endsWith(".local")) {
-      localNames.push(host.toLowerCase().slice(0, -".local".length));
-    }
-  }
-
-  const lanIp = getLocalLanIPv4();
-  if (lanIp) {
-    localNames.push(lanIp);
-  }
-
-  if (localNames.includes(urlHost)) {
-    parsed.hostname = "127.0.0.1";
-    return parsed.toString().replace(/\/+$/, "");
-  }
-
-  return url;
 }
 
 function printUsage(): void {
@@ -424,6 +387,13 @@ async function handleLocalEndpoints(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (
+    !headerHostIsLoopback(req.headers.get("host") ?? undefined) ||
+    !originIsAllowed(req.headers.get("origin") ?? undefined)
+  ) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   // Lockfile
   if (LOCKFILE_PATTERN.test(pathname)) {
     if (req.method === "GET") {
@@ -527,6 +497,13 @@ async function handleLocalEndpoints(
       return Response.json(
         { ok: false, error: "Missing assistantId" },
         { status: 400 },
+      );
+    }
+
+    if (!isActiveAssistant(lockfilePaths, assistantId)) {
+      return Response.json(
+        { ok: false, error: "Can only retire the active local assistant" },
+        { status: 403 },
       );
     }
 
@@ -853,7 +830,17 @@ export async function resolveFreshBearerToken(
   const renewAt = new Date(renewAtRaw).getTime();
   if (!Number.isFinite(renewAt) || renewAt > Date.now()) return bearerToken;
 
-  const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+  // SECURITY: bind the refresh to the entry's persisted URL. `--url`/`-u` can
+  // override `runtimeUrl` while still reusing this stored guardian token, so a
+  // poisoned/attacker URL must not receive the long-lived refreshToken +
+  // deviceId. Refresh only when the URL is one of the entry's persisted URLs,
+  // and send to the trusted persisted URL — not the caller-supplied one.
+  const lookup = lookupAssistantByIdentifier(assistantId);
+  if (lookup.status !== "found") return bearerToken;
+  const refreshUrl = trustedRefreshUrl(lookup.entry, runtimeUrl);
+  if (!refreshUrl) return bearerToken;
+
+  const refreshed = await refreshGuardianToken(refreshUrl, assistantId);
   return refreshed?.accessToken ?? bearerToken;
 }
 

@@ -10,7 +10,7 @@
       "source": {
         "source": "github",
         "repo": "JuliusBrussee/caveman",
-        "ref": "v1.8.2"
+        "ref": "63a91ecadbf4c4719a4602a5abb00883f9966034"
       },
       "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
       "category": "productivity",

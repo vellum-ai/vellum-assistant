@@ -134,20 +134,35 @@ exports.default = async function afterPack(context) {
   const productName = packager.appInfo.productFilename;
   const appDir = path.join(appOutDir, `${productName}.app`);
   const contentsDir = path.join(appDir, "Contents");
+  const resourcesDir = path.join(contentsDir, "Resources");
   const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
   const timestampFlag = identity === "-" ? "" : " --timestamp";
 
-  // 1. Codesign bundled bun binary with JIT/network entitlements.
-  const bunPath = path.join(contentsDir, "Resources", "bun");
-  if (fs.existsSync(bunPath)) {
-    const entitlements = path.join(__dirname, "entitlements", "bun.plist");
-    console.log(`afterPack: codesigning bun binary with identity="${identity}"`);
+  // 1. Codesign bundled executables with appropriate entitlements.
+  const executables = [
+    {
+      name: "bun",
+      path: path.join(resourcesDir, "bun"),
+      entitlements: path.join(__dirname, "entitlements", "bun.plist"),
+    },
+    {
+      name: "hotkey-helper",
+      path: path.join(resourcesDir, "hotkey-helper"),
+      entitlements: path.join(__dirname, "entitlements", "inherit.plist"),
+    },
+  ];
+
+  for (const executable of executables) {
+    if (!fs.existsSync(executable.path)) {
+      console.warn(`afterPack: ${executable.name} not found at ${executable.path}, skipping codesign`);
+      continue;
+    }
+
+    console.log(`afterPack: codesigning ${executable.name} with identity="${identity}"`);
     execSync(
-      `codesign --force --options runtime --sign "${identity}"${timestampFlag} --entitlements "${entitlements}" "${bunPath}"`,
+      `codesign --force --options runtime --sign "${identity}"${timestampFlag} --entitlements "${executable.entitlements}" "${executable.path}"`,
       { stdio: "inherit" }
     );
-  } else {
-    console.warn(`afterPack: bun binary not found at ${bunPath}, skipping codesign`);
   }
 
   // 2. Build and embed Quick Look extensions (.appex).

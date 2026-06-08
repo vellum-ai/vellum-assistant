@@ -1,5 +1,5 @@
 /**
- * Tests for the `pre-model-call` and `assistant-message` plugin hooks: a plugin
+ * Tests for the `pre-model-call` and `post-model-call` plugin hooks: a plugin
  * can edit the outbound request, transform the finalized assistant message
  * (persisted + streamed), and defer the live stream so the transformed text is
  * emitted once. All hooks here use neutral transforms (redaction / uppercasing).
@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
-  AssistantMessageContext,
+  PostModelCallContext,
   PreModelCallContext,
 } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -55,7 +55,7 @@ function lastAssistant(history: Message[]): Message {
 
 function registerOutputHookPlugin(hooks: {
   preModelCall?: (ctx: PreModelCallContext) => void;
-  assistantMessage?: (ctx: AssistantMessageContext) => void;
+  postModelCall?: (ctx: PostModelCallContext) => void;
 }): void {
   registerPlugin({
     manifest: { name: "test-output-hooks", version: "0.0.0" },
@@ -67,10 +67,10 @@ function registerOutputHookPlugin(hooks: {
             },
           }
         : {}),
-      ...(hooks.assistantMessage
+      ...(hooks.postModelCall
         ? {
-            "assistant-message": async (ctx: AssistantMessageContext) => {
-              hooks.assistantMessage!(ctx);
+            "post-model-call": async (ctx: PostModelCallContext) => {
+              hooks.postModelCall!(ctx);
             },
           }
         : {}),
@@ -83,9 +83,9 @@ describe("agent loop output hooks", () => {
     resetPluginRegistryAndRegisterDefaults();
   });
 
-  test("assistant-message transforms the persisted message content", async () => {
+  test("post-model-call transforms the persisted message content", async () => {
     registerOutputHookPlugin({
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         ctx.content = ctx.content.map((b) =>
           b.type === "text"
             ? { type: "text", text: b.text.replace("secret", "[redacted]") }
@@ -113,7 +113,7 @@ describe("agent loop output hooks", () => {
       preModelCall: (ctx) => {
         ctx.deferAssistantOutput = true;
       },
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         ctx.content = [{ type: "text", text: "[filtered]" }];
       },
     });
@@ -137,7 +137,7 @@ describe("agent loop output hooks", () => {
 
   test("without defer, the real text still streams while storage is transformed", async () => {
     registerOutputHookPlugin({
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         ctx.content = [{ type: "text", text: "[stored]" }];
       },
     });
@@ -168,7 +168,7 @@ describe("agent loop output hooks", () => {
       stopReason: "tool_use",
     };
     registerOutputHookPlugin({
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         ctx.content = ctx.content.map((b) =>
           b.type === "text" ? { type: "text", text: b.text.toUpperCase() } : b,
         );
@@ -237,7 +237,7 @@ describe("agent loop output hooks", () => {
     // mid-mutation would survive into history. The loop must clone the
     // content before invoking the hook.
     registerOutputHookPlugin({
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         ctx.content.push({ type: "text", text: "[INJECTED]" });
         throw new Error("boom");
       },
@@ -269,7 +269,7 @@ describe("agent loop output hooks", () => {
       preModelCall: (ctx) => {
         ctx.deferAssistantOutput = true;
       },
-      assistantMessage: (ctx) => {
+      postModelCall: (ctx) => {
         seen.calls += 1;
         ctx.content = ctx.content.map((b) =>
           b.type === "text" ? { type: "text", text: b.text.toUpperCase() } : b,

@@ -77,9 +77,17 @@ const makeWindow = (options: Record<string, unknown>): StubWindow => {
 const sessionProtocolHandleMock = mock(
   (_scheme: string, _handler: unknown) => undefined,
 );
+const setPermissionRequestHandlerMock = mock(
+  (_handler: unknown) => undefined,
+);
+const setPermissionCheckHandlerMock = mock(
+  (_handler: unknown) => undefined,
+);
 const fromPartitionMock = mock(
   (_partition: string, _opts?: { cache: boolean }) => ({
     protocol: { handle: sessionProtocolHandleMock },
+    setPermissionRequestHandler: setPermissionRequestHandlerMock,
+    setPermissionCheckHandler: setPermissionCheckHandlerMock,
   }),
 );
 
@@ -120,6 +128,8 @@ beforeEach(() => {
   loadURLMock.mockClear();
   fromPartitionMock.mockClear();
   sessionProtocolHandleMock.mockClear();
+  setPermissionRequestHandlerMock.mockClear();
+  setPermissionCheckHandlerMock.mockClear();
   createVellumAppHandlerMock.mockClear();
 });
 
@@ -156,6 +166,27 @@ describe("openBundleWindow", () => {
     expect(prefs.sandbox).toBe(true);
     expect(prefs.nodeIntegration).toBe(false);
     expect(prefs.preload).toBeUndefined();
+  });
+
+  test("denies all permission requests and checks on the bundle session", () => {
+    openBundleWindow(UUID, "index.html", "Test Bundle");
+
+    expect(setPermissionRequestHandlerMock).toHaveBeenCalledTimes(1);
+    expect(setPermissionCheckHandlerMock).toHaveBeenCalledTimes(1);
+
+    const requestHandler = setPermissionRequestHandlerMock.mock.calls[0]![0] as (
+      wc: unknown,
+      perm: string,
+      cb: (allowed: boolean) => void,
+    ) => void;
+    let granted = true;
+    requestHandler({}, "media", (allowed) => { granted = allowed; });
+    expect(granted).toBe(false);
+
+    const checkHandler = setPermissionCheckHandlerMock.mock.calls[0]![0] as (
+      ...args: unknown[]
+    ) => boolean;
+    expect(checkHandler({}, "clipboard-read", "vellumapp://example")).toBe(false);
   });
 
   test("registers the vellumapp:// handler on the bundle session", () => {

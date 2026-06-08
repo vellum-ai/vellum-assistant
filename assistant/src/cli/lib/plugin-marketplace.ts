@@ -12,8 +12,12 @@
  * Like the first-party plugin listing, the manifest is fetched from the repo
  * at a git ref (via the GitHub Contents API) rather than bundled into the
  * assistant build — so the whitelist can grow without shipping a new release.
- * Every external source pins an explicit `ref` (tag/SHA/branch): the catalog
- * is curated and the fetched code is version-locked, not a floating branch.
+ * Every external source pins an explicit `ref` that MUST be a full commit SHA:
+ * the fetched code is locked to an immutable revision. Tags and branches are
+ * rejected because they are mutable — an upstream owner could retag/repoint
+ * them to attacker code that the daemon would then `import()` (the install
+ * tree is dynamically loaded). A SHA cannot be repointed, so the reviewed
+ * manifest fully determines what gets executed.
  *
  * Designed for direct programmatic use with an injected `fetch`, mirroring
  * {@link ./search-plugins} and {@link ./install-from-github}.
@@ -39,6 +43,13 @@ const MARKETPLACE_FILE_PATH = "experimental/plugins/marketplace.json";
 const REPO_SLUG_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** Install name: a single kebab-case path segment (same rule as the CLI). */
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+/**
+ * Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). External
+ * marketplace refs must be a complete object name so the install is pinned to
+ * an immutable revision; abbreviated SHAs, tags, and branches are all mutable
+ * or ambiguous and are rejected.
+ */
+const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 const githubSourceSchema = z.object({
   /** Discriminator. Only GitHub sources are resolved today. */
@@ -57,10 +68,17 @@ const githubSourceSchema = z.object({
     )
     .optional(),
   /**
-   * Git ref (tag, SHA, or branch) to fetch the plugin from. Required so every
-   * whitelisted external plugin is version-pinned.
+   * Immutable revision to fetch the plugin from. Must be a full commit SHA:
+   * tags and branches are mutable, so allowing them would let an upstream
+   * owner retarget a curated entry at code the daemon later `import()`s (RCE).
+   * A full SHA pins the install to exactly the reviewed bytes.
    */
-  ref: z.string().min(1),
+  ref: z
+    .string()
+    .regex(
+      COMMIT_SHA_RE,
+      "expected a full commit SHA (40 or 64 hex chars); tags and branches are mutable and not allowed",
+    ),
 });
 
 const marketplaceEntrySchema = z.object({

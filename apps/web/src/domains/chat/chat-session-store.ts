@@ -63,6 +63,8 @@ export interface ChatSessionState {
   pendingQueuedMessageIds: string[];
   requestIdToMessageId: Map<string, string>;
   pendingLocalDeletions: Set<string>;
+
+  // --- Expansion state (subscribed reactively by leaf components) ---
   expandedToolCallIds: Set<string>;
 
   // --- Confirmation tool-call mapping ---
@@ -78,7 +80,7 @@ export interface ChatSessionState {
    * the thinking block's expansion key.
    */
   expandedCardIds: Map<string, boolean>;
-  expandedThinkingKeys: Map<string, boolean>;
+  expandedThinkingKeys: Set<string>;
 
   // --- Cross-conversation cache ---
   contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
@@ -157,6 +159,11 @@ export interface ChatSessionActions {
   addPendingLocalDeletion: (messageId: string) => void;
   consumePendingLocalDeletion: (messageId: string) => boolean;
 
+  // --- Expansion state (tool calls, progress cards, thinking blocks) ---
+  setExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
+  setExpandedCardId: (cardId: string, expanded: boolean) => void;
+  setExpandedThinkingKey: (key: string, expanded: boolean) => void;
+
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
 
@@ -198,7 +205,7 @@ function initialState(): ChatSessionState {
     confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
     expandedCardIds: new Map(),
-    expandedThinkingKeys: new Map(),
+    expandedThinkingKeys: new Set(),
     contextWindowUsageByConversation: new Map(),
     previousConversationId: null,
     previousAssistantId: null,
@@ -325,7 +332,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
       expandedCardIds: new Map(),
-      expandedThinkingKeys: new Map(),
+      expandedThinkingKeys: new Set(),
       contextWindowUsageByConversation: usageByConversation,
       previousConversationId: activeConversationId,
       previousAssistantId: assistantId,
@@ -427,6 +434,30 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     set({ pendingLocalDeletions: next });
     return true;
   },
+
+  // --- Expansion state (tool calls, progress cards, thinking blocks) ---
+  setExpandedToolCallId: (toolCallId, expanded) =>
+    set((s) => {
+      const next = new Set(s.expandedToolCallIds);
+      if (expanded) next.add(toolCallId);
+      else next.delete(toolCallId);
+      return { expandedToolCallIds: next };
+    }),
+
+  setExpandedCardId: (cardId, expanded) =>
+    set((s) => {
+      const next = new Map(s.expandedCardIds);
+      next.set(cardId, expanded);
+      return { expandedCardIds: next };
+    }),
+
+  setExpandedThinkingKey: (key, expanded) =>
+    set((s) => {
+      const next = new Set(s.expandedThinkingKeys);
+      if (expanded) next.add(key);
+      else next.delete(key);
+      return { expandedThinkingKeys: next };
+    }),
 
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId, usage) =>

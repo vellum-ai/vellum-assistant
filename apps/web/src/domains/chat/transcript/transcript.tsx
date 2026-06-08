@@ -6,7 +6,6 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
 
@@ -49,16 +48,7 @@ export interface TranscriptProps {
   onForkConversation?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
   onInspectMessage?: (messageId: string) => void;
-  /** Persistent expanded tool-call ids. Optional — the Transcript owns its
-   *  own set if not provided. Callers that need cross-render persistence
-   *  should pass a stable ref. */
-  expandedToolCallIds?: Set<string>;
-  /** Persistent expanded progress-card / thinking-block state. Optional — the
-   *  Transcript owns its own maps if not provided. Callers that need the state
-   *  to survive a transcript remount (e.g. when the tool-detail drawer opens)
-   *  should pass stable refs (the chat session store's maps). */
-  expandedCardIds?: Map<string, boolean>;
-  expandedThinkingKeys?: Map<string, boolean>;
+
   /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends
    *  on props from the parent (sendMessage, didOnboarding, etc.) and has a
    *  different lifecycle than interaction prompts, so it stays as a
@@ -165,17 +155,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       enabled: pullEnabled,
     });
 
-    const [ownedExpandedToolCallIds] = useState(() => new Set<string>());
-    const effectiveExpandedToolCallIds =
-      rest.expandedToolCallIds ?? ownedExpandedToolCallIds;
-
-    const [ownedExpandedCardIds] = useState(() => new Map<string, boolean>());
-    const expandedCardIds = rest.expandedCardIds ?? ownedExpandedCardIds;
-    const [ownedExpandedThinkingKeys] = useState(
-      () => new Map<string, boolean>(),
-    );
-    const expandedThinkingKeys =
-      rest.expandedThinkingKeys ?? ownedExpandedThinkingKeys;
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
@@ -225,9 +204,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     );
 
     const rowProps = {
-      expandedToolCallIds: effectiveExpandedToolCallIds,
-      expandedCardIds,
-      expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,

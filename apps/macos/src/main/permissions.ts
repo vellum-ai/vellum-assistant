@@ -2,6 +2,7 @@ import {
   session,
   type MediaAccessPermissionRequest,
   type PermissionCheckHandlerHandlerDetails,
+  type Session,
 } from "electron";
 
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
@@ -61,6 +62,15 @@ export const shouldGrantPermissionCheck = (
   (isTrustedRendererOrigin(details.securityOrigin) ||
     isTrustedRendererOrigin(requestingOrigin) ||
     isTrustedRendererOrigin(details.requestingUrl));
+
+export const denyAllPermissions = (targetSession: Session): void => {
+  targetSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      callback(false);
+    },
+  );
+  targetSession.setPermissionCheckHandler(() => false);
+};
 
 export const installPermissionHandler = (): void => {
   session.defaultSession.setPermissionCheckHandler(
