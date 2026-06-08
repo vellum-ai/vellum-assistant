@@ -11,7 +11,7 @@ import {
   reduceContextOverflow,
   type ReducerConfig,
   type ReducerState,
-} from "../daemon/context-overflow-reducer.js";
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import type { Message } from "../providers/types.js";
 
 function msg(role: "user" | "assistant", text: string): Message {
