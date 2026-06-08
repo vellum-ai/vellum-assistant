@@ -47,8 +47,8 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { fetchMe } from "@/domains/account/profile";
-import { restoreConsentForUser, persistConsentForUser, resolveServerConsent } from "@/utils/onboarding-cleanup";
+import { fetchMe, patchConsent } from "@/domains/account/profile";
+import { restoreConsentForUser, persistConsentForUser, resolveServerConsent, CONSENT_VERSION } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
@@ -168,13 +168,30 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   if (nextUserId) {
     try {
       const me = await fetchMe();
-      const resolved = resolveServerConsent(me.consent);
+      if (me.consent) {
+        const resolved = resolveServerConsent(me.consent);
+        const store = useOnboardingStore.getState();
+        store.setTosAccepted(resolved.tos);
+        store.setAiDataConsent(resolved.ai);
+        if (resolved.shareAnalytics !== null) store.setShareAnalytics(resolved.shareAnalytics);
+        if (resolved.shareDiagnostics !== null) store.setShareDiagnostics(resolved.shareDiagnostics);
+        persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+        syncOrganizationState(nextUserId);
+        return;
+      }
+      // Server has no consent record — fall through to device keys.
+      // If device keys show prior acceptance, backfill the server.
+      const deviceConsent = restoreConsentForUser(nextUserId);
       const store = useOnboardingStore.getState();
-      store.setTosAccepted(resolved.tos);
-      store.setAiDataConsent(resolved.ai);
-      if (resolved.shareAnalytics !== null) store.setShareAnalytics(resolved.shareAnalytics);
-      if (resolved.shareDiagnostics !== null) store.setShareDiagnostics(resolved.shareDiagnostics);
-      persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+      store.setTosAccepted(deviceConsent.tos);
+      store.setAiDataConsent(deviceConsent.ai);
+      if (deviceConsent.tos && deviceConsent.ai) {
+        void patchConsent({
+          tos_accepted_version: CONSENT_VERSION,
+          privacy_policy_accepted_version: CONSENT_VERSION,
+          ai_data_sharing_accepted_version: CONSENT_VERSION,
+        }).catch(() => {});
+      }
       syncOrganizationState(nextUserId);
       return;
     } catch {
