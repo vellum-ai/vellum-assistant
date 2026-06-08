@@ -3,8 +3,15 @@
  */
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
-import { getApp } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  isMultifileApp,
+  resolveEffectiveAppHtml,
+} from "../memory/app-store.js";
 import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
@@ -23,17 +30,32 @@ export async function updatePublishedAppDeployment(
     const publishedPage = getActivePublishedPageByAppId(appId);
     if (!publishedPage) return;
 
-    // 2. Load the app to get current HTML
+    // 2. Load the app and resolve its deployable HTML. For multifile apps the
+    // real content lives in dist/index.html (compiled from src/), not in
+    // htmlDefinition (which is "" for them) — using htmlDefinition directly
+    // would deploy a blank page.
     const app = getApp(appId);
-    if (!app || !app.htmlDefinition) {
-      log.warn({ appId }, "Published app not found or has no HTML");
+    if (!app) {
+      log.warn({ appId }, "Published app not found");
       return;
     }
 
+    // Skip rather than deploy the compile-failure fallback when a multifile
+    // app has no compiled output (e.g. a concurrent compile failed); a later
+    // successful compile re-triggers this path.
+    if (
+      isMultifileApp(app) &&
+      !existsSync(join(getAppDirPath(app.id), "dist", "index.html"))
+    ) {
+      log.warn({ appId }, "Skipping auto-redeploy: compiled output missing");
+      return;
+    }
+
+    const html = resolveEffectiveAppHtml(app);
+    if (!html) return;
+
     // 3. Hash the current HTML and check if it changed
-    const newHash = createHash("sha256")
-      .update(app.htmlDefinition)
-      .digest("hex");
+    const newHash = createHash("sha256").update(html).digest("hex");
     if (newHash === publishedPage.htmlHash) return; // No change
 
     // 4. Get Vercel token — don't prompt, just skip if unavailable
@@ -46,7 +68,7 @@ export async function updatePublishedAppDeployment(
       execute: async (token) => {
         // 5. Deploy updated HTML using the same project slug
         const result = await deployHtmlToVercel({
-          html: app.htmlDefinition,
+          html,
           name: slug,
           token,
         });
