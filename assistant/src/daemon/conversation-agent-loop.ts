@@ -875,11 +875,10 @@ export async function runAgentLoopImpl(
     // persists the retrieval's own side effects (injected-block metadata,
     // recall log, `memory_recalled` event). Runs at the early "prompt
     // submitted, before context assembly" moment because its outputs feed the
-    // injection and overflow-reduction transforms below. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now: it
-    // must run early, while the canonical late `user-prompt-submit` hook
-    // (history repair, title) runs after those transforms, so the two cannot
-    // share a fire site until compaction is cleared from the gap between them.
+    // runtime injection below. It is shaped as the `user-prompt-submit-temp`
+    // hook handler but invoked directly: it precedes the canonical
+    // `user-prompt-submit` hook (history repair, title), which normalizes the
+    // same retrieved messages before injection runs.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     const memoryCtx: MemoryRetrievalHookContext = {
       graphMemory: ctx.graphMemory,
@@ -903,6 +902,30 @@ export async function runAgentLoopImpl(
     let runMessages = memoryCtx.latestMessages;
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
+
+    // Canonical `user-prompt-submit` hook: plugins normalize the working
+    // history (tool-use/tool-result pairing, role alternation) and trigger
+    // title generation before the turn is assembled. Runs on the raw
+    // post-retrieval messages, ahead of runtime injection, so injection (and
+    // any in-loop reduction) builds on an already-normalized history and the
+    // injected result can go straight to the provider without a further repair
+    // pass. Fires once per user turn at the primary `agentLoop.run` only — the
+    // re-entry / retry calls further down do not refire it (they are not new
+    // user submissions). Plugins may mutate `ctx.latestMessages` in place or
+    // return a fresh context; `runHook` forwards whichever the chain settles
+    // on, in plugin registration order.
+    const userPromptCtx: UserPromptSubmitContext = {
+      conversationId: ctx.conversationId,
+      prompt: options?.titleText ?? content,
+      originalMessages: ctx.messages,
+      latestMessages: runMessages,
+      logger: rlog,
+    };
+    const finalUserPromptCtx = await runHook(
+      HOOKS.USER_PROMPT_SUBMIT,
+      userPromptCtx,
+    );
+    runMessages = finalUserPromptCtx.latestMessages;
 
     let currentInjectionMode: InjectionMode = "full";
 
@@ -1120,30 +1143,6 @@ export async function runAgentLoopImpl(
       );
       runMessages = webSearchStrip.messages;
     }
-
-    // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at the
-    // primary `agentLoop.run` only — the re-entry / retry calls further down
-    // in this function do not refire it (they're not new user submissions).
-    // Plugins may mutate `ctx.latestMessages` in place OR return a new
-    // context with a fresh array; `runHook` forwards whichever the chain
-    // settles on. Order is plugin registration order.
-    //
-    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
-    // of the loop's input; the loop then reports its own appended output via
-    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
-    const userPromptCtx: UserPromptSubmitContext = {
-      conversationId: ctx.conversationId,
-      prompt: options?.titleText ?? content,
-      originalMessages: ctx.messages,
-      latestMessages: runMessages,
-      logger: rlog,
-    };
-    const finalUserPromptCtx = await runHook(
-      HOOKS.USER_PROMPT_SUBMIT,
-      userPromptCtx,
-    );
-    runMessages = finalUserPromptCtx.latestMessages;
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,

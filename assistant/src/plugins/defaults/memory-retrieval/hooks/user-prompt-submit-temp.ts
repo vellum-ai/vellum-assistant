@@ -14,12 +14,13 @@
  * read back. PKB context and NOW.md are sourced directly by their injectors
  * (gated on block presence), not produced here.
  *
- * This fires at the early "prompt submitted, before context assembly" moment,
- * distinct from the canonical late `user-prompt-submit` hook (history repair,
- * title): memory's outputs feed the injection and overflow-reduction transforms
- * that run between the two moments. The `-temp` suffix marks this as a
- * transitional staging point that folds into `user-prompt-submit` once
- * compaction is cleared from the gap between the two call sites.
+ * This fires at the early "prompt submitted, before context assembly" moment:
+ * its outputs feed the runtime injection that assembles the turn's prompt. It
+ * runs immediately before the canonical `user-prompt-submit` hook (history
+ * repair, title), which normalizes the same retrieved messages. The `-temp`
+ * suffix marks this as a separate direct call awaiting unification into the
+ * single `user-prompt-submit` hook chain: the two share an adjacent fire site
+ * but still carry distinct hook contexts.
  */
 
 import type { PluginHookFn } from "@vellumai/plugin-api";
