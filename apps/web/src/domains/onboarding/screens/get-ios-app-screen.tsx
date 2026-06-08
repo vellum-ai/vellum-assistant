@@ -26,7 +26,7 @@ export function GetIOSAppScreen({ onComplete }: GetIOSAppScreenProps) {
   }
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showCreatureFooter={false}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 pb-40 text-center">
         <div
           className="mb-8 flex size-16 items-center justify-center rounded-2xl border"
@@ -64,7 +64,6 @@ export function GetIOSAppScreen({ onComplete }: GetIOSAppScreenProps) {
           One more thing
         </p>
 
-        {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
         <h1
           className="mb-3 text-3xl font-semibold tracking-tight"
           style={{

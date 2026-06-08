@@ -6,6 +6,7 @@ import {
     PRECHAT_PRIOR_ASSISTANTS,
     type PreChatPriorAssistantItem,
 } from "@/domains/onboarding/prechat-prior-assistants";
+import { isElectron } from "@/runtime/is-electron";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
@@ -25,6 +26,8 @@ export function PriorAssistantSelectionScreen({
   onContinue,
   onSkip,
 }: PriorAssistantSelectionScreenProps) {
+  const electron = isElectron();
+
   const [otherText, setOtherText] = useState<string>(() =>
     deriveOtherText(selectedAssistants),
   );
@@ -90,8 +93,8 @@ export function PriorAssistantSelectionScreen({
       : `Continue · ${selectedAssistants.size} selected`;
 
   return (
-    <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+    <OnboardingLayout showCreatureFooter={false}>
+      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "px-8 pt-7 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className="grid w-full items-center grid-cols-[auto_1fr_auto]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -104,14 +107,13 @@ export function PriorAssistantSelectionScreen({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
+          <h1 className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}>
             Have you used any of these?
           </h1>
           <div aria-hidden="true" className="h-8 w-8" />
         </div>
         <p
-          className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
+          className={`${electron ? "mt-3" : "mt-4"} text-center text-body-medium-lighter text-[var(--content-${electron ? "secondary" : "tertiary"})]`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
         >
           If you&apos;ve built anything with another assistant, I can help you
@@ -119,7 +121,7 @@ export function PriorAssistantSelectionScreen({
         </p>
 
         <div
-          className="mt-8 grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+          className={`${electron ? "mt-4" : "mt-8"} grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
           {PRECHAT_PRIOR_ASSISTANTS.map((assistant) => (
@@ -146,7 +148,7 @@ export function PriorAssistantSelectionScreen({
                   className="h-3.5 w-3.5 text-[var(--content-secondary)]"
                   aria-hidden="true"
                 />
-                <span className="text-body-medium-default text-[var(--content-default)]">
+                <span className="text-body-medium-default prechat-md-regular text-[var(--content-default)]">
                   Something else
                 </span>
                 <button
@@ -186,7 +188,7 @@ export function PriorAssistantSelectionScreen({
         ) : null}
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`${electron ? "mt-6" : "mt-8"} flex w-full flex-col gap-2`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Button
@@ -195,7 +197,7 @@ export function PriorAssistantSelectionScreen({
             fullWidth
             disabled={selectedAssistants.size === 0}
             onClick={onContinue}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {continueLabel}
           </Button>
@@ -204,7 +206,7 @@ export function PriorAssistantSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             I haven&apos;t used any
           </Button>
