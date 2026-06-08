@@ -166,6 +166,11 @@ describe("maintainJob", () => {
     ]);
     expect(calls.invalidate).toBe(1);
     expect(outcome.invalidated).toBe(true);
+    // The checkpoint is HELD when any page failed: the failed page was
+    // delete-then-upsert'd (so its sections are gone), and advancing past its
+    // mtime would hide it from `computeChangedPages` forever. Holding the mark
+    // lets the next pass re-select and re-embed it.
+    expect(calls.commit).toBe(0);
   });
 
   test("a thrown re-embed stage does not abort lane invalidation", async () => {
@@ -345,7 +350,7 @@ describe("backfillAllSections", () => {
     expect(calls.committed).toEqual([99999]);
   });
 
-  test("contains a single failing page; others still embed and checkpoint advances", async () => {
+  test("contains a single failing page; others still embed but checkpoint is HELD", async () => {
     const { deps: d, calls } = deps({
       selectAllPages: async () => ["page-ok", "page-bad", "page-ok-2"],
       upsertSections: async (_config, sections) => {
@@ -363,7 +368,10 @@ describe("backfillAllSections", () => {
       "page-ok",
       "page-ok-2",
     ]);
-    // A contained per-article failure does not block the checkpoint advance.
-    expect(calls.committed).toEqual([4242]);
+    // The checkpoint is HELD on any failure: the failed page was
+    // delete-then-upsert'd (sections gone), so advancing past its mtime would
+    // hide it from the incremental selector forever. Holding the mark lets the
+    // next pass re-embed it.
+    expect(calls.committed).toEqual([]);
   });
 });

@@ -25,6 +25,15 @@ import type {
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
+/**
+ * IPC timeout for `backfill-sections`. The one-time full-corpus section embed
+ * runs every page's chunks through the embedder sequentially, which easily
+ * outlasts `cliIpcCall`'s default 60s — so we give it a generous 30-minute
+ * ceiling rather than report a spurious "Request timed out" while the assistant
+ * keeps working.
+ */
+const BACKFILL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+
 export function registerMemoryV3Command(program: Command): void {
   // Reuse an existing `memory` parent if some other registrar attached to it
   // first; otherwise create one. This keeps the registration order between
@@ -106,6 +115,7 @@ Examples:
           const result = await cliIpcCall<MemoryV3BackfillSectionsResult>(
             "memory_v3_backfill_sections",
             { body: {} },
+            { timeoutMs: BACKFILL_IPC_TIMEOUT_MS },
           );
           if (!result.ok) {
             log.error(result.error ?? "Failed to backfill section embeddings");
