@@ -21,13 +21,8 @@ mock.module("@sentry/react", () => ({
   captureException: () => {},
 }));
 
-// Controllable seq-gap flag + reconnect cursor so the reconnect-URL
-// tests can exercise the resumable-stream wiring without a live daemon.
-let mockSeqGapEnabled = true;
-mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
-  isSeqGapDetectionEnabled: () => mockSeqGapEnabled,
-}));
-
+// Controllable reconnect cursor so the reconnect-URL tests can exercise
+// the resumable-stream wiring without a live daemon.
 let mockReconnectCursor: number | null = null;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => mockReconnectCursor,
@@ -850,7 +845,6 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
     originalFetch = globalThis.fetch;
     originalDocument = (globalThis as { document?: unknown }).document;
     (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
-    mockSeqGapEnabled = true;
     mockReconnectCursor = null;
   });
 
@@ -901,7 +895,7 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
 
   test("cold connect sends lastSeenSeq when anchored at a snapshot watermark", async () => {
     // GIVEN the cursor has been seeded at a snapshot watermark S on a cold
-    // session (cold-start anchored replay) and the flag is enabled
+    // session (cold-start anchored replay)
     mockReconnectCursor = 42;
 
     // WHEN the stream connects for the first time
@@ -914,32 +908,19 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
   });
 
   test("cold connect omits lastSeenSeq when no cursor has been seeded", async () => {
-    // GIVEN the flag enabled but no watermark has anchored the cursor yet
+    // GIVEN no watermark has anchored the cursor yet
     mockReconnectCursor = null;
 
     // WHEN the stream connects for the first time
     const urls = await captureReconnectUrls();
 
-    // THEN the cold connect is cursor-less, byte-identical to legacy behavior
+    // THEN the cold connect is cursor-less
     expect(urls.length).toBeGreaterThanOrEqual(1);
     expect(urls[0]).not.toContain("lastSeenSeq");
   });
 
-  test("cold connect omits lastSeenSeq when the flag is disabled", async () => {
-    // GIVEN a seeded cursor but the seq-gap feature disabled
-    mockReconnectCursor = 42;
-    mockSeqGapEnabled = false;
-
-    // WHEN the stream connects for the first time
-    const urls = await captureReconnectUrls();
-
-    // THEN no resume cursor is sent (replay stays inert behind the flag)
-    expect(urls.length).toBeGreaterThanOrEqual(1);
-    expect(urls[0]).not.toContain("lastSeenSeq");
-  });
-
-  test("reconnect sends lastSeenSeq when the flag is on and a cursor exists", async () => {
-    // GIVEN a non-null cursor and the flag enabled
+  test("reconnect sends lastSeenSeq when a cursor exists", async () => {
+    // GIVEN a non-null cursor
     mockReconnectCursor = 42;
 
     // WHEN the stream drops and reconnects
@@ -950,21 +931,8 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
     expect(urls[1]).toContain("lastSeenSeq=42");
   });
 
-  test("reconnect omits lastSeenSeq when the flag is disabled", async () => {
-    // GIVEN a cursor but the seq-gap feature disabled
-    mockReconnectCursor = 42;
-    mockSeqGapEnabled = false;
-
-    // WHEN the stream drops and reconnects
-    const urls = await captureReconnectUrls();
-
-    // THEN no resume cursor is sent (replay stays inert behind the flag)
-    expect(urls.length).toBeGreaterThanOrEqual(2);
-    expect(urls[1]).not.toContain("lastSeenSeq");
-  });
-
   test("reconnect omits lastSeenSeq when no cursor has been seen yet", async () => {
-    // GIVEN the flag enabled but no event has seeded the cursor
+    // GIVEN no event has seeded the cursor
     mockReconnectCursor = null;
 
     // WHEN the stream drops and reconnects

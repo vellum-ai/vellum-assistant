@@ -11,7 +11,6 @@ import { client } from "@/generated/api/client.gen";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
@@ -139,27 +138,24 @@ const LAST_SEEN_SEQ_WIRE_FIELD = "lastSeenSeq";
 /**
  * Build the query params for the events SSE connection.
  *
- * When seq gap detection is enabled and a resumable cursor exists,
- * attaches it ({@link LAST_SEEN_SEQ_WIRE_FIELD}) so the daemon replays
- * every buffered event with `seq > cursor` from its global ring before
- * going live, rather than forcing a refetch. This applies to both a
- * reconnect (cursor = highest global seq received so far) and a cold
- * connect that has been anchored at a snapshot watermark `S` (see
- * `cold-anchor.ts`): the latter opens `/events?lastSeenSeq=S` so the
- * gap between the `/messages` snapshot and the stream attaching is
- * replayed.
+ * When a resumable cursor exists, attaches it
+ * ({@link LAST_SEEN_SEQ_WIRE_FIELD}) so the daemon replays every
+ * buffered event with `seq > cursor` from its global ring before going
+ * live, rather than forcing a refetch. This applies to both a reconnect
+ * (cursor = highest global seq received so far) and a cold connect that
+ * has been anchored at a snapshot watermark `S` (see `cold-anchor.ts`):
+ * the latter opens `/events?lastSeenSeq=S` so the gap between the
+ * `/messages` snapshot and the stream attaching is replayed.
  *
  * A fresh page load with no cursor seeded yet has nothing to resume —
- * the cursor is `null` and the param is omitted, byte-identical to the
- * legacy cursor-less cold connect.
+ * the cursor is `null` and the param is omitted, byte-identical to a
+ * cursor-less cold connect.
  */
 function buildEventsQuery(): Record<string, string> {
   const query: Record<string, string> = {};
-  if (isSeqGapDetectionEnabled()) {
-    const cursor = getReconnectCursor();
-    if (cursor !== null) {
-      query[LAST_SEEN_SEQ_WIRE_FIELD] = String(cursor);
-    }
+  const cursor = getReconnectCursor();
+  if (cursor !== null) {
+    query[LAST_SEEN_SEQ_WIRE_FIELD] = String(cursor);
   }
   return query;
 }

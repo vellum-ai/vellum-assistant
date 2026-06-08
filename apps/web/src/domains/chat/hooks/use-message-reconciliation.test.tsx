@@ -7,8 +7,8 @@
  * test harness controls all mutable state.
  *
  * Key behaviors under test:
- * - `reconcileFromServer`: delegates to `reconcileMessages`,
- *   reports changed vs unchanged.
+ * - `reconcileFromServer`: delegates to the seq-aware snapshot merge
+ *   (`reconcileSnapshot`), reports changed vs unchanged.
  * - `reconcileActiveConversation`: orchestrates fetch, reconciliation,
  *   turn-state dispatch (`POLL_RECONCILED`), and stale tool-call cleanup.
  */
@@ -26,6 +26,10 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import {
+  __resetLocalSeqForTesting,
+  recordLocalSeq,
+} from "@/lib/streaming/local-seq";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -224,6 +228,9 @@ beforeEach(async () => {
   mockFetchError = null;
   mockFetchSideEffect = null;
   fetchCallCount = 0;
+  // The local seq frontier is module-global; clear it so a frontier seeded
+  // by one test never leaks into the next.
+  __resetLocalSeqForTesting();
   // Zustand stores survive across tests in the same Bun process; reset
   // the conversation-list state so each test sees a clean slate.
   useConversationStore.setState({
@@ -274,9 +281,10 @@ describe("reconcileFromServer", () => {
     const serverMessages: ConversationMessage[] = [
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
     ];
-    // reconcileMessages rebuilds messages from server data, so the array
-    // reference changes even when content is identical. This is a smoke
-    // test that the round-trip completes without error.
+    // The seq snapshot reconcile may rebuild messages from server data, so
+    // the array reference can change even when rendered content is
+    // identical. This is a smoke test that the round-trip completes without
+    // error.
     const result = reconcileFromServer(serverMessages, "conv-1", null);
     expect(typeof result).toBe("boolean");
   });
@@ -459,6 +467,13 @@ describe("reconcileActiveConversation", () => {
     useConversationStore.setState({
       processingConversationIds: new Set(["conv-1"]),
     });
+    // AND the live stream has advanced this conversation's local seq (L)
+    // past the debounced snapshot's watermark (S): the persisted snapshot
+    // lags the rendered stream, which is the steady state mid-turn. Under
+    // the monotonic merge `L > S` keeps the live local rows, so the
+    // reconcile is a no-op and the rescue must not fire.
+    mockFetchSeq = 5;
+    recordLocalSeq("conv-1", 10);
     const liveStreamingState: TurnState = {
       phase: "streaming",
       pendingQueuedCount: 0,
@@ -619,6 +634,12 @@ describe("reconcileActiveConversation", () => {
       makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
       makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Working on it...") }),
     ];
+    // AND the live stream has advanced the local seq (L) past the debounced
+    // snapshot watermark (S): the snapshot lags the rendered stream, so the
+    // monotonic merge keeps the live local rows and the reconcile is a
+    // no-op. The rescue must not fire mid-stream.
+    mockFetchSeq = 5;
+    recordLocalSeq("conv-1", 10);
     const liveStreamingState: TurnState = {
       phase: "streaming",
       pendingQueuedCount: 0,
@@ -669,9 +690,9 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled when only optimistic user message id changes", async () => {
     messages = [
       makeMessage({ id: "m-old-a", role: "assistant", ...textBody("Prior response") }),
-      // Optimistic user rows are explicitly flagged so the tail
-      // content-match block in reconcileMessages can drop them in favor
-      // of the server-assigned row.
+      // Optimistic user rows are explicitly flagged so the snapshot
+      // reconcile's optimistic echo-swap can adopt the server-assigned
+      // row's id in their place.
       makeMessage({ role: "user", ...textBody("Continue the story"), isOptimistic: true }),
     ];
     mockFetchResult = [
@@ -1012,6 +1033,11 @@ describe("startReconciliationLoop", () => {
           ...wireTextBody("Response"),
         }),
       ];
+      // GIVEN the local seq (L) sits above the snapshot watermark (S): each
+      // poll tick applies a snapshot that lags the rendered stream, so the
+      // monotonic merge keeps the local rows and every tick is unchanged.
+      mockFetchSeq = 5;
+      recordLocalSeq("conv-1", 10);
 
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationId: "conv-1" },

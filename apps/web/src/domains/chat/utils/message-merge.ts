@@ -463,7 +463,7 @@ function canFoldAdjacentAssistant(
 ): boolean {
   if (survivor.role !== "assistant" || donor.role !== "assistant") return false;
   // Optimistic ids are client UUIDs not yet echoed by the server; the
-  // tail content-match swap in `reconcileMessages` needs them to stay
+  // snapshot reconcile's optimistic echo-swap needs them to stay
   // standalone until the server snapshot lands.
   if (survivor.isOptimistic || donor.isOptimistic) return false;
   // Subagent notification rows are state-reconstruction metadata that

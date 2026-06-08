@@ -11,11 +11,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 
-const SEQ_GAP_KEY = "vellum:debug:seqGapDetection";
 const IMPERSONATE_KEY = "vellum:debug:impersonateAssistantVersion";
 
 function clearDebugKeys(): void {
-  window.localStorage.removeItem(SEQ_GAP_KEY);
   window.localStorage.removeItem(IMPERSONATE_KEY);
 }
 
@@ -30,7 +28,6 @@ describe("debug-flag-snapshot", () => {
     const snapshot = buildDebugFlagSnapshot();
 
     // THEN the resolved values reflect the code-level defaults...
-    expect(snapshot.resolved.seqGapDetection).toBe(false);
     expect(snapshot.resolved.impersonateAssistantVersion).toBeNull();
     // ...and no raw debug overrides are present
     expect(snapshot.overrides).toEqual({});
@@ -38,19 +35,16 @@ describe("debug-flag-snapshot", () => {
   });
 
   test("captures resolved values and raw overrides when flags are set", () => {
-    // GIVEN both debug flags have explicit overrides
-    window.localStorage.setItem(SEQ_GAP_KEY, "true");
+    // GIVEN a debug flag has an explicit override
     window.localStorage.setItem(IMPERSONATE_KEY, "0.8.6");
 
     // WHEN a snapshot is built
     const snapshot = buildDebugFlagSnapshot();
 
-    // THEN the resolved values reflect the overrides...
-    expect(snapshot.resolved.seqGapDetection).toBe(true);
+    // THEN the resolved values reflect the override...
     expect(snapshot.resolved.impersonateAssistantVersion).toBe("0.8.6");
-    // ...and the raw entries are captured verbatim under their full keys
+    // ...and the raw entry is captured verbatim under its full key
     expect(snapshot.overrides).toEqual({
-      [SEQ_GAP_KEY]: "true",
       [IMPERSONATE_KEY]: "0.8.6",
     });
   });

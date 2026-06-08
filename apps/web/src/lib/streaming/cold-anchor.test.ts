@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let seqGapEnabled = true;
-mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
-  isSeqGapDetectionEnabled: () => seqGapEnabled,
-}));
-
 // Single global cursor mock mirroring reconnect-cursor.ts's full export
 // surface, so this mock doesn't shadow the real module's other exports
 // when bun shares a process across test files.
@@ -40,15 +35,12 @@ const readCursor = (): number | null => globalCursor;
 
 describe("anchorColdStartReplay", () => {
   beforeEach(() => {
-    seqGapEnabled = true;
     globalCursor = null;
     publishMock.mockClear();
   });
 
   test("seeds the cursor at S and requests a re-anchor on a cold session", () => {
-    // GIVEN seq gap detection is on and the connection is cold (no live
-    // event has seeded the cursor yet)
-    seqGapEnabled = true;
+    // GIVEN the connection is cold (no live event has seeded the cursor yet)
     globalCursor = null;
 
     // WHEN /messages resolves with a snapshot watermark S
@@ -62,9 +54,8 @@ describe("anchorColdStartReplay", () => {
   });
 
   test("is a no-op once a live event has already seeded the cursor", () => {
-    // GIVEN seq gap detection is on but a live event already advanced the
-    // cursor (the connection is no longer cold)
-    seqGapEnabled = true;
+    // GIVEN a live event already advanced the cursor (the connection is no
+    // longer cold)
     globalCursor = 100;
 
     // WHEN /messages resolves with an older snapshot watermark
@@ -77,8 +68,7 @@ describe("anchorColdStartReplay", () => {
   });
 
   test("is a no-op when the snapshot reports no honest position", () => {
-    // GIVEN seq gap detection is on and the connection is cold
-    seqGapEnabled = true;
+    // GIVEN the connection is cold
     globalCursor = null;
 
     // WHEN /messages resolves without a seq (e.g. an older daemon)
@@ -87,19 +77,6 @@ describe("anchorColdStartReplay", () => {
     // THEN the cursor stays null (cursor-less cold connect, as today)
     expect(readCursor()).toBeNull();
     // AND no bounce is requested
-    expect(publishMock).not.toHaveBeenCalled();
-  });
-
-  test("is a no-op when seq gap detection is disabled", () => {
-    // GIVEN the seq gap detection flag is off
-    seqGapEnabled = false;
-    globalCursor = null;
-
-    // WHEN /messages resolves with a snapshot watermark
-    anchorColdStartReplay(42);
-
-    // THEN the flag-off behavior is unchanged: cursor untouched, no bounce
-    expect(readCursor()).toBeNull();
     expect(publishMock).not.toHaveBeenCalled();
   });
 });

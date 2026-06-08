@@ -5,10 +5,8 @@
  * `vellum:debug:*` namespace with no server targeting, so the only record
  * of which ones were set when a report was filed is the client that filed
  * it. Without capturing them at submission time, flag state has to be
- * inferred from behavior in the diagnostics — which is ambiguous: a session
- * that looks like seq-gap detection is "on" is indistinguishable from one
- * where it is genuinely active, because the resolved value never reaches the
- * export.
+ * inferred from behavior in the diagnostics, which is ambiguous because the
+ * resolved value never reaches the export.
  *
  * Two complementary views are captured so analysis is unambiguous:
  *   - `resolved`: the effective value each flag's accessor returns, so the
@@ -19,7 +17,6 @@
  */
 
 import { getImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 
 const DEBUG_PREFIX = "vellum:debug:";
 
@@ -31,7 +28,6 @@ export interface DebugFlagSnapshot {
    * which raw localStorage entries alone cannot convey.
    */
   resolved: {
-    seqGapDetection: boolean;
     impersonateAssistantVersion: string | null;
   };
   /**
@@ -64,7 +60,6 @@ export function buildDebugFlagSnapshot(): DebugFlagSnapshot {
   return {
     collectedAt: new Date().toISOString(),
     resolved: {
-      seqGapDetection: isSeqGapDetectionEnabled(),
       impersonateAssistantVersion: getImpersonatedAssistantVersion(),
     },
     overrides: scanDebugOverrides(),
