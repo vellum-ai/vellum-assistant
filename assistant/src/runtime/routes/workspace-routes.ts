@@ -46,15 +46,24 @@ const workspaceTreeEntrySchema = z.object({
 
 type TreeEntry = z.infer<typeof workspaceTreeEntrySchema>;
 
-// Maximum number of filesystem entries we're willing to traverse when
-// computing the recursive size of a single directory. Each directory in a
-// listing gets its own budget so one giant subtree (e.g. a `node_modules/` or
-// `repos/` checkout) can no longer starve its siblings — only the oversized
-// directory itself reports `size: null` (caller renders an unknown-size
-// placeholder), while every other folder still shows an accurate size. The cap
-// bounds the synchronous traversal per directory to protect the daemon event
-// loop on pathologically large trees.
-const DIR_SIZE_PER_ENTRY_BUDGET = 250_000;
+// Recursive directory sizing walks the filesystem synchronously, so it is
+// bounded by two caps that work together:
+//
+// - `DIR_SIZE_PER_DIR_ENTRY_BUDGET` caps a single directory. No one giant
+//   subtree (e.g. a `node_modules/` or `repos/` checkout) can consume the whole
+//   listing's budget and starve its siblings; only the oversized directory
+//   itself reports `size: null` (the caller renders an unknown-size
+//   placeholder) while every other folder still shows an accurate size.
+// - `DIR_SIZE_TOTAL_ENTRY_BUDGET` caps the listing as a whole, so a workspace
+//   with many large sibling directories still can't block the daemon event loop
+//   for an unbounded amount of time. Once it is exhausted, the remaining
+//   directories report `size: null`.
+//
+// Each directory is allotted `min(per-dir cap, remaining listing budget)`
+// entries, and whatever it actually consumes is deducted from the listing
+// budget.
+const DIR_SIZE_PER_DIR_ENTRY_BUDGET = 250_000;
+const DIR_SIZE_TOTAL_ENTRY_BUDGET = 1_000_000;
 
 interface DirSizeBudget {
   remaining: number;
@@ -109,6 +118,27 @@ function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
   return total;
 }
 
+/**
+ * Compute a directory's recursive size while drawing from a shared listing
+ * budget. The directory is allotted at most `DIR_SIZE_PER_DIR_ENTRY_BUDGET`
+ * entries — and never more than the listing has left — and whatever it consumes
+ * is deducted from `listingBudget` so the next sibling sees the reduced
+ * remainder. Returns `null` (unknown size) when the allotment is exhausted.
+ */
+function computeDirSizeWithinListing(
+  absPath: string,
+  listingBudget: DirSizeBudget,
+): number | null {
+  const allotment = Math.min(
+    DIR_SIZE_PER_DIR_ENTRY_BUDGET,
+    listingBudget.remaining,
+  );
+  const dirBudget: DirSizeBudget = { remaining: allotment };
+  const size = computeDirSize(absPath, dirBudget);
+  listingBudget.remaining -= allotment - dirBudget.remaining;
+  return size;
+}
+
 const SOUNDS_WORKSPACE_PATH = "data/sounds";
 
 function normaliseWorkspacePathForSync(path: string): string {
@@ -154,6 +184,14 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
     const dirents = readdirSync(resolved, { withFileTypes: true });
     const workspaceDir = getWorkspaceDir();
 
+    // Listing-wide budget, only constructed when sizes are requested. Each
+    // directory draws a per-directory allotment from it so one oversized
+    // subtree can't starve its siblings, while the shared remainder still caps
+    // total synchronous traversal for the whole listing.
+    const listingBudget: DirSizeBudget | undefined = includeDirSizes
+      ? { remaining: DIR_SIZE_TOTAL_ENTRY_BUDGET }
+      : undefined;
+
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
       if (!showHidden && entry.name.startsWith(".")) continue;
@@ -170,12 +208,9 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
       const isDir = stats.isDirectory();
       const relativePath = fullPath.slice(workspaceDir.length + 1);
 
-      // Each directory gets its own traversal budget so one oversized subtree
-      // can't starve its siblings out of a computed size. When opted out, we
-      // skip the work entirely and report `size: null`.
       const dirSize =
-        isDir && includeDirSizes
-          ? computeDirSize(fullPath, { remaining: DIR_SIZE_PER_ENTRY_BUDGET })
+        isDir && listingBudget
+          ? computeDirSizeWithinListing(fullPath, listingBudget)
           : null;
 
       entries.push({
