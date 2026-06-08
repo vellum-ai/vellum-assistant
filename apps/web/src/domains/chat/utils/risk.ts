@@ -4,7 +4,8 @@ const VALID_RISK_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high"]
 
 /** Narrows an untrusted wire string to a valid TrustRuleRisk, defaulting to "medium". */
 export function toRiskLevel(value: string | undefined): TrustRuleRisk {
-  if (value && VALID_RISK_LEVELS.has(value)) return value as TrustRuleRisk;
+  const normalized = value?.toLowerCase();
+  if (normalized && VALID_RISK_LEVELS.has(normalized)) return normalized as TrustRuleRisk;
   return "medium";
 }
 
