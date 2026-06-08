@@ -25,8 +25,16 @@ interface ImportMetaEnv {
    * Defaults to `velay.vellum.ai` when unset. See `domains/chat/voice/live-voice/connection.ts`.
    */
   readonly VITE_VELAY_HOST?: string;
+
+  /** Feature flag overrides via env vars: `VITE_VELLUM_FLAG_<UPPER_SNAKE_KEY>=true|false|string`. */
+  readonly [key: `VITE_VELLUM_FLAG_${string}`]: string | undefined;
 }
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
+}
+
+interface Window {
+  /** Feature flag overrides injected by Electron preload or CLI script. */
+  __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
 }
