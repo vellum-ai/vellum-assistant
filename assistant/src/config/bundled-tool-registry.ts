@@ -19,8 +19,6 @@ import * as acpListAgents from "./bundled-skills/acp/tools/acp-list-agents.js";
 import * as acpSpawn from "./bundled-skills/acp/tools/acp-spawn.js";
 import * as acpStatus from "./bundled-skills/acp/tools/acp-status.js";
 import * as acpSteer from "./bundled-skills/acp/tools/acp-steer.js";
-// ── activation ─────────────────────────────────────────────────────────────────
-import * as emitActivationEvent from "./bundled-skills/activation/tools/emit-activation-event.js";
 // ── app-builder ────────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
@@ -139,9 +137,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["acp:tools/acp-abort.ts", acpAbort],
   ["acp:tools/acp-steer.ts", acpSteer],
   ["acp:tools/acp-list-agents.ts", acpListAgents],
-
-  // activation
-  ["activation:tools/emit-activation-event.ts", emitActivationEvent],
 
   // app-builder
   ["app-builder:tools/app-create.ts", appCreate],

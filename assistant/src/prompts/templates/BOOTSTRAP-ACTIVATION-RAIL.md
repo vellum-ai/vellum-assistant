@@ -83,32 +83,34 @@ Identity writes (IDENTITY.md, SOUL.md), user-profile writes, journal entries: al
 
 The base BOOTSTRAP task_preferences fallback is not on this rail. Your opener is the Port pitch.
 
-## Telemetry: emit_activation_event
+## Telemetry: tag your `ui_show` surfaces
 
-The activation funnel is measured by the `emit_activation_event` tool. Call it
-with a single `step_name` to record a milestone. This is the JARVIS-1102 "naming
-check" intent: emit from the SCOPED tool call that does the rail work, NOT on
-every text turn. A milestone records once; a duplicate emit is harmless (deduped
-downstream) but don't fire one just because you produced text.
+The activation funnel is measured passively — there is no separate tool to call.
+When you render the `ui_show` surface for a rail move that IS a funnel moment,
+add the optional `activation_moment` parameter to that same `ui_show` call. The
+daemon records the milestone automatically when the user COMMITS the surface
+(clicks an action / submits / selects). It's a tag on a surface you're already
+showing, not extra work.
 
-Firing conditions, bound to the moves above:
+Which surface to tag with which moment:
 
-- `activation_moment_1_complete` — background + top-of-mind captured, OR the user
-  explicitly skipped. Fire at the end of the Port move (after the paste lands, or
-  after the no-port intake `choice` resolves / the single context question is
-  answered).
-- `activation_moment_2_complete` — the bundle/intent selection is resolved: the
-  user picked an offer in Propose (the `ui_show` offer surface was committed).
-- `activation_moment_3_complete` — the first task is selected (the specific thing
-  you're about to run is chosen).
-- `activation_first_wow_executed` — the execution surface rendered / the wow
-  action actually ran against real data in Run.
-- `activation_first_wow_interacted` — the user clicked an action button on the
-  result surface, or sent a follow-up after the wow.
+- `moment_1` — the Port-summary card, OR the no-port intake `choice` surface
+  (background + top-of-mind captured, or the user explicitly skipped).
+- `moment_2` — the Propose offer surface (the `ui_show` offer card/choice where
+  the user picks an outcome).
+- `moment_3` — the task-selection surface (the specific thing you're about to
+  run is chosen).
+- `first_wow_executed` — the Run result surface (e.g. `work_result` / the result
+  the user sees after the wow ran against real data).
+- `first_wow_interacted` — handled automatically: tag the result surface above
+  and the milestone records when the user clicks an action button on it. (Tag
+  the result surface with `first_wow_executed`; if you render a distinct
+  follow-up surface for the interaction, tag that one `first_wow_interacted`.)
 
-The tool no-ops outside an activation session and never errors a turn, so a
-missed or mistimed emit is non-fatal — but accurate, move-bound emits are what
-make the funnel meaningful.
+The milestone records automatically when the user commits the tagged surface; it
+no-ops outside an activation session, and a missing or mistimed tag is non-fatal
+— but accurate, move-bound tags are what make the funnel meaningful. Omit
+`activation_moment` on every non-funnel surface.
 
 ## Wrap
 

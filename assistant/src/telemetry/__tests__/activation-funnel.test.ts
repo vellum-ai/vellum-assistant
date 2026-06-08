@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ACTIVATION_MOMENT_PARAMS,
   ACTIVATION_STEPS,
   activationStepIndex,
+  activationStepNameForMomentParam,
   buildActivationDaemonEventId,
+  isActivationMomentParam,
   isActivationStepName,
 } from "../activation-funnel.js";
 
@@ -37,5 +40,56 @@ describe("activation funnel vocabulary", () => {
     expect(
       buildActivationDaemonEventId("conv-abc", "activation_moment_1_complete"),
     ).toBe("activation_v1_2026_06:conv-abc:activation_moment_1_complete");
+  });
+});
+
+describe("activation moment param (model-facing tag)", () => {
+  test("ACTIVATION_MOMENT_PARAMS lists the five tokens in step order", () => {
+    expect(ACTIVATION_MOMENT_PARAMS).toEqual([
+      "moment_1",
+      "moment_2",
+      "moment_3",
+      "first_wow_executed",
+      "first_wow_interacted",
+    ]);
+  });
+
+  test("isActivationMomentParam accepts all five tokens", () => {
+    for (const param of ACTIVATION_MOMENT_PARAMS) {
+      expect(isActivationMomentParam(param)).toBe(true);
+    }
+  });
+
+  test("isActivationMomentParam rejects unknown tokens (incl. wire step names)", () => {
+    expect(isActivationMomentParam("bogus")).toBe(false);
+    // The wire step name is NOT a valid model-facing token.
+    expect(isActivationMomentParam("activation_moment_1_complete")).toBe(false);
+    expect(isActivationMomentParam("moment_4")).toBe(false);
+  });
+
+  test("activationStepNameForMomentParam maps each token to its step name", () => {
+    expect(activationStepNameForMomentParam("moment_1")).toBe(
+      ACTIVATION_STEPS.moment1.stepName,
+    );
+    expect(activationStepNameForMomentParam("moment_2")).toBe(
+      ACTIVATION_STEPS.moment2.stepName,
+    );
+    expect(activationStepNameForMomentParam("moment_3")).toBe(
+      ACTIVATION_STEPS.moment3.stepName,
+    );
+    expect(activationStepNameForMomentParam("first_wow_executed")).toBe(
+      ACTIVATION_STEPS.firstWowExecuted.stepName,
+    );
+    expect(activationStepNameForMomentParam("first_wow_interacted")).toBe(
+      ACTIVATION_STEPS.firstWowInteracted.stepName,
+    );
+  });
+
+  test("every moment param maps to a valid wire step name", () => {
+    for (const param of ACTIVATION_MOMENT_PARAMS) {
+      expect(
+        isActivationStepName(activationStepNameForMomentParam(param)),
+      ).toBe(true);
+    }
   });
 });

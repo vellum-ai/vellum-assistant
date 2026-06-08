@@ -13,7 +13,6 @@ import {
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { isActivationSession } from "../memory/activation-session-store.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -291,44 +290,10 @@ export function createProxyApprovalCallback(
 const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications", "subagent"];
 
 /**
- * Skill id of the activation-rail telemetry skill, cohort-scoped (see
- * {@link computeEffectivePreactivatedSkillIds}) so its `emit_activation_event`
- * tool is only registered for activation-rail conversations, never globally.
- */
-const ACTIVATION_SKILL_ID = "activation";
-
-/**
- * Resolve the skills to preactivate for a turn: the global default set, plus
- * any conversation-explicit ids, plus `activation` when this conversation is an
- * activation-rail session. Evaluated each turn (not at conversation init) so it
- * survives the per-turn `preactivatedSkillIds` resets in conversation-process.
- * The indexed PK `isActivationSession` lookup runs only when a conversation id
- * is present and never throws (it is internally best-effort).
- */
-export function computeEffectivePreactivatedSkillIds(
-  ctx: Pick<SkillProjectionContext, "conversationId" | "preactivatedSkillIds">,
-): string[] {
-  const ids = [
-    ...DEFAULT_PREACTIVATED_SKILL_IDS,
-    ...(ctx.preactivatedSkillIds ?? []),
-  ];
-  if (ctx.conversationId && isActivationSession(ctx.conversationId)) {
-    ids.push(ACTIVATION_SKILL_ID);
-  }
-  return ids;
-}
-
-/**
  * Subset of Conversation state that the resolveTools callback reads at each
  * agent turn. Properties are read lazily from this reference.
  */
 export interface SkillProjectionContext {
-  /**
-   * Stable conversation id. Read each turn to cohort-scope preactivation
-   * (e.g. the `activation` skill is preactivated only for activation-rail
-   * sessions, never product-wide).
-   */
-  readonly conversationId?: string;
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
   readonly skillProjectionCache: SkillProjectionCache;
@@ -619,7 +584,10 @@ export function createResolveToolsCallback(
       (d) => !excluded.has(d.name),
     );
 
-    const effectivePreactivated = computeEffectivePreactivatedSkillIds(ctx);
+    const effectivePreactivated = [
+      ...DEFAULT_PREACTIVATED_SKILL_IDS,
+      ...(ctx.preactivatedSkillIds ?? []),
+    ];
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,

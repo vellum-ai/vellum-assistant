@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
   getApp,
@@ -14,6 +15,7 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { recordActivationEvent } from "../memory/onboarding-events-store.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -27,6 +29,11 @@ import type {
   InteractiveUiRequest,
   InteractiveUiResult,
 } from "../runtime/interactive-ui-types.js";
+import {
+  type ActivationMomentParam,
+  activationStepNameForMomentParam,
+  isActivationMomentParam,
+} from "../telemetry/activation-funnel.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -569,6 +576,14 @@ export interface SurfaceConversationContext {
         style?: string;
         data?: Record<string, unknown>;
       }>;
+      /**
+       * Activation-rail telemetry tag (daemon-only). When the model tags a
+       * `ui_show` surface as an activation funnel moment, the token is captured
+       * here so the milestone can be recorded deterministically when the user
+       * commits the surface (`handleSurfaceAction`). Never forwarded to the
+       * client.
+       */
+      activationMoment?: ActivationMomentParam;
     }
   >;
   surfaceUndoStacks: Map<string, string[]>;
@@ -1250,6 +1265,45 @@ function getRequestedSurfaceCompletionSummary(
   return summary || "Completed";
 }
 
+/**
+ * Best-effort activation-funnel emission on a user surface commit.
+ *
+ * When the committed surface carries an `activationMoment` tag AND the
+ * conversation is a marked activation-rail session, record the corresponding
+ * funnel milestone. Fire-and-forget: never throws, never blocks or alters the
+ * surface-action flow (a failure is logged and swallowed). Emits at most once
+ * per surface — the tag is cleared after the first record so re-entrant or
+ * repeated commits on the same surface do not double-emit (and the deterministic
+ * `daemon_event_id` collapses any cross-surface duplicate downstream anyway).
+ *
+ * Must be called only from terminal-commit paths (user clicked an action /
+ * submitted / selected-and-committed), NOT from intermediate non-terminal
+ * events (`selection_changed` / `content_changed` / `state_update`).
+ */
+function maybeEmitActivationMoment(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+): void {
+  try {
+    const stored = ctx.surfaceState.get(surfaceId);
+    const moment = stored?.activationMoment;
+    if (!moment) return;
+    if (!isActivationSession(ctx.conversationId)) return;
+    // Clear the tag first so this can fire at most once per surface even if the
+    // commit path is re-entered.
+    stored.activationMoment = undefined;
+    recordActivationEvent({
+      stepName: activationStepNameForMomentParam(moment),
+      sessionId: ctx.conversationId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, surfaceId, conversationId: ctx.conversationId },
+      "Failed to record activation moment on surface commit",
+    );
+  }
+}
+
 function completeSurfaceFromAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
@@ -1316,6 +1370,13 @@ export async function handleSurfaceAction(
       submittedData: data,
     });
     markSurfaceCompleted(ctx, surfaceId, summary);
+
+    // Terminal user commit on a standalone surface (submit, not cancel/dismiss)
+    // — record an activation milestone if tagged. Must run before
+    // `cleanupStandaloneSurface` clears the surface state.
+    if (!isCancellation) {
+      maybeEmitActivationMoment(ctx, surfaceId);
+    }
 
     // Cleanup and resolve — order matters: cleanup clears the timer
     // before resolve() unblocks the caller.
@@ -1438,6 +1499,11 @@ export async function handleSurfaceAction(
       );
       return;
     }
+
+    // Terminal user commit on a history-restored surface — record an
+    // activation milestone if this surface was tagged (best-effort, no-op
+    // otherwise). Runs after the non-terminal early returns above.
+    maybeEmitActivationMoment(ctx, surfaceId);
 
     // Determine message content from the action.
     const stored = ctx.surfaceState.get(surfaceId);
@@ -1643,6 +1709,12 @@ export async function handleSurfaceAction(
     handleStateUpdate(ctx, surfaceId, data);
     return;
   }
+
+  // Terminal user commit on a pending surface — record an activation milestone
+  // if this surface was tagged (best-effort, no-op otherwise). Runs after the
+  // non-terminal early returns above so intermediate selection/state events
+  // never emit.
+  maybeEmitActivationMoment(ctx, surfaceId);
 
   // Merge stored action-level data (from ui_show definition) with client-sent
   // data. This is critical for relay_prompt buttons: the client only sends the
@@ -2504,6 +2576,16 @@ export async function surfaceProxyResolver(
       ...(a.data ? { data: a.data } : {}),
     }));
 
+    // Optional activation-rail telemetry tag. Daemon-only metadata: captured
+    // here so the funnel milestone can be recorded deterministically when the
+    // user commits this surface (see `handleSurfaceAction`). Validated and
+    // ignored if invalid; never forwarded to the client.
+    const activationMoment =
+      typeof input.activation_moment === "string" &&
+      isActivationMomentParam(input.activation_moment)
+        ? input.activation_moment
+        : undefined;
+
     // Track surface state for ui_update merging (includes actions so we can
     // look up per-action data payloads when the client sends an action back).
     ctx.surfaceState.set(surfaceId, {
@@ -2511,6 +2593,7 @@ export async function surfaceProxyResolver(
       data,
       title,
       actions: mappedActions,
+      ...(activationMoment ? { activationMoment } : {}),
     });
 
     log.info(

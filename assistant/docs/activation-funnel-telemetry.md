@@ -32,11 +32,18 @@ Flow, end to end:
 1. **Daemon records** an activation event into the SQLite `onboarding_events`
    table via `recordActivationEvent()` in
    `assistant/src/memory/onboarding-events-store.ts`:
-   - the model calls the **`emit_activation_event`** bundled-skill tool
-     (`assistant/src/config/bundled-skills/activation/`), which goes through the
-     pure handler `emitActivationMoment()`
-     (`assistant/src/telemetry/activation-emit.ts`) for moments 1/2/3 and the two
-     first-wow steps;
+   - emission is **deterministic, tied to the real user commit of a `ui_show`
+     surface** — there is no model-facing tool. The model tags the surface it is
+     already rendering for a rail move with an optional `activation_moment`
+     parameter on `ui_show`; the daemon captures that tag on the surface's
+     server-side state and, when the user **commits** that surface (clicks an
+     action / submits / selects), `handleSurfaceAction()` in
+     `assistant/src/daemon/conversation-surfaces.ts` records the corresponding
+     milestone (gated on `isActivationSession`). The token→step-name map lives in
+     `assistant/src/telemetry/activation-funnel.ts`
+     (`activationStepNameForMomentParam`);
+   - emission is best-effort (wrapped in try/catch) and never blocks or alters
+     the surface-action flow;
    - `recordActivationEvent` respects the `getConfig().collectUsageData` opt-out
      gate (returns `null` / no row when disabled).
 2. **Reporter flushes** every ~5 min: `usage-telemetry-reporter.ts`
@@ -63,17 +70,21 @@ The single source of truth is `assistant/src/telemetry/activation-funnel.ts`
 (`ACTIVATION_FUNNEL_VERSION`). `ab_variant = "variant-a"`
 (`ACTIVATION_AB_VARIANT`, the treatment arm).
 
-| step_index | step_name                         | Emitted by                                                                                      |
-| ---------- | --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 1          | `activation_moment_1_complete`    | model — `emit_activation_event` tool (background + top-of-mind captured, or explicitly skipped) |
-| 2          | `activation_moment_2_complete`    | model — `emit_activation_event` tool (bundle/intent selection resolved)                         |
-| 3          | `activation_moment_3_complete`    | model — `emit_activation_event` tool (first task selected)                                      |
-| 4          | `activation_first_wow_executed`   | model — `emit_activation_event` tool (execution surface rendered / wow ran)                     |
-| 5          | `activation_first_wow_interacted` | model — `emit_activation_event` tool (user clicked an action / sent a follow-up on the wow)     |
+Each step is recorded when the user commits the `ui_show` surface the model
+tagged with the corresponding `activation_moment` token (see §1). The
+token→step-name map is the `moment_*` column below.
 
-The model emits all five steps via the tool. The north star (≥5 user messages)
-is derived downstream from the existing `turn` telemetry, not a materialized
-activation event (see §1).
+| step_index | step_name                         | `activation_moment` token | Recorded on commit of                                           |
+| ---------- | --------------------------------- | ------------------------- | --------------------------------------------------------------- |
+| 1          | `activation_moment_1_complete`    | `moment_1`                | Port-summary card OR no-port intake `choice` surface            |
+| 2          | `activation_moment_2_complete`    | `moment_2`                | Propose offer surface (the `ui_show` offer card/choice)         |
+| 3          | `activation_moment_3_complete`    | `moment_3`                | task-selection surface                                          |
+| 4          | `activation_first_wow_executed`   | `first_wow_executed`      | Run result surface (e.g. `work_result`)                         |
+| 5          | `activation_first_wow_interacted` | `first_wow_interacted`    | user clicks an action on the tagged result surface (see §1, §4) |
+
+All five steps are recorded deterministically on surface commit. The north star
+(≥5 user messages) is derived downstream from the existing `turn` telemetry, not
+a materialized activation event (see §1).
 
 On the wire, each onboarding event also sets `screen = step_name` (to satisfy the
 SQLite `screen TEXT NOT NULL` column and the platform's legacy-path validation),
@@ -120,12 +131,16 @@ sessions**:
   `BOOTSTRAP-ACTIVATION-RAIL.md` template is actually active** (i.e.
   `bootstrapTemplate === ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE`), which the web
   prechat context selects only for users whose
-  `experiment-activation-flow-2026-06-03` cohort puts them on the rail.
-- The `emit_activation_event` tool is **preactivated and cohort-scoped to rail
-  sessions**: it is registered as a bundled-skill tool and is present, but
-  `emitActivationMoment()` returns `{ ok: false, reason: "not_activation_session"
-}` for any conversation that was never marked — so a stray tool call in a normal
-  chat never pollutes the funnel.
+  `experiment-activation-flow-2026-06-03` cohort puts them on the rail. (It is
+  also set up-front in `conversation.ts` `setOnboardingContext` so the marker is
+  available before the first turn's tool resolution.)
+- Emission is **gated on the marker at commit time**: when a tagged `ui_show`
+  surface is committed, the daemon records the milestone only if
+  `isActivationSession(conversationId)` is true. A stray `activation_moment` tag
+  in a normal chat is therefore ignored and never pollutes the funnel. (`moment_4`
+  / `first_wow_interacted` deduping is handled the same way as any other moment —
+  see the dedup contract in §3 — and the per-surface tag is cleared after the
+  first record so a single surface commit emits at most once.)
 
 The activation **session id is the daemon `conversation_id`** of the rail
 conversation. That same value is `session_id` on every activation event.
@@ -180,15 +195,17 @@ daemon writing to a known SQLite DB.
 
 ### 5.4 Drive the rail through all five model moments
 
-Work the conversation through the rail moves so the model emits each milestone via
-`emit_activation_event` (firing conditions are documented in
-`BOOTSTRAP-ACTIVATION-RAIL.md`):
+Work the conversation through the rail moves so the model tags each surface and
+you commit it (the model tags surfaces via `ui_show`'s `activation_moment`
+parameter; which surface maps to which moment is documented in
+`BOOTSTRAP-ACTIVATION-RAIL.md` and §2). Each milestone records when YOU commit
+the tagged surface:
 
-1. Provide background / top-of-mind (or skip it) → `activation_moment_1_complete`.
-2. Resolve a bundle / intent selection → `activation_moment_2_complete`.
-3. Select the first task → `activation_moment_3_complete`.
-4. Let the wow execute / the execution surface render → `activation_first_wow_executed`.
-5. Click an action button / send a follow-up on the wow → `activation_first_wow_interacted`.
+1. Commit the Port-summary card / no-port intake `choice` → `activation_moment_1_complete`.
+2. Commit the Propose offer surface → `activation_moment_2_complete`.
+3. Commit the task-selection surface → `activation_moment_3_complete`.
+4. Commit the Run result surface → `activation_first_wow_executed`.
+5. Click an action on the result surface → `activation_first_wow_interacted`.
 
 ### 5.5 Force / await a telemetry flush
 
@@ -267,11 +284,15 @@ collapses it earliest-wins).
 
 ## 8. Notes
 
-- **JARVIS-1102 "naming check" (resolved).** Events fire from the **scoped tool
-  calls that do the rail work, not every text turn**. The model emits a milestone
-  via `emit_activation_event` only at the firing conditions bound to the rail's
-  moves (documented in `BOOTSTRAP-ACTIVATION-RAIL.md`). This resolves the
-  naming-check open interpretation.
+- **JARVIS-1102 "naming check" (resolved).** Events fire **deterministically on
+  the real user commit of a `ui_show` surface, not every text turn**. The model
+  passively tags the surface for a rail move with `activation_moment`; the daemon
+  records the milestone in `handleSurfaceAction` when the user commits that
+  surface (firing conditions / surface→moment mapping documented in
+  `BOOTSTRAP-ACTIVATION-RAIL.md`). This removes the standalone
+  `emit_activation_event` tool (and its cohort preactivation) entirely and ties
+  emission to a genuine user action, resolving the naming-check open
+  interpretation.
 - **Stream B (multivariate cohort flag conversion) is NOT in this work.** It is
   gated on the platform team's in-flight string-flag serving — until the platform
   can serve string/multivariate flags, flipping

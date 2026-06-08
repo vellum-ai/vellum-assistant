@@ -66,6 +66,52 @@ export function isActivationStepName(
   return STEP_INDEX_BY_NAME.has(value as ActivationStepName);
 }
 
+/**
+ * Model-facing activation-moment tokens. These are the values the model passes
+ * as the optional `ui_show` `activation_moment` tag; the daemon maps each token
+ * to its `ACTIVATION_STEPS[...].stepName` and records the milestone when the
+ * tagged surface is committed. Kept short/stable so the schema enum is friendly
+ * for the model — the canonical wire vocabulary stays `ActivationStepName`.
+ */
+export type ActivationMomentParam =
+  | "moment_1"
+  | "moment_2"
+  | "moment_3"
+  | "first_wow_executed"
+  | "first_wow_interacted";
+
+/**
+ * `ActivationMomentParam` token → canonical `ActivationStepName`, derived from
+ * `ACTIVATION_STEPS` so the vocabulary stays single-sourced. The token order
+ * mirrors `ACTIVATION_STEPS` (indices 1–5).
+ */
+const STEP_NAME_BY_MOMENT_PARAM = {
+  moment_1: ACTIVATION_STEPS.moment1.stepName,
+  moment_2: ACTIVATION_STEPS.moment2.stepName,
+  moment_3: ACTIVATION_STEPS.moment3.stepName,
+  first_wow_executed: ACTIVATION_STEPS.firstWowExecuted.stepName,
+  first_wow_interacted: ACTIVATION_STEPS.firstWowInteracted.stepName,
+} as const satisfies Record<ActivationMomentParam, ActivationStepName>;
+
+/** The five valid model-facing moment tokens (e.g. for a schema enum). */
+export const ACTIVATION_MOMENT_PARAMS = Object.keys(
+  STEP_NAME_BY_MOMENT_PARAM,
+) as ActivationMomentParam[];
+
+/** Type guard: is `value` one of the model-facing activation-moment tokens? */
+export function isActivationMomentParam(
+  value: string,
+): value is ActivationMomentParam {
+  return Object.prototype.hasOwnProperty.call(STEP_NAME_BY_MOMENT_PARAM, value);
+}
+
+/** Map a model-facing moment token to its canonical activation step name. */
+export function activationStepNameForMomentParam(
+  param: ActivationMomentParam,
+): ActivationStepName {
+  return STEP_NAME_BY_MOMENT_PARAM[param];
+}
+
 /** Look up the 1-based funnel index for a step name. */
 export function activationStepIndex(stepName: ActivationStepName): number {
   // Non-null: ActivationStepName is derived from ACTIVATION_STEPS, so the map
