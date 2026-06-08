@@ -46,18 +46,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   return { useAssistantFeatureFlagStore: store };
 });
 
-// --- client feature flag store ----------------------------------------------
-// The quick-add "+" is gated by the provider-first-profile-creation client
-// flag. A mutable ref lets individual tests flip the flag; default ON so the
-// existing "+" tests exercise the enabled path.
-const providerFirstEnabledRef = { value: true };
-mock.module("@/stores/client-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    providerFirstProfileCreation: () => providerFirstEnabledRef.value,
-  };
-  return { useClientFeatureFlagStore: store };
-});
 
 // --- threshold-api (mount-time access-level fetches) -------------------------
 mock.module("@/lib/threshold-api", () => ({
@@ -175,7 +163,6 @@ function renderMenu() {
 
 beforeEach(() => {
   isMobileRef.value = false;
-  providerFirstEnabledRef.value = true;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   clientPatch.mockClear();
@@ -284,16 +271,6 @@ describe("Model Profile quick-add", () => {
       const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-  });
-
-  test('"+" New Profile is NOT rendered when the provider-first flag is off', async () => {
-    providerFirstEnabledRef.value = false;
-    renderMenu();
-    // The Model Profile section still renders, but without the quick-add "+".
-    await waitFor(() => {
-      expect(document.body.textContent).toContain("Model Profile");
-    });
-    expect(screen.queryByLabelText("New Profile")).toBeNull();
   });
 
   test("a failed autoselect surfaces an error toast (without claiming creation failed)", async () => {
