@@ -222,6 +222,8 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
+    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId)
+      break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
       resolveVerificationSessionIntent(candidate.content).kind ===
