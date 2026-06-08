@@ -37,7 +37,7 @@ import type { SubagentStatus } from "@vellumai/assistant-api";
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils";
+} from "@/domains/chat/utils/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
@@ -125,8 +125,8 @@ export function useConversationHistory({
     recordLocalSeq(activeConversationId, latestPageSeq);
     // On a cold session, anchor the live SSE connection at this snapshot
     // watermark so the daemon ring-replays events emitted between the
-    // snapshot and the stream attaching. No-op past the first cold load
-    // and when seq gap detection is off.
+    // snapshot and the stream attaching. No-op once the connection is warm
+    // (cursor already seeded) or when the snapshot reports no seq.
     anchorColdStartReplay(latestPageSeq);
 
     const isFreshSwitch = store.switchResetPending;
@@ -165,9 +165,6 @@ export function useConversationHistory({
               : reconcileLatestHistorySnapshot(prev, filteredMessages, {
                   serverSeq: latestPageSeq,
                   localSeq: priorLocalSeq,
-                  isProcessing: useConversationStore
-                    .getState()
-                    .processingConversationIds.has(activeConversationId),
                 });
           return nextMessages;
         });

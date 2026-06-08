@@ -13,11 +13,6 @@ mock.module("@/domains/chat/stream-store", () => ({
   },
 }));
 
-let seqGapEnabled = true;
-mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
-  isSeqGapDetectionEnabled: () => seqGapEnabled,
-}));
-
 // Single global cursor mock mirroring reconnect-cursor.ts semantics.
 let globalCursor: number | null = null;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
@@ -80,7 +75,6 @@ const makeDeps = (override: {
 };
 
 beforeEach(() => {
-  seqGapEnabled = true;
   mockStreamEpoch = 7;
   globalCursor = null;
   __resetLocalSeqForTesting();
@@ -507,36 +501,6 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(globalCursor).toBe(3);
   });
 
-  test("with seqGapEnabled=false, no gap detection runs and no cursor is written", () => {
-    seqGapEnabled = false;
-    const { deps, reconcileActive } = makeDeps();
-    const consumer = createSseEventConsumer(deps);
-
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 5,
-        message: {
-          type: "assistant_text_delta",
-          text: "a",
-        },
-      }),
-    );
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 50,
-        message: {
-          type: "assistant_text_delta",
-          text: "b",
-        },
-      }),
-    );
-
-    expect(reconcileActive).not.toHaveBeenCalled();
-    expect(globalCursor).toBeNull();
-  });
-
   test("active-conversation key is read from the ref on every event (commit-phase update)", () => {
     const { deps, handleStreamEvent, activeConversationIdRef } = makeDeps();
     const consumer = createSseEventConsumer(deps);
@@ -656,41 +620,6 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
       "sse_event_seq_replayed",
       expect.objectContaining({ conversationId: "conv-1", eventSeq: 5 }),
     );
-    expect(getLocalSeq("conv-1")).toBe(5);
-  });
-
-  test("with seqGapEnabled=false the frontier is still tracked but replays re-dispatch", () => {
-    /**
-     * Recording the frontier is unconditional in-memory bookkeeping; only the
-     * seq-based replay skip is gated behind the flag. With the flag off the
-     * consumer still advances the frontier but never skips a re-delivered
-     * event.
-     */
-    // GIVEN the seq flag is disabled
-    seqGapEnabled = false;
-    const { deps, handleStreamEvent } = makeDeps({
-      activeConversationId: "conv-1",
-    });
-    const consumer = createSseEventConsumer(deps);
-
-    // WHEN the same seq is delivered twice
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 5,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-    consumer.handleSseEvent(
-      makeEnvelope({
-        conversationId: "conv-1",
-        seq: 5,
-        message: { type: "assistant_text_delta", text: "a" },
-      }),
-    );
-
-    // THEN both are dispatched (no replay skip) and the frontier is recorded
-    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
     expect(getLocalSeq("conv-1")).toBe(5);
   });
 });

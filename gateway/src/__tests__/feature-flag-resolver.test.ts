@@ -64,6 +64,10 @@ afterEach(() => {
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
   clearRemoteFeatureFlagStoreCache();
+  resetEnvOverridesCache();
+  delete process.env.VELLUM_FLAG_BROWSER;
+  delete process.env.VELLUM_FLAG_A2A_CHANNEL;
+  delete process.env.VELLUM_FLAG_DEFAULT_MODEL;
 });
 
 const { isFeatureFlagEnabled, getFeatureFlagValue } = await import("../feature-flag-resolver.js");
@@ -73,6 +77,8 @@ const { clearFeatureFlagStoreCache, writeFeatureFlag } =
   await import("../feature-flag-store.js");
 const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
   await import("../feature-flag-remote-store.js");
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 
 describe("isFeatureFlagEnabled", () => {
   test("uses registry defaults when no override exists", () => {
@@ -148,5 +154,25 @@ describe("getFeatureFlagValue", () => {
     writeRemoteFeatureFlags({ "default-model": "remote-model" });
     writeFeatureFlag("default-model", "persisted-model");
     expect(getFeatureFlagValue("default-model")).toBe("persisted-model");
+  });
+
+  test("env override wins over persisted, remote, and default values", () => {
+    writeRemoteFeatureFlags({ browser: false });
+    writeFeatureFlag("browser", false);
+
+    process.env.VELLUM_FLAG_BROWSER = "true";
+    resetEnvOverridesCache();
+
+    expect(getFeatureFlagValue("browser")).toBe(true);
+  });
+
+  test("env override wins for string flags", () => {
+    writeRemoteFeatureFlags({ "default-model": "remote-model" });
+    writeFeatureFlag("default-model", "persisted-model");
+
+    process.env.VELLUM_FLAG_DEFAULT_MODEL = "env-model";
+    resetEnvOverridesCache();
+
+    expect(getFeatureFlagValue("default-model")).toBe("env-model");
   });
 });

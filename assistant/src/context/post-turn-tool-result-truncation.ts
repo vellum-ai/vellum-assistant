@@ -23,6 +23,34 @@ export const TOOL_RESULT_DIR = ".tool-results";
 export const TRUNCATION_MARKER = "\u2014 full result:";
 
 /**
+ * Tools whose results carry durable operating instructions the model relies on
+ * across later turns rather than one-off data it only needs in the moment.
+ * Their results must never be middle-truncated: paging out the middle silently
+ * strips the workflow (e.g. a `skill_load` body losing its "## Available Tools"
+ * section), leaving the model to fall back to generic priors. Skill bodies are
+ * bounded and authored to live in context, so exempting them is safe.
+ */
+export const TRUNCATION_EXEMPT_TOOLS = new Set<string>(["skill_load"]);
+
+/**
+ * Build a map of tool_use_id -> originating tool name by walking the tool_use
+ * blocks in assistant messages. A tool_result only carries `tool_use_id`, so
+ * this is the only way to recover which tool produced a given result.
+ */
+function buildToolNameById(messages: Message[]): Map<string, string> {
+  const byId = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const block of msg.content) {
+      if (block.type !== "tool_use") continue;
+      const tu = block as ToolUseContent;
+      byId.set(tu.id, tu.name);
+    }
+  }
+  return byId;
+}
+
+/**
  * Deterministic file path for a tool result's full content on disk.
  * Uses the first 12 hex chars of the SHA-256 of the tool_use_id.
  */
@@ -59,7 +87,8 @@ export function buildTruncatedContent(
  * - The in-context content is replaced with a prefix/suffix stub.
  *
  * Results are skipped if they are below threshold, are error results,
- * or have already been truncated (contain `TRUNCATION_MARKER`).
+ * have already been truncated (contain `TRUNCATION_MARKER`), or were produced
+ * by a tool in `TRUNCATION_EXEMPT_TOOLS` (durable instructions like skill bodies).
  *
  * Returns a shallow-copied messages array (only modified messages are cloned)
  * and the count of results that were truncated.
@@ -69,6 +98,8 @@ export function postTurnTruncateToolResults(
   options: { conversationDir: string },
 ): { messages: Message[]; truncatedCount: number } {
   let truncatedCount = 0;
+
+  const toolNameById = buildToolNameById(messages);
 
   const mapped = messages.map((msg) => {
     let changed = false;
@@ -81,6 +112,13 @@ export function postTurnTruncateToolResults(
 
       // Skip error results.
       if (tr.is_error) return block;
+
+      // Skip results from tools whose output is durable operating instructions
+      // (e.g. skill_load); middle-truncating them strips the workflow.
+      const toolName = toolNameById.get(tr.tool_use_id);
+      if (toolName !== undefined && TRUNCATION_EXEMPT_TOOLS.has(toolName)) {
+        return block;
+      }
 
       // Skip already-truncated results (idempotency).
       if (tr.content.includes(TRUNCATION_MARKER)) return block;

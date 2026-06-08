@@ -26,7 +26,7 @@
  * React commits the new active key. A direct closure capture would
  * leak deltas into the new conversation until the cleanup ran.
  *
- * Seq-gap detection (feature-flagged via `isSeqGapDetectionEnabled`):
+ * Seq-gap detection:
  *   `seq` is a single global per-assistant counter the daemon stamps
  *   on every conversation-scoped event, so gap detection runs against
  *   one connection-wide cursor BEFORE the active-conversation filter —
@@ -48,7 +48,7 @@
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path.
  *
- * Per-conversation idempotent apply (same flag):
+ * Per-conversation idempotent apply:
  *   Past the active-conversation filter, each applied event advances a
  *   per-conversation frontier (`local-seq.ts`). An event whose seq is
  *   at or below that frontier has already been applied to the transcript
@@ -69,7 +69,6 @@
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import {
   advanceReconnectCursor,
@@ -112,11 +111,6 @@ export interface SseEventConsumer {
 export function createSseEventConsumer(
   deps: SseEventConsumerDeps,
 ): SseEventConsumer {
-  // Read the feature-flag once at construction — it requires a reload
-  // to flip, so it cannot change during the lifetime of one
-  // conversation subscription.
-  const seqGapEnabled = isSeqGapDetectionEnabled();
-
   // Tracks in-flight gap reconciliation so we debounce rather than
   // firing O(N) reconcile calls while the first one is still pending.
   let reconcileInFlight = false;
@@ -132,7 +126,7 @@ export function createSseEventConsumer(
       // conversation-scoped event (any conversation) against the single
       // global cursor, before the active-conversation dispatch filter.
       let gapDeferred = false;
-      if (seqGapEnabled && eventSeq != null) {
+      if (eventSeq != null) {
         const stored = getReconnectCursor();
         if (stored === null) {
           // First event on a cold connection — seed the cursor without
@@ -207,7 +201,6 @@ export function createSseEventConsumer(
         // so skip it and leave the frontier untouched.
         const localSeq = getLocalSeq(eventConversationId);
         if (
-          seqGapEnabled &&
           eventSeq != null &&
           localSeq != null &&
           eventSeq <= localSeq
@@ -223,9 +216,7 @@ export function createSseEventConsumer(
           // Advance the per-conversation frontier once the event is
           // applied so the snapshot/stream merge knows how far the
           // stream has carried this conversation, and so a later replay
-          // of this seq is recognised as a no-op above. Recording the
-          // frontier is unconditional — it is just in-memory bookkeeping;
-          // only the seq-based decisions above are flag-gated.
+          // of this seq is recognised as a no-op above.
           // `recordLocalSeq` ignores a null/undefined seq itself.
           recordLocalSeq(eventConversationId, eventSeq);
         }
@@ -245,7 +236,7 @@ export function createSseEventConsumer(
       // reconcile resolves. The cursor advances for filtered-out
       // (other-conversation) events too, so it stays contiguous with
       // the global counter for transport-level resume.
-      if (seqGapEnabled && eventSeq != null && !gapDeferred) {
+      if (eventSeq != null && !gapDeferred) {
         advanceReconnectCursor(eventSeq);
       }
     },

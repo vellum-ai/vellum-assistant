@@ -1,6 +1,7 @@
 // @ts-check
 
 const env = process.env.VELLUM_ENVIRONMENT || "production";
+const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
 const productName =
   env === "production"
@@ -17,10 +18,17 @@ if (env !== "production") {
   schemes.push(`vellum-assistant-${env}`);
 }
 
+const channel =
+  env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
+
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
   appId,
   productName,
+  publish: {
+    provider: "generic",
+    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${targetArch}/`,
+  },
   directories: {
     output: "dist",
   },
@@ -74,7 +82,11 @@ module.exports = {
     target: [
       {
         target: "dmg",
-        arch: ["arm64"],
+        arch: [targetArch],
+      },
+      {
+        target: "zip",
+        arch: [targetArch],
       },
     ],
   },

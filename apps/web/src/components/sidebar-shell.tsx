@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
+import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -32,6 +33,15 @@ export function SidebarShell({
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
+
+  // In the Electron shell the macOS window controls (traffic lights) sit in an
+  // inline title-bar zone at the top of the renderer (see `ChatLayoutHeader` /
+  // the desktop app's `MAIN_TRAFFIC_LIGHT_POSITION`). Unlike chat, this shell
+  // has no inline header row, so reserve top space to clear the controls AND
+  // match the chat layout, whose sidebar/content sits below the 44px title bar
+  // plus the 16px content inset (`p-4`) — i.e. 60px (3.75rem) from the top.
+  // Off Electron it stays at the standard 1rem inset.
+  const electron = isElectron();
 
   const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const mobileBackLabel = isMenuRoute
@@ -69,8 +79,9 @@ export function SidebarShell({
     <div
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
       style={{
-        paddingTop:
-          "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+        paddingTop: electron
+          ? "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 3.75rem)"
+          : "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
       }}
     >
       {/* Mobile header */}

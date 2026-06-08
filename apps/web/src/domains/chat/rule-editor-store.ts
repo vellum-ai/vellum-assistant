@@ -18,7 +18,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
-import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
+import type { TrustRuleItem, TrustRuleRisk, TrustRuleSuggestion } from "@/types/trust-rules";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,7 +28,7 @@ import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 export interface RuleEditorContext {
   requestId: string;
   toolName: string;
-  riskLevel: string;
+  riskLevel: TrustRuleRisk;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];

@@ -39,9 +39,9 @@ import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { UpdateBanner } from "@/components/update-banner";
 import { retireAssistant } from "@/assistant/retire-service";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -91,8 +91,7 @@ export function RootLayout() {
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  const isOrgReady = useIsOrgReady();
-  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing && isOrgReady);
+  useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
     isRetired: false,
@@ -109,7 +108,7 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
-  useAssistantFeatureFlagSync(hasPlatformSession ? assistantId : null);
+  useAssistantFeatureFlagSync(assistantId);
   useAssistantResourceSync(assistantId, isAssistantActive);
   useConversationSync(assistantId, isAssistantActive);
   useFeatureFlagBusSync(assistantId, isAssistantActive);
@@ -247,9 +246,12 @@ export function RootLayout() {
         paddingRight:
           "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
         isolation: "isolate",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
+      <UpdateBanner />
+      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>
 

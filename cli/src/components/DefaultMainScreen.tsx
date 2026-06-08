@@ -12,7 +12,11 @@ import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { lookupAssistantByIdentifier } from "../lib/assistant-config";
 import { checkHealth } from "../lib/health-check";
-import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
+import {
+  guardianTokenDueForRenewal,
+  loadGuardianToken,
+  refreshGuardianToken,
+} from "../lib/guardian-token";
 import { trustedRefreshUrl } from "../lib/runtime-url";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
@@ -232,6 +236,9 @@ export async function maybeRefreshAuthHeaders(
   if (!stored || stored.accessToken !== bearer || !stored.refreshToken) {
     return false;
   }
+  // Only refresh once the token is actually due for renewal, so a forged 401
+  // on a still-valid token can't coax out the long-lived refresh credential.
+  if (!guardianTokenDueForRenewal(stored)) return false;
   const refreshed = await refreshGuardianToken(refreshUrl, assistantId);
   if (!refreshed?.accessToken) return false;
   auth["Authorization"] = `Bearer ${refreshed.accessToken}`;

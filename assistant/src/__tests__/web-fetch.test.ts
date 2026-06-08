@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   buildFetchResponseFromNodeResponse,
   executeWebFetch,
+  getUpstreamStatus,
 } from "../tools/network/web-fetch.js";
 
 describe("web_fetch tool", () => {
@@ -60,6 +61,50 @@ describe("web_fetch tool", () => {
     expect(response.status).toBe(204);
     expect(response.statusText).toBe("No Content");
     expect(await response.text()).toBe("");
+  });
+
+  test("buildFetchResponseFromNodeResponse does not throw on non-standard status codes", async () => {
+    const stream = new PassThrough() as PassThrough & {
+      statusCode?: number;
+      statusMessage?: string;
+      headers: IncomingHttpHeaders;
+    };
+    stream.statusCode = 999;
+    stream.statusMessage = "Request Denied";
+    stream.headers = { "content-type": "text/html; charset=utf-8" };
+    stream.end("blocked by anti-bot gateway");
+
+    const response = buildFetchResponseFromNodeResponse(stream);
+    // The Response object clamps to a constructable code, but the real upstream
+    // status is preserved for reporting.
+    expect(response.status).toBe(502);
+    expect(getUpstreamStatus(response)).toBe(999);
+    expect(response.ok).toBe(false);
+    expect(await response.text()).toBe("blocked by anti-bot gateway");
+  });
+
+  test("surfaces a non-standard status as a tool error instead of crashing", async () => {
+    const result = await executeWithMockFetch(
+      { url: "https://www.linkedin.com/jobs/view/123" },
+      {
+        requestExecutor: async () => {
+          const stream = new PassThrough() as PassThrough & {
+            statusCode?: number;
+            statusMessage?: string;
+            headers: IncomingHttpHeaders;
+          };
+          stream.statusCode = 999;
+          stream.statusMessage = "Request Denied";
+          stream.headers = { "content-type": "text/html; charset=utf-8" };
+          stream.end("<html><body>blocked</body></html>");
+          return buildFetchResponseFromNodeResponse(stream);
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("HTTP 999");
+    expect(result.activityMetadata?.webFetch?.status).toBe(999);
   });
 
   test("rejects missing url", async () => {

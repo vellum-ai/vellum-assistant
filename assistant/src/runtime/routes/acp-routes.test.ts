@@ -2,9 +2,9 @@
  * Tests for the ACP route handlers.
  *
  * Suites:
- *  - POST /v1/acp/spawn: resolver failure paths (acp_disabled,
- *    unknown_agent) and the body-shape guard. The binary_not_found /
- *    auto-install surface is covered in `__tests__/acp-routes.test.ts`.
+ *  - POST /v1/acp/spawn: resolver failure paths (unknown_agent) and the
+ *    body-shape guard. The binary_not_found / auto-install surface is
+ *    covered in `__tests__/acp-routes.test.ts`.
  *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
  *    from the credential broker (policy-gated + audited) and merged into
  *    `agentConfig.env` ONLY for the `claude` agent.
@@ -200,21 +200,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/acp/spawn", () => {
-  test("throws BadRequestError when ACP is disabled", async () => {
-    config.setConfig({ enabled: false });
-
-    const handler = getSpawnHandler();
-    await expect(
-      handler({
-        body: {
-          agent: "claude",
-          task: "do a thing",
-          conversationId: "conv-1",
-        },
-      }),
-    ).rejects.toThrow("acp.enabled");
-  });
-
   test("throws BadRequestError with merged available list when agent id is unknown", async () => {
     config.setConfig({
       agents: {
@@ -235,8 +220,6 @@ describe("POST /v1/acp/spawn", () => {
   });
 
   test("body-shape guard short-circuits before the resolver runs", async () => {
-    config.setConfig({ enabled: false });
-
     const handler = getSpawnHandler();
     await expect(handler({ body: { agent: "claude" } })).rejects.toThrow(
       "agent, task, and conversationId are required",

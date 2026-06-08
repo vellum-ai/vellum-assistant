@@ -69,7 +69,7 @@ interface WakeResult {
  *
  * Throws when no CLI path can be resolved (e.g. install fails).
  */
-async function resolveCliInvocation(): Promise<CliInvocation> {
+export async function resolveCliInvocation(): Promise<CliInvocation> {
   const envPath = process.env.VELLUM_CLI_PATH;
   if (envPath) {
     return { command: "bun", baseArgs: ["run", envPath] };

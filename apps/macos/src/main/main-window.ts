@@ -26,6 +26,35 @@ const ONBOARDING_CONTENT_SIZE = { width: 440, height: 630 } as const;
 // Default bounds for the main window once onboarding is done.
 const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 
+// macOS traffic-light (window controls) position for the main-app layout.
+//
+// The renderer's chat header (`apps/web` `ChatLayoutHeader`) renders as a
+// unified ~44px title bar whose icon row sits *inline* with the window
+// controls. To line them up we vertically centre the ~14px-tall traffic
+// light cluster in that bar — `(44 − 14) / 2 ≈ 15` — and inset it ~19px from
+// the left edge (matching the macOS default), so the header's left padding
+// clears the cluster. See `ChatLayoutHeader`'s Electron branch in the
+// renderer for the matching toolbar height + left inset.
+//
+// Compact / pre-app surfaces (onboarding, the `/account/*` auth screens) have
+// no such title bar, so they keep the system-default position. Those surfaces
+// drive `setOnboarding(true)`; the main app drives `setOnboarding(false)`.
+const MAIN_TRAFFIC_LIGHT_POSITION = { x: 19, y: 15 } as const;
+
+// Align the macOS traffic lights with the active layout. The compact
+// onboarding / auth surfaces pass `compact: true` to reset the cluster to the
+// system default (`null`); the main app passes `compact: false` to centre it
+// in the inline title bar. macOS-only API — the desktop app only ships on
+// macOS — but `setWindowButtonPosition` is a harmless no-op shape elsewhere.
+const applyTrafficLightPosition = (
+  win: BrowserWindow,
+  compact: boolean,
+): void => {
+  win.setWindowButtonPosition(
+    compact ? null : { ...MAIN_TRAFFIC_LIGHT_POSITION },
+  );
+};
+
 /**
  * Main BrowserWindow lifecycle owner.
  *
@@ -160,6 +189,13 @@ const createMainWindow = (): BrowserWindow => {
     browserWindow: { ...sizing, titleBarStyle: "hidden", show: false },
     navigation: { installGuard: installSameOriginNavigationGuard },
   });
+
+  // Line the macOS traffic lights up with the renderer's inline title bar for
+  // the main app; the compact onboarding / auth window keeps the system
+  // default. Done before `show` (the window is created hidden) so there's no
+  // flicker of the cluster jumping into place. `setOnboarding` keeps this in
+  // sync as the user crosses between compact and main surfaces.
+  applyTrafficLightPosition(win, onboardingActive);
 
   // Persist bounds only when NOT in onboarding mode. Both layouts are
   // resizable, so resize events fire in either mode — but the small
@@ -320,6 +356,10 @@ export const setOnboarding = (active: boolean): void => {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
   if (active === wasActive) return;
+
+  // Re-centre (or reset) the traffic lights to match the layout we're moving
+  // into — the inline title bar exists only on the main-app surface.
+  applyTrafficLightPosition(win, active);
 
   if (active) {
     win.setContentSize(

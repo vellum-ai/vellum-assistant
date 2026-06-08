@@ -44,9 +44,9 @@ export interface ResolvedHotkey {
   accelerator: string;
 }
 
-// Surface exposed to the renderer as `window.vellum`. `platform`, `hotkeys`,
-// and `commands` are wired through IPC; `auth` and `helper` are typed stubs
-// that reject with "not implemented yet" until their feature tickets land.
+// Surface exposed to the renderer as `window.vellum`. Each privileged
+// capability is routed through a narrow IPC method; the renderer never gets a
+// raw main-process or native-helper RPC passthrough.
 // When adding new bridge methods, see the "When to extend the bridge with
 // new methods" section in `apps/macos/README.md` for the convention
 // (generic KV for non-sensitive prefs; dedicated `<capability>.<verb>()`
@@ -108,6 +108,23 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+export type HelperState =
+  | { status: "idle" }
+  | { status: "starting"; attempt: number }
+  | { status: "running"; pid?: number }
+  | {
+      status: "backing-off";
+      attempt: number;
+      retryAt: number;
+      reason: string;
+    }
+  | { status: "circuit-open"; reason: string }
+  | { status: "stopped"; reason?: string };
+
+export type HelperRestartResult =
+  | { ok: true; state: HelperState }
+  | { ok: false; reason: string; state: HelperState };
+
 /**
  * Mirror of `AssistantStatus` in `apps/macos/src/main/status.ts`. Inlined for
  * the same reason as the other bridge types: preload + main + renderer each
@@ -130,6 +147,25 @@ export type ConnectivityState =
   | "online"
   | "device-offline"
   | "backend-unreachable";
+
+/**
+ * Mirror of `UpdateStatus` / `UpdateState` in `apps/macos/src/main/auto-update.ts`.
+ * Inlined for the same reason as the other bridge types.
+ */
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  version?: string;
+  progress?: { percent: number; transferred: number; total: number };
+  error?: string;
+}
 
 /**
  * Mirror of `NotificationCategory` in `apps/macos/src/main/notifications.ts`.
@@ -265,6 +301,9 @@ export interface VellumBridge {
   };
   helper: {
     ping(): Promise<"pong">;
+    getState(): Promise<HelperState>;
+    restart(): Promise<HelperRestartResult>;
+    onState(callback: (state: HelperState) => void): () => void;
     hotkey: {
       /**
        * Enable or disable the native Fn push-to-talk registration.
@@ -518,6 +557,16 @@ export interface VellumBridge {
      */
     open(conversationId: string): Promise<void>;
   };
+  update: {
+    /** Read the current auto-update state. */
+    getState(): Promise<UpdateState>;
+    /** Trigger an update check. */
+    check(): Promise<void>;
+    /** Quit and install the downloaded update. */
+    install(): Promise<void>;
+    /** Subscribe to auto-update state changes. Returns an unsubscribe function. */
+    onState(callback: (state: UpdateState) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -586,7 +635,23 @@ const bridge: VellumBridge = {
     },
   },
   helper: {
-    ping: notImplemented("helper.ping"),
+    ping: () =>
+      ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,
+    getState: () =>
+      ipcRenderer.invoke("vellum:helper:state:get") as Promise<HelperState>,
+    restart: () =>
+      ipcRenderer.invoke(
+        "vellum:helper:restart",
+      ) as Promise<HelperRestartResult>,
+    onState: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: HelperState) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:helper:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:helper:state", handler);
+      };
+    },
     hotkey: {
       fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
         ipcRenderer.invoke(
@@ -808,6 +873,23 @@ const bridge: VellumBridge = {
     open: (conversationId: string): Promise<void> =>
       ipcRenderer.invoke("vellum:popout:open", conversationId) as Promise<void>,
   },
+  update: {
+    getState: (): Promise<UpdateState> =>
+      ipcRenderer.invoke("vellum:update:getState") as Promise<UpdateState>,
+    check: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:update:check") as Promise<void>,
+    install: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:update:install") as Promise<void>,
+    onState: (callback) => {
+      const handler = (_event: IpcRendererEvent, state: UpdateState) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:update:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:update:state", handler);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("vellum", bridge);
@@ -820,8 +902,26 @@ if (vellumConfig) {
   contextBridge.exposeInMainWorld("__VELLUM_CONFIG__", vellumConfig);
 }
 
+const flagOverrides: Record<string, boolean | string> = {};
+for (const [key, value] of Object.entries(process.env)) {
+  if (!key.startsWith("VELLUM_FLAG_") || value === undefined) continue;
+  const flagKey = key
+    .slice("VELLUM_FLAG_".length)
+    .toLowerCase()
+    .replace(/_/g, "-");
+  const lower = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(lower)) flagOverrides[flagKey] = true;
+  else if (["false", "0", "no", "off"].includes(lower))
+    flagOverrides[flagKey] = false;
+  else flagOverrides[flagKey] = value.trim();
+}
+if (Object.keys(flagOverrides).length > 0) {
+  contextBridge.exposeInMainWorld("__VELLUM_FLAG_OVERRIDES__", flagOverrides);
+}
+
 declare global {
   interface Window {
     vellum: VellumBridge;
+    __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
   }
 }

@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import {
   getOrCreatePersistedDeviceId,
+  guardianTokenDueForRenewal,
   loadGuardianToken,
   refreshGuardianToken,
   saveGuardianToken,
@@ -293,7 +294,7 @@ describe("refreshGuardianToken", () => {
       );
     }) as typeof fetch;
 
-    const result = await refreshGuardianToken("http://10.0.0.9:7830", "px");
+    const result = await refreshGuardianToken("https://gw.example.com", "px");
 
     expect(result?.accessToken).toBe("new-acc");
     expect(loadGuardianToken("px")?.accessToken).toBe("new-acc");
@@ -309,7 +310,9 @@ describe("refreshGuardianToken", () => {
       return new Response("", { status: 200 });
     }) as typeof fetch;
 
-    expect(await refreshGuardianToken("http://10.0.0.9:7830", "px")).toBeNull();
+    expect(
+      await refreshGuardianToken("https://gw.example.com", "px"),
+    ).toBeNull();
     expect(called).toBe(false);
   });
 
@@ -321,7 +324,7 @@ describe("refreshGuardianToken", () => {
     }) as typeof fetch;
 
     expect(
-      await refreshGuardianToken("http://10.0.0.9:7830", "missing"),
+      await refreshGuardianToken("https://gw.example.com", "missing"),
     ).toBeNull();
     expect(called).toBe(false);
   });
@@ -342,8 +345,131 @@ describe("refreshGuardianToken", () => {
         headers: { "content-type": "application/json" },
       })) as typeof fetch;
 
-    const result = await refreshGuardianToken("http://10.0.0.9:7830", "px");
+    const result = await refreshGuardianToken("https://gw.example.com", "px");
     expect(result?.accessToken).toBe("new-acc");
     expect(existsSync(lp)).toBe(false); // stolen lock cleaned up after release
+  });
+
+  // The refresh token is long-lived and replayable, so it must only travel over
+  // a confidential channel: https, or a loopback host. These guard the
+  // plaintext-interception vector flagged in the security review.
+
+  test("sends the refresh token over loopback http (127.0.0.1 / localhost / [::1])", async () => {
+    for (const url of [
+      "http://127.0.0.1:7830",
+      "http://localhost:7830",
+      "http://[::1]:7830",
+    ]) {
+      seed(future());
+      let called = false;
+      globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+        called = true;
+        return new Response(JSON.stringify({ accessToken: "new-acc" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      expect(await refreshGuardianToken(url, "px")).not.toBeNull();
+      expect(called).toBe(true); // loopback http is allowed
+    }
+  });
+
+  test("refuses a non-loopback plaintext http URL: no fetch, returns null, warns", async () => {
+    seed(future());
+    let called = false;
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+      called = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+
+    const origWarn = console.warn;
+    let warned = false;
+    console.warn = () => {
+      warned = true;
+    };
+    try {
+      expect(
+        await refreshGuardianToken("http://10.0.0.5:7830", "px"),
+      ).toBeNull();
+    } finally {
+      console.warn = origWarn;
+    }
+    expect(called).toBe(false); // the refresh token is never sent
+    expect(warned).toBe(true);
+  });
+
+  test("refuses a malformed gateway URL: no fetch, returns null", async () => {
+    seed(future());
+    let called = false;
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+      called = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      expect(await refreshGuardianToken("not-a-url", "px")).toBeNull();
+    } finally {
+      console.warn = origWarn;
+    }
+    expect(called).toBe(false);
+  });
+});
+
+describe("guardianTokenDueForRenewal", () => {
+  const FUTURE = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+
+  function token(over: Partial<GuardianTokenData>): GuardianTokenData {
+    return {
+      guardianPrincipalId: "p",
+      accessToken: "a",
+      accessTokenExpiresAt: FUTURE,
+      refreshToken: "r",
+      refreshTokenExpiresAt: FUTURE,
+      refreshAfter: "",
+      isNew: false,
+      deviceId: "d",
+      leasedAt: new Date().toISOString(),
+      ...over,
+    };
+  }
+
+  test("past refreshAfter → due", () => {
+    expect(guardianTokenDueForRenewal(token({ refreshAfter: PAST }))).toBe(
+      true,
+    );
+  });
+
+  test("future refreshAfter → not due", () => {
+    expect(guardianTokenDueForRenewal(token({ refreshAfter: FUTURE }))).toBe(
+      false,
+    );
+  });
+
+  test("empty refreshAfter falls back to accessTokenExpiresAt (past → due)", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "", accessTokenExpiresAt: PAST }),
+      ),
+    ).toBe(true);
+  });
+
+  test("empty refreshAfter falls back to accessTokenExpiresAt (future → not due)", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "", accessTokenExpiresAt: FUTURE }),
+      ),
+    ).toBe(false);
+  });
+
+  test("unparseable timestamp → not due", () => {
+    expect(
+      guardianTokenDueForRenewal(
+        token({ refreshAfter: "not-a-date", accessTokenExpiresAt: "nope" }),
+      ),
+    ).toBe(false);
   });
 });

@@ -250,16 +250,6 @@ describe("executeAcpSpawn — input validation", () => {
     expect(result.content).toContain("Available:");
   });
 
-  test("acp disabled returns error with config hint", async () => {
-    config.setConfig({ enabled: false, agents: DEFAULT_TEST_AGENTS });
-    const result = await executeAcpSpawn(
-      { agent: "claude", task: "do something" },
-      makeContext(),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("acp.enabled");
-  });
-
   test("missing binary + bun absent returns install hint, no install attempted", async () => {
     which.setWhich({}); // neither bun nor the adapter on PATH
     const result = await executeAcpSpawn(

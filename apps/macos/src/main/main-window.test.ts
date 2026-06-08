@@ -26,6 +26,7 @@ type StubWindow = {
   setBounds: ReturnType<typeof mock>;
   setPosition: ReturnType<typeof mock>;
   center: ReturnType<typeof mock>;
+  setWindowButtonPosition: ReturnType<typeof mock>;
   webContents: StubWebContents;
   // Test seam — emits a `closed` event so the production code's
   // module-scope `mainWindow = null` cleanup runs.
@@ -77,6 +78,7 @@ const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
     setBounds: mock(() => undefined),
     setPosition: mock(() => undefined),
     center: mock(() => undefined),
+    setWindowButtonPosition: mock(() => undefined),
     show: mock(() => {
       state.visible = true;
     }),
@@ -531,6 +533,62 @@ describe("onboarding window sizing", () => {
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
     expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
+  });
+
+  test("centres the macOS traffic lights for a main-app window on creation", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    // Inline title-bar layout: cluster centred in the ~44px header.
+    expect(win.stub.setWindowButtonPosition).toHaveBeenCalledWith({ x: 19, y: 15 });
+  });
+
+  test("keeps the system-default traffic lights for a compact onboarding window", () => {
+    onboardingActive = true;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    // Compact / pre-app surfaces have no inline title bar → reset to default.
+    expect(win.stub.setWindowButtonPosition).toHaveBeenCalledWith(null);
+  });
+
+  test("setOnboarding(true) resets the traffic lights to the system default", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    win.stub.setWindowButtonPosition.mockClear();
+
+    setOnboarding(true);
+
+    expect(win.stub.setWindowButtonPosition).toHaveBeenCalledWith(null);
+  });
+
+  test("setOnboarding(false) re-centres the traffic lights for the main app", () => {
+    onboardingActive = true;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    win.stub.setWindowButtonPosition.mockClear();
+
+    setOnboarding(false);
+
+    expect(win.stub.setWindowButtonPosition).toHaveBeenCalledWith({ x: 19, y: 15 });
+  });
+
+  test("re-asserting the current mode does not reposition the traffic lights", () => {
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    win.stub.setWindowButtonPosition.mockClear();
+
+    setOnboarding(false);
+
+    expect(win.stub.setWindowButtonPosition).not.toHaveBeenCalled();
   });
 });
 

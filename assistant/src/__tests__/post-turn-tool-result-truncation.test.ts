@@ -12,6 +12,7 @@ import {
   TARGET_CHARS,
   THRESHOLD_CHARS,
   TOOL_RESULT_DIR,
+  TRUNCATION_EXEMPT_TOOLS,
   TRUNCATION_MARKER,
 } from "../context/post-turn-tool-result-truncation.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -149,6 +150,74 @@ describe("postTurnTruncateToolResults", () => {
     expect(stub.endsWith(expectedSuffix)).toBe(true);
     expect(stub).toContain(TRUNCATION_MARKER);
     expect(stub).toContain(filePath);
+  });
+
+  test("skill_load result above threshold is NOT truncated (durable instructions exempt)", () => {
+    // Regression for JARVIS-1000: a hosted assistant lost its app-builder skill
+    // workflow when the large skill_load result was middle-truncated between the
+    // turn that loaded the skill and the turn that used it, then fell back to a
+    // local-dev (vite/localhost) build path.
+    const toolUseId = "tool_skill_load";
+    const skillBody = "S".repeat(THRESHOLD_CHARS + 5_000);
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use" as const,
+            id: toolUseId,
+            name: "skill_load",
+            input: { skill: "app-builder" },
+          },
+        ],
+      },
+      { role: "user", content: [makeToolResult(skillBody, toolUseId)] },
+    ];
+
+    const { messages: result, truncatedCount } =
+      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+
+    expect(truncatedCount).toBe(0);
+    expect(result).toBe(messages); // same reference — no copy
+    expect(existsSync(join(convDir, TOOL_RESULT_DIR))).toBe(false);
+
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
+    expect(block.content).toBe(skillBody);
+    expect(TRUNCATION_EXEMPT_TOOLS.has("skill_load")).toBe(true);
+  });
+
+  test("non-exempt tool result above threshold is still truncated when paired with a tool_use", () => {
+    // Control for the exemption: same shape as the skill_load case, but a tool
+    // that is NOT exempt must still be truncated.
+    const toolUseId = "tool_bash_1";
+    const longContent = "B".repeat(THRESHOLD_CHARS + 5_000);
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use" as const,
+            id: toolUseId,
+            name: "bash",
+            input: { command: "cat big.log" },
+          },
+        ],
+      },
+      { role: "user", content: [makeToolResult(longContent, toolUseId)] },
+    ];
+
+    const { messages: result, truncatedCount } =
+      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+
+    expect(truncatedCount).toBe(1);
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
+    expect(block.content).toContain(TRUNCATION_MARKER);
   });
 
   test("file path is deterministic for the same toolUseId", () => {

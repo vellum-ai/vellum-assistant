@@ -91,6 +91,9 @@ export function resolveLoginReturnTo(
       ? routes.onboarding.selectAssistant
       : routes.onboarding.hosting;
   }
+  if (fromPath === routes.onboarding.selectAssistant) {
+    return `${fromPath}?fromLogin=1`;
+  }
   return fromPath;
 }
 
@@ -182,7 +185,7 @@ function resolveRouteGuard(
   if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
     if (state.hasAssistants) {
       const returnTo = encodeURIComponent(pathnameWithSearch);
-      return { action: "redirect", to: `${routes.onboarding.privacy}?returnTo=${returnTo}` };
+      return { action: "redirect", to: `${routes.onboarding.reviewTerms}?returnTo=${returnTo}` };
     }
     return { action: "redirect", to: routes.onboarding.privacy };
   }

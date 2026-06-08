@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT_DIR/native/hotkey-helper/main.swift"
+PACKAGE_DIR="$ROOT_DIR/native/hotkey-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
 OUTPUT="$OUTPUT_DIR/hotkey-helper"
 
@@ -16,6 +16,16 @@ if ! command -v xcrun >/dev/null 2>&1; then
   exit 1
 fi
 
+BUILD_ARGS=(--package-path "$PACKAGE_DIR" -c release)
+if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
+  case "$ELECTRON_TARGET_ARCH" in
+    arm64) BUILD_ARGS+=(--triple arm64-apple-macosx15.0) ;;
+    x64)   BUILD_ARGS+=(--triple x86_64-apple-macosx15.0) ;;
+  esac
+fi
+
 mkdir -p "$OUTPUT_DIR"
-xcrun swiftc "$SOURCE" -framework AppKit -framework Carbon -o "$OUTPUT"
+xcrun swift build "${BUILD_ARGS[@]}"
+BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
+cp "$BUILD_DIR/hotkey-helper" "$OUTPUT"
 chmod 755 "$OUTPUT"

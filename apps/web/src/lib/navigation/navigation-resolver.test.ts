@@ -105,6 +105,12 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("allows authenticated user on review-terms route", () => {
+      expect(
+        guard(s({}), "/assistant/onboarding/review-terms"),
+      ).toEqual(ALLOW);
+    });
+
     test("query strings do not break onboarding path matching", () => {
       expect(
         guard(s({}), "/assistant/onboarding/privacy?replay=1"),
@@ -212,16 +218,16 @@ describe("resolveNavigation", () => {
 
     // -- authenticated, platform mode, not onboarded ----------------------
 
-    test("redirects platform-mode user without consent to privacy with returnTo", () => {
+    test("redirects platform-mode user without consent to review-terms with returnTo", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: false, aiDataConsent: false })),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy?returnTo=%2Fassistant" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/review-terms?returnTo=%2Fassistant" });
     });
 
-    test("redirects platform-mode user with partial consent to privacy with returnTo", () => {
+    test("redirects platform-mode user with partial consent to review-terms with returnTo", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: true, aiDataConsent: false })),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy?returnTo=%2Fassistant" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/review-terms?returnTo=%2Fassistant" });
     });
 
     test("redirects platform-mode user without consent and no assistants to privacy without returnTo", () => {
@@ -460,10 +466,13 @@ describe("resolveNavigation", () => {
       ).toBe("/assistant/onboarding/hosting");
     });
 
-    test("returns the same path for non-welcome pages", () => {
+    test("appends fromLogin param when logging in from select-assistant", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/select-assistant"),
-      ).toBe("/assistant/onboarding/select-assistant");
+      ).toBe("/assistant/onboarding/select-assistant?fromLogin=1");
+    });
+
+    test("returns the same path for other non-welcome pages", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
       ).toBe("/assistant/onboarding/hosting");

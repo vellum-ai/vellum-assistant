@@ -10,6 +10,7 @@
 
 import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
+import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import { buildAccessRequestContractText, nonEmpty } from "../copy-composer.js";
@@ -136,7 +137,12 @@ export class TelegramAdapter implements ChannelAdapter {
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error(
+      // A missing bot token means the operator simply hasn't configured
+      // Telegram; it is not a code fault, so log it at warn to keep it out
+      // of Sentry. Genuine and transient failures (e.g. an unreachable
+      // credential store) stay at error so they remain visible.
+      const logFn = err instanceof ConfigError ? log.warn : log.error;
+      logFn(
         { err, sourceEventName: payload.sourceEventName, chatId },
         "Failed to deliver Telegram notification",
       );

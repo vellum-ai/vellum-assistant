@@ -113,9 +113,22 @@ export function BillingOnboardingModal({
     }
   }, [domainSetupAvailable]);
 
+  // The welcome card is the user's first real touchpoint with the flow; we lock
+  // it so an accidental backdrop click or Esc can't bail them out of setup. The
+  // explicit X (shown only here) is the deliberate exit, and the card's copy
+  // tells them they can opt into these features later from Settings.
+  const isFirstCard = step === "welcome";
+
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <Modal.Content size="md" hideCloseButton className="overflow-hidden">
+      <Modal.Content
+        size="md"
+        hideCloseButton={!isFirstCard}
+        dismissOnOverlayClick={!isFirstCard}
+        onEscapeKeyDown={isFirstCard ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={isFirstCard ? (e) => e.preventDefault() : undefined}
+        className="overflow-hidden"
+      >
         {renderStep()}
       </Modal.Content>
     </Modal.Root>

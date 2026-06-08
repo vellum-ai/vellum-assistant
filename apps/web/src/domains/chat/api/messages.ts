@@ -120,7 +120,7 @@ export function mapRuntimeToolCalls(
     // wire row actually carries one. A history row that omits it must not
     // materialize `confirmationDecision: undefined`, or reconciliation would
     // spread that over a live `"denied"`/`"timed_out"` decision set locally by
-    // `useInteractionActions`.
+    // `confirmation-actions`.
     const { confirmationDecision, ...rest } = tc;
     return {
       ...rest,

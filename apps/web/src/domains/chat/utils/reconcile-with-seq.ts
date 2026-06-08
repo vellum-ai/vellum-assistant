@@ -45,11 +45,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  * wire `ConversationMessage[]` snapshot to display rows at the reconcile
  * boundary (`reconcile-snapshot.ts`), and the initial-load path already holds
  * display rows. Keeping the merge display-on-display makes it the single
- * authoritative reconcile for every snapshot-apply site under the flag.
- *
- * Gated behind `isSeqGapDetectionEnabled()`. While the flag is off, callers
- * use the legacy reconcilers; this module is the only path when it is on, and
- * the legacy ones are removed when the flag graduates.
+ * authoritative reconcile for every snapshot-apply site.
  */
 export interface ReconcileWithSeqOptions {
   /** Server seq `S` — how far `/messages` had persisted. */

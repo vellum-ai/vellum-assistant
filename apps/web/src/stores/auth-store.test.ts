@@ -26,6 +26,17 @@ const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
 const restoreConsentForUserMock = mock((_userId: string | null) => ({ tos: false, ai: false }));
+const persistConsentForUserMock = mock((_userId: string | null, _tos: boolean, _ai: boolean) => {});
+const resolveServerConsentMock = mock((_consent: unknown) => ({
+  tos: false, ai: false, shareAnalytics: null, shareDiagnostics: null,
+}));
+
+let mockFetchMeResult: unknown = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
+let mockFetchMeError: Error | null = null;
+const fetchMeMock = mock(async () => {
+  if (mockFetchMeError) throw mockFetchMeError;
+  return mockFetchMeResult;
+});
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
 const deleteBiometricTokenMock = mock(async () => {});
@@ -100,8 +111,18 @@ mock.module("@/runtime/native-biometric", () => ({
 
 const clearUserScopedStorageMock = mock(() => {});
 
+const patchConsentMock = mock(async (_consent: unknown) => {});
+
+mock.module("@/domains/account/profile", () => ({
+  fetchMe: fetchMeMock,
+  patchConsent: patchConsentMock,
+}));
+
 mock.module("@/utils/onboarding-cleanup", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
+  persistConsentForUser: persistConsentForUserMock,
+  resolveServerConsent: resolveServerConsentMock,
+  CONSENT_VERSION: "2026-06-08",
 }));
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
@@ -109,6 +130,8 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
     getState: () => ({
       setTosAccepted: () => {},
       setAiDataConsent: () => {},
+      setShareAnalytics: () => {},
+      setShareDiagnostics: () => {},
     }),
   },
 }));
@@ -169,6 +192,12 @@ beforeEach(() => {
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   restoreConsentForUserMock.mockClear();
+  persistConsentForUserMock.mockClear();
+  resolveServerConsentMock.mockClear();
+  fetchMeMock.mockClear();
+  patchConsentMock.mockClear();
+  mockFetchMeResult = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
+  mockFetchMeError = null;
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
   logoutMock.mockClear();
@@ -183,21 +212,82 @@ beforeEach(() => {
 });
 
 describe("auth store onboarding flag reconciliation", () => {
-  test("initSession restores consent for the signed-in user", async () => {
+  test("initSession uses server consent when server has a consent record", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchMeResult = {
+      id: "user-1", username: "test", email: "test@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
+
+    await useAuthStore.getState().initSession();
+
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).toHaveBeenCalled();
+    expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("initSession falls through to device keys when server consent is null", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
 
     await useAuthStore.getState().initSession();
 
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).not.toHaveBeenCalled();
     expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("refreshSession restores consent for a changed user", async () => {
+  test("initSession backfills server when device keys show prior consent and server has no record", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    restoreConsentForUserMock.mockReturnValueOnce({ tos: true, ai: true });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalled();
+  });
+
+  test("initSession falls back to device keys when fetchMe fails", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchMeError = new Error("Network error");
+
+    await useAuthStore.getState().initSession();
+
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("initSession fetches server consent for local-mode platform sessions", async () => {
+    mockIsLocalMode = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    mockFetchMeResult = {
+      id: "user-1", username: "test", email: "test@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
+
+    await useAuthStore.getState().initSession();
+
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("refreshSession fetches consent from server for platform users", async () => {
     sessionUser = { id: "user-2", email: "user@example.com" };
+    mockFetchMeResult = {
+      id: "user-2", username: "test", email: "user@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-2");
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(useAuthStore.getState().user?.id).toBe("user-2");
   });
 

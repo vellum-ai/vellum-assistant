@@ -12,6 +12,7 @@ import {
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
+import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { installCsp } from "./csp";
@@ -36,8 +37,10 @@ import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode } from "./local-mode";
+import { installLocalMode, resolveCliInvocation } from "./local-mode";
 import { installLockfileWatcher } from "./lockfile-watcher";
+import { installHostProxyBridge } from "./host-proxy-router";
+import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -338,6 +341,7 @@ app
     installLocalMode();
     installHotkeyHelper();
     installAbout();
+    installAutoUpdate();
     installFeedbackIpc();
     installTextInsertionIpc();
     installApplicationMenu();
@@ -362,6 +366,8 @@ app
     // switcher submenu has data on its first right-click.
     const teardownLockfileWatcher = installLockfileWatcher();
     app.on("before-quit", teardownLockfileWatcher);
+    const teardownHostProxy = installHostProxyBridge(resolveCliInvocation);
+    app.on("before-quit", teardownHostProxy);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,

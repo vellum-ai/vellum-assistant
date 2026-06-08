@@ -43,9 +43,6 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
-import {
-  setSeqGapDetectionEnabled,
-} from "@/lib/feature-flags/seq-gap-detection-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -784,20 +781,6 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
-
-  /** Opt into client-side seq gap detection. When enabled, the bus
-   *  subscriber tracks per-conversation seq cursors and triggers
-   *  reconcile on gaps or server restarts. Persists to localStorage
-   *  and reloads.
-   *
-   *  - `toggleSeqGapDetection(true)`   — enable + reload.
-   *  - `toggleSeqGapDetection(false)`  — disable + reload.
-   *  - `toggleSeqGapDetection(null)`   — clear + reload (same as false).
-   *  - `toggleSeqGapDetection()`       — log + return current value
-   *    (no reload, no mutation).
-   *
-   *  Returns the value in effect after the call. */
-  toggleSeqGapDetection(value?: boolean | null): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -824,8 +807,7 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags
- *     (`impersonateVersion`, `toggleSeqGapDetection`).
+ *   - `flags` — dev-toggleable feature flags (`impersonateVersion`).
  *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
@@ -910,7 +892,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
-      toggleSeqGapDetection: setSeqGapDetectionEnabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

@@ -2349,9 +2349,9 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  # ── Electron macOS build (arm64) ──────────────────────────────────────
-  # Builds the Electron-wrapped macOS app, code-signs it, notarizes the
-  # DMG, and uploads it as a release asset. Non-blocking (continue-on-error)
+  # ── Electron macOS build (arm64 + x64) ────────────────────────────────
+  # Builds the Electron-wrapped macOS app for each architecture, code-signs,
+  # notarizes, and uploads as release assets. Non-blocking (continue-on-error)
   # while the Electron client is WIP.
   build-electron:
     needs: [extract-version, publish-meta-prod, publish-meta-staging]
@@ -2359,12 +2359,25 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            dmg_name: vellum-assistant-electron.dmg
+            artifact_name: macos-build-electron
+            update_artifact_name: macos-electron-update-arm64
+          - arch: x64
+            dmg_name: vellum-assistant-electron-x64.dmg
+            artifact_name: macos-build-electron-x64
+            update_artifact_name: macos-electron-update-x64
     defaults:
       run:
         working-directory: apps/macos
     env:
       KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -2461,7 +2474,7 @@ jobs:
             exit 1
           fi
           echo "Found DMG: $ELECTRON_DMG"
-          FINAL_DMG="dist/vellum-assistant-electron.dmg"
+          FINAL_DMG="dist/${{ matrix.dmg_name }}"
           mv "$ELECTRON_DMG" "$FINAL_DMG"
           echo "dmg_path=$FINAL_DMG" >> "$GITHUB_OUTPUT"
 
@@ -2538,9 +2551,20 @@ jobs:
       - name: Upload Electron DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-build-electron
-          path: apps/macos/dist/vellum-assistant-electron.dmg
+          name: ${{ matrix.artifact_name }}
+          path: apps/macos/dist/${{ matrix.dmg_name }}
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Electron update artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.update_artifact_name }}
+          path: |
+            apps/macos/dist/latest-mac.yml
+            apps/macos/dist/*.zip
+            apps/macos/dist/*.zip.blockmap
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Cleanup keychain and keys
@@ -2550,9 +2574,82 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
+  # ── Upload Electron update artifacts to GCS ────────────────────────────
+  # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
+  # GCS bucket so electron-updater can pull delta updates. Each arch gets
+  # its own path: electron/{channel}/{arch}/. Production → latest channel,
+  # staging → beta channel.
+
+  upload-electron-updates:
+    needs: [extract-version, build-electron]
+    if: ${{ needs.build-electron.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download arm64 update artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-electron-update-arm64
+          path: electron-artifacts/arm64
+
+      - name: Download x64 update artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-electron-update-x64
+          path: electron-artifacts/x64
+
+      - name: Validate update artifacts
+        run: |
+          MISSING=0
+          for ARCH in arm64 x64; do
+            DIR="electron-artifacts/${ARCH}"
+            if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+              echo "::error::Missing latest-mac.yml for ${ARCH}"
+              MISSING=1
+            fi
+            if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
+              echo "::error::Missing ZIP for ${ARCH}"
+              MISSING=1
+            fi
+          done
+          [ "$MISSING" -eq 0 ] || exit 1
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Electron update artifacts to GCS
+        run: |
+          CHANNEL=${{ needs.extract-version.outputs.is_staging == 'true' && 'beta' || 'latest' }}
+          BUCKET="vellum-desktop-releases"
+          MANIFEST_NAME="${CHANNEL}-mac.yml"
+
+          for ARCH in arm64 x64; do
+            ARCH_DIR="electron-artifacts/${ARCH}"
+            [ -d "$ARCH_DIR" ] || continue
+            PREFIX="electron/${CHANNEL}/${ARCH}"
+
+            find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
+              gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
+            done
+
+            find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
+              gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
+            done
+
+            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
+          done
+
   release:
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && (needs.upload-electron-updates.result == 'success' || needs.upload-electron-updates.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2617,12 +2714,26 @@ jobs:
           name: chrome-extension-crx-zip
           path: chrome-extension-artifacts
 
-      - name: Download Electron DMG artifact
+      # Only attach Electron DMGs when their update feed was successfully
+      # published to GCS. If `upload-electron-updates` was skipped (Electron
+      # build failed, or its DMG step succeeded while the update-artifact
+      # step did not), shipping the DMG without a matching `latest-mac.yml`
+      # would strand installed clients with no path back to auto-update.
+      - name: Download Electron DMG artifact (arm64)
+        if: ${{ needs.upload-electron-updates.result == 'success' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         continue-on-error: true
         with:
           name: macos-build-electron
           path: electron-artifacts
+
+      - name: Download Electron DMG artifact (x64)
+        if: ${{ needs.upload-electron-updates.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: macos-build-electron-x64
+          path: electron-artifacts-x64
 
       - name: Create GitHub Releases
         env:
@@ -2648,10 +2759,14 @@ jobs:
             [ -n "$X64_DMG" ] && ASSETS+=("$X64_DMG#vellum-assistant-x64.dmg")
           fi
 
-          # Add Electron DMG if available (non-blocking — may not exist if Electron build failed)
+          # Add Electron DMGs if available (non-blocking — may not exist if Electron build failed)
           if [ -d "electron-artifacts" ]; then
             ELECTRON_DMG=$(find electron-artifacts -name "vellum-assistant-electron.dmg" -type f | grep -m1 .)
             [ -n "$ELECTRON_DMG" ] && ASSETS+=("$ELECTRON_DMG#vellum-assistant-electron.dmg")
+          fi
+          if [ -d "electron-artifacts-x64" ]; then
+            ELECTRON_X64_DMG=$(find electron-artifacts-x64 -name "vellum-assistant-electron-x64.dmg" -type f | grep -m1 .)
+            [ -n "$ELECTRON_X64_DMG" ] && ASSETS+=("$ELECTRON_X64_DMG#vellum-assistant-electron-x64.dmg")
           fi
 
           INSTALL_SH="cli/src/adapters/install.sh"

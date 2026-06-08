@@ -891,6 +891,7 @@ export async function resolveOrHatchTarget(
       false,
       false,
       {},
+      {},
       {
         setupProviderCredentials: false,
       },
@@ -914,6 +915,7 @@ export async function resolveOrHatchTarget(
       false,
       targetName ?? null,
       false,
+      {},
       {},
       {
         setupProviderCredentials: false,

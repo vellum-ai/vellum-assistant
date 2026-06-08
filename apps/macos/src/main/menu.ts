@@ -2,6 +2,7 @@ import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 import { z } from "zod";
 
 import { openAboutWindow } from "./about";
+import { checkForUpdates } from "./auto-update";
 import {
   acceleratorOption,
   dispatchToFocused,
@@ -41,6 +42,16 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
             openAboutWindow();
           },
         },
+        ...(!isDev
+          ? [
+              {
+                label: "Check for Updates\u2026",
+                click: () => {
+                  checkForUpdates();
+                },
+              },
+            ]
+          : []),
         { type: "separator" },
         {
           label: "Settings\u2026",

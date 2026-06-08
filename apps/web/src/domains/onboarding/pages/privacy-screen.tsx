@@ -1,4 +1,3 @@
-import { captureError } from "@/lib/sentry/capture-error";
 import { EyeOff } from "lucide-react";
 import { useCallback, useEffect, useId, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -20,9 +19,9 @@ import {
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { persistConsentForUser } from "@/utils/onboarding-cleanup";
+import { saveConsent } from "@/utils/onboarding-cleanup";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -82,6 +81,7 @@ export function PrivacyScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
+  const hasPlatformSession = useHasPlatformSession();
 
   useEffect(() => {
     if (!isNative) {
@@ -90,13 +90,7 @@ export function PrivacyScreen() {
   }, [isNative]);
 
   const onStart = useCallback(() => {
-    try {
-      setShareAnalytics(shareAnalytics);
-      setShareDiagnostics(shareDiagnostics);
-    } catch (err) {
-      captureError(err, { context: "onboarding_persist_share_prefs" });
-    }
-    persistConsentForUser(userId, tosAccepted, aiDataConsent);
+    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -104,17 +98,7 @@ export function PrivacyScreen() {
         variant,
       });
     }
-    // If the caller told us where to go after consent, go there instead of
-    // hatching a new assistant (e.g. returning user whose consent flags were
-    // cleared on logout).
-    const returnTo = searchParams.get("returnTo");
-    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
-      void navigate(returnTo, { replace: true });
-      return;
-    }
 
-    // Preserve the hosting param (Local/Docker need it so hatching runs the
-    // local hatch instead of a platform hatch).
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
@@ -122,19 +106,16 @@ export function PrivacyScreen() {
     void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     aiDataConsent,
+    hasPlatformSession,
     isNative,
     navigate,
     preferredFunnelVariant,
     searchParams,
-    setShareAnalytics,
-    setShareDiagnostics,
     shareAnalytics,
     shareDiagnostics,
     tosAccepted,
     userId,
   ]);
-
-  const isReturningUser = !!searchParams.get("returnTo");
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">
@@ -195,7 +176,7 @@ export function PrivacyScreen() {
           </div>
         )}
         <h1 className="text-3xl font-semibold tracking-tight">
-          {isReturningUser ? "Review Terms" : "Before You Start"}
+          Before You Start
         </h1>
         <p className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
           Choose your privacy preferences. You can update these anytime in the
@@ -254,7 +235,7 @@ export function PrivacyScreen() {
             onClick={onStart}
             className="h-11 text-base"
           >
-            {isReturningUser ? "Continue" : "Start"}
+            Start
           </Button>
           <Button
             variant="outlined"

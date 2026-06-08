@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
+import { readEnvFeatureFlagOverrides } from "../feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
 import type { IpcRoute } from "./server.js";
@@ -37,6 +38,12 @@ export function getMergedFeatureFlags(): Record<string, boolean | string> {
           ? remoteValue
           : def.defaultEnabled;
   }
+
+  const envOverrides = readEnvFeatureFlagOverrides();
+  for (const [key, value] of Object.entries(envOverrides)) {
+    if (key in result) result[key] = value;
+  }
+
   return result;
 }
 

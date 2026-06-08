@@ -809,6 +809,11 @@ describe("web_search_tool_result structural guard", () => {
     // contentBlocks property, so it cannot contain nested media.
     "plugins/defaults/compaction/context-overflow-reducer.ts",
 
+    // Downgrades permanently-unsendable images nested in tool_result.contentBlocks
+    // (e.g. an oversized browser screenshot). web_search_tool_result has opaque
+    // content with no contentBlocks property, so it cannot hold such an image.
+    "daemon/persist-unsendable-image.ts",
+
     // Final orphan-pair safety pass in the Slack transcript renderer.
     // Server-side block types (`server_tool_use`, `web_search_tool_result`)
     // are stripped earlier by `buildMessageContentBlocks` and cannot reach

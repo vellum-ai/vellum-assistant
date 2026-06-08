@@ -152,25 +152,56 @@ function isNullBodyStatus(status: number): boolean {
   return status === 204 || status === 205 || status === 304;
 }
 
+// The WHATWG `Response` constructor only accepts 101 or the range 200–599 and
+// throws a `RangeError` for anything else. Some servers — notably anti-bot
+// gateways like LinkedIn and various job boards — reply with non-standard codes
+// such as 999. Map those onto 502 so we can still build a Response; the real
+// upstream status is preserved via `upstreamStatusByResponse` for reporting.
+// See https://developer.mozilla.org/en-US/docs/Web/API/Response/Response
+const RESPONSE_STATUS_SWITCHING_PROTOCOLS = 101;
+const RESPONSE_STATUS_MIN = 200;
+const RESPONSE_STATUS_MAX = 599;
+
+function toConstructableStatus(status: number): number {
+  if (status === RESPONSE_STATUS_SWITCHING_PROTOCOLS) return status;
+  if (status >= RESPONSE_STATUS_MIN && status <= RESPONSE_STATUS_MAX) {
+    return status;
+  }
+  return 502;
+}
+
+const upstreamStatusByResponse = new WeakMap<Response, number>();
+
+// Returns the real status the upstream server sent, which may fall outside the
+// range the `Response` object can represent (e.g. 999). Falls back to
+// `response.status` for responses built by native `fetch`, whose undici
+// implementation already exposes non-standard codes directly.
+export function getUpstreamStatus(response: Response): number {
+  return upstreamStatusByResponse.get(response) ?? response.status;
+}
+
 export function buildFetchResponseFromNodeResponse(
   res: NodeHttpResponseLike,
 ): Response {
-  const status = res.statusCode ?? 502;
+  const upstreamStatus = res.statusCode ?? 502;
+  const status = toConstructableStatus(upstreamStatus);
   const responseHeaders = buildResponseHeaders(res.headers);
   const statusText = res.statusMessage ?? "";
 
-  if (isNullBodyStatus(status)) {
-    // Drain any unexpected bytes and produce a valid null-body fetch Response.
-    res.resume();
-    return new Response(null, { status, statusText, headers: responseHeaders });
-  }
+  const response = isNullBodyStatus(status)
+    ? // Drain any unexpected bytes and produce a valid null-body fetch Response.
+      (res.resume(),
+      new Response(null, { status, statusText, headers: responseHeaders }))
+    : new Response(Readable.toWeb(res) as unknown as BodyInit, {
+        status,
+        statusText,
+        headers: responseHeaders,
+      });
 
-  const body = Readable.toWeb(res);
-  return new Response(body as unknown as BodyInit, {
-    status,
-    statusText,
-    headers: responseHeaders,
-  });
+  if (status !== upstreamStatus) {
+    upstreamStatusByResponse.set(response, upstreamStatus);
+  }
+  return response;
 }
 
 function createAbortError(): Error {
@@ -252,7 +283,16 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (
 
   return await new Promise<Response>((resolve, reject) => {
     const req = requestFn(requestOptions, (res) => {
-      resolve(buildFetchResponseFromNodeResponse(res));
+      // Building the fetch Response runs inside this HTTP `response` event
+      // callback. Any synchronous throw here would escape as an uncaught
+      // exception and crash the daemon, so funnel failures into `reject` to
+      // keep them local to this request.
+      try {
+        resolve(buildFetchResponseFromNodeResponse(res));
+      } catch (err) {
+        res.resume();
+        reject(err);
+      }
     });
     req.once("error", reject);
     req.end();
@@ -730,9 +770,10 @@ export async function executeWebFetch(
         );
       }
 
+      const upstreamStatus = getUpstreamStatus(response);
       const location = response.headers.get("location");
       const isRedirect =
-        response.status >= 300 && response.status < 400 && !!location;
+        upstreamStatus >= 300 && upstreamStatus < 400 && !!location;
       if (!isRedirect) break;
 
       if (redirectCount >= MAX_REDIRECTS) {
@@ -741,7 +782,7 @@ export async function executeWebFetch(
           {
             url: requestedUrl,
             finalUrl: currentUrl.href,
-            status: response.status,
+            status: getUpstreamStatus(response),
             redirectCount,
           },
         );
@@ -761,7 +802,7 @@ export async function executeWebFetch(
           {
             url: requestedUrl,
             finalUrl: currentUrl.href,
-            status: response.status,
+            status: getUpstreamStatus(response),
             redirectCount,
           },
         );
@@ -773,7 +814,7 @@ export async function executeWebFetch(
           {
             url: requestedUrl,
             finalUrl: currentUrl.href,
-            status: response.status,
+            status: getUpstreamStatus(response),
             redirectCount,
           },
         );
@@ -785,7 +826,7 @@ export async function executeWebFetch(
           {
             url: requestedUrl,
             finalUrl: currentUrl.href,
-            status: response.status,
+            status: getUpstreamStatus(response),
             redirectCount,
           },
         );
@@ -805,7 +846,7 @@ export async function executeWebFetch(
             {
               url: requestedUrl,
               finalUrl: currentUrl.href,
-              status: response.status,
+              status: getUpstreamStatus(response),
               redirectCount,
             },
           );
@@ -817,7 +858,7 @@ export async function executeWebFetch(
             {
               url: requestedUrl,
               finalUrl: currentUrl.href,
-              status: response.status,
+              status: getUpstreamStatus(response),
               redirectCount,
             },
           );
@@ -844,7 +885,7 @@ export async function executeWebFetch(
         {
           url: requestedUrl,
           finalUrl: currentUrl.href,
-          status: response.status,
+          status: getUpstreamStatus(response),
           contentType,
           redirectCount,
         },
@@ -909,7 +950,7 @@ export async function executeWebFetch(
     const content = formatWebFetchOutput({
       requestedUrl: safeRequestedUrl,
       finalUrl: sanitizeUrlForOutput(currentUrl),
-      status: response.status,
+      status: getUpstreamStatus(response),
       statusText: response.statusText,
       contentType,
       bytesRead: body.bytesRead,
@@ -931,7 +972,7 @@ export async function executeWebFetch(
     const meta: WebFetchMetadata = {
       url: safeRequestedUrl,
       finalUrl: sanitizeUrlForOutput(currentUrl),
-      status: response.status,
+      status: getUpstreamStatus(response),
       contentType: contentType || undefined,
       byteCount: body.bytesRead,
       charCount: sliced.length,
@@ -945,7 +986,7 @@ export async function executeWebFetch(
     };
 
     if (!response.ok) {
-      const errorMessage = `Error: HTTP ${response.status}`;
+      const errorMessage = `Error: HTTP ${getUpstreamStatus(response)}`;
       return {
         content: `${errorMessage}\n\n${content}`,
         isError: true,

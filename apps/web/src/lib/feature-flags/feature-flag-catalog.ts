@@ -92,3 +92,83 @@ export function getFlagDefinition(storeKey: string): FlagDefinition | undefined 
 }
 
 export { flags as ALL_FLAGS };
+
+// -- Env flag override helpers ------------------------------------------------
+
+const VITE_FLAG_PREFIX = "VITE_VELLUM_FLAG_";
+
+function upperSnakeToKebab(upper: string): string {
+  return upper.toLowerCase().replace(/_/g, "-");
+}
+
+const TRUTHY = new Set(["true", "1", "yes", "on"]);
+const FALSY = new Set(["false", "0", "no", "off"]);
+
+function parseEnvValue(raw: string): boolean | string {
+  const lower = raw.toLowerCase();
+  if (TRUTHY.has(lower)) return true;
+  if (FALSY.has(lower)) return false;
+  return raw;
+}
+
+function computeEnvFlagOverrides(): Record<string, boolean | string> {
+  if (
+    typeof window !== "undefined" &&
+    window.__VELLUM_FLAG_OVERRIDES__ != null
+  ) {
+    return { ...window.__VELLUM_FLAG_OVERRIDES__ };
+  }
+
+  const overrides: Record<string, boolean | string> = {};
+  const env = import.meta.env;
+  for (const key of Object.keys(env)) {
+    if (key.startsWith(VITE_FLAG_PREFIX)) {
+      const flagKey = upperSnakeToKebab(key.slice(VITE_FLAG_PREFIX.length));
+      const raw = env[key as keyof ImportMetaEnv];
+      if (raw != null) {
+        overrides[flagKey] = parseEnvValue(raw);
+      }
+    }
+  }
+  return overrides;
+}
+
+let cachedOverrides: Record<string, boolean | string> | null = null;
+
+export function readEnvFlagOverrides(): Record<string, boolean | string> {
+  if (cachedOverrides === null) {
+    cachedOverrides = computeEnvFlagOverrides();
+  }
+  return cachedOverrides;
+}
+
+export function resetEnvOverridesCache(): void {
+  cachedOverrides = null;
+}
+
+const FLAG_KEY_TO_DEF = new Map<string, FlagDefinition>();
+for (const flag of flags) {
+  FLAG_KEY_TO_DEF.set(flag.key, flag);
+}
+
+export function getEnvFlagOverridesForScope(
+  scope: SingleScope,
+): { bool: Record<string, boolean>; str: Record<string, string> } {
+  const overrides = readEnvFlagOverrides();
+  const bool: Record<string, boolean> = {};
+  const str: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(overrides)) {
+    const def = FLAG_KEY_TO_DEF.get(key);
+    if (!def || !scopeIncludes(def.scope, scope)) continue;
+
+    const storeKey = flagKeyToStoreKey(key);
+    if (typeof value === "boolean") {
+      bool[storeKey] = value;
+    } else {
+      str[storeKey] = value;
+    }
+  }
+
+  return { bool, str };
+}
