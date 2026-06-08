@@ -1,20 +1,22 @@
 /**
- * Tests for `assistant/src/memory/v3/shadow-plugin.ts`.
+ * Tests for `shadow-plugin.ts` (section-lane pipeline).
  *
  * The v3 plugin is flag-gated. These tests assert:
  *   - both flags OFF → orchestrate is never called and no DB rows are written;
  *   - either flag ON → orchestrate runs and selection rows land in
- *     `memory_v3_selections`;
+ *     `memory_v3_selections` with the new lane source tags;
  *   - shadow-only (live off) → the injector returns `null` (never mutates the
  *     turn) but still logs;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
- *   - lazy-init runs the loaders only once across multiple turns.
+ *   - lazy-init runs the lane builders only once across multiple turns, and
+ *     `invalidateLanes` forces exactly one rebuild.
  *
  * All heavy dependencies (config, flag resolver, conversation reads, v2 page
- * index + page store, v3 loaders, orchestrate) are mocked BEFORE importing the
- * plugin so the module observes them at load time. A real in-memory SQLite DB
- * backs the write assertions via the `memory_v3_selections` migration.
+ * index + page store, the lane builders, orchestrate) are mocked BEFORE
+ * importing the plugin so the module observes them at load time. A real
+ * in-memory SQLite DB backs the write assertions via the
+ * `memory_v3_selections` migration.
  */
 
 import { Database } from "bun:sqlite";
@@ -24,22 +26,25 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import * as schema from "../../../../memory/schema.js";
-import type { LeafTree, SelectionSource } from "../types.js";
+import type { SectionIndex, SelectionSource } from "../types.js";
 
 // `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
 // re-mock in `afterAll` reverts it for files that load LATER in the same
-// `bun test src/memory/v3/` run. Sibling files (orchestrate.test.ts,
-// tree.test.ts) import these same modules for real, so an unconditional stub
-// here would leak in and break them. Instead each stub below DELEGATES to the
-// real implementation unless this test is actively running (`shadowMockActive`,
-// toggled in beforeEach/afterAll).
+// `bun test src/plugins/defaults/memory-v3-shadow/` run. Sibling files import
+// these same modules for real, so an unconditional stub here would leak in and
+// break them. Instead each stub below DELEGATES to the real implementation
+// unless this test is actively running (`shadowMockActive`, toggled in
+// beforeEach/afterAll).
 //
 // Snapshot the real exports into plain objects NOW: a module namespace object
-// is a live view, so reading `realTree.loadLeafTree` *after* the stub is
-// installed would resolve back to the stub (infinite recursion).
-const realTree = { ...(await import("../tree.js")) };
-const realCore = { ...(await import("../core.js")) };
-const realNeedle = { ...(await import("../needle.js")) };
+// is a live view, so reading the real export *after* the stub is installed
+// would resolve back to the stub (infinite recursion).
+const realSections = { ...(await import("../sections.js")) };
+const realSectionNeedle = { ...(await import("../section-needle.js")) };
+const realEdge = { ...(await import("../edge.js")) };
+const realSectionDenseStore = {
+  ...(await import("../section-dense-store.js")),
+};
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realPlatform = { ...(await import("../../../../util/platform.js")) };
 const realPageStore = {
@@ -53,28 +58,33 @@ let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
 
-// Per-flag toggles. The plugin reads `memory-v3-live` and `memory-v3-shadow`
-// independently, so the mock resolves by flag key rather than a single boolean.
 let liveEnabled = false;
 let shadowEnabled = false;
 let messages: Array<{ role: string; content: string }> = [];
-const orchestrateSpy = mock(async () => ({
-  openedLeaves: [],
-  currentSelections: [
-    { slug: "domain-a/page-1", pinned: true },
-    { slug: "domain-b/page-2", pinned: false },
-  ],
-  workingSetUnion: new Set<string>(["domain-a/page-1", "domain-b/page-2"]),
-  finalInjection: ["domain-a/page-1", "domain-b/page-2", "domain-a/carried"],
-}));
-let treeLoads = 0;
-let coreLoads = 0;
-let needleBuilds = 0;
-let configL2Concurrency = 16;
 
-// Shared in-memory DB so writes are observable from the test. We hold the raw
-// sqlite handle alongside the drizzle wrapper so the test can both read rows
-// directly and feed the same handle through the mocked `getSqliteFrom`.
+// The orchestrate result the spy returns. page-1 + page-2 matched a section
+// this turn (→ "needle"); page-3 is an edge-only candidate (no matched section
+// → "edge"); carried is a carry-forward slug not re-selected this turn.
+const orchestrateSpy = mock(async () => ({
+  currentSelections: [
+    { slug: "page-1", pinned: true },
+    { slug: "page-2", pinned: false },
+    { slug: "page-3", pinned: false },
+  ],
+  workingSetUnion: new Set<string>(["page-1", "page-2", "page-3"]),
+  finalInjection: ["page-1", "page-2", "page-3", "carried"],
+  sectionBySlug: new Map([
+    ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
+    ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
+  ]),
+}));
+
+let sectionBuilds = 0;
+let needleBuilds = 0;
+let edgeBuilds = 0;
+let ensureCollectionCalls = 0;
+
+// Shared in-memory DB so writes are observable from the test.
 let testSqlite: Database;
 let testDb = makeDb();
 function makeDb() {
@@ -85,15 +95,10 @@ function makeDb() {
   return db;
 }
 
-// A tree where `domain-a/*` pages are owned by a core leaf and `domain-b/*`
-// are not, so attribution maps to core+l2 / l1+l2 respectively.
-const FAKE_TREE = {
-  leaves: new Map([
-    ["domain-a", { members: ["domain-a/page-1", "domain-a/carried"] }],
-    ["domain-b", { members: ["domain-b/page-2"] }],
-  ]),
-  byPage: new Map(),
-} as unknown as LeafTree;
+const FAKE_SECTION_INDEX: SectionIndex = {
+  sections: [],
+  byArticle: new Map(),
+};
 
 // ─── module mocks (installed before the plugin import) ──────────────────────
 
@@ -109,18 +114,14 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
 mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
-      v3: {
-        workingSet: { maxPages: 150, evictWindow: 5 },
-        l2Concurrency: configL2Concurrency,
-      },
+      v3: { workingSet: { maxPages: 150, evictWindow: 5 } },
+      qdrant: { vectorSize: 8, onDisk: false },
     },
   }),
 }));
 
 // Spread the real module so every export the live path transitively imports
-// (e.g. `getMessageById` via page-content.ts) stays present — replacing the
-// whole module with a bare `{ getMessages }` made those consumers fail to load.
-// Only `getMessages` is overridden, since that's the one the plugin reads.
+// stays present; only `getMessages` is overridden.
 mock.module("../../../../memory/conversation-crud.js", () => ({
   ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
@@ -131,13 +132,31 @@ mock.module("../../../../memory/db-connection.js", () => ({
   getSqliteFrom: () => testSqlite,
 }));
 
-mock.module("../v2/page-index.js", () => ({
-  getPageIndex: async () => ({ bySlug: new Map() }),
+mock.module("../../../../memory/v2/page-index.js", () => ({
+  getPageIndex: async () => ({
+    entries: [
+      {
+        slug: "page-1",
+        id: 1,
+        summary: "",
+        edges: [],
+        leaves: [],
+        modifiedAt: 0,
+      },
+      {
+        slug: "page-2",
+        id: 2,
+        summary: "",
+        edges: [],
+        leaves: [],
+        modifiedAt: 0,
+      },
+    ],
+    bySlug: new Map(),
+  }),
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-// Stub them to return a deterministic body per slug so the rendered `<memory>`
-// block is assertable without touching the filesystem.
 mock.module("../../../../memory/v2/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
@@ -160,41 +179,48 @@ mock.module("../../../../util/platform.js", () => ({
       : realPlatform.getWorkspaceDir(),
 }));
 
-mock.module("../tree.js", () => ({
-  ...realTree,
-  resolveDataDir: () =>
-    shadowMockActive ? "/tmp/shadow-test-data" : realTree.resolveDataDir(),
-  loadLeafTree: async (dataDir: string) => {
-    if (!shadowMockActive) return realTree.loadLeafTree(dataDir);
-    treeLoads++;
-    return FAKE_TREE;
-  },
-  membersOf: (tree: LeafTree, leaf: string) =>
-    shadowMockActive
-      ? ((tree.leaves.get(leaf) as unknown as { members?: string[] })
-          ?.members ?? [])
-      : realTree.membersOf(tree, leaf),
-}));
-
-mock.module("../core.js", () => ({
-  ...realCore,
-  loadCore: async (dataDir: string) => {
-    if (!shadowMockActive) return realCore.loadCore(dataDir);
-    coreLoads++;
-    return new Set(["domain-a"]);
-  },
-}));
-
-mock.module("../needle.js", () => ({
-  ...realNeedle,
-  buildNeedleIndex: async (
-    ...args: Parameters<typeof realNeedle.buildNeedleIndex>
+mock.module("../sections.js", () => ({
+  ...realSections,
+  buildSectionIndex: async (
+    ...args: Parameters<typeof realSections.buildSectionIndex>
   ) => {
-    if (!shadowMockActive) return realNeedle.buildNeedleIndex(...args);
+    if (!shadowMockActive) return realSections.buildSectionIndex(...args);
+    sectionBuilds++;
+    return FAKE_SECTION_INDEX;
+  },
+}));
+
+mock.module("../section-needle.js", () => ({
+  ...realSectionNeedle,
+  buildSectionNeedle: (
+    ...args: Parameters<typeof realSectionNeedle.buildSectionNeedle>
+  ) => {
+    if (!shadowMockActive) return realSectionNeedle.buildSectionNeedle(...args);
     needleBuilds++;
-    return { query: () => [] } as unknown as Awaited<
-      ReturnType<typeof realNeedle.buildNeedleIndex>
-    >;
+    return { query: () => [], bestSection: () => -1 };
+  },
+}));
+
+mock.module("../edge.js", () => ({
+  ...realEdge,
+  buildEdgeGraph: async (
+    ...args: Parameters<typeof realEdge.buildEdgeGraph>
+  ) => {
+    if (!shadowMockActive) return realEdge.buildEdgeGraph(...args);
+    edgeBuilds++;
+    return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
+  },
+}));
+
+mock.module("../section-dense-store.js", () => ({
+  ...realSectionDenseStore,
+  ensureSectionCollection: async (
+    ...args: Parameters<typeof realSectionDenseStore.ensureSectionCollection>
+  ) => {
+    if (!shadowMockActive) {
+      return realSectionDenseStore.ensureSectionCollection(...args);
+    }
+    ensureCollectionCalls++;
   },
 }));
 
@@ -211,9 +237,6 @@ const { runShadowObservation, resetShadowLanesForTests, invalidateLanes } =
   await import("../shadow-plugin.js");
 const { memoryV3Injector } = await import("../injector.js");
 
-// The module stubs above stay installed for the rest of the process (Bun can't
-// reliably uninstall them), but `shadowMockActive` gates their fake behavior to
-// this file's tests only, so later-loaded sibling files see real behavior.
 afterAll(() => {
   shadowMockActive = false;
 });
@@ -237,10 +260,10 @@ beforeEach(() => {
     },
   ];
   orchestrateSpy.mockClear();
-  treeLoads = 0;
-  coreLoads = 0;
+  sectionBuilds = 0;
   needleBuilds = 0;
-  configL2Concurrency = 16;
+  edgeBuilds = 0;
+  ensureCollectionCalls = 0;
   testDb = makeDb();
   resetShadowLanesForTests();
 });
@@ -260,22 +283,24 @@ describe("memory-v3 shadow plugin", () => {
     shadowEnabled = false;
     await runShadowObservation("conv-1", 0);
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    expect(treeLoads).toBe(0);
+    expect(sectionBuilds).toBe(0);
     expect(readRows()).toHaveLength(0);
   });
 
-  test("shadow flag ON → orchestrate runs and rows are written", async () => {
+  test("shadow flag ON → orchestrate runs and rows are written with lane sources", async () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 2);
 
     expect(orchestrateSpy).toHaveBeenCalledTimes(1);
     const rows = readRows();
     expect(rows).toEqual([
-      { slug: "domain-a/carried", source: "carry-forward", pinned: 0 },
-      // page-1 belongs to the core leaf `domain-a` → core+l2, pinned.
-      { slug: "domain-a/page-1", source: "core+l2", pinned: 1 },
-      // page-2 belongs to non-core `domain-b` → l1+l2.
-      { slug: "domain-b/page-2", source: "l1+l2", pinned: 0 },
+      { slug: "carried", source: "carry-forward", pinned: 0 },
+      // page-1 matched a section this turn → "needle", pinned.
+      { slug: "page-1", source: "needle", pinned: 1 },
+      // page-2 matched a section this turn → "needle".
+      { slug: "page-2", source: "needle", pinned: 0 },
+      // page-3 had no matched section (edge-only) → "edge".
+      { slug: "page-3", source: "edge", pinned: 0 },
     ]);
   });
 
@@ -294,16 +319,23 @@ describe("memory-v3 shadow plugin", () => {
     expect(turn.currentMessage).toBe("hello world");
   });
 
-  test("orchestrate receives the configured L2 concurrency", async () => {
+  test("orchestrate receives the lane deps", async () => {
     shadowEnabled = true;
-    configL2Concurrency = 9;
     await runShadowObservation("conv-1", 0);
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as {
-      l2Concurrency?: number;
+      sectionIndex?: unknown;
+      needle?: unknown;
+      edgeGraph?: unknown;
+      workingSet?: unknown;
+      capabilitySlugs?: unknown;
     };
-    expect(deps.l2Concurrency).toBe(9);
+    expect(deps.sectionIndex).toBeDefined();
+    expect(deps.needle).toBeDefined();
+    expect(deps.edgeGraph).toBeDefined();
+    expect(deps.workingSet).toBeDefined();
+    expect(Array.isArray(deps.capabilitySlugs)).toBe(true);
   });
 
   test("both flags OFF → produce returns null, no orchestrate, no writes", async () => {
@@ -333,8 +365,8 @@ describe("memory-v3 shadow plugin", () => {
     expect(block!.text.startsWith("<memory>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory>")).toBe(true);
     // finalInjection slugs are rendered into the block in order.
-    expect(block!.text).toContain("body for domain-a/page-1");
-    expect(block!.text).toContain("body for domain-a/carried");
+    expect(block!.text).toContain("body for page-1");
+    expect(block!.text).toContain("body for carried");
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
   });
@@ -343,26 +375,26 @@ describe("memory-v3 shadow plugin", () => {
     liveEnabled = true;
     shadowEnabled = false;
     orchestrateSpy.mockImplementationOnce(async () => ({
-      openedLeaves: [],
       currentSelections: [],
       workingSetUnion: new Set<string>(),
       finalInjection: [],
+      sectionBySlug: new Map(),
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();
-    // Orchestration still ran (and logged nothing, since there were no rows).
     expect(orchestrateSpy).toHaveBeenCalledTimes(1);
     expect(readRows()).toHaveLength(0);
   });
 
-  test("lazy-init runs the loaders only once across turns", async () => {
+  test("lazy-init runs the lane builders only once across turns", async () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 0);
     await runShadowObservation("conv-1", 1);
     await runShadowObservation("conv-1", 2);
-    expect(treeLoads).toBe(1);
-    expect(coreLoads).toBe(1);
+    expect(sectionBuilds).toBe(1);
     expect(needleBuilds).toBe(1);
+    expect(edgeBuilds).toBe(1);
+    expect(ensureCollectionCalls).toBe(1);
     expect(orchestrateSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -370,49 +402,46 @@ describe("memory-v3 shadow plugin", () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 0);
     await runShadowObservation("conv-1", 1);
-    // One build so far; invalidation drops it.
-    expect(treeLoads).toBe(1);
+    expect(sectionBuilds).toBe(1);
     expect(needleBuilds).toBe(1);
 
     invalidateLanes();
 
-    // The next turn rebuilds (fresh tree load + fresh needle index)...
     await runShadowObservation("conv-1", 2);
-    expect(treeLoads).toBe(2);
-    expect(coreLoads).toBe(2);
+    expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
+    expect(edgeBuilds).toBe(2);
 
     // ...and the rebuild is memoized again — no further builds until the next
     // invalidation.
     await runShadowObservation("conv-1", 3);
-    expect(treeLoads).toBe(2);
+    expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
   });
 
   test("resetShadowLanesForTests invalidates like invalidateLanes", async () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 0);
-    expect(treeLoads).toBe(1);
+    expect(sectionBuilds).toBe(1);
 
     resetShadowLanesForTests();
 
     await runShadowObservation("conv-1", 1);
-    expect(treeLoads).toBe(2);
+    expect(sectionBuilds).toBe(2);
   });
 
   test("concurrent first turns after invalidation share a single build", async () => {
     shadowEnabled = true;
     await runShadowObservation("conv-1", 0);
-    expect(treeLoads).toBe(1);
+    expect(sectionBuilds).toBe(1);
 
     invalidateLanes();
 
-    // Both turns race the rebuild; memoization must collapse them to one build.
     await Promise.all([
       runShadowObservation("conv-1", 1),
       runShadowObservation("conv-1", 2),
     ]);
-    expect(treeLoads).toBe(2);
+    expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
   });
 

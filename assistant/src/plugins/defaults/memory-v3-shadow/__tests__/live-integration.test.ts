@@ -4,9 +4,9 @@
  * SCOPE / ALTITUDE. A full daemon-assembly integration (plugin registry → flag
  * read → runtime assembly → provider call) is too heavy and too mock-fragile
  * for a unit test. Instead this composes the REAL v3 live-path units with a
- * mocked routing/selection provider and synthetic fixtures:
+ * mocked select provider + stubbed dense lane and synthetic fixtures:
  *
- *   orchestrate (routeL1 + selectAcrossLeaves over a shared WorkingSet)
+ *   orchestrate (needle ∪ dense ∪ edge → selectPool over a shared WorkingSet)
  *     → renderMemoryBlock (the rendered `<memory>` working-set block)
  *     → stripAllMemoryInjections (all-turns history strip)
  *
@@ -16,35 +16,26 @@
  * message so exactly one block exists. Driving these real units across turns
  * exercises carry-forward, eviction, single-source, and strip-all end-to-end at
  * the v3 layer without the daemon. The provider is stubbed (no network).
- *
- * Mock-leak safety: the only `mock.module` here stub the provider + logger,
- * which are pure inputs to orchestrate and carry no real behavior siblings
- * depend on (orchestrate.test.ts installs the identical stubs). No
- * snapshot-real-modules dance is needed because nothing is partially stubbed.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { stripAllMemoryInjections } from "../../../../memory/graph/conversation-graph-memory.js";
+import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
-import type { NeedleIndex } from "../needle.js";
-import type {
-  LeafNode,
-  LeafPath,
-  LeafTree,
-  MemoryRoutingTurn,
-  Slug,
-} from "../types.js";
-import liveTurns from "./fixtures/live-turns.json" with { type: "json" };
+import type { EdgeGraph } from "../edge.js";
+import { buildEdgeGraph } from "../edge.js";
+import { buildSectionNeedle } from "../section-needle.js";
+import { buildSectionIndex } from "../sections.js";
+import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// Provider mock installed BEFORE the orchestrator import so router.ts and
-// selector.ts observe it at load time. Mirrors orchestrate.test.ts.
+// Module stubs installed BEFORE the orchestrator import.
 // ---------------------------------------------------------------------------
 
 let providerStub: Provider | null = null;
@@ -62,60 +53,61 @@ mock.module("../../../../util/logger.js", () => ({
     }),
 }));
 
+// The dense lane never hits in this fixture — the needle drives the pool. The
+// stub DELEGATES to the real `denseLane` unless this file's tests are running
+// (`denseMockActive`), so the process-global `mock.module` cannot leak fake
+// behavior into dense.test.ts (which exercises the real lane).
+const realDense = { ...(await import("../dense.js")) };
+let denseMockActive = false;
+mock.module("../dense.js", () => ({
+  ...realDense,
+  denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
+    denseMockActive ? [] : realDense.denseLane(...args),
+}));
+
 const { orchestrate } = await import("../orchestrate.js");
 const { WorkingSet } = await import("../working-set.js");
 const { renderMemoryBlock } = await import("../render-injection.js");
 
 // ---------------------------------------------------------------------------
-// Fixture types + helpers.
+// Fixtures: a tiny corpus whose section text contains a distinctive term per
+// page so a query selects exactly that page via the needle.
 // ---------------------------------------------------------------------------
 
-interface LeafSelection {
-  ids: number[];
-  pinned_ids: number[];
-}
-interface LiveTurn {
-  name: string;
-  currentMessage: string;
-  routeIds: number[];
-  leafSelections: Record<LeafPath, LeafSelection>;
-}
-const TURNS = (liveTurns as unknown as { turns: LiveTurn[] }).turns;
+const PAGES: Record<Slug, string> = {
+  "page-a": "lead a\n## Body\napple content for page a",
+  "page-b": "lead b\n## Body\nbanana content for page b",
+  "page-c": "lead c\n## Body\ncherry content for page c",
+};
+const SLUGS = Object.keys(PAGES);
 
-function makeLeaf(path: LeafPath, members: Slug[]): LeafNode {
-  return {
-    path,
-    frontmatter: { path, in_core: false },
-    description: `description for ${path}`,
-    members,
-    domain: path.split("/")[0],
-  };
+function makeEntries(): PageIndexEntry[] {
+  return SLUGS.map((slug, i) => ({
+    id: i + 1,
+    slug,
+    summary: `summary of ${slug}`,
+    edges: [],
+    leaves: [],
+    modifiedAt: 0,
+  }));
 }
 
-/**
- * Synthetic tree. Sorted leaf order is [domain-a/topic-x, domain-a/topic-y],
- * so L1 id 1 → topic-x, id 2 → topic-y.
- */
-function makeTree(): LeafTree {
-  const leaves: LeafNode[] = [
-    makeLeaf("domain-a/topic-x", ["page-a", "page-b"]),
-    makeLeaf("domain-a/topic-y", ["page-c"]),
-  ];
-  const byPage = new Map<Slug, LeafPath[]>();
-  for (const leaf of leaves) {
-    for (const slug of leaf.members) {
-      byPage.set(slug, [...(byPage.get(slug) ?? []), leaf.path]);
-    }
-  }
-  return { leaves: new Map(leaves.map((n) => [n.path, n])), byPage };
-}
-
-const summaryOf = async (slug: Slug): Promise<string> => `summary of ${slug}`;
-/** Deterministic per-slug body so the rendered `<memory>` block is assertable. */
+const config = {} as never;
 const contentOf = async (slug: Slug): Promise<string> => `body for ${slug}`;
 
-/** Needle that never hits — routing alone drives the open set in this fixture. */
-const emptyNeedle: NeedleIndex = { query: () => [] };
+async function buildLanes(): Promise<{
+  sectionIndex: SectionIndex;
+  needle: ReturnType<typeof buildSectionNeedle>;
+  edgeGraph: EdgeGraph;
+}> {
+  const sectionIndex = await buildSectionIndex(SLUGS, async (s) => PAGES[s]!);
+  const needle = buildSectionNeedle(sectionIndex);
+  const edgeGraph = await buildEdgeGraph(
+    makeEntries(),
+    async (s) => PAGES[s]!, // no `links:` frontmatter → edge graph is empty
+  );
+  return { sectionIndex, needle, edgeGraph };
+}
 
 function makeTurn(
   turnNumber: number,
@@ -129,69 +121,67 @@ function makeTurn(
   };
 }
 
-function toolUseResponse(
-  name: string,
-  input: Record<string, unknown>,
-): ProviderResponse {
+function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   return {
     model: "stub-model",
     stopReason: "tool_use",
     usage: { inputTokens: 0, outputTokens: 0 },
-    content: [{ type: "tool_use", id: "tu-1", name, input }],
+    content: [{ type: "tool_use", id: "tu-1", name: "select_pages", input }],
   };
 }
 
-/** Last `<leaf>X</leaf>` tag found in an L2 request, or undefined. */
-function leafFromMessages(messages: Message[]): LeafPath | undefined {
+/** Parse the numbered `<candidates>` block into an ordered slug list. */
+function candidateSlugs(messages: Message[]): Slug[] {
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type === "text") {
-        const m = /<leaf>([^<]+)<\/leaf>/.exec(block.text);
-        if (m) return m[1];
-      }
+      if (block.type !== "text") continue;
+      const m = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(block.text);
+      if (!m) continue;
+      return m[1]
+        .split("\n")
+        .map((line) => /^\[\d+\] (\S+) —/.exec(line)?.[1])
+        .filter((s): s is string => !!s);
     }
   }
-  return undefined;
+  return [];
 }
 
-/**
- * Build a provider that answers L1 `open_leaves` with `routeIds` and each L2
- * `select_pages` call with the per-leaf selection from the fixture turn.
- */
-function providerForTurn(turn: LiveTurn): Provider {
+/** Provider that selects (and optionally pins) the pooled candidates in `keep`. */
+function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, options) => {
-      const toolName = options?.tools?.[0]?.name;
-      if (toolName === "open_leaves") {
-        return toolUseResponse("open_leaves", { ids: turn.routeIds });
-      }
-      const leaf = leafFromMessages(messages);
-      const sel = (leaf ? turn.leafSelections[leaf] : undefined) ?? {
-        ids: [],
-        pinned_ids: [],
-      };
-      return toolUseResponse("select_pages", {
-        ids: sel.ids,
-        pinned_ids: sel.pinned_ids,
+    sendMessage: async (messages) => {
+      const pool = candidateSlugs(messages);
+      const ids: number[] = [];
+      const pinned_ids: number[] = [];
+      pool.forEach((slug, i) => {
+        if (keep.includes(slug)) ids.push(i + 1);
+        if (pin.includes(slug)) pinned_ids.push(i + 1);
       });
+      return toolUseResponse({ ids, pinned_ids });
     },
   };
 }
 
 /** Run one turn through orchestrate over the shared working set + render it. */
 async function runTurn(
-  turn: LiveTurn,
   turnNumber: number,
-  deps: { tree: LeafTree; workingSet: InstanceType<typeof WorkingSet> },
+  query: string,
+  keep: Slug[],
+  pin: Slug[],
+  deps: {
+    lanes: Awaited<ReturnType<typeof buildLanes>>;
+    workingSet: InstanceType<typeof WorkingSet>;
+  },
 ) {
-  providerStub = providerForTurn(turn);
-  const result = await orchestrate(makeTurn(turnNumber, turn.currentMessage), {
-    tree: deps.tree,
-    core: new Set(),
-    needle: emptyNeedle,
+  providerStub = selectProvider(keep, pin);
+  const result = await orchestrate(makeTurn(turnNumber, query), {
+    sectionIndex: deps.lanes.sectionIndex,
+    needle: deps.lanes.needle,
+    denseConfig: config,
+    edgeGraph: deps.lanes.edgeGraph,
     workingSet: deps.workingSet,
-    pageSummary: summaryOf,
+    capabilitySlugs: [],
   });
   const block = await renderMemoryBlock(result.finalInjection, contentOf);
   return { result, block };
@@ -203,7 +193,12 @@ function countMemoryBlocks(text: string): number {
 }
 
 beforeEach(() => {
+  denseMockActive = true;
   providerStub = null;
+});
+
+afterAll(() => {
+  denseMockActive = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -213,20 +208,23 @@ beforeEach(() => {
 
 describe("memory-v3 live — carry-forward across turns", () => {
   test("a page pinned in turn 1 is injected in turn 2 without re-selection", async () => {
-    const tree = makeTree();
+    const lanes = await buildLanes();
     const workingSet = new WorkingSet();
 
-    const t1 = await runTurn(TURNS[0], 1, { tree, workingSet });
-    // page-a was selected (and pinned) this turn and rendered into the block.
+    const t1 = await runTurn(1, "apple", ["page-a"], ["page-a"], {
+      lanes,
+      workingSet,
+    });
     expect(t1.result.currentSelections.map((s) => s.slug)).toContain("page-a");
     expect(t1.block).toContain("body for page-a");
 
-    const t2 = await runTurn(TURNS[1], 2, { tree, workingSet });
-    // Turn 2 opens a DIFFERENT leaf (topic-y) and never re-selects page-a…
+    const t2 = await runTurn(2, "cherry", ["page-c"], [], {
+      lanes,
+      workingSet,
+    });
     expect(t2.result.currentSelections.map((s) => s.slug)).not.toContain(
       "page-a",
     );
-    // …yet page-a carries forward into the injected block via the working set.
     expect(t2.result.finalInjection).toContain("page-a");
     expect(t2.block).toContain("body for page-a");
   });
@@ -239,24 +237,36 @@ describe("memory-v3 live — carry-forward across turns", () => {
 
 describe("memory-v3 live — eviction reflected in the injected block", () => {
   test("a stale non-pinned page drops out; the pinned page persists", async () => {
-    const tree = makeTree();
+    const lanes = await buildLanes();
     // Small window: a non-pinned entry unseen for >2 turns evicts. page-b is
     // selected only in turn 1, so by turn 4 (4-1=3 > 2) it ages out; pinned
     // page-a never evicts; page-c is re-selected every later turn.
     const workingSet = new WorkingSet(150, 2);
 
-    const t1 = await runTurn(TURNS[0], 1, { tree, workingSet });
+    const t1 = await runTurn(
+      1,
+      "apple banana",
+      ["page-a", "page-b"],
+      ["page-a"],
+      { lanes, workingSet },
+    );
     expect(t1.result.finalInjection).toContain("page-b");
     expect(t1.block).toContain("body for page-b");
 
-    // Turns 2–3 keep page-b inside the window (3-1=2, not > 2).
-    await runTurn(TURNS[1], 2, { tree, workingSet });
-    const t3 = await runTurn(TURNS[2], 3, { tree, workingSet });
+    // Turns 2–3 keep page-b inside the window (3-1=2, not > 2); re-select page-c.
+    await runTurn(2, "cherry", ["page-c"], [], { lanes, workingSet });
+    const t3 = await runTurn(3, "cherry", ["page-c"], [], {
+      lanes,
+      workingSet,
+    });
     expect(t3.result.finalInjection).toContain("page-b");
 
     // Turn 4: page-b is now stale (4-1=3 > 2) and must be gone from the block;
     // pinned page-a and freshly-selected page-c remain.
-    const t4 = await runTurn(TURNS[3], 4, { tree, workingSet });
+    const t4 = await runTurn(4, "cherry", ["page-c"], [], {
+      lanes,
+      workingSet,
+    });
     expect(t4.result.finalInjection).not.toContain("page-b");
     expect(t4.block).not.toContain("body for page-b");
     expect(t4.result.finalInjection).toContain("page-a");
@@ -266,17 +276,20 @@ describe("memory-v3 live — eviction reflected in the injected block", () => {
 
 // ---------------------------------------------------------------------------
 // Single source: orchestrate → render produces exactly one coherent `<memory>`
-// block per turn. (Assembly-level v2 suppression is covered by the assembly
-// tests; here we assert the v3 producer never emits more than one block.)
+// block per turn.
 // ---------------------------------------------------------------------------
 
 describe("memory-v3 live — single memory source", () => {
   test("each turn renders exactly one <memory> block", async () => {
-    const tree = makeTree();
+    const lanes = await buildLanes();
     const workingSet = new WorkingSet();
 
-    for (const [i, turn] of TURNS.entries()) {
-      const { block } = await runTurn(turn, i + 1, { tree, workingSet });
+    const queries = ["apple", "banana", "cherry"];
+    for (const [i, query] of queries.entries()) {
+      const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
+        lanes,
+        workingSet,
+      });
       expect(countMemoryBlocks(block)).toBe(1);
       expect(block.startsWith("<memory>\n")).toBe(true);
       expect(block.endsWith("\n</memory>")).toBe(true);
@@ -291,10 +304,9 @@ describe("memory-v3 live — single memory source", () => {
 
 describe("memory-v3 live — all-turns history strip", () => {
   test("historical <memory> blocks strip back to byte-stable user history", async () => {
-    const tree = makeTree();
+    const lanes = await buildLanes();
     const workingSet = new WorkingSet();
 
-    // The canonical (un-injected) user history the strip must converge to.
     const baseHistory: Message[] = [
       { role: "user", content: [{ type: "text", text: "first user message" }] },
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
@@ -306,17 +318,14 @@ describe("memory-v3 live — all-turns history strip", () => {
       { role: "user", content: [{ type: "text", text: "third user message" }] },
     ];
 
-    // Simulate prior turns having injected a v3 `<memory>` block onto EVERY
-    // historical user message (prepended, as the live path does).
     const memBlock = (text: string): ContentBlock => ({ type: "text", text });
+    const queries = ["apple", "banana", "cherry"];
     let injected: Message[] = baseHistory;
-    for (let turnNumber = 1; turnNumber <= TURNS.length; turnNumber++) {
-      const { block } = await runTurn(TURNS[turnNumber - 1], turnNumber, {
-        tree,
+    for (const [i, query] of queries.entries()) {
+      const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
+        lanes,
         workingSet,
       });
-      // Re-inject this turn's freshly-rendered block onto each user message,
-      // after stripping the prior turn's block (what the live assembly does).
       const stripped = stripAllMemoryInjections(injected);
       injected = stripped.map((m) =>
         m.role === "user"
@@ -325,8 +334,6 @@ describe("memory-v3 live — all-turns history strip", () => {
       );
     }
 
-    // After a final all-turns strip, history is byte-identical to the canonical
-    // base — every injected block was recognized and removed.
     const finalStripped = stripAllMemoryInjections(injected);
     expect(finalStripped).toEqual(baseHistory);
   });

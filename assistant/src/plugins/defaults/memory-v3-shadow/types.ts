@@ -80,4 +80,17 @@ export interface MemoryRoutingTurn {
   situationalContext?: string;
 }
 
-export type SelectionSource = "l1+l2" | "core+l2" | "needle" | "carry-forward";
+/**
+ * Lane attribution recorded per selection. The section-lane pipeline writes the
+ * lane literals (`"needle" | "dense" | "edge" | "carry-forward"`); the legacy
+ * tree literals (`"l1+l2" | "core+l2"`) are retained until the tree pipeline is
+ * deleted. PR 11 tightens this to the lane literals only. The DB column is
+ * free-text, so widening here needs no migration.
+ */
+export type SelectionSource =
+  | "l1+l2"
+  | "core+l2"
+  | "needle"
+  | "dense"
+  | "edge"
+  | "carry-forward";

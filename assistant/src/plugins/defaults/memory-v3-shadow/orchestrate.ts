@@ -1,21 +1,26 @@
 /**
- * Memory v3 — orchestrator composing the four routing lanes into one turn.
+ * Memory v3 — orchestrator composing the section-grain lanes into one turn.
  *
  * Each turn runs:
- *   1. L1 topical routing (`routeL1`) and the lexical BM25 needle
- *      (`NeedleIndex.query`) IN PARALLEL. Routing is the slow LLM arm; the
- *      needle is a synchronous in-memory lookup, so we wrap it in a resolved
- *      promise and let them settle together.
- *   2. Open set = unique union of routed leaves ∪ always-on core leaves ∪ the
- *      leaves that own each needle hit. Every lane only ever ADDS leaves — the
- *      union is recall-safe by construction.
- *   3. Bounded per-leaf L2 selection (`selectAcrossLeaves`) over the open set,
- *      then dedup by slug (a page assigned to multiple opened leaves comes back
- *      once per leaf) ORing the pinned flag so a page pinned anywhere stays
- *      pinned.
- *   4. Age the carry-forward working set to this turn (evict core slugs, stale
- *      non-pinned entries, then the cap) and snapshot it — the pages carried in
- *      from EARLIER turns.
+ *   1. Candidate generation over three deterministic lanes:
+ *        - the section-grain BM25 needle (`SectionNeedle.query`, KB articles),
+ *        - the dense lane (`denseLane`, KD articles), and
+ *        - link-graph edge expansion (`edgeExpand`) over the top needle+dense
+ *          article seeds.
+ *      Each lane only ever ADDS candidates, so the pool is recall-safe by
+ *      construction.
+ *   2. Build the unified candidate pool of `{ slug, descriptor }`. The
+ *      descriptor is the matched section's text for needle/dense hits (resolved
+ *      via the section index); for edge-only pages it is the curated `links`
+ *      description when the traversed edge carried one, else the page's best
+ *      section against the query. The synthetic capability slugs (skills / CLI
+ *      commands) are always appended (lane-ranking of synthetic pages is a
+ *      documented fast-follow).
+ *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool, replacing
+ *      the per-leaf L2 fan-out. The result is this turn's selections.
+ *   4. Age the carry-forward working set to this turn (evict stale non-pinned
+ *      entries, then the cap) and snapshot it — the pages carried in from
+ *      EARLIER turns.
  *   5. Final injection = unique union of this turn's selected slugs and that
  *      carried-forward set, so pages selected on earlier turns carry forward
  *      even when this turn does not re-select them.
@@ -25,39 +30,60 @@
  *      turn selecting more pages than the cap would evict the entire carry.
  */
 
-import type { NeedleIndex } from "./needle.js";
-import { routeL1 } from "./router.js";
-import type { SelectedPage } from "./selector.js";
-import { selectAcrossLeaves } from "./selector.js";
-import { coreSlugs, leavesOf } from "./tree.js";
-import type { LeafPath, LeafTree, MemoryRoutingTurn, Slug } from "./types.js";
+import type { AssistantConfig } from "../../../config/schema.js";
+import { denseLane } from "./dense.js";
+import type { EdgeGraph } from "./edge.js";
+import { edgeExpand } from "./edge.js";
+import type { PoolCandidate, SelectedPage } from "./pool-select.js";
+import { selectPool } from "./pool-select.js";
+import type { SectionNeedle } from "./section-needle.js";
+import type {
+  MemoryRoutingTurn,
+  Section,
+  SectionIndex,
+  Slug,
+} from "./types.js";
 import { WorkingSet } from "./working-set.js";
 
-/** Default number of needle hits to fold into the open set when unspecified. */
-export const DEFAULT_NEEDLE_K = 10;
+/** Default number of BM25 needle articles to fold into the pool. */
+export const DEFAULT_NEEDLE_K = 100;
+/** Default number of dense-lane articles to fold into the pool. */
+export const DEFAULT_DENSE_K = 100;
+/** Default number of top needle+dense seeds expanded by the edge lane. */
+export const DEFAULT_EDGE_SEEDS = 18;
 
 export interface OrchestrateDeps {
-  tree: LeafTree;
-  core: Set<LeafPath>;
-  needle: NeedleIndex;
+  sectionIndex: SectionIndex;
+  needle: SectionNeedle;
+  /** Config the dense lane needs to embed the query + search the section
+   *  collection. */
+  denseConfig: AssistantConfig;
+  edgeGraph: EdgeGraph;
   workingSet: WorkingSet;
-  pageSummary: (slug: Slug) => Promise<string>;
-  /** Number of BM25 needle hits to fold in. Defaults to {@link DEFAULT_NEEDLE_K}. */
+  /** Synthetic capability slugs (skills / CLI commands) always added to the
+   *  pool. Lane-ranking of synthetic pages is a documented fast-follow. */
+  capabilitySlugs: Slug[];
+  /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
   needleK?: number;
-  /** Bounded fan-out for per-leaf L2 selection. */
-  l2Concurrency?: number;
+  /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
+  denseK?: number;
+  /** Number of top needle+dense seeds expanded. Defaults to
+   *  {@link DEFAULT_EDGE_SEEDS}. */
+  edgeSeeds?: number;
 }
 
 export interface OrchestrateResult {
-  /** The unique open set: routed ∪ core ∪ needle-owning leaves. */
-  openedLeaves: LeafPath[];
-  /** This turn's L2 selections, deduped by slug (pinned flags ORed). */
+  /** This turn's selections, deduped by slug (pinned flags ORed). */
   currentSelections: SelectedPage[];
   /** The carried-forward set: selections from EARLIER turns, aged to this turn
    *  (snapshotted before this turn's selections are recorded). */
   workingSetUnion: Set<Slug>;
   /** Slugs to inject: this turn's selections ∪ the carried-forward working set. */
   finalInjection: Slug[];
+  /** The matched `Section` for each pooled slug that had one, keyed by slug.
+   *  Populated from the lane hits; unused downstream until matched-section
+   *  injection lands (PR 8). */
+  sectionBySlug: Map<Slug, Section>;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -69,28 +95,85 @@ export async function orchestrate(
   turn: MemoryRoutingTurn,
   deps: OrchestrateDeps,
 ): Promise<OrchestrateResult> {
-  // Step 1: routing (LLM) and needle (sync BM25) run in parallel.
   const needleK = deps.needleK ?? DEFAULT_NEEDLE_K;
-  const [routed, needled] = await Promise.all([
-    routeL1(turn, deps.tree),
+  const denseK = deps.denseK ?? DEFAULT_DENSE_K;
+  const edgeSeeds = deps.edgeSeeds ?? DEFAULT_EDGE_SEEDS;
+  const { sections } = deps.sectionIndex;
+
+  // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
+  // parallel. Both return distinct articles each tagged with their best-scoring
+  // section index/ordinal.
+  const [needled, densed] = await Promise.all([
     Promise.resolve(deps.needle.query(turn.currentMessage, needleK)),
+    denseLane(deps.denseConfig, turn.currentMessage, denseK),
   ]);
 
-  // Step 2: open set = routed ∪ core ∪ leaves owning each needle hit.
-  const openedLeaves = unique<LeafPath>([
-    ...routed,
-    ...deps.core,
-    ...needled.flatMap((slug) => leavesOf(deps.tree, slug)),
-  ]);
+  // The pool accumulates one entry per distinct article. `sectionBySlug` records
+  // the matched `Section` (when one is known) for downstream injection.
+  const poolBySlug = new Map<Slug, PoolCandidate>();
+  const sectionBySlug = new Map<Slug, Section>();
 
-  // Step 3: per-leaf L2 selection, then dedup by slug ORing pinned flags.
-  const selected = await selectAcrossLeaves(
-    openedLeaves,
-    turn,
-    deps.tree,
-    deps.pageSummary,
-    deps.l2Concurrency,
-  );
+  // Add one pool candidate, recording its matched `Section` (when known) for
+  // downstream injection. `descriptor` overrides the section text when supplied
+  // (the edge lane prefers a curated `links` description). The first lane to
+  // surface a slug wins both the pool entry and the recorded section.
+  const addCandidate = (
+    slug: Slug,
+    section: Section | undefined,
+    descriptor?: string,
+  ): void => {
+    if (section && !sectionBySlug.has(slug)) {
+      sectionBySlug.set(slug, section);
+    }
+    if (poolBySlug.has(slug)) return;
+    poolBySlug.set(slug, {
+      slug,
+      descriptor: descriptor ?? section?.text ?? "",
+    });
+  };
+
+  // Step 2a: needle hits — descriptor is the matched section's text. `section`
+  // is an index into `sections`.
+  for (const hit of needled) {
+    addCandidate(hit.article, sections[hit.section]);
+  }
+
+  // Step 2b: dense hits — `section` is the matched ORDINAL; resolve it to the
+  // concrete `Section` via the section index. Falls back to undefined (blank
+  // descriptor) if the ordinal is not in the in-memory index.
+  for (const hit of densed) {
+    addCandidate(
+      hit.article,
+      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
+    );
+  }
+
+  // Step 2c: edge expansion over the top needle+dense article seeds. Each
+  // surfaced article prefers its curated `links` description; else its best
+  // section against the query. `alive` skips slugs already pooled.
+  const seeds = unique<Slug>([
+    ...needled.map((h) => h.article),
+    ...densed.map((h) => h.article),
+  ]);
+  const surfaced = edgeExpand(deps.edgeGraph, seeds, {
+    seedCount: edgeSeeds,
+    alive: (slug) => !poolBySlug.has(slug),
+  });
+  for (const neighbor of surfaced) {
+    const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
+    const section = best >= 0 ? sections[best] : undefined;
+    addCandidate(neighbor.article, section, neighbor.description);
+  }
+
+  // Step 2d: always-add the synthetic capability slugs (skills / CLI commands)
+  // with a blank descriptor — they have no matched section. Proper lane-ranking
+  // of synthetic pages is a documented fast-follow.
+  for (const slug of deps.capabilitySlugs) {
+    addCandidate(slug, undefined);
+  }
+
+  // Step 3: a SINGLE forced-tool select over the unified pool.
+  const selected = await selectPool([...poolBySlug.values()], turn);
   const bySlug = new Map<Slug, SelectedPage>();
   for (const page of selected) {
     const existing = bySlug.get(page.slug);
@@ -101,12 +184,12 @@ export async function orchestrate(
   }
   const currentSelections = [...bySlug.values()];
 
-  // Step 4: age the carry-forward set to this turn (drop core slugs, stale
-  // non-pinned entries, then the cap) and snapshot it. This is the set carried
-  // in from EARLIER turns; recording this turn happens afterward (step 6) so the
-  // cap is spent on genuinely carried pages, not on this turn's selections
-  // (which are injected directly anyway).
-  deps.workingSet.evict(turn.turnNumber, coreSlugs(deps.tree, deps.core));
+  // Step 4: age the carry-forward set to this turn (drop stale non-pinned
+  // entries, then the cap) and snapshot it. This is the set carried in from
+  // EARLIER turns; recording this turn happens afterward (step 6) so the cap is
+  // spent on genuinely carried pages, not on this turn's selections (which are
+  // injected directly anyway).
+  deps.workingSet.evict(turn.turnNumber);
   const workingSetUnion = deps.workingSet.union();
 
   // Step 5: final injection = this turn's selections ∪ the carried-forward set,
@@ -122,5 +205,26 @@ export async function orchestrate(
     deps.workingSet.recordSelection(sel.slug, turn.turnNumber, sel.pinned);
   }
 
-  return { openedLeaves, currentSelections, workingSetUnion, finalInjection };
+  return { currentSelections, workingSetUnion, finalInjection, sectionBySlug };
+}
+
+/**
+ * Resolve a dense-lane hit's matched ordinal to the concrete `Section` in the
+ * in-memory index. The dense store keys sections by `(article, ordinal)`, so we
+ * scan the article's sections for the matching ordinal. Returns `undefined`
+ * when the article or ordinal is not in the index (e.g. the dense store is
+ * ahead of the in-memory rebuild).
+ */
+function sectionByOrdinal(
+  index: SectionIndex,
+  article: Slug,
+  ordinal: number,
+): Section | undefined {
+  const indices = index.byArticle.get(article);
+  if (!indices) return undefined;
+  for (const i of indices) {
+    const section = index.sections[i];
+    if (section && section.ordinal === ordinal) return section;
+  }
+  return undefined;
 }
