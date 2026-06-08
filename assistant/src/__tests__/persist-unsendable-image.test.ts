@@ -14,7 +14,10 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { persistUnsendableImageDowngrades } from "../daemon/persist-unsendable-image.js";
+import {
+  oversizedImageReplacement,
+  persistUnsendableImageDowngrades,
+} from "../daemon/persist-unsendable-image.js";
 import {
   addMessage,
   createConversation,
@@ -280,5 +283,29 @@ describe("persistUnsendableImageDowngrades", () => {
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);
+  });
+});
+
+describe("oversizedImageReplacement", () => {
+  /** A still-sendable image must be left alone — never replaced with a note.
+   *  This is the gate that keeps the in-memory recovery from discarding valid
+   *  screenshots when only one image in the turn was actually oversized. */
+  test("returns null for an image within the provider caps", () => {
+    const sendable = imageBlock(makePngBase64(1024, 768)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(oversizedImageReplacement(sendable)).toBeNull();
+  });
+
+  /** An image past the provider caps that cannot be shrunk on this host (fake
+   *  PNG that sips cannot decode) collapses to the unsendable note. */
+  test("returns the unsendable note when an oversized image cannot be shrunk", () => {
+    const oversized = imageBlock(makePngBase64(12000, 9000)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = oversizedImageReplacement(oversized);
+    expect(replacement?.type).toBe("text");
   });
 });

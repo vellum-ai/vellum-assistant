@@ -9,7 +9,6 @@
 
 import { v4 as uuid } from "uuid";
 
-import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
   AgentLoopExitReason,
@@ -142,8 +141,8 @@ import type {
 } from "./message-protocol.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
+  oversizedImageReplacement,
   persistUnsendableImageDowngrades,
-  UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
 import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 
@@ -187,29 +186,15 @@ function messageHasImageBlock(content: ContentBlock[]): boolean {
 }
 
 /**
- * Downscale an oversized image block to fit the provider's limits. When sips
- * manages to shrink it, the smaller version is returned; when it can't (e.g.
- * sips is unavailable off macOS), the image is replaced with a text note so the
- * model can explain the situation instead of the turn hard-failing.
+ * Replace an oversized image with its downscaled form or an unsendable note,
+ * leaving still-sendable images untouched. Delegates to the shared
+ * {@link oversizedImageReplacement} so the in-memory recovery and the durable
+ * persist pass apply the identical provider-cap gate.
  */
-function downgradeOversizedImage(
+function recoverImageBlock(
   block: Extract<ContentBlock, { type: "image" }>,
 ): ContentBlock {
-  const resized = optimizeImageForTransport(
-    block.source.data,
-    block.source.media_type,
-  );
-  if (resized.data !== block.source.data) {
-    return {
-      ...block,
-      source: {
-        type: "base64" as const,
-        media_type: resized.mediaType,
-        data: resized.data,
-      },
-    };
-  }
-  return { type: "text" as const, text: UNSENDABLE_IMAGE_NOTE };
+  return oversizedImageReplacement(block) ?? block;
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
@@ -1094,19 +1079,18 @@ export async function runAgentLoopImpl(
 
     // ── Image-dimension overflow recovery ──────────────────────────
     // When the provider rejects because an image block exceeds its pixel
-    // or payload cap, downscale or strip every image from ctx.messages and
-    // retry once. This covers both top-level image blocks (user uploads)
-    // and images nested inside a tool_result's contentBlocks (e.g. a
-    // browser screenshot), which is where the rejected block usually lives.
-    // optimizeImageForTransport already ran at upload time; if sips was
-    // unavailable (non-macOS) it returns the same bytes unchanged.  In
-    // that case we swap the block for a text note so the model can tell
-    // the user what happened instead of hard-failing with a red banner.
+    // or payload cap, recover every oversized image in ctx.messages and
+    // retry once. recoverImageBlock downscales an oversized image, or swaps
+    // it for a text note when resize is a no-op (e.g. sips unavailable
+    // off macOS), while leaving still-sendable images untouched. This covers
+    // both top-level image blocks (user uploads) and images nested inside a
+    // tool_result's contentBlocks (e.g. a browser screenshot), which is where
+    // the rejected block usually lives.
     if (state.imageTooLargeDetected) {
       state.imageTooLargeDetected = false;
       rlog.warn(
         { phase: "image-recovery" },
-        "Image too large — stripping oversized image blocks and retrying",
+        "Image too large — recovering oversized image blocks and retrying",
       );
       ctx.messages = ctx.messages.map((msg) => {
         if (!Array.isArray(msg.content)) return msg;
@@ -1114,17 +1098,17 @@ export async function runAgentLoopImpl(
         return {
           ...msg,
           content: msg.content.flatMap((b): ContentBlock[] => {
-            if (b.type === "image") return [downgradeOversizedImage(b)];
+            if (b.type === "image") return [recoverImageBlock(b)];
             // Images returned by a tool (e.g. browser_screenshot) live in
             // the tool_result's contentBlocks, not as top-level blocks.
-            // Downgrade them in place so the tool_use/tool_result pairing
+            // Recover them in place so the tool_use/tool_result pairing
             // stays intact rather than dropping the whole tool_result.
             if (b.type === "tool_result" && b.contentBlocks?.length) {
               return [
                 {
                   ...b,
                   contentBlocks: b.contentBlocks.map((cb) =>
-                    cb.type === "image" ? downgradeOversizedImage(cb) : cb,
+                    cb.type === "image" ? recoverImageBlock(cb) : cb,
                   ),
                 },
               ];

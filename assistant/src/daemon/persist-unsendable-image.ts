@@ -41,20 +41,23 @@ export const UNSENDABLE_IMAGE_NOTE =
   "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)";
 
 /**
- * Durable replacement for a stored image that violates a provider hard limit
- * (per-side pixel cap or payload size), or null when the image is within limits
- * and should be left untouched.
+ * Replacement for an image that violates a provider hard limit (per-side pixel
+ * cap or payload size), or null when the image is within limits and should be
+ * left untouched. Gating on the provider hard caps is what keeps still-sendable
+ * images intact: a normally sized image is left alone rather than being noted or
+ * needlessly rewritten.
  *
- * Mirrors the in-memory recovery transform so the persisted history matches what
- * the model is sent: an oversized image that can be shrunk is rewritten to its
- * downscaled form; one that cannot be shrunk on this host (resize is a no-op,
- * e.g. `sips` is absent off macOS or the format is unsupported) is replaced with
- * a text note. Persisting the downscaled form is what lets a poisoned
- * conversation durably self-heal — the latest tool-result media is kept in
- * context, so without it the original oversized block rehydrates and re-rejects
- * on every later turn.
+ * An oversized image that can be shrunk is rewritten to its downscaled form; one
+ * that cannot be shrunk on this host (resize is a no-op, e.g. `sips` is absent
+ * off macOS or the format is unsupported) is replaced with a text note.
+ *
+ * Shared by the in-memory recovery transform and this durable persist pass so
+ * both apply the identical rule. Persisting the downscaled form is what lets a
+ * poisoned conversation durably self-heal — the latest tool-result media is kept
+ * in context, so without it the original oversized block rehydrates and
+ * re-rejects on every later turn.
  */
-function durableImageReplacement(
+export function oversizedImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
 ): ContentBlock | null {
   const payloadBytes = block.source.data.length;
@@ -115,7 +118,7 @@ export function persistUnsendableImageDowngrades(
     let changed = false;
     const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
       if (block.type === "image") {
-        const replacement = durableImageReplacement(block);
+        const replacement = oversizedImageReplacement(block);
         if (!replacement) return block;
         changed = true;
         return replacement;
@@ -127,7 +130,7 @@ export function persistUnsendableImageDowngrades(
         let nestedChanged = false;
         const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
           if (cb.type !== "image") return cb;
-          const replacement = durableImageReplacement(cb);
+          const replacement = oversizedImageReplacement(cb);
           if (!replacement) return cb;
           nestedChanged = true;
           return replacement;
