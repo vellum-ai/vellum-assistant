@@ -22,6 +22,8 @@ export interface HostProxySseOptions {
   idleTimeoutMs?: number;
   /** Override idle check interval for testing. */
   idleCheckIntervalMs?: number;
+  /** Called before each reconnect — return a fresh token or null to keep the current one. */
+  onRefreshToken?: () => Promise<string | null>;
 }
 
 export interface HostProxySseMessage {
@@ -43,6 +45,7 @@ export class HostProxySseClient {
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly idleTimeoutMs: number;
   private readonly idleCheckIntervalMs: number;
+  private readonly onRefreshToken: (() => Promise<string | null>) | null;
   private onMessage: MessageCallback | null = null;
 
   private abortController: AbortController | null = null;
@@ -60,6 +63,7 @@ export class HostProxySseClient {
     this.fetchFn = options.fetch ?? globalThis.fetch;
     this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
+    this.onRefreshToken = options.onRefreshToken ?? null;
   }
 
   /** Register a callback for parsed SSE messages. */
@@ -107,6 +111,10 @@ export class HostProxySseClient {
     const headers: Record<string, string> = {
       Accept: "text/event-stream, application/json",
       "X-Vellum-Client-Id": getDeviceId(),
+      // "macos" advertises all 5 host capabilities (including host_cu and
+      // host_app_control which aren't implemented yet). Unimplemented
+      // capabilities return stub errors via the router so the daemon doesn't
+      // hang. A selective capability mechanism requires daemon-side changes.
       "X-Vellum-Interface-Id": "macos",
       "X-Vellum-Machine-Name": hostname(),
       Authorization: `Bearer ${this.authToken}`,
@@ -209,11 +217,18 @@ export class HostProxySseClient {
       MAX_RECONNECT_DELAY_MS,
     );
 
-    this.reconnectTimer = setTimeout(() => {
+    this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      if (this.shouldReconnect) {
-        this.startStream();
+      if (!this.shouldReconnect) return;
+      if (this.onRefreshToken) {
+        try {
+          const freshToken = await this.onRefreshToken();
+          if (freshToken) this.authToken = freshToken;
+        } catch {
+          // Token refresh failed — reconnect with existing token
+        }
       }
+      this.startStream();
     }, delay);
   }
 

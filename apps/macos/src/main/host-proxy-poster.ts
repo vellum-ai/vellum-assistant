@@ -104,7 +104,7 @@ function computeTimeout(bodyBytes: number): number {
 
 export class HostProxyPoster {
   private readonly baseUrl: string;
-  private readonly authToken: string;
+  private authToken: string;
   private readonly fetchFn: FetchFn;
 
   constructor(opts: HostProxyPosterOptions) {
@@ -112,6 +112,10 @@ export class HostProxyPoster {
     this.baseUrl = `http://${host}:${opts.gatewayPort}`;
     this.authToken = opts.authToken;
     this.fetchFn = opts.fetch ?? globalThis.fetch;
+  }
+
+  updateAuthToken(token: string): void {
+    this.authToken = token;
   }
 
   // -----------------------------------------------------------------------

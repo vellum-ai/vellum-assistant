@@ -40,6 +40,7 @@ export interface HostProxyExecutor {
 interface AssistantConnection {
   sse: HostProxySseClient;
   poster: HostProxyPoster;
+  gatewayPort: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,13 +198,26 @@ async function connectAssistant(
 
   const authToken = tokenResult.accessToken;
 
-  const sse = new HostProxySseClient({ gatewayPort, authToken });
+  const refreshToken = async (): Promise<string | null> => {
+    if (!resolveCliInvocation) return null;
+    try {
+      const inv = await resolveCliInvocation();
+      const result = await getGuardianAccessToken(assistantId, configDir, inv, true);
+      if (result.ok) {
+        poster.updateAuthToken(result.accessToken);
+        return result.accessToken;
+      }
+    } catch { /* keep existing token */ }
+    return null;
+  };
+
+  const sse = new HostProxySseClient({ gatewayPort, authToken, onRefreshToken: refreshToken });
   const poster = new HostProxyPoster({ gatewayPort, authToken });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster });
+  connections.set(assistantId, { sse, poster, gatewayPort });
   log.info("[host-proxy-router] connected to assistant", { assistantId, gatewayPort });
 }
 
@@ -227,7 +241,16 @@ function handleLockfileChange(lockfile: Lockfile): void {
     if (!port) continue;
     activeIds.add(assistant.assistantId);
 
-    if (!connections.has(assistant.assistantId)) {
+    const existing = connections.get(assistant.assistantId);
+    if (!existing) {
+      void connectAssistant(assistant.assistantId, port);
+    } else if (existing.gatewayPort !== port) {
+      log.info("[host-proxy-router] gateway port changed, reconnecting", {
+        assistantId: assistant.assistantId,
+        oldPort: existing.gatewayPort,
+        newPort: port,
+      });
+      disconnectAssistant(assistant.assistantId);
       void connectAssistant(assistant.assistantId, port);
     }
   }
