@@ -40,6 +40,7 @@ module.exports = {
     { from: "build/icon.icns", to: "icon.icns" },
   ],
   afterPack: "./scripts/afterPack.js",
+  afterSign: "./scripts/afterSign.js",
   protocols: [
     {
       name: "Vellum Deep Links",
