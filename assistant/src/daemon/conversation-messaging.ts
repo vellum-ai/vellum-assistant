@@ -43,6 +43,7 @@ import {
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
+import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -193,6 +194,9 @@ export interface MessagingConversationContext {
   currentRequestId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
+  authContext?: AuthContext;
+  currentTurnAuthContext?: AuthContext;
+  currentTurnSourceActorPrincipalId?: string;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -302,6 +306,10 @@ export interface EnqueueMessageOptions {
   displayContent?: string;
   transport?: ConversationTransportMetadata;
   clientMessageId?: string;
+  /** JWT-verified requester principal captured for queued host-proxy routing. */
+  sourceActorPrincipalId?: string;
+  /** Auth context snapshot captured for queued turn-scoped authorization. */
+  authContext?: AuthContext;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -322,7 +330,14 @@ export function enqueueMessage(
     displayContent,
     transport,
     clientMessageId,
+    authContext,
   } = options;
+  const queuedAuthContext =
+    authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
+  const sourceActorPrincipalId =
+    options.sourceActorPrincipalId ??
+    ctx.currentTurnSourceActorPrincipalId ??
+    queuedAuthContext?.actorPrincipalId;
 
   if (!ctx.isProcessing()) {
     return { queued: false, requestId };
@@ -347,6 +362,8 @@ export function enqueueMessage(
     turnChannelContext,
     turnInterfaceContext,
     isInteractive,
+    sourceActorPrincipalId,
+    authContext: queuedAuthContext,
     transport,
     displayContent,
     sentAt: Date.now(),

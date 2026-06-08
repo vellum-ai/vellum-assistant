@@ -273,6 +273,8 @@ export class Conversation {
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
+  /** @internal */ currentTurnAuthContext?: AuthContext;
+  /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -1361,7 +1363,9 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
-    sourceActorPrincipalId = this.trustContext?.guardianPrincipalId,
+    sourceActorPrincipalId = this.currentTurnSourceActorPrincipalId ??
+      this.currentTurnAuthContext?.actorPrincipalId ??
+      this.authContext?.actorPrincipalId,
   ): void {
     if (
       shouldAttachHostProxyForCapability(

@@ -25,6 +25,7 @@ import {
   enforceSameActorOrErrorResult,
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
+import type { AuthContext } from "../runtime/auth/types.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -552,6 +553,12 @@ export interface SurfaceConversationContext {
   readonly assistantId?: string;
   /** Inherited to spawned conversations in the `launch_conversation` action path. */
   readonly trustContext?: TrustContext;
+  /** Verified requester auth context for the active turn. */
+  readonly authContext?: AuthContext;
+  /** Per-turn auth snapshot, preferred for tool dispatch authorization. */
+  readonly currentTurnAuthContext?: AuthContext;
+  /** JWT-verified requester principal for the active turn. */
+  readonly currentTurnSourceActorPrincipalId?: string;
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
@@ -2314,7 +2321,10 @@ export async function surfaceProxyResolver(
     // validate at the tool-resolution layer for the same reason. The proxy
     // re-checks same-user (single authoritative gate); using the shared
     // helper keeps log payload and error wording identical at both layers.
-    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId =
+      ctx.currentTurnSourceActorPrincipalId ??
+      ctx.currentTurnAuthContext?.actorPrincipalId ??
+      ctx.authContext?.actorPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
@@ -2420,7 +2430,10 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId =
+      ctx.currentTurnSourceActorPrincipalId ??
+      ctx.currentTurnAuthContext?.actorPrincipalId ??
+      ctx.authContext?.actorPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
