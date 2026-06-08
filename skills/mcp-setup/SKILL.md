@@ -24,25 +24,20 @@ USE THIS SKILL WHEN:
 
 ## Prefer Native OAuth Integration (check this first)
 
-Many services have built-in OAuth integrations that are simpler and more reliable than MCP. Before using MCP, check if the service has a native OAuth option.
-
-**Native OAuth integrations available:** GitHub, Google, Linear, Notion, Discord, Twitter, Asana, Todoist, HubSpot, Outlook/Microsoft.
-
-If the service is in that list, use the native OAuth command instead:
+Many services have built-in OAuth integrations that are simpler and more reliable than MCP. Before setting up MCP, check whether the service already has a native OAuth provider:
 
 ```
-assistant oauth connect <service>
+assistant oauth providers list
 ```
 
-Examples:
+If the service appears in that list, connect it natively instead of using MCP:
+
 ```
-assistant oauth connect linear
-assistant oauth connect notion
-assistant oauth connect github
+assistant oauth connect <provider>
 ```
 
 **Only use MCP when:**
-- The service has no native OAuth integration (e.g., Figma, Slack, Jira, Sentry, Stripe, Context7, Vercel, Cloudflare, Brave Search)
+- The service is not in `assistant oauth providers list`
 - The user explicitly asks to use MCP for a specific service
 - The native OAuth integration fails or lacks features the user needs
 
