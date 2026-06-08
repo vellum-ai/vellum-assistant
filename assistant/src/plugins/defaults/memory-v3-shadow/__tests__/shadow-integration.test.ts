@@ -8,19 +8,20 @@
  * with a mocked select provider, a stubbed dense lane, an in-memory selections
  * DB, and synthetic fixtures, driving them over a MULTI-TURN sequence:
  *
- *   orchestrate (needle ∪ dense ∪ edge ∪ capabilities → selectPool over a
- *     shared WorkingSet → carry-forward)
+ *   orchestrate (needle ∪ dense ∪ edge → selectPool over a shared WorkingSet
+ *     → carry-forward)
  *       → attribute selections to lane sources (the shadow plugin's coarse
  *         mapping, replicated here)
  *       → write to `memory_v3_selections`
  *       → summarizeSelections (the offline A/B readout)
  *
  * This is exactly the side-effect contract shadow mode observes each turn: the
- * candidate pool is the union of the lanes plus the synthetic capability slugs,
- * a SINGLE select runs per turn, the working set carries selections forward
- * across turns, and each selection is logged tagged with its lane source. None
- * of this changes live injection — shadow mode is observation-only; cutover is
- * the `memory-v3-live` flag flip.
+ * candidate pool is the union of the lanes — synthetic capability pages are
+ * indexed like any other page, so they enter through the needle lane rather than
+ * being always-added — a SINGLE select runs per turn, the working set carries
+ * selections forward across turns, and each selection is logged tagged with its
+ * lane source. None of this changes live injection — shadow mode is
+ * observation-only; cutover is the `memory-v3-live` flag flip.
  *
  * Slugs are generic placeholders (`page-a`, `topic-x`, `page-b`, …) — this is a
  * public repo.
@@ -141,10 +142,23 @@ const RAW: Record<Slug, string> = {
 };
 
 const SLUGS = Object.keys(PAGES);
+
+// A synthetic capability page (skill). Its content carries a distinctive term
+// ("durian") so the real needle ranks it — synthetic pages are indexed and
+// lane-ranked like any other page, not always-added to the pool.
 const CAPABILITY_SLUG = "skills/example";
+const CAPABILITY_CONTENT =
+  "# Skill: example\ndurian content for the example skill";
+const INDEX_SLUGS = [...SLUGS, CAPABILITY_SLUG];
+
+/** Page-body resolver mirroring `initLanes`: capability slug → its rendered
+ *  content, on-disk slug → its page body. */
+function bodyOf(slug: Slug): string {
+  return slug === CAPABILITY_SLUG ? CAPABILITY_CONTENT : PAGES[slug]!;
+}
 
 function makeEntries(): PageIndexEntry[] {
-  return SLUGS.map((slug, i) => ({
+  return INDEX_SLUGS.map((slug, i) => ({
     id: i + 1,
     slug,
     summary: `summary of ${slug}`,
@@ -159,9 +173,15 @@ async function buildLanes(): Promise<{
   needle: ReturnType<typeof buildSectionNeedle>;
   edgeGraph: EdgeGraph;
 }> {
-  const sectionIndex = await buildSectionIndex(SLUGS, async (s) => PAGES[s]!);
+  const sectionIndex = await buildSectionIndex(INDEX_SLUGS, async (s) =>
+    bodyOf(s),
+  );
   const needle = buildSectionNeedle(sectionIndex);
-  const edgeGraph = await buildEdgeGraph(makeEntries(), async (s) => RAW[s]!);
+  // The capability slug has no `links:` frontmatter, so the edge graph reads
+  // through `RAW` for the on-disk pages and its raw content otherwise.
+  const edgeGraph = await buildEdgeGraph(makeEntries(), async (s) =>
+    s === CAPABILITY_SLUG ? CAPABILITY_CONTENT : RAW[s]!,
+  );
   return { sectionIndex, needle, edgeGraph };
 }
 
@@ -305,7 +325,6 @@ async function runTurn(
     denseConfig: config,
     edgeGraph: deps.lanes.edgeGraph,
     workingSet: deps.workingSet,
-    capabilitySlugs: [CAPABILITY_SLUG],
   });
   writeSelections(turnNumber, attributeSelections(result));
   return result;
@@ -325,22 +344,33 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Pool composition: the candidate pool is the union of the lanes plus the
-// always-added capability slugs, and exactly one select runs per turn.
+// Pool composition: the candidate pool is the union of the lanes, and exactly
+// one select runs per turn. Synthetic capability pages are indexed like any
+// other page, so they enter through the needle lane when the query matches
+// their content — not by always being appended.
 // ---------------------------------------------------------------------------
 
 describe("memory-v3 shadow integration — candidate pool", () => {
-  test("pool unions needle ∪ dense ∪ edge ∪ capabilities; one select per turn", async () => {
+  test("pool unions needle ∪ dense ∪ edge; one select per turn", async () => {
     const lanes = await buildLanes();
     // "apple" hits page-a (needle). Dense returns page-b. page-a links to
-    // topic-x (edge). The capability slug is always appended.
+    // topic-x (edge). "apple" does NOT match the capability page, so it is not
+    // pooled this turn — capability pages are lane-ranked, not always-added.
     denseHits = [{ article: "page-b", section: 0 }];
     await runTurn(1, "apple", [], [], { lanes, workingSet: new WorkingSet() });
 
     expect(selectCalls).toBe(1);
-    expect(new Set(lastPool)).toEqual(
-      new Set(["page-a", "page-b", "topic-x", CAPABILITY_SLUG]),
-    );
+    expect(new Set(lastPool)).toEqual(new Set(["page-a", "page-b", "topic-x"]));
+  });
+
+  test("a synthetic capability page enters the pool via the needle lane", async () => {
+    const lanes = await buildLanes();
+    // "durian" is the distinctive term in the capability page's content, so the
+    // real needle ranks it and folds it into the pool.
+    await runTurn(1, "durian", [], [], { lanes, workingSet: new WorkingSet() });
+
+    expect(selectCalls).toBe(1);
+    expect(lastPool).toContain(CAPABILITY_SLUG);
   });
 });
 
@@ -383,21 +413,18 @@ describe("memory-v3 shadow integration — carry-forward", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Lane-source attribution: the edge lane surfaces a page with no matched
-// section, which is logged as `edge`.
+// Lane-source attribution: a synthetic capability page now carries a section
+// (its rendered content), so when the needle ranks it the selection has a
+// matched section and is attributed `needle` — exactly like a concept page.
 // ---------------------------------------------------------------------------
 
 describe("memory-v3 shadow integration — lane-source attribution", () => {
-  test("a sectionless selection is logged with the edge source", async () => {
+  test("a needle-ranked capability selection is logged with the needle source", async () => {
     const lanes = await buildLanes();
-    // The capability slug is pooled with no matched section (capabilities have
-    // no section body), so a selection of it has no `sectionBySlug` entry and
-    // the shadow plugin's coarse mapping attributes it `edge` — the fallback
-    // for any candidate without a matched section. Selecting only it isolates
-    // the edge tag. (Edge-graph neighbours that DO have sections resolve a
-    // best-section and are attributed `needle`; precise per-lane attribution is
-    // a documented follow-up.)
-    const result = await runTurn(1, "apple", [CAPABILITY_SLUG], [], {
+    // "durian" matches the capability page's content section, so selecting it
+    // records a `sectionBySlug` entry and the coarse mapping attributes it
+    // `needle` (capabilities are indexed pages now, not sectionless add-ins).
+    const result = await runTurn(1, "durian", [CAPABILITY_SLUG], [], {
       lanes,
       workingSet: new WorkingSet(),
     });
@@ -405,7 +432,7 @@ describe("memory-v3 shadow integration — lane-source attribution", () => {
       CAPABILITY_SLUG,
     ]);
     expect(loggedSources(1)).toEqual([
-      { slug: CAPABILITY_SLUG, source: "edge" },
+      { slug: CAPABILITY_SLUG, source: "needle" },
     ]);
   });
 });
@@ -425,23 +452,23 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
     // Turn 2: needle selects page-b (matched "banana"); page-a carries forward.
     denseHits = [{ article: "page-b", section: 0 }];
     await runTurn(2, "banana", ["page-b"], [], { lanes, workingSet });
-    // Turn 3: the sectionless capability slug is selected (→ edge); page-a and
-    // page-b carry forward.
+    // Turn 3: needle selects the capability page (matched "durian" in its
+    // content); page-a and page-b carry forward.
     denseHits = [];
-    await runTurn(3, "apple", [CAPABILITY_SLUG], [], { lanes, workingSet });
+    await runTurn(3, "durian", [CAPABILITY_SLUG], [], { lanes, workingSet });
 
     const summary = summarizeSelections(CONV);
-    // needle: page-a (t1) + page-b (t2) = 2.
-    expect(summary.bySource.needle).toBe(2);
-    // edge: the capability slug (t3) = 1.
-    expect(summary.bySource.edge).toBe(1);
+    // needle: page-a (t1) + page-b (t2) + capability page (t3) = 3.
+    expect(summary.bySource.needle).toBe(3);
+    // No selection was attributed to the edge lane in this run.
+    expect(summary.bySource.edge).toBe(0);
     // carry-forward: page-a (t2) + page-a & page-b (t3) = 3.
     expect(summary.bySource["carry-forward"]).toBe(3);
     // dense lane surfaced candidates but none were selected.
     expect(summary.bySource.dense).toBe(0);
     // Three turns logged selections.
     expect(summary.turns).toBe(3);
-    // Distinct slugs across the run: page-a, page-b, the capability slug.
+    // Distinct slugs across the run: page-a, page-b, the capability page.
     expect(summary.distinctSlugs).toBe(3);
   });
 

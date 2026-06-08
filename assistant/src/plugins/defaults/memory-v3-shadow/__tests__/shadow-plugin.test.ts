@@ -10,7 +10,10 @@
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
  *   - lazy-init runs the lane builders only once across multiple turns, and
- *     `invalidateLanes` forces exactly one rebuild.
+ *     `invalidateLanes` forces exactly one rebuild;
+ *   - `initLanes` feeds synthetic capability pages (skills / CLI commands) into
+ *     the section index via `renderCapabilityContent`, so the needle lane ranks
+ *     them like any other page (they are no longer always-added to the pool).
  *
  * All heavy dependencies (config, flag resolver, conversation reads, v2 page
  * index + page store, the lane builders, orchestrate) are mocked BEFORE
@@ -53,6 +56,12 @@ const realPageStore = {
 const realConversationCrud = {
   ...(await import("../../../../memory/conversation-crud.js")),
 };
+const realSkillStore = {
+  ...(await import("../../../../memory/v2/skill-store.js")),
+};
+const realCliCommandStore = {
+  ...(await import("../../../../memory/v2/cli-command-store.js")),
+};
 
 let shadowMockActive = false;
 
@@ -61,6 +70,12 @@ let shadowMockActive = false;
 let liveEnabled = false;
 let shadowEnabled = false;
 let messages: Array<{ role: string; content: string }> = [];
+
+// A synthetic skill capability slug the page index carries. Its rendered
+// content holds a distinctive term ("kumquat") so the real needle, built over
+// the section index `initLanes` feeds, ranks it. Generic placeholder only.
+const CAPABILITY_SLUG = "skills/example";
+const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
 // The orchestrate result the spy returns. page-1 + page-2 matched a section
 // this turn (→ "needle"); page-3 is an edge-only candidate (no matched section
@@ -83,6 +98,12 @@ let sectionBuilds = 0;
 let needleBuilds = 0;
 let edgeBuilds = 0;
 let ensureCollectionCalls = 0;
+
+// The `pageBody` resolver `initLanes` passes to `buildSectionIndex` (its second
+// arg), captured by the stub below so a test can drive it directly: a capability
+// slug must resolve to its rendered capability content, an on-disk slug to its
+// page body.
+let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
 // Shared in-memory DB so writes are observable from the test.
 let testSqlite: Database;
@@ -156,6 +177,17 @@ mock.module("../../../../memory/v2/page-index.js", () => ({
         leaves: [],
         modifiedAt: 0,
       },
+      // A synthetic capability row — same shape the v2 page index appends for
+      // skills/CLI commands. `initLanes` must route it through the capability
+      // resolver, not an on-disk read.
+      {
+        slug: CAPABILITY_SLUG,
+        id: 3,
+        summary: "",
+        edges: [],
+        leaves: [],
+        modifiedAt: 0,
+      },
     ],
     bySlug: new Map(),
   }),
@@ -184,6 +216,28 @@ mock.module("../../../../util/platform.js", () => ({
       : realPlatform.getWorkspaceDir(),
 }));
 
+// Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
+// and from the live injector) resolves synthetic slugs through these. Spread the
+// real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
+// intact; override only the content lookup so the capability slug resolves.
+mock.module("../../../../memory/v2/skill-store.js", () => ({
+  ...realSkillStore,
+  getSkillCapability: (idOrSlug: string) =>
+    shadowMockActive
+      ? idOrSlug === CAPABILITY_SLUG
+        ? { id: "example", content: CAPABILITY_CONTENT }
+        : null
+      : realSkillStore.getSkillCapability(idOrSlug),
+}));
+
+mock.module("../../../../memory/v2/cli-command-store.js", () => ({
+  ...realCliCommandStore,
+  getCliCommandCapability: (idOrSlug: string) =>
+    shadowMockActive
+      ? null
+      : realCliCommandStore.getCliCommandCapability(idOrSlug),
+}));
+
 mock.module("../sections.js", () => ({
   ...realSections,
   buildSectionIndex: async (
@@ -191,6 +245,9 @@ mock.module("../sections.js", () => ({
   ) => {
     if (!shadowMockActive) return realSections.buildSectionIndex(...args);
     sectionBuilds++;
+    // Capture the `pageBody` resolver so a test can exercise the capability
+    // branch directly. Returning the FAKE index keeps the other tests cheap.
+    capturedPageBody = args[1];
     return FAKE_SECTION_INDEX;
   },
 }));
@@ -269,6 +326,7 @@ beforeEach(() => {
   needleBuilds = 0;
   edgeBuilds = 0;
   ensureCollectionCalls = 0;
+  capturedPageBody = null;
   testDb = makeDb();
   resetShadowLanesForTests();
 });
@@ -334,13 +392,11 @@ describe("memory-v3 shadow plugin", () => {
       needle?: unknown;
       edgeGraph?: unknown;
       workingSet?: unknown;
-      capabilitySlugs?: unknown;
     };
     expect(deps.sectionIndex).toBeDefined();
     expect(deps.needle).toBeDefined();
     expect(deps.edgeGraph).toBeDefined();
     expect(deps.workingSet).toBeDefined();
-    expect(Array.isArray(deps.capabilitySlugs)).toBe(true);
   });
 
   test("both flags OFF → produce returns null, no orchestrate, no writes", async () => {
@@ -464,5 +520,45 @@ describe("memory-v3 shadow plugin", () => {
     await runShadowObservation("conv-1", 0);
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(readRows()).toHaveLength(0);
+  });
+
+  describe("initLanes feeds synthetic capability pages into the section index", () => {
+    test("the pageBody resolver returns capability content for a synthetic slug and disk body otherwise", async () => {
+      shadowEnabled = true;
+      await runShadowObservation("conv-1", 0);
+
+      // `initLanes` ran the real pageBody-building closure and handed it to
+      // `buildSectionIndex`; the stub captured it.
+      expect(capturedPageBody).not.toBeNull();
+      const pageBody = capturedPageBody!;
+
+      // A capability slug resolves to its rendered capability content (NOT an
+      // on-disk read, which would miss), so the needle can rank it.
+      const capBody = await pageBody(CAPABILITY_SLUG);
+      expect(capBody).toContain("kumquat");
+      // On-disk slugs still resolve to their page body.
+      expect(await pageBody("page-1")).toBe("body for page-1");
+    });
+
+    test("a synthetic slug's capability content yields a section the needle ranks", async () => {
+      shadowEnabled = true;
+      await runShadowObservation("conv-1", 0);
+      const pageBody = capturedPageBody!;
+
+      // Feed the captured resolver through the REAL section builder + needle:
+      // the capability slug yields ≥1 section and is ranked on a term from its
+      // capability content — the path that makes synthetic pages lane-rankable.
+      const index = await realSections.buildSectionIndex(
+        [CAPABILITY_SLUG],
+        pageBody,
+      );
+      expect(index.byArticle.get(CAPABILITY_SLUG)?.length ?? 0).toBeGreaterThan(
+        0,
+      );
+
+      const needle = realSectionNeedle.buildSectionNeedle(index);
+      const hits = needle.query("kumquat", 5);
+      expect(hits.map((h) => h.article)).toContain(CAPABILITY_SLUG);
+    });
   });
 });

@@ -13,9 +13,9 @@
  *      descriptor is the matched section's text for needle/dense hits (resolved
  *      via the section index); for edge-only pages it is the curated `links`
  *      description when the traversed edge carried one, else the page's best
- *      section against the query. The synthetic capability slugs (skills / CLI
- *      commands) are always appended (lane-ranking of synthetic pages is a
- *      documented fast-follow).
+ *      section against the query. Synthetic capability pages (skills / CLI
+ *      commands) carry sections in the section index too, so they enter the pool
+ *      through the lanes like any other page rather than being always-added.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
  *      result is this turn's selections.
  *   4. Age the carry-forward working set to this turn (evict stale non-pinned
@@ -59,9 +59,6 @@ export interface OrchestrateDeps {
   denseConfig: AssistantConfig;
   edgeGraph: EdgeGraph;
   workingSet: WorkingSet;
-  /** Synthetic capability slugs (skills / CLI commands) always added to the
-   *  pool. Lane-ranking of synthetic pages is a documented fast-follow. */
-  capabilitySlugs: Slug[];
   /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
@@ -169,13 +166,6 @@ export async function orchestrate(
     const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
     const section = best >= 0 ? sections[best] : undefined;
     addCandidate(neighbor.article, section, neighbor.description);
-  }
-
-  // Step 2d: always-add the synthetic capability slugs (skills / CLI commands)
-  // with a blank descriptor — they have no matched section. Proper lane-ranking
-  // of synthetic pages is a documented fast-follow.
-  for (const slug of deps.capabilitySlugs) {
-    addCandidate(slug, undefined);
   }
 
   // Step 3: a SINGLE forced-tool select over the unified pool.
