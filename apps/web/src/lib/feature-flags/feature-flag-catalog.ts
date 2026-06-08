@@ -101,10 +101,13 @@ function upperSnakeToKebab(upper: string): string {
   return upper.toLowerCase().replace(/_/g, "-");
 }
 
+const TRUTHY = new Set(["true", "1", "yes", "on"]);
+const FALSY = new Set(["false", "0", "no", "off"]);
+
 function parseEnvValue(raw: string): boolean | string {
   const lower = raw.toLowerCase();
-  if (lower === "true") return true;
-  if (lower === "false") return false;
+  if (TRUTHY.has(lower)) return true;
+  if (FALSY.has(lower)) return false;
   return raw;
 }
 
