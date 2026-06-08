@@ -17,9 +17,11 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
 // the renderer. In the Electron shell the header renders as a unified title bar
 // sitting *inline* with those controls (the desktop app centres the cluster
 // vertically via `MAIN_TRAFFIC_LIGHT_POSITION`), so the left icon row is inset
-// to start clear of the ~71px-wide cluster. The header's own `px-4` supplies
-// the first 16px; this adds the remainder. Off Electron the inset is 0.
-const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 62;
+// to start clear of the ~71px-wide cluster with a comfortable gap after it.
+// The header's own `px-4` supplies the first 16px; this adds the remainder
+// (≈ button left edge at 96px, leaving a ~25px gap past the green control).
+// Off Electron the inset is 0.
+const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
