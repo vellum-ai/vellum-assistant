@@ -695,6 +695,8 @@ export function useSendMessage({
             useConversationStore.getState().setActiveConversationId(newConversationId);
             void navigate(routes.conversation(newConversationId), { replace: true });
           }
+        } else if (isDraft) {
+          patchConversation(queryClient, assistantId, activeConversationId, { draft: false });
         }
 
         void refreshConversations();
