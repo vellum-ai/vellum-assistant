@@ -27,13 +27,11 @@
  * snapshot/stream merge and idempotent apply already keep the views
  * aligned, so a backwards re-anchor would only churn the connection.
  *
- * All of this is behind `isSeqGapDetectionEnabled`. With the flag off,
- * or when `/messages` reports no honest position (`S === null`, e.g. an
+ * When `/messages` reports no honest position (`S === null`, e.g. an
  * older daemon), the cursor stays `null` and the connection opens
- * cursor-less exactly as it does today.
+ * cursor-less exactly as a fresh page load does.
  */
 
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { publish } from "@/lib/event-bus";
 import {
   advanceReconnectCursor,
@@ -44,14 +42,13 @@ import {
  * Anchor the live SSE connection at the server seq `S` once per
  * cold session.
  *
- * Called when `/messages` resolves for the active conversation. When seq
- * gap detection is on, `S` is a real position, and the connection is
- * still cold (cursor `null`), this seeds the resumable cursor at `S` and
- * requests a single re-anchor reconnect so the daemon replays `seq > S`
- * from its ring. A no-op otherwise.
+ * Called when `/messages` resolves for the active conversation. When
+ * `S` is a real position and the connection is still cold (cursor
+ * `null`), this seeds the resumable cursor at `S` and requests a single
+ * re-anchor reconnect so the daemon replays `seq > S` from its ring. A
+ * no-op otherwise.
  */
 export function anchorColdStartReplay(serverSeq: number | null): void {
-  if (!isSeqGapDetectionEnabled()) return;
   if (serverSeq === null) return;
   // A non-null cursor means a live event already seeded it — the
   // connection is no longer cold, so the running merge/apply path owns
