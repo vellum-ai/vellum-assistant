@@ -24,16 +24,18 @@ USE THIS SKILL WHEN:
 
 ## Step 1 — Detect your environment
 
-**Before doing anything else**, run this via `host_bash` (not `bash`):
+**Before doing anything else**, determine which environment you are in.
+
+Try `host_bash`:
 
 ```
 echo "desktop ok"
 ```
 
-- If it succeeds → you are on the **desktop app**. `mcp auth` must run via `host_bash` because it opens a local browser.
-- If `host_bash` is unavailable or denied → you are on the **web app** (or a cloud-hosted session). `mcp auth` still works — the platform handles the browser redirect. Use `bash` for all commands, including `auth`.
+- If it succeeds → you are on the **desktop app**. Use `host_bash` for all commands, including `auth` (opens a local browser).
+- If it is unavailable → you are on the **web app** (or a cloud-hosted session). Use `bash` for all commands, including `auth` (the platform handles the browser redirect).
 
-Both environments fully support MCP. The only difference is which tool runs the `auth` command.
+Both environments fully support MCP. The only difference is which tool runs the commands.
 
 ## Step 2 — Check the recipe table
 
