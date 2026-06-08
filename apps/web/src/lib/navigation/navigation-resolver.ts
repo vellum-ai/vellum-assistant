@@ -79,6 +79,22 @@ function extractPathname(destination: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Login return-to
+// ---------------------------------------------------------------------------
+
+export function resolveLoginReturnTo(
+  state: NavigationState,
+  fromPath: string,
+): string {
+  if (fromPath === routes.onboarding.welcome) {
+    return state.hasAssistants
+      ? routes.onboarding.selectAssistant
+      : routes.onboarding.hosting;
+  }
+  return fromPath;
+}
+
+// ---------------------------------------------------------------------------
 // Core resolver
 // ---------------------------------------------------------------------------
 

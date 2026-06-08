@@ -1,15 +1,12 @@
 import { Cloud, Laptop, Package } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { isPlatformLocal } from "@/lib/auth/loopback-auth";
-import { isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { isElectron } from "@/runtime/is-electron";
-import { startAuthFlow } from "@/runtime/native-auth";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { docsUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -67,9 +64,15 @@ export function HostingScreen() {
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession ? "vellum-cloud" : "local",
   );
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const loginFlowIdRef = useRef(0);
+
+  const {
+    loading: loginLoading,
+    error: loginError,
+    login,
+    cancel: cancelLogin,
+  } = useOnboardingLogin(
+    `${routes.onboarding.hosting}?from=select-assistant`,
+  );
 
   const showLogin = fromSelectAssistant && !hasPlatformSession;
 
@@ -92,37 +95,6 @@ export function HostingScreen() {
         ? routes.onboarding.selectAssistant
         : routes.onboarding.welcome,
     );
-  };
-
-  const handleLogin = async () => {
-    const returnTo = `${routes.onboarding.hosting}?from=select-assistant`;
-
-    if (isLocalMode() && isPlatformLocal()) {
-      void navigate(
-        `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`,
-      );
-      return;
-    }
-    const flowId = ++loginFlowIdRef.current;
-    setLoginError(null);
-    setLoginLoading(true);
-    try {
-      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
-      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
-    } catch {
-      if (flowId !== loginFlowIdRef.current) return;
-      setLoginError("Something went wrong. Please try again.");
-      setLoginLoading(false);
-    }
-  };
-
-  const handleCancelLogin = () => {
-    loginFlowIdRef.current++;
-    setLoginLoading(false);
-    setLoginError(null);
-    if (isElectron()) {
-      void window.vellum?.auth?.cancelOAuth();
-    }
   };
 
   return (
@@ -182,9 +154,7 @@ export function HostingScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={
-                loginLoading ? handleCancelLogin : () => void handleLogin()
-              }
+              onClick={loginLoading ? cancelLogin : () => void login()}
             >
               {loginLoading ? "Cancel" : "Log In"}
             </Button>
