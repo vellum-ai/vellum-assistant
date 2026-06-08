@@ -32,6 +32,7 @@ mock.module("electron", () => ({
 }));
 
 const {
+  denyAllPermissions,
   installPermissionHandler,
   shouldGrantPermissionCheck,
   shouldGrantPermissionRequest,
@@ -129,5 +130,32 @@ describe("permission policy", () => {
     );
 
     expect(granted).toBe(true);
+  });
+});
+
+describe("denyAllPermissions", () => {
+  test("installs blanket deny handlers on the target session", () => {
+    let requestHandler: ((...args: unknown[]) => void) | null = null;
+    let checkHandler: ((...args: unknown[]) => boolean) | null = null;
+
+    const targetSession = {
+      setPermissionRequestHandler: mock((h: typeof requestHandler) => {
+        requestHandler = h;
+      }),
+      setPermissionCheckHandler: mock((h: typeof checkHandler) => {
+        checkHandler = h;
+      }),
+    };
+
+    denyAllPermissions(targetSession as never);
+
+    expect(targetSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(targetSession.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+
+    let granted = true;
+    requestHandler!({}, "media", (allowed: boolean) => { granted = allowed; });
+    expect(granted).toBe(false);
+
+    expect(checkHandler!({}, "clipboard-read", "vellumapp://bundle")).toBe(false);
   });
 });
