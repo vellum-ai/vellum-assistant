@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import CryptoKit
 import Foundation
 import os
 
@@ -155,22 +156,23 @@ public final class AuthManager {
                 throw AuthServiceError.authCallbackFailed("Failed to generate secure random state.")
             }
 
+            // PKCE (RFC 7636): generate code_verifier and code_challenge.
+            guard let codeVerifier = generateRandomString(length: 32) else {
+                throw AuthServiceError.authCallbackFailed("Failed to generate PKCE code verifier.")
+            }
+            let codeChallenge = Self.computeCodeChallenge(verifier: codeVerifier)
+
             // Build /accounts/native/start?state={state}. The server
             // determines the callback scheme from settings.ENVIRONMENT
             // — the client no longer sends it (ATL-454).
-            //
-            // ``client_version`` is forwarded so the server can attribute
-            // callback hits to a specific macOS build in
-            // ``native_login_callback`` (ATL-466). Absence of the param on
-            // the server-side fallback branch is the signal that a
-            // pre-ATL-454 (≤ v0.7.2) build initiated the flow — when that
-            // signal disappears from the logs, ``session_token`` can be
-            // dropped from the legacy redirect.
             guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
                 throw AuthServiceError.invalidURL
             }
             startComponents.path = "/accounts/native/start"
-            var queryItems = [URLQueryItem(name: "state", value: stateParam)]
+            var queryItems = [
+                URLQueryItem(name: "state", value: stateParam),
+                URLQueryItem(name: "code_challenge", value: codeChallenge),
+            ]
             if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
                !clientVersion.isEmpty {
                 queryItems.append(URLQueryItem(name: "client_version", value: clientVersion))
@@ -208,7 +210,7 @@ public final class AuthManager {
 
             // Exchange the one-time code for a session token via POST.
             // The code is short-lived (30 s) and single-use (ATL-454).
-            let sessionToken = try await exchangeCodeForSession(code: code)
+            let sessionToken = try await exchangeCodeForSession(code: code, codeVerifier: codeVerifier)
 
             await SessionTokenManager.setTokenAsync(sessionToken)
 
@@ -231,7 +233,7 @@ public final class AuthManager {
     }
 
     /// Exchange a one-time authorization code for a session token.
-    private func exchangeCodeForSession(code: String) async throws -> String {
+    private func exchangeCodeForSession(code: String, codeVerifier: String) async throws -> String {
         guard var exchangeComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
             throw AuthServiceError.invalidURL
         }
@@ -244,7 +246,10 @@ public final class AuthManager {
         var request = URLRequest(url: exchangeURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "code": code,
+            "code_verifier": codeVerifier,
+        ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -308,6 +313,12 @@ public final class AuthManager {
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else { return nil }
         return Data(bytes).base64URLEncodedString()
+    }
+
+    /// PKCE code_challenge: base64url(SHA-256(code_verifier)) (RFC 7636 § 4.2).
+    private static func computeCodeChallenge(verifier: String) -> String {
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return Data(digest).base64URLEncodedString()
     }
 
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {

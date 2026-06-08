@@ -12,12 +12,21 @@ interface PendingFlow {
   resolve: (sessionToken: string) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  codeVerifier: string;
 }
 
 const pendingFlows = new Map<string, PendingFlow>();
 
 export function generateState(): string {
   return crypto.randomBytes(32).toString("base64url");
+}
+
+export function generateCodeVerifier(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+export function computeCodeChallenge(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
 export function buildStartUrl(
@@ -27,6 +36,7 @@ export function buildStartUrl(
     providerHint?: string;
     loginHint?: string;
     clientVersion?: string;
+    codeChallenge?: string;
   },
 ): string {
   const url = new URL("/accounts/native/start", platformUrl);
@@ -34,18 +44,20 @@ export function buildStartUrl(
   if (options.providerHint) url.searchParams.set("provider_hint", options.providerHint);
   if (options.loginHint) url.searchParams.set("login_hint", options.loginHint);
   if (options.clientVersion) url.searchParams.set("client_version", options.clientVersion);
+  if (options.codeChallenge) url.searchParams.set("code_challenge", options.codeChallenge);
   return url.toString();
 }
 
 async function exchangeCode(
   platformUrl: string,
   code: string,
+  codeVerifier: string,
 ): Promise<string> {
   const url = `${new URL(platformUrl).origin}/accounts/native/exchange`;
   const response = await net.fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, code_verifier: codeVerifier }),
   });
   if (!response.ok) {
     const body = await response.text();
@@ -124,6 +136,8 @@ async function startOAuth(options: {
   cancelPendingFlows();
 
   const state = generateState();
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = computeCodeChallenge(codeVerifier);
   const authPlatformUrl = resolveAuthPlatformUrl();
   const clientVersion = app.getVersion();
 
@@ -131,6 +145,7 @@ async function startOAuth(options: {
     providerHint: options.providerHint,
     loginHint: options.loginHint,
     clientVersion,
+    codeChallenge,
   });
 
   const sessionToken = await new Promise<string>((resolve, reject) => {
@@ -139,7 +154,7 @@ async function startOAuth(options: {
       reject(new Error("Sign-in timed out. Please try again."));
     }, AUTH_FLOW_TIMEOUT_MS);
 
-    pendingFlows.set(state, { resolve, reject, timer });
+    pendingFlows.set(state, { resolve, reject, timer, codeVerifier });
     void shell.openExternal(url);
   });
 
@@ -169,7 +184,7 @@ export async function handleAuthCallback(
   }
 
   try {
-    const sessionToken = await exchangeCode(resolveAuthPlatformUrl(), code);
+    const sessionToken = await exchangeCode(resolveAuthPlatformUrl(), code, flow.codeVerifier);
     flow.resolve(sessionToken);
   } catch (err) {
     flow.reject(err instanceof Error ? err : new Error(String(err)));
