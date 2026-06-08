@@ -37,6 +37,7 @@ assistant oauth connect <provider>
 ```
 
 **Only use MCP when:**
+
 - The service is not in `assistant oauth providers list`
 - The user explicitly asks to use MCP for a specific service
 - The native OAuth integration fails or lacks features the user needs
@@ -60,11 +61,11 @@ Both environments fully support MCP. The only difference is which tool runs the 
 
 **Check this table before doing anything else.** If the service is listed, run the command shown and do nothing else — no exploration, no checking available commands, no looking up documentation.
 
-| Service | Command | After? |
-|---------|---------|--------|
-| Context7 (docs) | `assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low` | Done — no auth needed |
-| Linear | `assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp` | Run `assistant mcp auth linear` |
-| Figma | `assistant mcp add figma -t streamable-http -u https://mcp.figma.com/mcp` | Run `assistant mcp auth figma` |
+| Service         | Command                                                                                | After?                          |
+| --------------- | -------------------------------------------------------------------------------------- | ------------------------------- |
+| Context7 (docs) | `assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low` | Done — no auth needed           |
+| Linear          | `assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp`            | Run `assistant mcp auth linear` |
+| Figma           | `assistant mcp add figma -t streamable-http -u https://mcp.figma.com/mcp`              | Run `assistant mcp auth figma`  |
 
 If the service is not in this table, go to Step 3.
 
@@ -95,6 +96,7 @@ assistant mcp list --json   # machine-readable output
 ```
 
 Shows each server's connection status, transport, URL/command, and risk level. Status indicators:
+
 - `✓` Connected
 - `✗` Error or disabled
 - `!` Needs authentication
@@ -106,6 +108,7 @@ assistant mcp add <name> -t <transport> -u <url> [-r low|medium|high] [--disable
 ```
 
 Transport types:
+
 - `streamable-http` — most modern remote servers (use this by default)
 - `sse` — legacy remote servers
 - `stdio` — local process: use `-c <command>` and `-a <args...>` instead of `-u`
@@ -113,6 +116,7 @@ Transport types:
 Risk level (`-r`) controls approval prompts per tool call — `low` auto-approves, `high` always prompts (default: `high`).
 
 Examples:
+
 ```
 assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp
 assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low
@@ -129,6 +133,7 @@ assistant mcp auth <name>
 - On **web app** → run via `bash` (the platform handles the browser redirect and saves tokens).
 
 Tokens are saved automatically. Use when:
+
 - `assistant mcp list` shows `! Needs authentication`
 - An MCP tool call fails with an auth/token error
 - Setting up a new OAuth-protected server for the first time
