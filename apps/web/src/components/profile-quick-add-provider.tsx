@@ -56,10 +56,13 @@ interface OpenProfileQuickAddArgs {
    */
   existingNames?: string[];
   /**
-   * Invoked with the new profile name after the create persists. The caller
-   * runs its own follow-up (e.g. autoselecting the profile for the thread).
+   * Invoked with the new profile's key and its display-name label after the
+   * create persists. The caller runs its own follow-up (e.g. autoselecting the
+   * profile for the thread) and uses `label` to render the picker entry with
+   * its Name immediately, instead of falling back to the key until the next
+   * config refetch. `label` is null when the user left the Name field empty.
    */
-  onCreated?: (newProfileName: string) => void;
+  onCreated?: (newProfileName: string, label: string | null) => void;
 }
 
 interface ProfileQuickAddContextValue {
@@ -82,9 +85,9 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const [existingNames, setExistingNames] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
   // callback without re-creating handlers on every open.
-  const onCreatedRef = useRef<((newProfileName: string) => void) | undefined>(
-    undefined,
-  );
+  const onCreatedRef = useRef<
+    ((newProfileName: string, label: string | null) => void) | undefined
+  >(undefined);
 
   const openProfileQuickAdd = useCallback((args?: OpenProfileQuickAddArgs) => {
     setExistingNames(args?.existingNames ?? []);
@@ -181,9 +184,15 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       await queryClient.invalidateQueries({
         queryKey: assistantDaemonConfigQueryKey(assistantId),
       });
-      onCreatedRef.current?.(name);
+      // Hand back the display-name label alongside the key so the caller's
+      // optimistic picker entry renders the Name immediately rather than
+      // showing the key until the next config refetch. The create form derives
+      // the key from the Name, but they differ (slugified, possibly deduped),
+      // so the picker must be given the label explicitly.
+      const label = (entry.label ?? "").trim() || null;
+      onCreatedRef.current?.(name, label);
       setIsOpen(false);
-      toast.success(`Profile "${name}" created`);
+      toast.success(`Profile "${label ?? name}" created`);
     },
     [assistantId, queryClient],
   );
