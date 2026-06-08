@@ -671,10 +671,12 @@ async function runWebInterface(
   const rawIndexHtml = await Bun.file(path.join(distDir, "index.html")).text();
   const platformUrl = getPlatformUrl();
   const webUrl = getWebUrl();
-  const configJson = JSON.stringify({ webUrl, platformUrl });
+  const safeJson = (v: unknown) =>
+    JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+  const configJson = safeJson({ webUrl, platformUrl });
   const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
   const flagOverridesSnippet = hasOverrides
-    ? `;window.__VELLUM_FLAG_OVERRIDES__=${JSON.stringify(parsedFlagOverrides)}`
+    ? `;window.__VELLUM_FLAG_OVERRIDES__=${safeJson(parsedFlagOverrides)}`
     : "";
   const indexHtml = rawIndexHtml.replace(
     "</head>",
