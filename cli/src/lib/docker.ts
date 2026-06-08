@@ -791,7 +791,7 @@ export async function captureImageRefs(
 
 /**
  * Build the set of paths the hot-reload watcher should observe, scoped to
- * each service's `src/` tree and `package.json` manifest.
+ * each service's `src/` tree, `package.json` manifest, and `Dockerfile`.
  *
  * We deliberately avoid recursively watching whole service directories.
  * Those contain `.claude/` command symlinks — which dangle in a fresh
@@ -799,8 +799,11 @@ export async function captureImageRefs(
  * repo — as well as `node_modules`. `fs.watch(dir, { recursive: true })`
  * traverses those entries and emits an unhandled `error` event on a broken
  * symlink, which crashes the CLI process. Source code only ever lives under
- * `src/` (plus the manifest), so watching those paths preserves hot-reload
- * without walking into symlinked or generated trees.
+ * `src/`, so watching that tree plus the two manifests that drive the image
+ * build (`package.json` and `Dockerfile`) preserves hot-reload without
+ * walking into symlinked or generated trees. The `Dockerfile` is watched as
+ * an individual file for the same reason — editing build steps should
+ * trigger a rebuild, but the file sits next to the symlinked trees we avoid.
  *
  * Returning a plain record keeps this trivially unit-testable — see
  * `__tests__/docker.test.ts`.
@@ -828,8 +831,10 @@ export function collectWatchTargets(repoRoot: string): {
   for (const root of serviceRoots) {
     const srcDir = join(root, "src");
     if (existsSync(srcDir)) dirs.push(srcDir);
-    const manifest = join(root, "package.json");
-    if (existsSync(manifest)) files.push(manifest);
+    for (const name of ["package.json", "Dockerfile"]) {
+      const file = join(root, name);
+      if (existsSync(file)) files.push(file);
+    }
   }
   return { dirs, files };
 }
@@ -868,8 +873,8 @@ function affectedServices(
 
 /**
  * Watch for source changes across the assistant, gateway, credential-executor,
- * and packages services — scoped to each service's `src/` tree and
- * `package.json` (see `collectWatchTargets`). When changes are detected,
+ * and packages services — scoped to each service's `src/` tree, `package.json`,
+ * and `Dockerfile` (see `collectWatchTargets`). When changes are detected,
  * rebuild the affected images and restart their containers.
  */
 function startFileWatcher(opts: {
@@ -1006,8 +1011,8 @@ function startFileWatcher(opts: {
   }
 
   console.log("👀 Watching for file changes in:");
-  console.log("   <service>/src and <service>/package.json for");
-  console.log("   assistant/, gateway/, credential-executor/, packages/*");
+  console.log("   <service>/src, <service>/package.json, <service>/Dockerfile");
+  console.log("   for assistant/, gateway/, credential-executor/, packages/*");
   console.log("");
 
   return () => {

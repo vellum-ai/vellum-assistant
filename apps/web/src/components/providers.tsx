@@ -22,6 +22,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@vellumai/design-library";
+import { Toaster } from "@vellumai/design-library/components/toast";
 import { useState, type ReactNode } from "react";
 
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
@@ -94,6 +95,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
           {children}
         </ScopeKeyedQueryClientProvider>
       </AuthScopedQueryClientProvider>
+      {/* Single app-wide toast outlet. Sonner only renders toasts when a
+          <Toaster /> is mounted in the tree; without this every `toast.*`
+          call (profile/provider create confirmations, "Assistant retired",
+          email/save success, etc.) silently no-ops. Kept outside the
+          auth/org scope-keyed providers so it survives user/org switches. */}
+      <Toaster />
     </TooltipProvider>
   );
 }

@@ -65,11 +65,6 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-const clearOnboardingFlagsMock = mock(() => {});
-mock.module("@/utils/onboarding-cleanup", () => ({
-  clearOnboardingFlags: clearOnboardingFlagsMock,
-}));
-
 mock.module("@/utils/routes", () => ({
   routes: {
     assistant: "/assistant",
@@ -95,7 +90,6 @@ beforeEach(() => {
   listAssistantsMock.mockClear();
   retireLocalAssistantMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
-  clearOnboardingFlagsMock.mockClear();
   removeMock.mockClear();
 });
 
@@ -119,7 +113,6 @@ describe("retireAssistant", () => {
     if (outcome.ok) {
       expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");
     }
-    expect(clearOnboardingFlagsMock).toHaveBeenCalled();
   });
 
   test("local assistant in local mode routes through the local retire", async () => {
@@ -161,7 +154,6 @@ describe("retireAssistant", () => {
     const outcome = await retireAssistant("p1");
 
     expect(outcome.ok).toBe(true);
-    expect(clearOnboardingFlagsMock).toHaveBeenCalled();
   });
 
   test("a non-404 platform failure surfaces the error detail", async () => {
@@ -175,7 +167,6 @@ describe("retireAssistant", () => {
     if (!outcome.ok) {
       expect(outcome.error).toBe("boom");
     }
-    expect(clearOnboardingFlagsMock).not.toHaveBeenCalled();
   });
 
   test("post-retire redirects to select-assistant when other assistants remain", async () => {

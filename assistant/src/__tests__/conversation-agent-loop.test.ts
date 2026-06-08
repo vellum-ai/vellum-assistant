@@ -114,35 +114,38 @@ mock.module("../context/token-estimator.js", () => ({
 let mockReducerStepFn:
   | ((msgs: Message[], cfg: unknown, state: unknown) => unknown)
   | null = null;
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      appliedTiers: [],
+      injectionMode: "full" as const,
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (
+      msgs: Message[],
+      cfg: unknown,
+      state: unknown,
+    ) => {
+      if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+      };
+    },
   }),
-  reduceContextOverflow: async (
-    msgs: Message[],
-    cfg: unknown,
-    state: unknown,
-  ) => {
-    if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
-    return {
-      messages: msgs,
-      tier: "forced_compaction",
-      state: {
-        appliedTiers: [
-          "forced_compaction",
-          "tool_result_truncation",
-          "media_stubbing",
-          "injection_downgrade",
-        ],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      estimatedTokens: 1000,
-    };
-  },
-}));
+);
 
 // Policy: default to fail_gracefully
 let mockOverflowAction: string = "fail_gracefully";
@@ -534,17 +537,6 @@ mock.module("../memory/llm-request-log-store.js", () => ({
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
 }));
 
-let mockHasProactiveArtifactCompleted = true;
-let mockTryClaimProactiveArtifactTrigger = false;
-const runProactiveArtifactJobMock = mock(
-  async (_params: Record<string, unknown>) => {},
-);
-mock.module("../proactive-artifact/index.js", () => ({
-  hasProactiveArtifactCompleted: () => mockHasProactiveArtifactCompleted,
-  tryClaimProactiveArtifactTrigger: () => mockTryClaimProactiveArtifactTrigger,
-  runProactiveArtifactJob: runProactiveArtifactJobMock,
-}));
-
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
@@ -781,9 +773,6 @@ beforeEach(() => {
     title: null,
   };
   mockMessageById = null;
-  mockHasProactiveArtifactCompleted = true;
-  mockTryClaimProactiveArtifactTrigger = false;
-  runProactiveArtifactJobMock.mockClear();
   setConversationHistoryStrippedAtMock.mockClear();
   setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
@@ -875,59 +864,6 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
-    });
-  });
-
-  describe("proactive artifact trigger", () => {
-    test("does not start proactive artifact jobs after foreground user turns", async () => {
-      mockConversationRow = {
-        ...mockConversationRow,
-        id: "test-conv",
-        conversationType: "standard",
-      };
-      mockMessageById = {
-        id: "user-msg-1",
-        conversationId: "test-conv",
-        createdAt: 1000,
-      };
-      mockHasProactiveArtifactCompleted = false;
-      mockTryClaimProactiveArtifactTrigger = true;
-
-      // A two-call agent turn: the model invokes `app_create`, then wraps up
-      // with a final text reply.
-      const ctx = makeCtx({
-        conversationId: "test-conv",
-        providerResponses: [
-          {
-            content: [
-              { type: "text", text: "I'll build that app." },
-              {
-                type: "tool_use",
-                id: "tool-1",
-                name: "app_create",
-                input: { name: "Flow" },
-              },
-            ],
-            model: "mock-model",
-            usage: { inputTokens: 10, outputTokens: 5 },
-            stopReason: "tool_use",
-          },
-          textResponse("Done."),
-        ],
-        toolExecutor: async () => ({ content: "{}", isError: false }),
-      });
-      await runAgentLoopImpl(
-        ctx,
-        "build a kanban app",
-        "user-msg-1",
-        () => {},
-        {
-          isUserMessage: true,
-        },
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      expect(runProactiveArtifactJobMock).toHaveBeenCalledTimes(0);
     });
   });
 

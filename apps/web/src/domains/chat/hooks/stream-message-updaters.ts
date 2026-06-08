@@ -14,7 +14,11 @@ import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  RiskScopeOption,
+} from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -405,6 +409,39 @@ export function finalizeMessageComplete(
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the optimistic user row a `user_message_echo` confirms.
+ *
+ * Primary match is the correlation nonce: the originating client minted
+ * `clientMessageId` at send time and the daemon echoes it back, so the user
+ * row whose `clientMessageId` equals the event's is the exact send being
+ * confirmed — robust to duplicate or normalized text and to two sends fired in
+ * quick succession (each carries a distinct nonce). The nonce is unique per
+ * send and an already-resolved row is short-circuited by id upstream, so the
+ * nonce match needs no separate optimistic flag. When the event carries no
+ * nonce — a daemon that predates the idempotency contract, or a synthetic
+ * surface-action echo — fall back to the most recent still-optimistic user
+ * row, which has no nonce to key on and so is identified by `isOptimistic`.
+ */
+function findOptimisticUserEchoIdx(
+  prev: DisplayMessage[],
+  clientMessageId: string | undefined,
+): number {
+  if (clientMessageId !== undefined) {
+    return prev.findIndex(
+      (m) => m.role === "user" && m.clientMessageId === clientMessageId,
+    );
+  }
+
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i];
+    if (m && m.role === "user" && m.isOptimistic === true) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Apply a `user_message_echo` to the message array.
  *
  * The daemon emits this whenever a user message is persisted — direct
@@ -418,19 +455,20 @@ export function finalizeMessageComplete(
  *  1. A row already carries `messageId` (as `id` or a merged alias) — the
  *     originating client whose POST already resolved, or a prior echo /
  *     reconcile pulled the row in. No-op.
- *  2. An optimistic user row matches by derived text — the originating
- *     client whose POST hasn't resolved yet (the echo beat the 202). Swap
- *     its id to the server `messageId` and clear `isOptimistic`, mirroring
- *     the POST-resolve path so a later reconcile text-match can't double it.
- *     With no `messageId` (synthetic echo) there is nothing to upgrade to,
- *     so the optimistic row is left as-is.
+ *  2. An optimistic user row is correlated by `clientMessageId` (or, absent
+ *     the nonce, the most recent optimistic row) — the originating client
+ *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id to
+ *     the server `messageId` and clear `isOptimistic`, mirroring the
+ *     POST-resolve path so a later reconcile can't double it. With no
+ *     `messageId` (synthetic echo) there is nothing to upgrade to, so the
+ *     optimistic row is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
- *     by id; otherwise optimistic so reconcile text-matches it.
+ *     by id; otherwise optimistic.
  */
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
-  event: { text: string; messageId?: string },
+  event: { text: string; messageId?: string; clientMessageId?: string },
 ): DisplayMessage[] {
   const serverId = event.messageId;
 
@@ -445,12 +483,7 @@ export function applyUserMessageEcho(
     }
   }
 
-  const optimisticIdx = prev.findIndex(
-    (m) =>
-      m.role === "user" &&
-      m.isOptimistic &&
-      segmentsToPlainText(m.textSegments) === event.text,
-  );
+  const optimisticIdx = findOptimisticUserEchoIdx(prev, event.clientMessageId);
   if (optimisticIdx !== -1) {
     if (serverId === undefined) {
       return prev;
@@ -848,9 +881,7 @@ export function setQueuePosition(
   id: string,
   position: number,
 ): DisplayMessage[] {
-  return prev.map((m) =>
-    m.id === id ? { ...m, queuePosition: position } : m,
-  );
+  return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
 }
 
 /** Clear queue status on a message by id. */

@@ -12,7 +12,7 @@
  * - `useTranscriptData` — message sanitisation → transcript items
  * - `useChatEmptyState` — greeting, starters, avatar
  * - `useComposerSubmit` — submit logic, focus management
- * - `useDiskPressureBanner` — localStorage-backed dismiss/suppress
+ * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
@@ -23,7 +23,7 @@ import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
-import { useDiskPressureBanner } from "@/domains/chat/hooks/use-disk-pressure-banner";
+import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 
@@ -58,7 +58,6 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
@@ -159,12 +158,9 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const input = useComposerStore.use.input();
   const setInput = useComposerStore.use.setInput();
-  const saveDraft = useComposerStore.use.saveDraft();
   const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
-  const clearRestoredDraftNotice = useComposerStore.use.clearRestoredDraftNotice();
   const chatAttachments = useComposerStore.use.attachments();
   const attachmentLastError = useComposerStore.use.attachmentLastError();
-  const addFilesRaw = useComposerStore.use.addFiles();
   const removeChatAttachment = useComposerStore.use.removeAttachment();
   const dismissChatAttachmentError = useComposerStore.use.dismissAttachmentError();
   const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
@@ -175,8 +171,8 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const addChatAttachmentFiles = useCallback(
-    (files: FileList | File[]) => addFilesRaw(files, assistantId),
-    [addFilesRaw, assistantId],
+    (files: FileList | File[]) => useComposerStore.getState().addFiles(files, assistantId),
+    [assistantId],
   );
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
@@ -267,12 +263,6 @@ export function ChatMainPanel({
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
   // -------------------------------------------------------------------------
-  // Turn state — only `phase` is read directly (recall-last-message guard).
-  // All other turn derivations live in `useChatUIState`.
-  // -------------------------------------------------------------------------
-  const phase = useTurnStore.use.phase();
-
-  // -------------------------------------------------------------------------
   // Feature flags
   // -------------------------------------------------------------------------
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
@@ -282,6 +272,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const {
     uiContext,
+    isIdle,
     showThinking,
     isAssistantStreaming,
     canStopGenerating,
@@ -457,10 +448,10 @@ export function ChatMainPanel({
   const onRefreshEpoch = useCallback(() => {
     if (activeConversationId) {
       const currentInput = inputRef.current?.value ?? "";
-      saveDraft(activeConversationId, currentInput);
+      useComposerStore.getState().saveDraft(activeConversationId, currentInput);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationId, inputRef, saveDraft, setRefreshEpoch]);
+  }, [activeConversationId, inputRef, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -499,19 +490,19 @@ export function ChatMainPanel({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      clearRestoredDraftNotice();
+      useComposerStore.getState().clearRestoredDraftNotice();
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, clearRestoredDraftNotice]);
+  }, [showRestoredDraftNotice]);
 
   useEffect(() => {
     if (
       restoredDraftConversationId !== null &&
       restoredDraftConversationId !== activeConversationId
     ) {
-      clearRestoredDraftNotice();
+      useComposerStore.getState().clearRestoredDraftNotice();
     }
-  }, [activeConversationId, restoredDraftConversationId, clearRestoredDraftNotice]);
+  }, [activeConversationId, restoredDraftConversationId]);
 
   // -------------------------------------------------------------------------
   // Composer submit (extracted hook — fixes fake FormEvent pattern)
@@ -542,11 +533,13 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
-  const renderDiskPressureBanner = useDiskPressureBanner({
-    diskPressure,
-    assistantId,
-    assistantStateKind: assistantState.kind,
-  });
+  const diskPressureBannerSlot = (
+    <DiskPressureBannerSlot
+      diskPressure={diskPressure}
+      assistantId={assistantId}
+      assistantStateKind={assistantState.kind}
+    />
+  );
 
   // -------------------------------------------------------------------------
   // Empty state (greeting, starters, avatar)
@@ -561,7 +554,7 @@ export function ChatMainPanel({
     isEmptyConversation,
     avatar,
     mainView,
-    openedAppState: openedAppState ? { name: openedAppState.name, dirName: openedAppState.dirName } : null,
+    openedAppState,
     isAssistantStreaming,
     activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
@@ -624,7 +617,7 @@ export function ChatMainPanel({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => clearRestoredDraftNotice()}
+            onDismiss={() => useComposerStore.getState().clearRestoredDraftNotice()}
           >
             Draft restored from your previous session.
           </Notice>
@@ -637,9 +630,6 @@ export function ChatMainPanel({
     items: transcriptItems,
     conversationId: activeConversationId,
     assistantDisplayName: assistantName?.trim() || undefined,
-    expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
-    expandedCardIds: useChatSessionStore.getState().expandedCardIds,
-    expandedThinkingKeys: useChatSessionStore.getState().expandedThinkingKeys,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
@@ -679,7 +669,7 @@ export function ChatMainPanel({
 
   const sharedComposerNoticeProps = {
     billingBannerSlot: renderBillingComposerBanner(),
-    diskPressureBanner: renderDiskPressureBanner(),
+    diskPressureBanner: diskPressureBannerSlot,
     showMissingApiKeyBanner:
       error?.code === "PROVIDER_NOT_CONFIGURED" ||
       error?.code === "MANAGED_KEY_INVALID",
@@ -720,7 +710,7 @@ export function ChatMainPanel({
     assistantId,
     conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
-    onRecallLastMessage: phase === "idle" ? () => {
+    onRecallLastMessage: isIdle ? () => {
       const content = startEditing();
       if (content !== null) {
         setInput(content);

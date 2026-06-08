@@ -1,5 +1,5 @@
 import { Cloud, Laptop, Package } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -8,6 +8,8 @@ import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useHasPlatformSession } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { docsUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -26,6 +28,13 @@ const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function useHostingOptions(): HostingOption[] {
   const hasPlatformSession = useHasPlatformSession();
+  const multiPlatformAssistant =
+    useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const hasPlatformAssistant = assistants.some((a) => a.isPlatformHosted);
+
+  const cloudDisabled = !hasPlatformSession
+    || (!multiPlatformAssistant && hasPlatformAssistant);
 
   return [
     {
@@ -34,9 +43,12 @@ function useHostingOptions(): HostingOption[] {
       subtitle:
         "Always on, 24/7, even when your computer is off. Runs on Vellum's secure infrastructure.",
       icon: <Cloud className={ICON_CLASS} />,
-      ...(hasPlatformSession
-        ? {}
-        : { disabled: true, badge: "Requires Account" }),
+      ...(cloudDisabled
+        ? {
+            disabled: true,
+            badge: hasPlatformSession ? "Limit Reached" : "Requires Account",
+          }
+        : {}),
     },
     {
       mode: "local",
@@ -61,9 +73,16 @@ export function HostingScreen() {
   const fromSelectAssistant = searchParams.get("from") === "select-assistant";
   const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
+  const cloudDisabled = options.find((o) => o.mode === "vellum-cloud")?.disabled;
   const [selected, setSelected] = useState<HostingMode>(
-    hasPlatformSession ? "vellum-cloud" : "local",
+    hasPlatformSession && !cloudDisabled ? "vellum-cloud" : "local",
   );
+
+  useEffect(() => {
+    if (cloudDisabled && selected === "vellum-cloud") {
+      setSelected("local");
+    }
+  }, [cloudDisabled, selected]);
 
   const {
     loading: loginLoading,

@@ -146,7 +146,6 @@ function makeHookCtx(
     } as unknown as MemoryRetrievalHookContext["logger"],
     latestMessages: [],
     requestId: "req-test",
-    mode: "full",
     isNonInteractive: false,
     modelProfile: null,
     actorContext: null,

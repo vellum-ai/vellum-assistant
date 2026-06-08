@@ -190,16 +190,13 @@ export function useSendMessage({
    */
   const persistDismissedSurfaces = useCallback(
     (dismissedIds: Set<string>) => {
-      const store = useChatSessionStore.getState();
-      for (const id of dismissedIds) {
-        store.dismissedSurfaceIds.add(id);
-      }
+      useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
       const streamCtx = useStreamStore.getState().streamContext;
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
           streamCtx.conversationId,
-          store.dismissedSurfaceIds,
+          useChatSessionStore.getState().dismissedSurfaceIds,
         );
       }
     },
@@ -210,7 +207,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -254,6 +251,7 @@ export function useSendMessage({
         content,
         attachmentIds,
         onboardingContext ?? undefined,
+        clientMessageId,
       );
       if (
         useServerMint &&
@@ -425,19 +423,19 @@ export function useSendMessage({
               { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
             ];
           });
-          if (restoredConfData) {
+          if (restoredConfData && isCurrentSendScope(effectiveConversationId)) {
             const capturedConfData = restoredConfData;
-            setMessages((prev) => {
-              if (!isCurrentSendScope(effectiveConversationId)) return prev;
-              const result = attachConfirmationToToolCall(prev, capturedConfData);
-              if (result.attachedToolCallId) {
-                useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-                useChatSessionStore.getState().confirmationToolCallMap.set(capturedConfData.requestId, result.attachedToolCallId);
-              } else {
-                useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-              }
-              return result.updatedMessages;
-            });
+            // Zustand set() is synchronous — messages already reflect the
+            // setMessages call above, so getState() gives us fresh state.
+            const currentMessages = useChatSessionStore.getState().messages;
+            const result = attachConfirmationToToolCall(currentMessages, capturedConfData);
+            if (result.attachedToolCallId) {
+              useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
+              useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
+            } else {
+              useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+            }
+            setMessages(() => result.updatedMessages);
           }
           startReconciliationLoop(epoch);
         })
@@ -496,7 +494,7 @@ export function useSendMessage({
       }
       setError(null);
       useInteractionStore.getState().resetSecretAndConfirmation();
-      useChatSessionStore.getState().confirmationToolCallMap.clear();
+      useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
@@ -520,9 +518,10 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      const optimisticUserId = crypto.randomUUID();
+      const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
-        id: optimisticUserId,
+        id: clientMessageId,
+        clientMessageId,
         isOptimistic: true,
         role: "user",
         textSegments: [content],
@@ -536,7 +535,7 @@ export function useSendMessage({
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        useChatSessionStore.getState().pendingQueuedMessageIds.push(userMessage.id);
+        useChatSessionStore.getState().pushPendingQueuedMessageId(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
@@ -544,6 +543,8 @@ export function useSendMessage({
             activeConversationId,
             content,
             attachmentIds,
+            undefined,
+            clientMessageId,
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -585,7 +586,7 @@ export function useSendMessage({
             return;
           }
           if (postResult.requestId) {
-            useChatSessionStore.getState().requestIdToMessageId.set(postResult.requestId, userMessage.id);
+            useChatSessionStore.getState().setRequestIdMapping(postResult.requestId, userMessage.id);
           }
         } catch (err) {
           captureError(err, { context: "send_message_queue" });
@@ -628,6 +629,7 @@ export function useSendMessage({
           turnId,
           attachments.map((att) => att.id),
           isDraft,
+          clientMessageId,
         );
 
         if (result.status === "failed") {
@@ -666,13 +668,13 @@ export function useSendMessage({
         // POST resolve — swap the optimistic user row's client id for the
         // server's. Gate on `isOptimistic` so a reconcile that already
         // swapped this row doesn't get clobbered. Queued sends skip this
-        // and keep their optimistic id until a later reconcile
-        // content-matches.
+        // and keep their optimistic id until the daemon echoes their
+        // `clientMessageId` back on the persisted row.
         if (result.userMessageId) {
           const serverUserMessageId = result.userMessageId;
           setMessages((prev) =>
             prev.map((m) =>
-              m.isOptimistic && m.id === optimisticUserId
+              m.isOptimistic && m.id === clientMessageId
                 ? { ...m, id: serverUserMessageId, isOptimistic: false }
                 : m,
             ),
@@ -741,7 +743,7 @@ export function useSendMessage({
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
-    useChatSessionStore.getState().confirmationToolCallMap.clear();
+    useChatSessionStore.getState().clearConfirmationToolCallMap();
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

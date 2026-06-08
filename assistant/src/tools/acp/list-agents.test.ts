@@ -107,12 +107,12 @@ describe("executeAcpListAgents", () => {
     const codex = parsed.agents.find((a: { id: string }) => a.id === "codex");
     expect(codex.available).toBe(false);
     expect(codex.unavailableReason).toBe("'codex-acp' is not on PATH");
-    expect(codex.setupHint).toBe("npm i -g @zed-industries/codex-acp");
+    expect(codex.setupHint).toBe("bun add -g @zed-industries/codex-acp");
 
     const gemini = parsed.agents.find((a: { id: string }) => a.id === "gemini");
     expect(gemini.available).toBe(false);
     expect(gemini.unavailableReason).toBe("'gemini' is not on PATH");
-    expect(gemini.setupHint).toBe("npm i -g @google/gemini-cli");
+    expect(gemini.setupHint).toBe("bun add -g @google/gemini-cli");
 
     const claude = parsed.agents.find((a: { id: string }) => a.id === "claude");
     expect(claude.available).toBe(true);

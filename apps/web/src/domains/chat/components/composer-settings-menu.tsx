@@ -25,7 +25,6 @@ import {
     setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
     THRESHOLD_PRESETS,
     overrideAction,
@@ -70,6 +69,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // values would let a duplicate name overwrite an existing profile and reset
   // the persisted profileOrder to just the new entry.
   const [profilesLoaded, setProfilesLoaded] = useState(false);
+  // Tracks the assistantId that profilesReadyRef was set for, so that
+  // conversationId changes alone don't reset the "ready" gate.
+  const profilesReadyForAssistantRef = useRef<string | null>(null);
 
   const conversationIdRef = useRef(conversationId);
   useLayoutEffect(() => {
@@ -112,12 +114,19 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Fetch daemon config and conversation profile in parallel. Running both under
   // the same [assistantId, conversationId] dep set eliminates the two-effect
   // init race from prior cycles — state is always applied together after both
-  // fetches settle, and re-running on assistantId change resets profilesReadyRef
-  // before the async work starts (ref mutation, no extra render).
+  // fetches settle.
+  //
+  // Only reset the profile-selection gate when the assistant changes. The
+  // profile list doesn't change when conversationId changes, and resetting
+  // the gate on every conversationId transition creates a race window where
+  // profiles are visible but clicks are silently dropped (LUM-2279).
   useEffect(() => {
     if (!assistantId) return;
-    profilesReadyRef.current = false;
-    setProfilesLoaded(false);
+    if (profilesReadyForAssistantRef.current !== assistantId) {
+      profilesReadyRef.current = false;
+      setProfilesLoaded(false);
+      profilesReadyForAssistantRef.current = assistantId;
+    }
     let cancelled = false;
 
     (async () => {
@@ -281,6 +290,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           // capture — avoids clobbering a later successful selection when two
           // requests race (select A → select B → A fails → should stay at B).
           setProfileActiveKey(lastConfirmedProfileRef.current);
+          toast.error("Failed to switch profile. Please try again.");
         }
         return false;
       }
@@ -304,11 +314,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
-  // Quick-add "+" is part of the provider-first profile-creation UX and is
-  // gated by the same client flag. When off, the Model Profile header renders
-  // no "+" and the quick-add modal is unreachable from chat.
-  const providerFirstEnabled =
-    useClientFeatureFlagStore.use.providerFirstProfileCreation();
 
   const visibleProfileEntries = useMemo(
     () =>
@@ -333,9 +338,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   // The "+" quick-add affordance rendered in both the desktop Menu.Label and
   // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
-  // Disabled until `profilesLoaded` (see its declaration for why). Gated to
-  // `null` when the provider-first flag is off, so neither header shows a "+".
-  const quickAddButton = !providerFirstEnabled ? null : (
+  // Disabled until `profilesLoaded` (see its declaration for why).
+  const quickAddButton = (
     <Tooltip
       content={profilesLoaded ? "New Profile" : "Loading profiles…"}
       side="top"
@@ -352,11 +356,14 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           setOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
-            onCreated: (name) => {
+            onCreated: (name, label) => {
               // Reflect the new profile locally so the picker renders it
               // immediately (the daemon-config fetch only re-runs on
-              // assistant/conversation change).
-              setProfileMap((prev) => ({ ...prev, [name]: { label: null } }));
+              // assistant/conversation change). Store the real display-name
+              // label so the entry shows its Name right away; without it the
+              // picker would fall back to the key (`label ?? name`) until the
+              // next config refetch.
+              setProfileMap((prev) => ({ ...prev, [name]: { label } }));
               setProfileOrder((prev) =>
                 prev.includes(name) ? prev : [...prev, name],
               );

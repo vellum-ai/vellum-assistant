@@ -59,17 +59,6 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }),
 }));
 
-// The provider-first create layout + pre-fill is gated by the
-// provider-first-profile-creation client flag. A mutable ref lets individual
-// tests flip it; default ON so the existing provider-first tests pass.
-const providerFirstEnabledRef = { value: true };
-mock.module("@/stores/client-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    providerFirstProfileCreation: () => providerFirstEnabledRef.value,
-  };
-  return { useClientFeatureFlagStore: store };
-});
 
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
@@ -237,7 +226,6 @@ function fillCreateForm(): void {
 beforeEach(() => {
   createdConnection = makeConnection("anthropic-personal");
   toastSuccessCalls = [];
-  providerFirstEnabledRef.value = true;
 });
 
 afterEach(() => {
@@ -451,28 +439,6 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     });
     // ...and the modal stays open (the Save button is still rendered).
     expect(getSaveBtn()).toBeDefined();
-  });
-
-  test("flag OFF: legacy create layout — Display Name first, no '+ Create new provider'", () => {
-    providerFirstEnabledRef.value = false;
-    renderCreate([makeConnection("anthropic-personal")]);
-
-    // Legacy create renders the edit/view field order: the first labelled field
-    // is "Display Name" and it appears BEFORE the Provider section (i.e.
-    // provider is not first).
-    const text = document.body.textContent ?? "";
-    expect(text).toContain("Display Name");
-    const displayNameIdx = text.indexOf("Display Name");
-    const providerIdx = text.indexOf("Provider");
-    expect(displayNameIdx).toBeGreaterThanOrEqual(0);
-    expect(providerIdx).toBeGreaterThan(displayNameIdx);
-
-    // The legacy Provider dropdown has NO inline "+ Create new provider" option.
-    fireEvent.click(providerTrigger());
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
-    expect(optionLabels).not.toContain("+ Create new provider");
   });
 
   test("the modal itself does NOT fire a profile-create success toast", async () => {

@@ -183,6 +183,37 @@ describe("mapRuntimeToDisplayMessage", () => {
     ]);
   });
 
+  test("carries the wire clientMessageId onto the display message", () => {
+    // GIVEN a snapshot user row that echoes the originating client's nonce
+    const m = makeMessage({
+      id: "srv-user-1",
+      role: "user",
+      textSegments: ["hello"],
+      clientMessageId: "nonce-abc",
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN the nonce survives so reconcile can correlate the optimistic row by identity
+    expect(display.clientMessageId).toBe("nonce-abc");
+  });
+
+  test("omits clientMessageId when the wire row carries none", () => {
+    // GIVEN a snapshot row from a daemon that persists no nonce
+    const m = makeMessage({
+      id: "srv-user-2",
+      role: "user",
+      textSegments: ["hello"],
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN no clientMessageId is fabricated on the display row
+    expect(display.clientMessageId).toBeUndefined();
+  });
+
   test("preserves Slack message metadata alongside mapped message fields", () => {
     const m = makeMessage({
       id: "msg-slack",

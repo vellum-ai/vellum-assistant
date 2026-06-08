@@ -76,6 +76,8 @@ function makeCtx(
   ];
   return {
     conversationId: "conv-1",
+    userMessageId: "msg-1",
+    requestId: "req-1",
     prompt: "first message",
     originalMessages: messages,
     latestMessages: messages,

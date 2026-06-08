@@ -20,11 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/utils/local-settings";
-import { getDeviceBool, getDeviceSetting } from "@/utils/device-settings";
-import {
-  KEY_TOS_ACCEPTED,
-  KEY_AI_DATA_CONSENT,
-} from "@/utils/onboarding-cleanup";
+import { getDeviceBool } from "@/utils/device-settings";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
@@ -133,22 +129,6 @@ export function readShareAnalytics(): boolean {
 }
 
 /**
- * SSR-safe, non-hook check for a returning user signal.
- * Returns `true` when `onboarding.lastUserId` exists in localStorage,
- * indicating this browser has previously had a signed-in user. The key
- * persists through logout (by design), so a user who signs out and
- * revisits is still detected as "returning".
- */
-export function hasReturningUserSignal(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return getDeviceSetting("lastUserId", "") !== "";
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Read the pinned release version the user picked on the privacy screen's
  * nonprod version selector. Empty string means "latest" / no pin. SSR-safe
  * and tolerant of disabled storage.
@@ -181,11 +161,3 @@ export function writeSelectedVersion(version: string): void {
 }
 
 
-// ---------------------------------------------------------------------------
-// Internals exported for tests only. Not part of the public API.
-// ---------------------------------------------------------------------------
-
-export const __testing = {
-  KEY_TOS_ACCEPTED,
-  KEY_AI_DATA_CONSENT,
-};

@@ -18,6 +18,11 @@ import {
 const MANIFEST_URL_PREFIX =
   "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
 
+// External marketplace refs must be full commit SHAs (immutable). Fixtures use
+// realistic 40-char hex object names rather than tags/branches.
+const CAVEMAN_SHA = "63a91ecadbf4c4719a4602a5abb00883f9966034";
+const NESTED_SHA = "0123456789abcdef0123456789abcdef01234567";
+
 /** Serve `body` (any value) as the raw manifest file at the manifest URL. */
 function manifestFetch(body: unknown, status = 200, raw?: string): FetchLike {
   return (async (input: RequestInfo | URL) => {
@@ -41,7 +46,7 @@ const VALID_MANIFEST = {
       source: {
         source: "github",
         repo: "JuliusBrussee/caveman",
-        ref: "v1.8.2",
+        ref: CAVEMAN_SHA,
       },
       description: "Ultra-compressed communication mode.",
       category: "productivity",
@@ -52,7 +57,7 @@ const VALID_MANIFEST = {
         source: "github",
         repo: "acme/monorepo",
         path: "packages/nested",
-        ref: "abc123",
+        ref: NESTED_SHA,
       },
     },
   ],
@@ -71,7 +76,7 @@ describe("fetchMarketplaceEntries", () => {
     expect(entries[0]!.source).toEqual({
       source: "github",
       repo: "JuliusBrussee/caveman",
-      ref: "v1.8.2",
+      ref: CAVEMAN_SHA,
     });
     expect(entries[1]!.source.path).toBe("packages/nested");
   });
@@ -123,6 +128,51 @@ describe("fetchMarketplaceEntries", () => {
     ).rejects.toBeInstanceOf(MarketplaceFetchError);
   });
 
+  test("rejects a mutable tag or branch ref (must be a full commit SHA)", async () => {
+    // GIVEN an entry whose source pins a mutable tag rather than a commit SHA
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "v1.8.2",
+          },
+        },
+      ],
+    });
+
+    // WHEN / THEN the mutable ref is rejected: a retag could repoint it at
+    // attacker code the daemon later dynamically imports.
+    await expect(
+      fetchMarketplaceEntries({ fetch }, { ref: "main" }),
+    ).rejects.toBeInstanceOf(MarketplaceFetchError);
+  });
+
+  test("rejects an abbreviated commit SHA", async () => {
+    // GIVEN an entry whose source uses a short (ambiguous, non-pinning) SHA
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: "63a91ec",
+          },
+        },
+      ],
+    });
+
+    // WHEN / THEN only a full object name pins the install immutably
+    await expect(
+      fetchMarketplaceEntries({ fetch }, { ref: "main" }),
+    ).rejects.toBeInstanceOf(MarketplaceFetchError);
+  });
+
   test("rejects a manifest entry missing a pinned ref", async () => {
     // GIVEN an entry whose source omits the required ref
     const fetch = manifestFetch({
@@ -169,7 +219,7 @@ describe("resolveMarketplaceSource", () => {
       source: {
         source: "github",
         repo: "JuliusBrussee/caveman",
-        ref: "v1.8.2",
+        ref: CAVEMAN_SHA,
       },
     },
     {
@@ -178,7 +228,7 @@ describe("resolveMarketplaceSource", () => {
         source: "github",
         repo: "acme/monorepo",
         path: "packages/nested",
-        ref: "abc123",
+        ref: NESTED_SHA,
       },
     },
   ];
@@ -193,7 +243,7 @@ describe("resolveMarketplaceSource", () => {
       owner: "JuliusBrussee",
       repo: "caveman",
       path: "",
-      ref: "v1.8.2",
+      ref: CAVEMAN_SHA,
     });
   });
 
@@ -207,7 +257,7 @@ describe("resolveMarketplaceSource", () => {
       owner: "acme",
       repo: "monorepo",
       path: "packages/nested",
-      ref: "abc123",
+      ref: NESTED_SHA,
     });
   });
 

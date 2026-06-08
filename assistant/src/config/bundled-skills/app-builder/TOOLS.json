@@ -11,7 +11,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Name of the app"
+            "description": "Optional name of the app. When omitted, defaults to the preview card title (or \"New App\" if there is none); rename later via app_update."
           },
           "description": {
             "type": "string",
@@ -87,9 +87,50 @@
             "description": "Retired. Multi-page apps route inside the Preact app under src/components/. Passing this returns a guidance error."
           }
         },
-        "required": ["name"]
+        "required": []
       },
       "executor": "tools/app-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_update",
+      "description": "Update an existing app: change its name, description, or schema, and/or rewrite source files, then recompile. Use this to iterate on an app you already created instead of calling app_create again (which would make a duplicate). Resolve the app_id with app_list first if you don't have it.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the app. Omit to leave the name unchanged."
+          },
+          "description": {
+            "type": "string",
+            "description": "New description for the app. Omit to leave the description unchanged."
+          },
+          "schema_json": {
+            "type": "string",
+            "description": "New JSON schema for the app data structure. Omit to leave the schema unchanged."
+          },
+          "source_files": {
+            "type": "object",
+            "description": "Map of relative file paths to file contents to write under the app directory (e.g. 'src/main.tsx', 'src/components/App.tsx', 'src/styles.css'). Supply changed source here instead of separate file_write calls. The app is recompiled after writing.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "change_summary": {
+            "type": "string",
+            "description": "Short summary of what changed, using git conventional commit format (e.g. 'fix: correct totals', 'feat: add dark mode'). Used as the version history entry."
+          }
+        },
+        "required": ["app_id"]
+      },
+      "executor": "tools/app-update.ts",
       "execution_target": "host"
     },
     {

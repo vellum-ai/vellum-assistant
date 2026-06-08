@@ -100,56 +100,59 @@ mock.module("../context/token-estimator.js", () => ({
 // but these tests exercise the Conversation-level flow, not the reducer internals.
 // The reducer mock delegates to the compactFn to simulate a forced compaction
 // tier, matching the real reducer's behavior for Tier 1.
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
-  }),
-  reduceContextOverflow: async (
-    msgs: Message[],
-    _cfg: unknown,
-    _state: unknown,
-    compactFn?: (
-      m: Message[],
-      s: AbortSignal | undefined,
-      o: Record<string, unknown>,
-    ) => Promise<{
-      compacted: boolean;
-      messages: Message[];
-      compactedPersistedMessages?: number;
-      summaryText?: string;
-      [k: string]: unknown;
-    }>,
-    signal?: AbortSignal,
-  ) => {
-    let resultMessages = msgs;
-    let compactionResult;
-    if (compactFn) {
-      const cr = await compactFn(msgs, signal, { force: true });
-      if (cr.compacted) {
-        resultMessages = cr.messages;
-        compactionResult = cr;
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      appliedTiers: [],
+      injectionMode: "full" as const,
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (
+      msgs: Message[],
+      _cfg: unknown,
+      _state: unknown,
+      compactFn?: (
+        m: Message[],
+        s: AbortSignal | undefined,
+        o: Record<string, unknown>,
+      ) => Promise<{
+        compacted: boolean;
+        messages: Message[];
+        compactedPersistedMessages?: number;
+        summaryText?: string;
+        [k: string]: unknown;
+      }>,
+      signal?: AbortSignal,
+    ) => {
+      let resultMessages = msgs;
+      let compactionResult;
+      if (compactFn) {
+        const cr = await compactFn(msgs, signal, { force: true });
+        if (cr.compacted) {
+          resultMessages = cr.messages;
+          compactionResult = cr;
+        }
       }
-    }
-    return {
-      messages: resultMessages,
-      tier: "forced_compaction",
-      state: {
-        appliedTiers: [
-          "forced_compaction",
-          "tool_result_truncation",
-          "media_stubbing",
-          "injection_downgrade",
-        ],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      estimatedTokens: 1000,
-      compactionResult,
-    };
-  },
-}));
+      return {
+        messages: resultMessages,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+        compactionResult,
+      };
+    },
+  }),
+);
 
 mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",

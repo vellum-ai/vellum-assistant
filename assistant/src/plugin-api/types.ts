@@ -131,6 +131,20 @@ export interface UserPromptSubmitContext {
   /** Conversation ID the user prompt was submitted on. */
   readonly conversationId: string;
   /**
+   * Persisted ID of the user message that triggered this turn. Hooks that
+   * attach turn-scoped metadata to the originating message (e.g. recording an
+   * injected memory block so it survives a conversation reload) key off this
+   * row id rather than the in-memory message arrays, whose entries carry no id.
+   */
+  readonly userMessageId: string;
+  /**
+   * Stable ID for the request that drives this turn. Hooks that perform
+   * runtime injection forward it onto the injector turn context so the
+   * assembled blocks are attributed to the originating request; it is fixed
+   * for the turn and cannot be recovered from the message arrays.
+   */
+  readonly requestId: string;
+  /**
    * The text of the user prompt that triggered this turn — the resolved
    * user message (after slash-command expansion), independent of any
    * internal rewriting applied to the message that flows into the model.

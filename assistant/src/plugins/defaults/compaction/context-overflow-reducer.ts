@@ -16,23 +16,23 @@
  *   4. Runtime injection downgrade to minimal mode
  */
 
-import type { ContextWindowConfig } from "../config/types.js";
+import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   estimateContentBlockTokens,
   estimatePromptTokens,
-} from "../context/token-estimator.js";
-import { truncateToolResultsAcrossHistory } from "../context/tool-result-truncation.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowResult,
-} from "../plugins/defaults/compaction/window-manager.js";
-import type { Message } from "../providers/types.js";
+} from "../../../context/token-estimator.js";
+import { truncateToolResultsAcrossHistory } from "../../../context/tool-result-truncation.js";
 import {
   countMediaBlocks,
   estimateUnconditionalStubTokens,
   stripMediaPayloadsForRetry,
-} from "./conversation-media-retry.js";
-import type { InjectionMode } from "./conversation-runtime-assembly.js";
+} from "../../../daemon/conversation-media-retry.js";
+import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
+import type { Message } from "../../../providers/types.js";
+import type {
+  ContextWindowCompactOptions,
+  ContextWindowResult,
+} from "./window-manager.js";
 
 /**
  * Identifies which reduction tier was applied in a given step.

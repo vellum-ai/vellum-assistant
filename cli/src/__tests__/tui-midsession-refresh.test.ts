@@ -21,11 +21,12 @@ import { saveGuardianToken } from "../lib/guardian-token";
 const RUNTIME = "http://10.0.0.9:7830";
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-function seedEntry(cloud: string): void {
+function seedEntry(cloud: string, localUrl?: string): void {
   saveAssistantEntry({
     assistantId: "px",
     name: "Paired",
     runtimeUrl: RUNTIME,
+    ...(localUrl ? { localUrl } : {}),
     cloud,
     paired: cloud === "paired",
     species: "vellum",
@@ -46,11 +47,14 @@ function seedToken(accessToken: string, refreshToken: string): void {
   });
 }
 
-function stubRefresh(ok: boolean): { hit: () => boolean } {
-  let called = false;
+function stubRefresh(ok: boolean): {
+  hit: () => boolean;
+  url: () => string | undefined;
+} {
+  let calledUrl: string | undefined;
   globalThis.fetch = (async (url: unknown, _init?: RequestInit) => {
     if (String(url).includes("/v1/guardian/refresh")) {
-      called = true;
+      calledUrl = String(url);
       return new Response(
         ok ? JSON.stringify({ accessToken: "new-acc" }) : "x",
         {
@@ -61,7 +65,7 @@ function stubRefresh(ok: boolean): { hit: () => boolean } {
     }
     return new Response("", { status: 200 });
   }) as typeof fetch;
-  return { hit: () => called };
+  return { hit: () => calledUrl !== undefined, url: () => calledUrl };
 }
 
 describe("maybeRefreshAuthHeaders", () => {
@@ -100,6 +104,41 @@ describe("maybeRefreshAuthHeaders", () => {
     expect(ok).toBe(true);
     expect(auth.Authorization).toBe("Bearer new-acc");
     expect(refresh.hit()).toBe(true);
+  });
+
+  test("does NOT refresh against an overridden/poisoned baseUrl (no credential leak)", async () => {
+    // The CLI lets --url override the runtime URL while still using the stored
+    // paired guardian token. A 401 from that attacker origin must NOT cause us
+    // to POST the refreshToken + deviceId there.
+    seedEntry("paired"); // persisted runtimeUrl = RUNTIME
+    seedToken("old-acc", "ref");
+    const refresh = stubRefresh(true);
+    const auth = { Authorization: "Bearer old-acc" };
+    const attacker = "http://attacker.example:7830";
+
+    const ok = await maybeRefreshAuthHeaders(attacker, "px", auth);
+
+    expect(ok).toBe(false);
+    expect(auth.Authorization).toBe("Bearer old-acc"); // unchanged
+    expect(refresh.hit()).toBe(false); // no refresh POST anywhere
+  });
+
+  test("refreshes against the matched persisted URL, keeping the session's interface", async () => {
+    // When an entry persists both a loopback localUrl and a different
+    // runtimeUrl, a session on the loopback URL must refresh against THAT URL,
+    // not the external runtimeUrl (which may be unreachable / public-facing).
+    const localUrl = "http://127.0.0.1:7830";
+    seedEntry("paired", localUrl); // runtimeUrl = RUNTIME (10.0.0.9), localUrl = loopback
+    seedToken("old-acc", "ref");
+    const refresh = stubRefresh(true);
+    const auth = { Authorization: "Bearer old-acc" };
+
+    const ok = await maybeRefreshAuthHeaders(localUrl, "px", auth);
+
+    expect(ok).toBe(true);
+    expect(refresh.hit()).toBe(true);
+    expect(refresh.url()).toContain("127.0.0.1");
+    expect(refresh.url()).not.toContain("10.0.0.9");
   });
 
   test("does NOT refresh a local assistant (scoped to paired only)", async () => {

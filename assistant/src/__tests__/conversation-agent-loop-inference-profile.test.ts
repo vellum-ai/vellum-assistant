@@ -102,23 +102,26 @@ mock.module("../context/token-estimator.js", () => ({
   estimateToolsTokens: () => 0,
 }));
 
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      appliedTiers: [],
+      injectionMode: "full" as const,
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (msgs: Message[]) => ({
+      messages: msgs,
+      tier: "forced_compaction",
+      state: {
+        appliedTiers: ["forced_compaction"],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      estimatedTokens: 1000,
+    }),
   }),
-  reduceContextOverflow: async (msgs: Message[]) => ({
-    messages: msgs,
-    tier: "forced_compaction",
-    state: {
-      appliedTiers: ["forced_compaction"],
-      injectionMode: "full",
-      exhausted: true,
-    },
-    estimatedTokens: 1000,
-  }),
-}));
+);
 
 mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",

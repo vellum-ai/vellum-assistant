@@ -140,7 +140,7 @@
     },
     {
       "id": "multi-platform-assistant",
-      "scope": "assistant",
+      "scope": "client",
       "key": "multi-platform-assistant",
       "label": "Multi-Platform Assistant Switcher",
       "description": "Enable the menu-bar assistant switcher for managing multiple platform-hosted assistants (new/switch/retire)",
@@ -480,14 +480,6 @@
       "key": "self-intro-greeting",
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
-      "defaultEnabled": false
-    },
-    {
-      "id": "provider-first-profile-creation",
-      "scope": "client",
-      "key": "provider-first-profile-creation",
-      "label": "Provider-First Profile Creation",
-      "description": "New profile creation flow: pick (or inline-create) a provider first, then a model, with pre-filled provider and profile name/key, plus a quick-add \"+\" in the chat composer's Model Profile menu. When off, profile creation uses the previous field order and there is no composer quick-add.",
       "defaultEnabled": false
     },
     {

@@ -92,8 +92,8 @@ import {
     useProfileQuickAdd,
 } from "@/components/profile-quick-add-provider";
 
-// Test consumer: opens the quick-add on mount and records the onCreated name.
-const onCreated = mock((_name: string) => {});
+// Test consumer: opens the quick-add on mount and records the onCreated args.
+const onCreated = mock((_name: string, _label: string | null) => {});
 function Opener({ existingNames }: { existingNames: string[] }) {
   const { openProfileQuickAdd } = useProfileQuickAdd();
   useEffect(() => {
@@ -148,14 +148,15 @@ describe("ProfileQuickAddProvider", () => {
     expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
     expect(patchBody.profileOrder).toEqual(["smart", NEW_PROFILE_NAME]);
 
-    // Hands the new name back to the caller.
+    // Hands the new key and its display-name label back to the caller so the
+    // picker can render the entry's Name immediately.
     await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledWith(NEW_PROFILE_NAME);
+      expect(onCreated).toHaveBeenCalledWith(NEW_PROFILE_NAME, "Fast & Cheap");
     });
 
-    // Surfaces the success toast and closes the modal.
+    // Surfaces the success toast (by display name) and closes the modal.
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalledWith(`Profile "${NEW_PROFILE_NAME}" created`);
+      expect(toastSuccess).toHaveBeenCalledWith(`Profile "Fast & Cheap" created`);
     });
     expect(screen.queryByTestId("modal-save-btn")).toBeNull();
   });

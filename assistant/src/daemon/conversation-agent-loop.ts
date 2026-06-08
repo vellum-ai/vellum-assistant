@@ -75,6 +75,11 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrosp
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  createInitialReducerState,
+  reduceContextOverflow,
+  type ReducerState,
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import type { ContextWindowCompactOptions } from "../plugins/defaults/compaction/window-manager.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
@@ -98,11 +103,6 @@ import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
-import {
-  createInitialReducerState,
-  reduceContextOverflow,
-  type ReducerState,
-} from "./context-overflow-reducer.js";
 import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
@@ -873,7 +873,7 @@ export async function runAgentLoopImpl(
     // `user-prompt-submit-temp` hook handler but invoked directly for now,
     // separate from the canonical late `user-prompt-submit` hook (history
     // repair, title) that fires just before the loop.
-    // The injection inputs (`mode`, `isNonInteractive`, `modelProfile`,
+    // The injection inputs (`isNonInteractive`, `modelProfile`,
     // `actorContext`) are resolved once at turn start and threaded in so
     // post-compaction re-injection reuses the same snapshot rather than live
     // state that can flip mid-turn.
@@ -886,7 +886,6 @@ export async function runAgentLoopImpl(
       logger: rlog,
       latestMessages: ctx.messages,
       requestId: reqId,
-      mode: currentInjectionMode,
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
@@ -913,6 +912,8 @@ export async function runAgentLoopImpl(
     // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
+      userMessageId,
+      requestId: reqId,
       prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,

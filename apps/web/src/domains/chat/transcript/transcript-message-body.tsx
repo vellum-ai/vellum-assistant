@@ -67,24 +67,7 @@ export interface OpenRuleEditorContext {
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
   assistantDisplayName?: string | null;
-  /**
-   * Persistent set of expanded tool-call ids. Passed straight through to
-   * `ToolCallChip` so expansion state survives virtualization unmounts.
-   * Callers should reuse a single ref for the lifetime of the transcript.
-   */
-  expandedToolCallIds: Set<string>;
-  /**
-   * Persistent set of expanded progress-card ids (keyed by first tool-call id
-   * in the group). Survives component remounts so card expansion state is
-   * not lost when items transition from latest-turn to history.
-   */
-  expandedCardIds: Map<string, boolean>;
-  /**
-   * Persistent map of expanded thinking-block ids (keyed by message id +
-   * content-order position). Survives transcript remounts so reasoning
-   * expansion state isn't lost when a row moves from latest-turn to history.
-   */
-  expandedThinkingKeys: Map<string, boolean>;
+
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -316,9 +299,6 @@ function SlackMessageAttribution({
 export function TranscriptMessageBody({
   message,
   assistantDisplayName,
-  expandedToolCallIds,
-  expandedCardIds,
-  expandedThinkingKeys,
   onSurfaceAction,
   onForkConversation,
   onInspectMessage,
@@ -365,13 +345,7 @@ export function TranscriptMessageBody({
     ? "break-words text-[15px]"
     : `break-words text-[15px] ${textBubbleClass}`;
 
-  const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      expandedToolCallIds.add(toolCallId);
-    } else {
-      expandedToolCallIds.delete(toolCallId);
-    }
-  };
+
 
   const forkMessageId = message.id;
   const forkHandler = forkMessageId && onForkConversation
@@ -700,9 +674,6 @@ export function TranscriptMessageBody({
               <ActivityRunCard
                 toolCalls={groupToolCalls}
                 items={cardItems}
-                expandedToolCallIds={expandedToolCallIds}
-                onExpandChange={handleExpandChange}
-                expandedCardIds={expandedCardIds}
                 autoExpand={shouldAutoExpandToolCallGroup({
                   isCurrentGroup: isLastGroup,
                   isStreaming,
@@ -815,7 +786,6 @@ export function TranscriptMessageBody({
               content={thinkingContent}
               isStreaming={isStreaming}
               expansionKey={`${message.id}-th${ids[0]}`}
-              expandedThinkingKeys={expandedThinkingKeys}
             />
           </div>
         ),
@@ -898,9 +868,6 @@ export function TranscriptMessageBody({
               <div className="w-full">
                 <ActivityRunCard
                   toolCalls={legacyToolCalls}
-                  expandedToolCallIds={expandedToolCallIds}
-                  onExpandChange={handleExpandChange}
-                  expandedCardIds={expandedCardIds}
                   autoExpand={shouldAutoExpandToolCallGroup({
                     isCurrentGroup: !hasVisibleLegacyContent,
                     isStreaming,

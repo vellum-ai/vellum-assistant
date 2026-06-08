@@ -22,9 +22,6 @@ export interface LatestTurnRowProps {
   anchorMessage: MessageItem;
   responseItems: TranscriptItem[];
   assistantDisplayName?: string | null;
-  expandedToolCallIds: Set<string>;
-  expandedCardIds: Map<string, boolean>;
-  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -65,9 +62,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
   assistantDisplayName,
-  expandedToolCallIds,
-  expandedCardIds,
-  expandedThinkingKeys,
   onSurfaceAction,
   onForkConversation,
   onInspectMessage,
@@ -94,9 +88,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
       <TranscriptRow
         item={anchorMessage}
         assistantDisplayName={assistantDisplayName}
-        expandedToolCallIds={expandedToolCallIds}
-        expandedCardIds={expandedCardIds}
-        expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
@@ -117,9 +108,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
           <TranscriptRow
             item={response}
             assistantDisplayName={assistantDisplayName}
-            expandedToolCallIds={expandedToolCallIds}
-            expandedCardIds={expandedCardIds}
-            expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}

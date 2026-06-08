@@ -6,7 +6,7 @@ import {
   reduceContextOverflow,
   type ReducerConfig,
   type ReducerState,
-} from "../daemon/context-overflow-reducer.js";
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import type {
   ContextWindowCompactOptions,
   ContextWindowResult,

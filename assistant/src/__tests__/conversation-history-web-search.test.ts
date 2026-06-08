@@ -807,7 +807,7 @@ describe("web_search_tool_result structural guard", () => {
     // Media token counting iterates tool_result.contentBlocks for nested
     // image/file blocks. web_search_tool_result has opaque content with no
     // contentBlocks property, so it cannot contain nested media.
-    "daemon/context-overflow-reducer.ts",
+    "plugins/defaults/compaction/context-overflow-reducer.ts",
 
     // Final orphan-pair safety pass in the Slack transcript renderer.
     // Server-side block types (`server_tool_use`, `web_search_tool_result`)
