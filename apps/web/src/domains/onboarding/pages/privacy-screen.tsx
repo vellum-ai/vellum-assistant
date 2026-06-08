@@ -100,6 +100,15 @@ export function PrivacyScreen() {
         variant,
       });
     }
+    // If the caller told us where to go after consent, go there instead of
+    // hatching a new assistant (e.g. returning user whose consent flags were
+    // cleared on logout).
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+      void navigate(returnTo, { replace: true });
+      return;
+    }
+
     // Preserve the hosting param (Local/Docker need it so hatching runs the
     // local hatch instead of a platform hatch).
     const hostingParam = searchParams.get("hosting");
