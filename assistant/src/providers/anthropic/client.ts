@@ -1210,9 +1210,9 @@ export class AnthropicProvider implements Provider {
 
       // Haiku does not support the extended-cache-ttl beta, so it must never
       // receive a `ttl` on any cache_control. The client's own breakpoints
-      // already omit it for Haiku, but callers (e.g. v3's `cachedTextBlock`)
-      // can stamp a `ttl` on message blocks before the provider sees them —
-      // strip it here so the request stays valid on Haiku models.
+      // already omit it for Haiku, but a caller can stamp a `ttl` on message
+      // blocks before the provider sees them — strip it here so the request
+      // stays valid on Haiku models.
       if (isHaiku) {
         for (const msg of sentMessages) {
           if (!Array.isArray(msg.content)) continue;
@@ -1646,13 +1646,12 @@ export class AnthropicProvider implements Provider {
   ): Anthropic.ContentBlockParam | null {
     switch (block.type) {
       case "text": {
-        // Preserve a caller-stamped cache_control breakpoint (e.g. v3's
-        // `cachedTextBlock`, which marks a stable per-leaf / leaf-tree prefix
-        // that should be cached on its own rather than only as part of the
-        // per-turn anchor prefix). The internal ContentBlock type omits the
-        // field, so reach for it via cast. The Haiku ttl-strip downstream still
-        // applies. Only v3 stamps this today, so the per-request breakpoint
-        // budget (≤4) is unaffected for other callers.
+        // Preserve a caller-stamped cache_control breakpoint (a stable prefix
+        // block a caller marks so it is cached on its own rather than only as
+        // part of the per-turn anchor prefix). The internal ContentBlock type
+        // omits the field, so reach for it via cast. The Haiku ttl-strip
+        // downstream still applies. Callers that stamp this keep within the
+        // per-request breakpoint budget (≤4), so other callers are unaffected.
         const cacheControl = (
           block as { cache_control?: Anthropic.CacheControlEphemeral }
         ).cache_control;

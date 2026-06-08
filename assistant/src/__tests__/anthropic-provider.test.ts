@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Anthropic } from "@anthropic-ai/sdk";
 
-import type { Message, ToolDefinition } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock Anthropic SDK — must be before importing the provider
@@ -102,7 +106,6 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
-import { cachedTextBlock } from "../plugins/defaults/memory-v3-shadow/provider-blocks.js";
 import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
   isPlaceholderSentinelText,
@@ -136,6 +139,18 @@ function toolResultMsg(toolUseId: string, content: string): Message {
       { type: "tool_result", tool_use_id: toolUseId, content, is_error: false },
     ],
   };
+}
+
+// A stable prefix text block carrying a 1h-TTL cache_control breakpoint, as a
+// caller may stamp before the provider sees it. The internal ContentBlock type
+// omits cache_control (only the provider transforms it onto the wire), so reach
+// it via a cast.
+function cachedPrefixBlock(text: string): ContentBlock {
+  return {
+    type: "text",
+    text,
+    cache_control: { type: "ephemeral", ttl: "1h" },
+  } as unknown as ContentBlock;
 }
 
 const sampleTools: ToolDefinition[] = [
@@ -325,13 +340,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("preserves a caller's 1h block cache_control and sends the extended-cache beta (non-Haiku)", async () => {
-    // v3's `cachedTextBlock` stamps a stable prefix block with a 1h TTL; the
-    // non-Haiku path must forward it unchanged and send the beta header.
+    // A caller that stamps a stable prefix block with a 1h TTL: the non-Haiku
+    // path must forward it unchanged and send the beta header.
     await provider.sendMessage([
       {
         role: "user",
         content: [
-          cachedTextBlock("stable pages block"),
+          cachedPrefixBlock("stable pages block"),
           { type: "text", text: "volatile current message" },
         ],
       },
@@ -349,7 +364,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("strips ttl from a caller's block cache_control and omits the beta for Haiku", async () => {
     // Haiku doesn't support the extended-cache-ttl beta, so a caller-stamped
-    // 1h ttl (e.g. from `cachedTextBlock`) must be stripped before sending.
+    // 1h ttl on a message block must be stripped before sending.
     const haiku = new AnthropicProvider(
       "sk-ant-test",
       "claude-haiku-4-5-20251001",
@@ -358,7 +373,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       {
         role: "user",
         content: [
-          cachedTextBlock("stable pages block"),
+          cachedPrefixBlock("stable pages block"),
           { type: "text", text: "volatile current message" },
         ],
       },
@@ -385,7 +400,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         {
           role: "user",
           content: [
-            cachedTextBlock("stable pages block"),
+            cachedPrefixBlock("stable pages block"),
             { type: "text", text: "volatile current message" },
           ],
         },

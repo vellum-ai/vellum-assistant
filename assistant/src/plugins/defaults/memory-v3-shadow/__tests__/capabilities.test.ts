@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  capabilityOrDiskBody,
   type CapabilityResolvers,
   isCapabilitySlug,
   renderCapabilityContent,
@@ -43,5 +44,28 @@ describe("renderCapabilityContent", () => {
 
   test("returns null for a non-capability slug so the caller reads the on-disk page", () => {
     expect(renderCapabilityContent("relationship/vows", resolvers)).toBeNull();
+  });
+});
+
+describe("capabilityOrDiskBody", () => {
+  test("a capability slug routes through renderCapabilityContent and never reads disk", async () => {
+    let diskReads = 0;
+    const readDiskBody = async (): Promise<string> => {
+      diskReads += 1;
+      return "disk body — should not be read";
+    };
+    // A capability slug whose production cache has no entry degrades to "" (the
+    // `renderCapabilityContent` contract) rather than falling through to the
+    // injected disk reader, which must stay untouched.
+    expect(await capabilityOrDiskBody("skills/example", readDiskBody)).toBe("");
+    expect(diskReads).toBe(0);
+  });
+
+  test("a non-capability slug returns the injected disk reader's result", async () => {
+    const readDiskBody = async (slug: string): Promise<string> =>
+      `disk body for ${slug}`;
+    expect(await capabilityOrDiskBody("relationship/vows", readDiskBody)).toBe(
+      "disk body for relationship/vows",
+    );
   });
 });

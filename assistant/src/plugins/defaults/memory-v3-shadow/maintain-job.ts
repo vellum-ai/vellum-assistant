@@ -39,7 +39,7 @@ import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
-import { isCapabilitySlug, renderCapabilityContent } from "./capabilities.js";
+import { capabilityOrDiskBody } from "./capabilities.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
@@ -210,15 +210,16 @@ async function readPageBodyFromWorkspace(
  * Capability-aware page-body reader for the full backfill: synthetic skill/CLI
  * slugs have no on-disk page, so they contribute their rendered capability
  * content (exactly what `page-content.ts` injects for them) while real pages
- * read from disk. Mirrors `shadow-plugin.ts` `initLanes`' `pageBody`; the two
- * could later share a small helper.
+ * read from disk. Shares the capability-or-disk dispatch with `shadow-plugin.ts`
+ * `initLanes`' `pageBody` via {@link capabilityOrDiskBody}.
  */
 async function backfillPageBodyFromWorkspace(
   workspaceDir: string,
   slug: Slug,
 ): Promise<string> {
-  if (isCapabilitySlug(slug)) return renderCapabilityContent(slug) ?? "";
-  return readPageBodyFromWorkspace(workspaceDir, slug);
+  return capabilityOrDiskBody(slug, (s) =>
+    readPageBodyFromWorkspace(workspaceDir, s),
+  );
 }
 
 /** All page-index slugs, including synthetic skill/CLI capability rows. */
