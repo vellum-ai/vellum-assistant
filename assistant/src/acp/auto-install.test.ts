@@ -14,7 +14,6 @@
  */
 
 import { tmpdir } from "node:os";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { installAcpConfigStub } from "./__tests__/helpers/acp-config-stub.js";
