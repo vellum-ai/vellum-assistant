@@ -164,6 +164,7 @@ export async function hatchLocal(
   watch: boolean = false,
   keepAlive: boolean = false,
   configValues: Record<string, string> = {},
+  flagEnvVars: Record<string, string> = {},
   options: HatchLocalOptions = {},
 ): Promise<HatchLocalResult> {
   const reporter = options.reporter ?? consoleLifecycleReporter;
@@ -234,6 +235,7 @@ export async function hatchLocal(
     runtimeUrl = await startGateway(watch, resources, {
       signingKey,
       bootstrapSecret,
+      envOverrides: flagEnvVars,
     });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
