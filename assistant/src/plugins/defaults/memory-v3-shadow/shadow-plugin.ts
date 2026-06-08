@@ -147,7 +147,9 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
 
   const sectionIndex = await buildSectionIndex(slugs, pageBody);
   const needle = buildSectionNeedle(sectionIndex);
-  const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw);
+  const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
+    hubDegree: config.memory.v3.edge.hubDegree,
+  });
   await ensureSectionCollection(config);
 
   // Synthetic capability slugs (skills + CLI commands) the page index already
@@ -329,6 +331,7 @@ export async function observeTurn(
 
     const cfg = getConfig();
     const lanes = await getLanes(cfg);
+    const v3 = cfg.memory.v3;
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -336,6 +339,11 @@ export async function observeTurn(
       edgeGraph: lanes.edgeGraph,
       workingSet: lanes.workingSet,
       capabilitySlugs: lanes.capabilitySlugs,
+      needleK: v3.needleK,
+      denseK: v3.denseK,
+      edgeSeeds: v3.edge.seedCount,
+      edgePerSeed: v3.edge.perSeed,
+      edgeCap: v3.edge.cap,
     });
 
     const rows = attributeSelections(result);

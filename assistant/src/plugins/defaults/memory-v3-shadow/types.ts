@@ -87,16 +87,11 @@ export interface MemoryRoutingTurn {
 }
 
 /**
- * Lane attribution recorded per selection. The section-lane pipeline writes the
- * lane literals (`"needle" | "dense" | "edge" | "carry-forward"`); the legacy
- * tree literals (`"l1+l2" | "core+l2"`) are retained until the tree pipeline is
- * deleted. PR 11 tightens this to the lane literals only. The DB column is
- * free-text, so widening here needs no migration.
+ * Lane attribution recorded per selection. The section-lane pipeline writes one
+ * of the lane literals below. The legacy tree literals (`"l1+l2" | "core+l2"`)
+ * were dropped once the per-leaf/route selector was deleted — nothing writes
+ * them anymore. The `memory_v3_selections.source` column is free-text, so this
+ * tightening needs no migration (any historical rows with the old labels still
+ * read back fine via the permissive `z.string()` row schema).
  */
-export type SelectionSource =
-  | "l1+l2"
-  | "core+l2"
-  | "needle"
-  | "dense"
-  | "edge"
-  | "carry-forward";
+export type SelectionSource = "needle" | "dense" | "edge" | "carry-forward";
