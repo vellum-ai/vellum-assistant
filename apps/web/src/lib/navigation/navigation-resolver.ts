@@ -180,7 +180,8 @@ function resolveRouteGuard(
 
   // 6. Authenticated, platform mode, onboarding not completed
   if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
-    return { action: "redirect", to: routes.onboarding.privacy };
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return { action: "redirect", to: `${routes.onboarding.privacy}?returnTo=${returnTo}` };
   }
 
   // 7. All clear

@@ -21,6 +21,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -100,6 +101,15 @@ export function PrivacyScreen() {
         variant,
       });
     }
+    // If the caller told us where to go after consent, go there instead of
+    // hatching a new assistant (e.g. returning user whose consent flags were
+    // cleared on logout).
+    const returnTo = sanitizeReturnTo(searchParams.get("returnTo"), "");
+    if (returnTo) {
+      void navigate(returnTo, { replace: true });
+      return;
+    }
+
     // Preserve the hosting param (Local/Docker need it so hatching runs the
     // local hatch instead of a platform hatch).
     const hostingParam = searchParams.get("hosting");
