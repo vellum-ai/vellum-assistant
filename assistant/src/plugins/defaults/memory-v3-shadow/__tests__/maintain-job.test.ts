@@ -80,6 +80,10 @@ describe("maintainJob", () => {
       commitEmbedHighWater: () => {
         calls.commit += 1;
       },
+      // Prune stage off by default: no stored articles ⇒ nothing to prune. The
+      // dedicated prune tests below override both collaborators.
+      listSectionArticles: async () => [],
+      listIndexedSlugs: async () => [],
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
@@ -206,6 +210,81 @@ describe("maintainJob", () => {
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.failures).toContain("reembed");
     expect(calls.commit).toBe(0);
+  });
+
+  test("prunes sections for an article absent from the page index", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // The dense store holds points for a live page, a deleted page, and a
+    // synthetic capability row; the page index holds only the live + synthetic
+    // slugs. Only the deleted page's sections are pruned. `selectChangedPages`
+    // stays empty so `calls.deleted` reflects prune deletes only.
+    const { deps: d, calls } = deps({
+      listSectionArticles: async () => [
+        "page-live",
+        "page-deleted",
+        "skills/example",
+      ],
+      listIndexedSlugs: async () => ["page-live", "skills/example"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.pruned).toBe(1);
+    expect(outcome.pruneFailures).toBe(0);
+    // The live page and the synthetic capability row are NOT pruned.
+    expect(calls.deleted).toEqual(["page-deleted"]);
+    // The pass still invalidates the lanes.
+    expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
+  });
+
+  test("prunes nothing when every stored article is still in the index", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      listSectionArticles: async () => ["page-a", "page-b"],
+      listIndexedSlugs: async () => ["page-a", "page-b", "page-c"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.pruned).toBe(0);
+    expect(calls.deleted).toEqual([]);
+  });
+
+  test("a single failing prune delete is contained; other deletions proceed", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      listSectionArticles: async () => ["gone-1", "gone-bad", "gone-2"],
+      listIndexedSlugs: async () => [],
+      deleteSectionsForArticle: async (_config, article) => {
+        if (article === "gone-bad") throw new Error("delete boom");
+        calls.deleted.push(article);
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.pruned).toBe(2);
+    expect(outcome.pruneFailures).toBe(1);
+    // Both good deletions ran; the contained failure did not abort them.
+    expect(calls.deleted).toEqual(["gone-1", "gone-2"]);
+    // A contained per-article failure is NOT a stage failure, and the lanes
+    // were still invalidated.
+    expect(outcome.failures).not.toContain("prune");
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("a thrown prune stage is contained and does not abort lane invalidation", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      listSectionArticles: async () => {
+        throw new Error("scroll boom");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.failures).toContain("prune");
+    expect(outcome.pruned).toBe(0);
+    // Invalidation still runs after a thrown prune stage.
+    expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
   });
 });
 

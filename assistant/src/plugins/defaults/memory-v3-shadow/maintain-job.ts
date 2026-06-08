@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs two independent stages, in order:
+ * store and the in-memory lanes. It runs three independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -15,19 +15,28 @@
  *      captured before any potential mtime bumps) so a page is not re-embedded
  *      forever, yet a page whose embed failed (and whose sections were therefore
  *      left deleted) stays above the mark and is retried next pass.
- *   2. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   2. **Deleted-page prune** — diff the dense store's stored articles
+ *      (`listSectionArticles`) against the live page-index slugs and
+ *      `deleteSectionsForArticle` for any article that is no longer in the
+ *      index. A deleted page's slug never reaches the re-embed delta selector
+ *      (it only names live pages), so without this its section points would
+ *      linger in Qdrant and the dense lane could still surface the deleted page.
+ *      Synthetic capability rows are in the page index, so they are never pruned.
+ *   3. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
  * Best-effort by construction: each stage is wrapped so a failure in one is
  * logged and recorded in the outcome but does NOT abort the others. A single
- * page whose embed fails does not abort the rest of the re-embed stage. The job
- * is a no-op (returns a disabled outcome) unless `memory-v3-shadow` OR
+ * page whose embed fails does not abort the rest of the re-embed stage, and a
+ * single prune delete that throws does not abort the rest of the prune stage.
+ * The job is a no-op (returns a disabled outcome) unless `memory-v3-shadow` OR
  * `memory-v3-live` is enabled — the same flags that gate the v3 plugin.
  *
  * Dependency-injectable: `deps` lets tests substitute the page-index reader,
- * section builder, dense-store ops, and `invalidateLanes` without process-global
- * module mocks.
+ * section builder, dense-store ops (including the prune-stage
+ * `listSectionArticles`/`listIndexedSlugs` collaborators), and `invalidateLanes`
+ * without process-global module mocks.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
@@ -45,6 +54,7 @@ import { capabilityOrDiskBody } from "./capabilities.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
+  listSectionArticles as realListSectionArticles,
   upsertSections as realUpsertSections,
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
@@ -104,6 +114,18 @@ export interface MaintainJobDeps {
    * caller skips this when any page failed so failed pages retry next pass.
    */
   commitEmbedHighWater: (highWaterMs: number) => void;
+  /**
+   * Every distinct `article` slug that currently has section points in the
+   * dense store. The prune stage diffs this against the live page-index slugs
+   * to find articles whose points linger after the page was deleted.
+   */
+  listSectionArticles: () => Promise<string[]>;
+  /**
+   * The slugs currently in the page index (the live set the lanes are rebuilt
+   * from). The prune stage keeps these and deletes any section article absent
+   * from this set. Includes synthetic capability rows so they are never pruned.
+   */
+  listIndexedSlugs: () => Promise<Slug[]>;
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
   /** Active assistant config (for the dense-store/embedding calls). */
@@ -159,6 +181,13 @@ export interface MaintainOutcome {
   reembedded: number;
   /** Pages whose re-embed threw (and was contained). */
   reembedFailures: number;
+  /**
+   * Deleted-page articles whose lingering section points were pruned this pass
+   * (present in the dense store but absent from the page index).
+   */
+  pruned: number;
+  /** Prune deletes that threw (and were contained). */
+  pruneFailures: number;
   /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
@@ -253,6 +282,8 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
     commitEmbedHighWater,
+    listSectionArticles: () => realListSectionArticles(config),
+    listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     invalidateLanes: realInvalidateLanes,
     config,
   };
@@ -300,6 +331,46 @@ async function reembedChangedPages(
     }
   }
   return { reembedded, reembedFailures };
+}
+
+/**
+ * Prune section points for articles that no longer exist in the page index. A
+ * deleted concept page leaves `getPageIndex` (so the needle and edge lanes both
+ * drop it on the next rebuild) but its section points linger in Qdrant, where
+ * the dense lane could still surface it. The incremental selector
+ * ({@link computeChangedPages}) never names a slug that is gone, so a deleted
+ * page's stale points are only reachable by reading the collection back and
+ * diffing against the live slug set.
+ *
+ * Each deletion is independent: a single `deleteSectionsForArticle` throw is
+ * logged and counted in `pruneFailures` without aborting the rest. Synthetic
+ * capability rows are in the page index, so they are never pruned.
+ */
+async function pruneDeletedPages(
+  deps: MaintainJobDeps,
+): Promise<{ pruned: number; pruneFailures: number }> {
+  const [storedArticles, indexedSlugs] = await Promise.all([
+    deps.listSectionArticles(),
+    deps.listIndexedSlugs(),
+  ]);
+  const live = new Set(indexedSlugs);
+  const deleted = storedArticles.filter((article) => !live.has(article));
+
+  let pruned = 0;
+  let pruneFailures = 0;
+  for (const article of deleted) {
+    try {
+      await deps.deleteSectionsForArticle(deps.config, article);
+      pruned += 1;
+    } catch (err) {
+      pruneFailures += 1;
+      log.warn(
+        { article, err: err instanceof Error ? err.message : String(err) },
+        "memory-v3 maintain: deleted-page section prune failed (non-fatal)",
+      );
+    }
+  }
+  return { pruned, pruneFailures };
 }
 
 /**
@@ -390,6 +461,8 @@ export async function maintainJob(
     disabled: false,
     reembedded: 0,
     reembedFailures: 0,
+    pruned: 0,
+    pruneFailures: 0,
     invalidated: false,
     failures: [],
   };
@@ -437,7 +510,24 @@ export async function maintainJob(
     );
   }
 
-  // Stage 2: rebuild section index + needle + edge graph on the next turn.
+  // Stage 2: prune section points for pages deleted from the index. A deleted
+  // page's slug never appears in `selectChangedPages` (the delta selector only
+  // names live pages), so its lingering points are cleared by diffing the dense
+  // store's stored articles against the live page-index slugs. Contained: a
+  // failure is logged + recorded in `failures` without aborting invalidation.
+  try {
+    const { pruned, pruneFailures } = await pruneDeletedPages(deps);
+    outcome.pruned = pruned;
+    outcome.pruneFailures = pruneFailures;
+  } catch (err) {
+    outcome.failures.push("prune");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: deleted-page prune failed (non-fatal)",
+    );
+  }
+
+  // Stage 3: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -453,6 +543,8 @@ export async function maintainJob(
     {
       reembedded: outcome.reembedded,
       reembedFailures: outcome.reembedFailures,
+      pruned: outcome.pruned,
+      pruneFailures: outcome.pruneFailures,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },

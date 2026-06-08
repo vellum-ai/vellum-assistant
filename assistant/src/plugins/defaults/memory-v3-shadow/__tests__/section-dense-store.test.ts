@@ -39,6 +39,12 @@ type MockPoint = {
   payload: { article: string; ordinal: number; title: string };
 };
 
+/** One programmed `scroll` page: the points to return and the next offset. */
+type ScrollPage = {
+  points: Array<{ id: string; payload: { article?: unknown } }>;
+  next_page_offset: string | number | null;
+};
+
 const state = {
   collectionExists: false,
   collectionExistsCalls: 0,
@@ -48,6 +54,9 @@ const state = {
   upsertCalls: [] as Array<{ wait: boolean; points: MockPoint[] }>,
   deleteCalls: [] as Array<{ wait: boolean; filter: unknown }>,
   createCollectionThrows: null as Error | null,
+  // Programmed `scroll` pages, consumed in order; each `scroll` call shifts one.
+  scrollPages: [] as ScrollPage[],
+  scrollCalls: [] as Array<{ limit: number; offset: unknown }>,
 };
 
 class MockQdrantClient {
@@ -78,6 +87,13 @@ class MockQdrantClient {
     state.deleteCalls.push(params);
     return {};
   }
+  async scroll(
+    _name: string,
+    params: { limit: number; offset?: unknown },
+  ): Promise<ScrollPage> {
+    state.scrollCalls.push({ limit: params.limit, offset: params.offset });
+    return state.scrollPages.shift() ?? { points: [], next_page_offset: null };
+  }
 }
 
 mock.module("@qdrant/js-client-rest", () => ({
@@ -88,6 +104,7 @@ const {
   ensureSectionCollection,
   upsertSections,
   deleteSectionsForArticle,
+  listSectionArticles,
   SECTION_COLLECTION,
   _resetSectionDenseStoreForTests,
 } = await import("../section-dense-store.js");
@@ -114,6 +131,8 @@ function resetState(): void {
   state.upsertCalls.length = 0;
   state.deleteCalls.length = 0;
   state.createCollectionThrows = null;
+  state.scrollPages.length = 0;
+  state.scrollCalls.length = 0;
   embedState.calls.length = 0;
   embedState.dim = 4;
   _resetSectionDenseStoreForTests();
@@ -306,5 +325,70 @@ describe("memory v3 section-dense-store — delete", () => {
     await deleteSectionsForArticle(CONFIG, "people/alice");
 
     expect(state.deleteCalls).toHaveLength(2);
+  });
+});
+
+describe("memory v3 section-dense-store — listSectionArticles", () => {
+  beforeEach(resetState);
+  afterEach(resetState);
+
+  test("returns the distinct articles across all scrolled points", async () => {
+    state.collectionExists = true;
+    // Two scroll pages; `page-a` repeats within and across pages (one article,
+    // many section points) — the result must be the DISTINCT article set.
+    state.scrollPages = [
+      {
+        points: [
+          { id: "1", payload: { article: "page-a" } },
+          { id: "2", payload: { article: "page-a" } },
+          { id: "3", payload: { article: "topic-x" } },
+        ],
+        next_page_offset: "cursor-1",
+      },
+      {
+        points: [
+          { id: "4", payload: { article: "page-a" } },
+          { id: "5", payload: { article: "skills/example" } },
+        ],
+        next_page_offset: null,
+      },
+    ];
+
+    const articles = await listSectionArticles(CONFIG);
+
+    expect(new Set(articles)).toEqual(
+      new Set(["page-a", "topic-x", "skills/example"]),
+    );
+    // Both pages were scrolled, and the second carried the prior page's cursor.
+    expect(state.scrollCalls).toHaveLength(2);
+    expect(state.scrollCalls[0]!.offset).toBeUndefined();
+    expect(state.scrollCalls[1]!.offset).toBe("cursor-1");
+  });
+
+  test("skips points whose payload has no string article", async () => {
+    state.collectionExists = true;
+    state.scrollPages = [
+      {
+        points: [
+          { id: "1", payload: { article: "page-a" } },
+          { id: "2", payload: {} },
+          { id: "3", payload: { article: 42 } },
+        ],
+        next_page_offset: null,
+      },
+    ];
+
+    const articles = await listSectionArticles(CONFIG);
+
+    expect(articles).toEqual(["page-a"]);
+  });
+
+  test("returns an empty list for an empty collection", async () => {
+    state.collectionExists = true;
+    state.scrollPages = [{ points: [], next_page_offset: null }];
+
+    const articles = await listSectionArticles(CONFIG);
+
+    expect(articles).toEqual([]);
   });
 });

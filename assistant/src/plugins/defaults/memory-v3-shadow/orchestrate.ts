@@ -13,9 +13,12 @@
  *      descriptor is the matched section's text for needle/dense hits (resolved
  *      via the section index); for edge-only pages it is the curated `links`
  *      description when the traversed edge carried one, else the page's best
- *      section against the query. Synthetic capability pages (skills / CLI
- *      commands) carry sections in the section index too, so they enter the pool
- *      through the lanes like any other page rather than being always-added.
+ *      section against the query. Edge-only pages record NO matched section, so
+ *      they inject the FULL page (the lead the query never hit is often empty;
+ *      the link-relevant content is elsewhere) — the best-section text is only a
+ *      descriptor fallback. Synthetic capability pages (skills / CLI commands)
+ *      carry sections in the section index too, so they enter the pool through
+ *      the lanes like any other page rather than being always-added.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
  *      result is this turn's selections.
  *   4. Age the carry-forward working set to this turn (evict stale non-pinned
@@ -155,6 +158,11 @@ export async function orchestrate(
   // concrete `Section` via the section index. Falls back to undefined (blank
   // descriptor) if the ordinal is not in the in-memory index.
   for (const hit of densed) {
+    // A deleted page's points can linger in Qdrant; keep only live-index
+    // articles. The section index is rebuilt from `getPageIndex` at `initLanes`,
+    // so `byArticle` holds exactly the live pages (synthetic capability slugs
+    // included) — only truly-deleted pages are dropped here.
+    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
     addCandidate(
       hit.article,
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
@@ -163,9 +171,16 @@ export async function orchestrate(
     );
   }
 
-  // Step 2c: edge expansion over the top needle+dense article seeds. Each
-  // surfaced article prefers its curated `links` description; else its best
-  // section against the query. `alive` skips slugs already pooled.
+  // Step 2c: edge expansion over the top needle+dense article seeds. `alive`
+  // skips slugs already pooled. An edge-only page was surfaced because its
+  // NEIGHBOUR matched — the query did not lexically hit the page itself, so
+  // `bestSection` returns its first/lead section on a zero-score match. That
+  // lead is often empty for heading-structured pages, and it is the curated
+  // `links` description (not the lead) that made the candidate relevant. So we
+  // record NO matched section for edge-only pages (pass `undefined`), which
+  // makes injection fall back to the FULL page — where the link-relevant content
+  // lives. `bestSection`'s text is kept only as the select-pool DESCRIPTOR
+  // fallback for when the traversed edge carried no curated `links` description.
   const seeds = unique<Slug>([
     ...needled.map((h) => h.article),
     ...densed.map((h) => h.article),
@@ -178,8 +193,13 @@ export async function orchestrate(
   });
   for (const neighbor of surfaced) {
     const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
-    const section = best >= 0 ? sections[best] : undefined;
-    addCandidate(neighbor.article, section, neighbor.description, "edge");
+    const fallbackDescriptor = best >= 0 ? sections[best]?.text : undefined;
+    addCandidate(
+      neighbor.article,
+      undefined,
+      neighbor.description ?? fallbackDescriptor,
+      "edge",
+    );
   }
 
   // Step 3: a SINGLE forced-tool select over the unified pool.
