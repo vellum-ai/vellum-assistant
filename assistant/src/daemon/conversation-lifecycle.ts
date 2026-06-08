@@ -244,12 +244,9 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.workspaceTopLevelContext = null;
   // The compaction module owns the per-conversation ContextWindowManager, so
   // teardown releases it directly. Moving this behind a compaction-plugin hook
-  // would let the module own disposal end-to-end, but there is no
-  // conversation-teardown hook today: `init`/`shutdown` are process-level and
-  // every other hook (including `stop`) is per-turn. Routing disposal through
-  // the per-turn `stop` hook would first require relocating the manager's only
+  // would let the module own disposal end-to-end, but the per-turn `stop` hook 
+  // would first require relocating the manager's only
   // cross-turn state — `nonPersistedPrefixCount` — off the manager so a
-  // per-turn dispose/rebuild stays correct; otherwise a dedicated
-  // teardown-scoped hook is needed.
+  // per-turn dispose/rebuild stays correct.
   disposeContextWindowManager(ctx.conversationId);
 }
