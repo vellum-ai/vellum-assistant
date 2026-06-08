@@ -212,16 +212,16 @@ describe("resolveNavigation", () => {
 
     // -- authenticated, platform mode, not onboarded ----------------------
 
-    test("redirects platform-mode user without consent to privacy", () => {
+    test("redirects platform-mode user without consent to privacy with returnTo", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: false, aiDataConsent: false })),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy?returnTo=%2Fassistant" });
     });
 
-    test("redirects platform-mode user with partial consent to privacy", () => {
+    test("redirects platform-mode user with partial consent to privacy with returnTo", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: true, aiDataConsent: false })),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy?returnTo=%2Fassistant" });
     });
 
     test("does not redirect local-mode user without consent (handled by step 5)", () => {
