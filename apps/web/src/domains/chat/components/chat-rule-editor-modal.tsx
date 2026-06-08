@@ -9,7 +9,7 @@
  * - Suggestion annotation in edit mode ("Suggested: {risk}")
  *
  * Rendered by `ChatMainPanel` when `showRuleEditor` is `true`. Driven by
- * `RuleEditorContext` from `useInteractionActions`.
+ * `RuleEditorContext` from `rule-editor-store`.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
-import type { TrustRulePayload } from "@/domains/chat/hooks/use-interaction-actions";
+import type { TrustRulePayload } from "@/domains/chat/rule-editor-actions";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
 
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";

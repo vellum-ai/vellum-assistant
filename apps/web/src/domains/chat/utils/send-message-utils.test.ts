@@ -10,7 +10,7 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-} from "@/domains/chat/hooks/send-message-utils";
+} from "@/domains/chat/utils/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Helpers
