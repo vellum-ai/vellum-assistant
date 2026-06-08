@@ -97,10 +97,13 @@ mock.module("../../../../memory/db-connection.js", () => ({
 
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  renderV3PageContent: async (slug: string) =>
+  // The inspector store renders via `renderV3SectionContent` with an empty
+  // section map (sections are unavailable post-orchestration), so it falls back
+  // to the full page. The mock stands in for that full-page render.
+  renderV3SectionContent: async (slug: string) =>
     storeMockActive
       ? `body for ${slug}`
-      : realPageContent.renderV3PageContent(slug),
+      : realPageContent.renderV3SectionContent(slug, undefined),
 }));
 
 const { getMemoryV3SelectionForInspector } =
