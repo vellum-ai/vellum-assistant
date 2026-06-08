@@ -15,10 +15,12 @@ import type { ContextWindowConfig } from "./types.js";
  * the pricing-override resolution in `util/pricing.ts`.
  */
 function findModelContextLimit(
-  overrides: ModelContextLimit[],
+  overrides: ModelContextLimit[] | undefined,
   provider: string,
   model: string,
 ): number | undefined {
+  if (!overrides || overrides.length === 0) return undefined;
+
   let bestTokens: number | undefined;
   let bestLen = -1;
   for (const override of overrides) {
