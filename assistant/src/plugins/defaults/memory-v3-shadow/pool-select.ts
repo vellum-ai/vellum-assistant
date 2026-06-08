@@ -37,12 +37,9 @@ import type { Message, ToolDefinition } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import { retryForResult } from "./llm-retry.js";
-import type { SelectedPage } from "./selector.js";
-import type { MemoryRoutingTurn, Slug } from "./types.js";
+import type { MemoryRoutingTurn, SelectedPage, Slug } from "./types.js";
 
 const log = getLogger("memory-v3-pool-select");
-
-export type { SelectedPage } from "./selector.js";
 
 /** A candidate page in the unified pool, with the descriptor that justifies it. */
 export interface PoolCandidate {
