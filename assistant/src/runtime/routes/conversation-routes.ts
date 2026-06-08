@@ -1741,6 +1741,7 @@ export async function handleSendMessage(
         ...(body.automated === true ? { automated: true } : {}),
       },
       isInteractive,
+      sourceActorPrincipalId,
       transport,
       clientMessageId,
     });
@@ -1842,6 +1843,7 @@ export async function handleSendMessage(
     userMessageInterface: sourceInterface,
     assistantMessageInterface: sourceInterface,
   });
+  conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
 
   await conversation.ensureActorScopedHistory();
 
