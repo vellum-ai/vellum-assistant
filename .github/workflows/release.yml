@@ -2575,9 +2575,10 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   # ── Upload Electron update artifacts to GCS ────────────────────────────
-  # Push latest-mac.yml, ZIP, and blockmap to the public GCS bucket so
-  # electron-updater can pull delta updates. Production goes to
-  # electron/latest/, staging to electron/beta/.
+  # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
+  # GCS bucket so electron-updater can pull delta updates. Each arch gets
+  # its own path: electron/{channel}/{arch}/. Production → latest channel,
+  # staging → beta channel.
 
   upload-electron-updates:
     needs: [extract-version, build-electron]
@@ -2589,12 +2590,19 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download Electron update artifacts
+      - name: Download arm64 update artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: macos-electron-update-*
-          path: electron-artifacts
-          merge-multiple: true
+          name: macos-electron-update-arm64
+          path: electron-artifacts/arm64
+        continue-on-error: true
+
+      - name: Download x64 update artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-electron-update-x64
+          path: electron-artifacts/x64
+        continue-on-error: true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
@@ -2606,16 +2614,24 @@ jobs:
         run: |
           CHANNEL=${{ needs.extract-version.outputs.is_staging == 'true' && 'beta' || 'latest' }}
           BUCKET="vellum-desktop-releases"
-          PREFIX="electron/${CHANNEL}"
-
-          LATEST_YML=$(find electron-artifacts -name "latest-mac.yml" -type f | grep -m1 .)
-          ZIP=$(find electron-artifacts -name "*.zip" -type f | grep -v blockmap | grep -m1 .)
-          BLOCKMAP=$(find electron-artifacts -name "*.zip.blockmap" -type f | grep -m1 .)
-
           MANIFEST_NAME="${CHANNEL}-mac.yml"
-          gcloud storage cp "$LATEST_YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
-          gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
-          [ -n "$BLOCKMAP" ] && gcloud storage cp "$BLOCKMAP" "gs://${BUCKET}/${PREFIX}/$(basename "$BLOCKMAP")"
+
+          for ARCH in arm64 x64; do
+            ARCH_DIR="electron-artifacts/${ARCH}"
+            [ -d "$ARCH_DIR" ] || continue
+            PREFIX="electron/${CHANNEL}/${ARCH}"
+
+            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
+
+            find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
+              gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
+            done
+
+            find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
+              gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
+            done
+          done
 
   release:
     needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]

@@ -69,9 +69,10 @@ export const installAutoUpdate = (): void => {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.channel = channel;
+  autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/`,
+    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {
