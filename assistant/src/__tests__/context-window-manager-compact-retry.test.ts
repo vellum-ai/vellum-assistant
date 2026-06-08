@@ -56,6 +56,11 @@ let runCalls: Array<{
 let runResults: CompactionRunResult[] = [];
 const estimateReturns: number[] = [];
 
+// Captured arguments from each runEmergencyCompaction invocation, so the
+// emergencyCompact tests can assert the manager fills in the fields it owns.
+let emergencyCalls: Record<string, unknown>[] = [];
+let emergencyResult: CompactionRunResult | undefined;
+
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (): number => {
     const next = estimateReturns.shift();
@@ -91,6 +96,15 @@ mock.module("../context/compactor.js", () => ({
       );
     }
     return result;
+  },
+  runEmergencyCompaction: async (
+    args: Record<string, unknown>,
+  ): Promise<CompactionRunResult> => {
+    emergencyCalls.push(args);
+    if (!emergencyResult) {
+      throw new Error("emergencyResult not seeded");
+    }
+    return emergencyResult;
   },
 }));
 
@@ -142,24 +156,28 @@ function compactResult(
   };
 }
 
+function makeConfig(maxAttempts: number = 3) {
+  return {
+    enabled: true,
+    maxInputTokens: 200_000,
+    targetBudgetRatio: 0.3,
+    compactThreshold: 0.8,
+    summaryBudgetRatio: 0.05,
+    overflowRecovery: {
+      enabled: true,
+      safetyMarginRatio: 0.05,
+      maxAttempts,
+      interactiveLatestTurnCompression: "summarize" as const,
+      nonInteractiveLatestTurnCompression: "summarize" as const,
+    },
+  };
+}
+
 function buildManager(maxAttempts: number = 3): ContextWindowManager {
   return new ContextWindowManager({
     provider: makeProvider(),
     systemPrompt: "you are a test assistant",
-    config: {
-      enabled: true,
-      maxInputTokens: 200_000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "summarize",
-      },
-    },
+    config: makeConfig(maxAttempts),
     conversationId: "conv-test",
   });
 }
@@ -287,5 +305,93 @@ describe("ContextWindowManager.maybeCompact retry budget", () => {
     expect(runCalls.length).toBe(1);
     expect(result.exhausted).toBe(true);
     expect(result.estimatedInputTokens).toBe(165_000);
+  });
+});
+
+describe("ContextWindowManager.emergencyCompact", () => {
+  beforeEach(() => {
+    emergencyCalls = [];
+    emergencyResult = undefined;
+    estimateReturns.length = 0;
+  });
+
+  test("supplies manager-owned fields and forwards only overflow inputs", async () => {
+    /**
+     * The manager owns provider, system prompt, token budget, conversation
+     * id, compaction config, and non-persisted prefix count; the caller
+     * provides only the overflow-specific inputs.
+     */
+    // GIVEN a manager seeded with a non-persisted prefix and a canned result
+    emergencyResult = compactResult({
+      compacted: true,
+      compactedMessages: 40,
+      summaryText: "emergency summary",
+    });
+    const manager = buildManager();
+    manager.seedNonPersistedPrefix(3);
+    const messages = makeMessages(8);
+    const signal = new AbortController().signal;
+
+    // WHEN emergency compaction runs
+    const result = await manager.emergencyCompact(
+      messages,
+      { previousEstimatedInputTokens: 242_201, overrideProfile: "fast" },
+      signal,
+    );
+
+    // THEN the manager fills its owned fields and forwards the caller inputs
+    expect(emergencyCalls.length).toBe(1);
+    const args = emergencyCalls[0]!;
+    expect(args.conversationId).toBe("conv-test");
+    expect(args.systemPrompt).toBe("you are a test assistant");
+    expect(args.maxInputTokens).toBe(200_000);
+    expect(args.nonPersistedPrefixCount).toBe(3);
+    expect(args.tools).toBeUndefined();
+    expect(args.force).toBe(true);
+    expect(args.signal).toBe(signal);
+    expect(args.messages).toBe(messages);
+    expect(args.previousEstimatedInputTokens).toBe(242_201);
+    expect(args.overrideProfile).toBe("fast");
+    expect((args.provider as { name: string }).name).toBe("mock-provider");
+    expect(result.summaryText).toBe("emergency summary");
+  });
+
+  test("defaults overrideProfile to null when omitted", async () => {
+    /**
+     * Callers that don't resolve a per-conversation profile get an explicit
+     * null forwarded to the summary call.
+     */
+    // GIVEN a manager and a canned result
+    emergencyResult = compactResult({ compacted: true });
+    const manager = buildManager();
+
+    // WHEN emergency compaction runs without an override profile
+    await manager.emergencyCompact(makeMessages(6), {
+      previousEstimatedInputTokens: 210_000,
+    });
+
+    // THEN overrideProfile is forwarded as null
+    expect(emergencyCalls[0]!.overrideProfile).toBeNull();
+  });
+
+  test("throws when the manager has no conversation id", async () => {
+    /**
+     * Emergency compaction needs a conversation id for attachment and
+     * timestamp lookups; a manager without one cannot run it.
+     */
+    // GIVEN a manager constructed without a conversation id
+    const manager = new ContextWindowManager({
+      provider: makeProvider(),
+      systemPrompt: "you are a test assistant",
+      config: makeConfig(),
+    });
+
+    // WHEN/THEN emergency compaction rejects without invoking the compactor
+    await expect(
+      manager.emergencyCompact(makeMessages(4), {
+        previousEstimatedInputTokens: 210_000,
+      }),
+    ).rejects.toThrow(/conversationId/);
+    expect(emergencyCalls.length).toBe(0);
   });
 });

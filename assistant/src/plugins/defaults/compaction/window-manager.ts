@@ -20,7 +20,9 @@ import type { LLMCallSite } from "../../../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   type CompactionRunArgs,
+  type CompactionRunResult,
   runAssistantDrivenCompaction,
+  runEmergencyCompaction,
 } from "../../../context/compactor.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type {
@@ -116,6 +118,21 @@ export interface ContextWindowCompactOptions {
    * for untrusted actors.
    */
   actorTrustClass?: TrustClass;
+}
+
+export interface EmergencyCompactOptions {
+  /**
+   * The provider-reported estimate at the overflow that triggered recovery.
+   * Sizing the emergency summary needs the actual rejected token count, not
+   * the manager's pre-send estimate (which under-counted, hence the
+   * rejection).
+   */
+  previousEstimatedInputTokens: number;
+  /**
+   * Per-conversation inference-profile override forwarded to the summary
+   * call.
+   */
+  overrideProfile?: string | null;
 }
 
 export interface ContextWindowManagerOptions {
@@ -426,6 +443,45 @@ export class ContextWindowManager {
     // Out of attempts or stuck — surface `exhausted` so the orchestrator
     // can escalate to reducer tiers instead of re-running the compactor.
     return { ...result, estimatedInputTokens, exhausted: true };
+  }
+
+  /**
+   * Emergency mid-turn compaction — summarize everything before the last
+   * tool_use/tool_result pair and let the agent continue with
+   * `[summary, last_tool_call, last_tool_result]`. Used as a recovery rung
+   * after the provider rejects a turn for context overflow. The manager
+   * supplies the provider, system prompt, token budget, conversation id, and
+   * non-persisted prefix count it already owns; the caller provides only the
+   * overflow-specific inputs.
+   */
+  async emergencyCompact(
+    messages: Message[],
+    options: EmergencyCompactOptions,
+    signal?: AbortSignal,
+  ): Promise<CompactionRunResult> {
+    if (this.conversationId == null) {
+      throw new Error(
+        "ContextWindowManager has no conversationId — cannot run emergency compaction",
+      );
+    }
+    try {
+      return await runEmergencyCompaction({
+        conversationId: this.conversationId,
+        messages,
+        provider: this.provider,
+        systemPrompt: this.systemPrompt,
+        tools: undefined,
+        compaction: this.resolveCompactionConfig(),
+        maxInputTokens: this.config.maxInputTokens,
+        previousEstimatedInputTokens: options.previousEstimatedInputTokens,
+        force: true,
+        signal,
+        overrideProfile: options.overrideProfile ?? null,
+        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+      });
+    } finally {
+      this.clearSystemPromptCache();
+    }
   }
 
   /**
