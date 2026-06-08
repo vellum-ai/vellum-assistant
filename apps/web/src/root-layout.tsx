@@ -1,5 +1,6 @@
 import { lazy, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -31,7 +32,7 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { startDraftConversation } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
@@ -86,6 +87,7 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
@@ -184,8 +186,7 @@ export function RootLayout() {
       if (command.kind !== "quickInputSubmit") {
         return;
       }
-      const draftId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftId);
+      const draftId = startDraftConversation(queryClient, assistantId);
       useViewerStore.getState().setMainView("chat");
       void navigate(
         `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,

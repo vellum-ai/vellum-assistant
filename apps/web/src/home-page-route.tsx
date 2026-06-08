@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { startDraftConversation } from "@/domains/chat/utils/conversation-selection";
 import { HomePage } from "@/domains/home/home-page";
 import {
     useBackgroundConversationListQuery,
@@ -12,7 +13,6 @@ import {
     useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { routes } from "@/utils/routes";
@@ -20,6 +20,7 @@ import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
@@ -66,8 +67,7 @@ export function HomePageRoute() {
       validConversationIds={validConversationIds}
       onStartNewChat={() => {
         useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        const draftConversationId = startDraftConversation(queryClient, assistantId);
         navigate(routes.conversation(draftConversationId));
         requestComposerFocus();
       }}
@@ -76,8 +76,7 @@ export function HomePageRoute() {
       }
       onSuggestionSelected={(prompt) => {
         useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        const draftConversationId = startDraftConversation(queryClient, assistantId);
         navigate(
           `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
         );

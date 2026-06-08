@@ -1,4 +1,8 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import type { Conversation } from "@/types/conversation-types";
+import { useConversationStore } from "@/stores/conversation-store";
+import { prependConversation } from "@/utils/conversation-cache-mutations";
 
 interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;
@@ -21,6 +25,25 @@ export function createDraftConversationId(): string {
       // cases (older Safari / non-secure context) so draft creation does not
       // hard-crash.
       `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/**
+ * Create a local draft conversation: generate an ID, set it as active in
+ * the store, and seed a `draft: true` stub in the foreground list cache so
+ * `useActiveConversation` never fires a server fetch for it.
+ */
+export function startDraftConversation(
+  queryClient: QueryClient,
+  assistantId: string | null,
+): string {
+  const id = createDraftConversationId();
+  useConversationStore.getState().setActiveConversationId(id);
+  prependConversation(queryClient, assistantId, {
+    conversationId: id,
+    lastMessageAt: Date.now(),
+    draft: true,
+  } as Conversation);
+  return id;
 }
 
 function isStoredConversationSelectable(

@@ -1,14 +1,15 @@
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useConversationStore } from "@/stores/conversation-store";
+import { startDraftConversation } from "@/domains/chat/utils/conversation-selection";
 import { ContactsPage } from "@/domains/contacts/contacts-page";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 export function ContactsPageRoute() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 
   return (
@@ -17,8 +18,7 @@ export function ContactsPageRoute() {
       assistantId={assistantId}
       onStartSetupConversation={(prompt) => {
         useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        const draftConversationId = startDraftConversation(queryClient, assistantId);
         void navigate(
           `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
         );

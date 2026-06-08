@@ -1,14 +1,15 @@
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useConversationStore } from "@/stores/conversation-store";
+import { startDraftConversation } from "@/domains/chat/utils/conversation-selection";
 import { IdentityPage } from "@/domains/intelligence/identity-page";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 export function IdentityPageRoute() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 
   return (
@@ -16,8 +17,7 @@ export function IdentityPageRoute() {
       key={assistantId}
       onOpenThread={(message) => {
         useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        const draftConversationId = startDraftConversation(queryClient, assistantId);
         void navigate(
           `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(message)}`,
         );

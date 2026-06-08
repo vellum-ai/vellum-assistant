@@ -61,7 +61,7 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { startDraftConversation } from "@/domains/chat/utils/conversation-selection";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ChatLayoutHeader } from "./chat-layout-header";
@@ -161,6 +161,7 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   // Capture pop-out mode once at mount so it persists across in-window
   // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
@@ -271,11 +272,10 @@ export function ChatLayout() {
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
-    const draftConversationId = createDraftConversationId();
-    useConversationStore.getState().setActiveConversationId(draftConversationId);
+    const draftConversationId = startDraftConversation(queryClient, assistantId);
     void navigate(routes.conversation(draftConversationId));
     requestComposerFocus();
-  }, [navigate]);
+  }, [navigate, assistantId, queryClient]);
 
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
@@ -470,12 +470,11 @@ export function ChatLayout() {
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftConversationId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      const draftConversationId = startDraftConversation(queryClient, assistantId);
       void navigate(routes.conversation(draftConversationId));
       requestComposerFocus();
     },
-    [navigate],
+    [navigate, assistantId, queryClient],
   );
 
   const {
@@ -882,6 +881,7 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
 // ---------------------------------------------------------------------------
 
 function ChatConversationHeader() {
+  const queryClient = useQueryClient();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
@@ -921,12 +921,11 @@ function ChatConversationHeader() {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
       useSubagentStore.getState().reset();
-      const draftId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftId);
+      const draftId = startDraftConversation(queryClient, assistantId);
       void navigate(routes.conversation(draftId));
       requestComposerFocus();
     },
-    [navigate],
+    [navigate, assistantId, queryClient],
   );
 
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
