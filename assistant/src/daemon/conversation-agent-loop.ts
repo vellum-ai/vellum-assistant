@@ -873,7 +873,7 @@ export async function runAgentLoopImpl(
     // `user-prompt-submit-temp` hook handler but invoked directly for now,
     // separate from the canonical late `user-prompt-submit` hook (history
     // repair, title) that fires just before the loop.
-    // The injection inputs (`mode`, `isNonInteractive`, `modelProfile`,
+    // The injection inputs (`isNonInteractive`, `modelProfile`,
     // `actorContext`) are resolved once at turn start and threaded in so
     // post-compaction re-injection reuses the same snapshot rather than live
     // state that can flip mid-turn.
@@ -886,7 +886,6 @@ export async function runAgentLoopImpl(
       logger: rlog,
       latestMessages: ctx.messages,
       requestId: reqId,
-      mode: currentInjectionMode,
       isNonInteractive,
       modelProfile: modelProfileStr,
       actorContext,
@@ -914,6 +913,7 @@ export async function runAgentLoopImpl(
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
       userMessageId,
+      requestId: reqId,
       prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
