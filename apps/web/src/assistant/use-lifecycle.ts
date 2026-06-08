@@ -20,7 +20,7 @@ import { useAssistantQuery } from "@/assistant/queries";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -66,7 +66,7 @@ export function useAssistantLifecycle({
   // default first-listed assistant — identical to the
   // pre-multi-assistant behavior.
   const multiAssistantEnabled =
-    useAssistantFeatureFlagStore.use.multiPlatformAssistant();
+    useClientFeatureFlagStore.use.multiPlatformAssistant();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const byOrg =

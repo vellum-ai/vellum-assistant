@@ -218,7 +218,7 @@ export function GeneralPage() {
     refetchUntilResized,
   } = useAssistantWithHealthz();
   const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
-  const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
+  const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();

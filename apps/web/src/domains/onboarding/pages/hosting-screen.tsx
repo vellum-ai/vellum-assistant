@@ -73,8 +73,9 @@ export function HostingScreen() {
   const fromSelectAssistant = searchParams.get("from") === "select-assistant";
   const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
+  const cloudEnabled = !options.find((o) => o.mode === "vellum-cloud")?.disabled;
   const [selected, setSelected] = useState<HostingMode>(
-    hasPlatformSession ? "vellum-cloud" : "local",
+    hasPlatformSession && cloudEnabled ? "vellum-cloud" : "local",
   );
 
   const {
