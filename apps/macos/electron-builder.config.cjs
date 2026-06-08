@@ -1,6 +1,7 @@
 // @ts-check
 
 const env = process.env.VELLUM_ENVIRONMENT || "production";
+const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
 const productName =
   env === "production"
@@ -72,7 +73,7 @@ module.exports = {
     target: [
       {
         target: "dmg",
-        arch: ["arm64"],
+        arch: [targetArch],
       },
     ],
   },

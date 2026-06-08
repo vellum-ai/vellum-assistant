@@ -30,6 +30,9 @@ const QL_EXTENSIONS = [
   },
 ];
 
+// electron-builder Arch enum → swiftc -target triple prefix
+const SWIFTC_TARGETS = { 1: "x86_64-apple-macosx15.0", 3: "arm64-apple-macosx15.0" };
+
 /**
  * Build a Quick Look .appex bundle from Swift source.
  *
@@ -42,9 +45,10 @@ const QL_EXTENSIONS = [
  * @param {string} appBundleId - The containing app's CFBundleIdentifier.
  * @param {string} identity - Code signing identity.
  * @param {string} timestampFlag - Timestamp flag for codesign ("" or " --timestamp").
+ * @param {string} swiftTarget - The swiftc -target triple (e.g. "arm64-apple-macosx15.0").
  * @returns {boolean} true if the extension was built successfully.
  */
-function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag) {
+function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag, swiftTarget) {
   // Resolve source directory relative to the repo root (two levels up from apps/macos/scripts/).
   const repoRoot = path.resolve(__dirname, "..", "..", "..");
   const sourceDir = path.join(repoRoot, "clients", "macos", ext.name);
@@ -72,7 +76,7 @@ function buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag)
         "xcrun swiftc",
         `-module-name ${ext.name}`,
         "-emit-executable",
-        `-target arm64-apple-macosx15.0`,
+        `-target ${swiftTarget}`,
         `-sdk "$(xcrun --show-sdk-path)"`,
         frameworkFlags,
         "-Xlinker -e -Xlinker _NSExtensionMain",
@@ -168,8 +172,9 @@ exports.default = async function afterPack(context) {
   // 2. Build and embed Quick Look extensions (.appex).
   const plugInsDir = path.join(contentsDir, "PlugIns");
   const appBundleId = packager.config.appId;
+  const swiftTarget = SWIFTC_TARGETS[context.arch] || "arm64-apple-macosx15.0";
 
   for (const ext of QL_EXTENSIONS) {
-    buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag);
+    buildQLExtension(ext, plugInsDir, appBundleId, identity, timestampFlag, swiftTarget);
   }
 };
