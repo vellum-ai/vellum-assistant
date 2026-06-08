@@ -15,6 +15,7 @@ const PROFILE_DESCRIPTION_FALLBACKS: Record<string, string> = {
 export function buildSwitchInferenceProfileToolDef(
   profiles: Record<string, ProfileEntry>,
   currentProfile?: string,
+  defaultProfileKey?: string,
 ): ToolDefinition | null {
   const entries = Object.entries(profiles).filter(
     ([key, entry]) =>
@@ -39,10 +40,16 @@ export function buildSwitchInferenceProfileToolDef(
     .join("\n");
 
   const currentEntry = currentProfile ? profiles[currentProfile] : undefined;
-  const currentLabel =
-    currentProfile === AUTO_PROFILE_KEY
-      ? "Auto (starting on Balanced)"
-      : (currentEntry?.label ?? currentProfile ?? "current");
+  let currentLabel: string;
+  if (currentProfile === AUTO_PROFILE_KEY) {
+    const fallbackEntry = defaultProfileKey
+      ? profiles[defaultProfileKey]
+      : undefined;
+    const fallbackLabel = fallbackEntry?.label ?? defaultProfileKey ?? "Balanced";
+    currentLabel = `Auto (starting on ${fallbackLabel})`;
+  } else {
+    currentLabel = currentEntry?.label ?? currentProfile ?? "current";
+  }
 
   return {
     name: SWITCH_INFERENCE_PROFILE_TOOL_NAME,

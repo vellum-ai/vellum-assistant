@@ -51,6 +51,7 @@ import { resolveTrustClass } from "./trust-context.js";
 const log = getLogger("conversation-tool-setup");
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { resolveDefaultProfileKey } from "../config/llm-resolver.js";
 import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
 import {
   buildSwitchInferenceProfileToolDef,
@@ -624,9 +625,11 @@ export function createResolveToolsCallback(
       const effectiveProfile =
         ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
       if (effectiveProfile === AUTO_PROFILE_KEY) {
+        const defaultKey = resolveDefaultProfileKey("mainAgent", config.llm);
         const toolDef = buildSwitchInferenceProfileToolDef(
           config.llm.profiles ?? {},
           effectiveProfile,
+          defaultKey,
         );
         if (toolDef) {
           turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);

@@ -74,7 +74,29 @@ describe("buildSwitchInferenceProfileToolDef", () => {
     expect(enumValues).toContain("cost-optimized");
   });
 
-  test("shows 'Auto (starting on Balanced)' as the current profile label", () => {
+  test("uses resolved default profile label when auto is active", () => {
+    const profiles = { auto, balanced, "quality-optimized": quality, "cost-optimized": speed };
+    const toolDef = buildSwitchInferenceProfileToolDef(profiles, "auto", "balanced");
+
+    expect(toolDef).not.toBeNull();
+    expect(toolDef!.description).toContain("Auto (starting on Balanced)");
+  });
+
+  test("uses custom profile label when BYOK default differs", () => {
+    const customBalanced: ProfileEntry = {
+      ...balanced,
+      provider_connection: "anthropic-personal",
+      label: "My Custom Model",
+      source: "user",
+    };
+    const profiles = { auto, "custom-balanced": customBalanced, "quality-optimized": quality };
+    const toolDef = buildSwitchInferenceProfileToolDef(profiles, "auto", "custom-balanced");
+
+    expect(toolDef).not.toBeNull();
+    expect(toolDef!.description).toContain("Auto (starting on My Custom Model)");
+  });
+
+  test("falls back to 'Balanced' label when no default profile key provided", () => {
     const profiles = { auto, balanced, "quality-optimized": quality, "cost-optimized": speed };
     const toolDef = buildSwitchInferenceProfileToolDef(profiles, "auto");
 
