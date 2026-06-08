@@ -3667,9 +3667,9 @@ paths:
         (back to the $0 default); a set value adds (when none today) or swaps the
         existing bundle. All transitions use proration_behavior=none, so the change
         — and the matching monthly credit grant — take effect at the next cycle boundary
-        (no immediate partial charge). Gated behind the ``pro-plan-credits`` flag
-        (HTTP 403 when off). Rejected with HTTP 409 while a cancellation is pending.
-        Requires an active Pro subscription with a provisioned Stripe subscription.
+        (no immediate partial charge). Rejected with HTTP 409 while a cancellation
+        is pending. Requires an active Pro subscription with a provisioned Stripe
+        subscription.
       parameters:
       - in: header
         name: Vellum-Organization-Id
