@@ -56,14 +56,13 @@ changes. Source-build is opt-in via a flag
 - `--source <path>` — build images **once** from the source tree at `<path>`, no
   watcher. **Default for testing:** picks up your current changes and is robust
   for a scripted one-shot run.
-- `--watch` — build from source **and** start a file-watcher that rebuilds on
-  change. Use while iterating, but the watcher is a long-lived foreground
-  process and crashes if the tree contains broken symlinks (e.g. unresolved
-  `.claude/commands/*` symlinks in a fresh checkout); the containers stay up,
-  but prefer `--source` for unattended runs.
+- `--watch` — build from source **and** start a file-watcher that rebuilds the
+  affected image on change (watches each service's `src/`, `package.json`, and
+  `Dockerfile`). Use while iterating. The watcher is a long-lived foreground
+  process, so prefer `--source` for unattended/scripted runs.
 
 ```bash
-vellum hatch --remote docker --source . --name clitest -d   # build from cwd
+vellum hatch --remote docker --source . --name clitest   # build from cwd
 # → "Mode: build-from-source" then "Images (local build): vellum-assistant:local-clitest …"
 ```
 
@@ -72,19 +71,13 @@ vellum hatch --remote docker --source . --name clitest -d   # build from cwd
 > published images and says so — watch for that line if you expect a build.
 > Building all three images takes ~1–2 min the first time.
 
-`-d` (detached) returns immediately but **defers provider credential setup**, so
-push the key into the container next (the container takes a few seconds to come
-up — retry `vellum setup` if the first call hits a closed socket):
-
-```bash
-vellum setup --provider anthropic    # reads ANTHROPIC_API_KEY from the env and
-                                      # saves it into the running assistant
-# → "Anthropic API key saved to assistant from the environment."
-```
-
-> Running the hatch **without** `-d` stays attached and configures provider
-> credentials automatically — but `-d` + `vellum setup` is the reliable scripted
-> path. Confirm readiness with `vellum ps` (`🟢 healthy`) before messaging.
+**Hatch attached — do not pass `-d`.** An attached hatch leases the guardian
+token and configures the provider credential from your environment **inline**,
+then returns once the containers are healthy — no follow-up `vellum setup`
+needed. Detached mode (`-d`) defers the guardian-token lease, so a later
+`vellum setup` cannot authenticate against the gateway and fails with an
+`invalid_signature` 401. Confirm readiness with `vellum ps` (`🟢 healthy`)
+before messaging.
 
 ## 3. Verify functionality
 
