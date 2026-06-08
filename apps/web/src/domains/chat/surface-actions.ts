@@ -11,7 +11,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
-import { completeSubmittedSurface } from "@/domains/chat/hooks/send-message-utils";
+import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
@@ -36,7 +36,7 @@ export async function handleSurfaceAction(
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
     useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
-    throw new Error("No active session");
+    return;
   }
 
   let result: { ok: boolean };
@@ -50,12 +50,12 @@ export async function handleSurfaceAction(
   } catch (err) {
     captureError(err, { context: "submit_surface_action" });
     useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
-    throw err;
+    return;
   }
 
   if (!result.ok) {
     useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
-    throw new Error("Surface action failed");
+    return;
   }
 
   useTurnStore.getState().requestSend();

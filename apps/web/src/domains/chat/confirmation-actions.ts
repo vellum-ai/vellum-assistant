@@ -15,7 +15,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
-import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
+import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
@@ -48,13 +48,48 @@ function cleanupAfterConfirmationDecision(
     useConversationStore.getState().removeAttentionConversationId(convKey);
   }
 
-  // Clear inline confirmation from the matched tool call by requestId
+  const riskMetadata = {
+    pendingConfirmation: undefined,
+    riskLevel: snapshot.riskLevel,
+    riskReason: snapshot.riskReason,
+    riskAllowlistOptions: snapshot.allowlistOptions,
+    scopeOptions: snapshot.scopeOptions,
+    riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
+    confirmationDecision: confirmationDecisionValue,
+  } as const;
+
+  // Single updater: clear pendingConfirmation from all matching tool calls
+  // AND stamp risk metadata on the target tool call.
+  let nudgeTcId: string | null = null;
+
   useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
+    // Resolve stamp target: explicit mapping or heuristic fallback
+    let stampTargetId = mappedToolCallId;
+    if (!stampTargetId) {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const msg = prev[i];
+        if (msg?.role !== "assistant" || !msg.toolCalls?.length) continue;
+        const tc = msg.toolCalls.findLast(
+          (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
+        );
+        if (tc) { stampTargetId = tc.id; break; }
+      }
+    }
+
+    // Compute nudge target from pre-stamp state (riskLevel not yet applied)
+    if (snapshot.riskLevel?.toLowerCase() === "unknown") {
+      nudgeTcId = stampTargetId ?? null;
+    }
+
     let anyChanged = false;
     const updated = prev.map((msg) => {
       if (!msg.toolCalls) return msg;
       let msgChanged = false;
       const updatedTcs = msg.toolCalls.map((tc) => {
+        if (tc.id === stampTargetId) {
+          msgChanged = true;
+          return { ...tc, ...riskMetadata };
+        }
         if (tc.pendingConfirmation?.requestId === snapshot.requestId) {
           msgChanged = true;
           return { ...tc, pendingConfirmation: undefined };
@@ -68,78 +103,6 @@ function cleanupAfterConfirmationDecision(
       return msg;
     });
     return anyChanged ? updated : prev;
-  });
-
-  // Compute nudge target BEFORE the stamp updater
-  const nudgeTcId = (() => {
-    if (snapshot.riskLevel?.toLowerCase() !== "unknown") return null;
-    if (mappedToolCallId) return mappedToolCallId;
-    const currentMessages = useChatSessionStore.getState().messages;
-    const msgIdx = currentMessages.findLastIndex(
-      (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
-    );
-    if (msgIdx !== -1) {
-      const msg = currentMessages[msgIdx];
-      const tcIdx = msg?.toolCalls?.findLastIndex(
-        (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
-      ) ?? -1;
-      if (tcIdx !== -1) return msg!.toolCalls![tcIdx]!.id;
-    }
-    return null;
-  })();
-
-  // Stamp risk metadata on the correct tool call
-  useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
-    if (mappedToolCallId) {
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const msg = prev[i];
-        if (!msg?.toolCalls) continue;
-        const tcIdx = msg.toolCalls.findIndex((tc) => tc.id === mappedToolCallId);
-        if (tcIdx !== -1) {
-          const existingTc = msg.toolCalls[tcIdx]!;
-          const updatedToolCalls = [...msg.toolCalls];
-          updatedToolCalls[tcIdx] = {
-            ...existingTc,
-            pendingConfirmation: undefined,
-            riskLevel: snapshot.riskLevel,
-            riskReason: snapshot.riskReason,
-            riskAllowlistOptions: snapshot.allowlistOptions,
-            scopeOptions: snapshot.scopeOptions,
-            riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
-            confirmationDecision: confirmationDecisionValue,
-          };
-          const updated = [...prev];
-          updated[i] = { ...msg, toolCalls: updatedToolCalls };
-          return updated;
-        }
-      }
-    }
-    const msgIdx = prev.findLastIndex(
-      (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
-    );
-    if (msgIdx === -1) return prev;
-    const msg = prev[msgIdx];
-    if (!msg?.toolCalls) return prev;
-    const tcIdx = msg.toolCalls.findLastIndex(
-      (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
-    );
-    if (tcIdx === -1) return prev;
-    const existingTc = msg.toolCalls[tcIdx];
-    if (!existingTc) return prev;
-    const updatedToolCalls = [...msg.toolCalls];
-    updatedToolCalls[tcIdx] = {
-      ...existingTc,
-      pendingConfirmation: undefined,
-      riskLevel: snapshot.riskLevel,
-      riskReason: snapshot.riskReason,
-      riskAllowlistOptions: snapshot.allowlistOptions,
-      scopeOptions: snapshot.scopeOptions,
-      riskDirectoryScopeOptions: snapshot.directoryScopeOptions,
-      confirmationDecision: confirmationDecisionValue,
-    };
-    const updated = [...prev];
-    updated[msgIdx] = { ...msg, toolCalls: updatedToolCalls };
-    return updated;
   });
 
   if (nudgeTcId) {
@@ -180,38 +143,26 @@ export async function handleConfirmationSubmit(
     toolCall?.id ??
     useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
+  // Auto-select first pattern/scope when persistent decisions are allowed
+  const ruleHint =
+    decision === "allow" &&
+    snapshot.persistentDecisionsAllowed !== false &&
+    (snapshot.allowlistOptions?.length ?? 0) > 0
+      ? {
+          selectedPattern: snapshot.allowlistOptions![0]!.pattern,
+          selectedScope:
+            (snapshot.directoryScopeOptions?.[0]?.scope ??
+            snapshot.scopeOptions?.[0]?.scope) ||
+            "everywhere",
+        }
+      : undefined;
+
   try {
-    if (
-      decision === "allow" &&
-      snapshot.persistentDecisionsAllowed !== false &&
-      (snapshot.allowlistOptions?.length ?? 0) > 0
-    ) {
-      const firstPattern = snapshot.allowlistOptions![0]!.pattern;
-      const firstScope =
-        (snapshot.directoryScopeOptions?.[0]?.scope ??
-        snapshot.scopeOptions?.[0]?.scope) ||
-        "everywhere";
-
-      const result = await submitConfirmation(
-        ctx.assistantId,
-        snapshot.requestId,
-        decision,
-        { selectedPattern: firstPattern, selectedScope: firstScope },
-      );
-
-      if (!result.ok) {
-        useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore.getState().submitConfirmationEnd();
-        return;
-      }
-      cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
-      return;
-    }
-
     const result = await submitConfirmation(
       ctx.assistantId,
       snapshot.requestId,
       decision,
+      ruleHint,
     );
 
     if (!result.ok) {
@@ -286,7 +237,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
       useInteractionStore.getState().submitConfirmationEnd();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-      openCreateEditor(editorContext);
+      openCreateEditor({ ...editorContext, requestId: "" });
       return;
     }
 
@@ -297,7 +248,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
     captureError(err, { context: "allow_and_create_rule" });
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
     useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-    openCreateEditor(editorContext);
+    openCreateEditor({ ...editorContext, requestId: "" });
     useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
     useInteractionStore.getState().submitConfirmationEnd();
   }

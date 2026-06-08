@@ -37,7 +37,7 @@ import type { SubagentStatus } from "@vellumai/assistant-api";
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils";
+} from "@/domains/chat/utils/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";

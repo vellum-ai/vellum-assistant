@@ -62,7 +62,7 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-} from "@/domains/chat/hooks/send-message-utils";
+} from "@/domains/chat/utils/send-message-utils";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";

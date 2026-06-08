@@ -15,7 +15,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
-import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
+import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { submitConfirmation } from "@/domains/chat/api/interactions";
