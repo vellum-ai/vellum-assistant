@@ -186,6 +186,7 @@ mock.module("@/runtime/native-auth", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => isLocalModeValue,
+  isLocalAssistant: () => false,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => "https://platform.vellum.ai",

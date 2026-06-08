@@ -65,7 +65,7 @@ import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
@@ -173,7 +173,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const addChatAttachmentFiles = useCallback(
     (files: FileList | File[]) => addFilesRaw(files, assistantId),
     [addFilesRaw, assistantId],

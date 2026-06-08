@@ -20,7 +20,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -91,7 +91,7 @@ export function ActiveChatView() {
   const showLlmInspector = canUseLlmInspector(authUser);
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const turnPhase = useTurnStore.use.phase();

@@ -59,6 +59,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
 const isLocalModeMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
+  isLocalAssistant: () => false,
   getSelectedAssistant: () => null,
   getLocalGatewayUrl: () => null,
 }));
@@ -83,7 +84,7 @@ mock.module("@/assistant/lifecycle", () => ({
 
 const { lifecycleService } = await import("./lifecycle-service");
 const { useAssistantLifecycleStore } = await import("./lifecycle-store");
-const { useAssistantSelectionStore } = await import("./selection-store");
+const { useResolvedAssistantsStore } = await import("@/stores/resolved-assistants-store");
 
 // --- fake query client --- //
 
@@ -150,7 +151,7 @@ describe("lifecycleService — server state projection", () => {
     await lifecycleService.checkAssistant();
 
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "active",
@@ -183,7 +184,7 @@ describe("lifecycleService — server state projection", () => {
       token: "tok",
     });
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-local-1");
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "self_hosted",
@@ -223,7 +224,7 @@ describe("lifecycleService — bootstrap branches", () => {
     await lifecycleService.respondToInputs();
 
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
@@ -248,14 +249,14 @@ describe("lifecycleService — bootstrap branches", () => {
     });
     await lifecycleService.checkAssistant();
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-prev");
 
     // Synchronous reset — no `await`, no input flip needed.
     lifecycleService.resetForLogout();
 
     expect(
-      useAssistantSelectionStore.getState().activeAssistantId,
+      useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",

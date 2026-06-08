@@ -30,7 +30,7 @@ export interface StreamHandlerContext {
   router: Router;
   isNative: boolean;
 
-  // --- Stream context (resolved from stream-store / selection-store) ---
+  // --- Stream context (resolved from stream-store / resolved-assistants-store) ---
   streamContext: StreamContext | null;
   assistantId: string | null;
 

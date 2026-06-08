@@ -15,7 +15,7 @@ import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { haptic } from "@/utils/haptics";
@@ -151,7 +151,7 @@ interface SideMenuRenderArgs {
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
  * keyboard shortcuts (Ctrl+\, Ctrl+[/], Ctrl+K), and the chat header
- * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
+ * bar. Reads the resolved assistant from `useResolvedAssistantsStore`,
  * the lifecycle phase from `useAssistantLifecycleStore`, and header
  * slot content from `useChatLayoutSlotsStore` (which child routes
  * write to from their own effects).
@@ -168,7 +168,7 @@ export function ChatLayout() {
   // this initial value remains stable for the window's lifetime.
   const [isPopout] = useState(() => location.search.includes("popout=1"));
 
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -882,7 +882,7 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
 // ---------------------------------------------------------------------------
 
 function ChatConversationHeader() {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();

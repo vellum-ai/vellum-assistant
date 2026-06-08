@@ -4,7 +4,7 @@ import { Outlet } from "react-router";
 import { Typography } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * Layout route that defers rendering of its child `<Outlet />` until
@@ -25,11 +25,11 @@ import { useAssistantSelectionStore } from "@/assistant/selection-store";
  * `@/assistant/use-active-assistant-id` to read a non-null
  * `assistantId: string`. Non-gated routes (`ChatPage`,
  * `DocumentViewerPage`) intentionally render across pre-active
- * lifecycle states and read `useAssistantSelectionStore.use.activeAssistantId()`
+ * lifecycle states and read `useResolvedAssistantsStore.use.activeAssistantId()`
  * directly, handling the null case themselves.
  */
 export function ActiveAssistantGate() {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );

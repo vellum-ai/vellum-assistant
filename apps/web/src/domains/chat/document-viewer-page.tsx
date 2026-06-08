@@ -12,7 +12,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
     documentsByIdConversationsPost,
     documentsByIdGet,
@@ -36,7 +36,7 @@ import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);

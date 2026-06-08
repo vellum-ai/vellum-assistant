@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useIsSessionInitializing } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -32,7 +32,7 @@ import { VersionSelectionScreen } from "@/domains/chat/components/version-select
 export function ChatPage() {
   const isSessionInitializing = useIsSessionInitializing();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
 
   const shouldRenderChat =

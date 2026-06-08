@@ -37,7 +37,7 @@ import {
     type ReactNode,
 } from "react";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
@@ -71,7 +71,7 @@ const ProfileQuickAddContext = createContext<ProfileQuickAddContextValue | null>
 );
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const openAICompatibleEndpoints =
     useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const chatgptSubscriptionAuth =
