@@ -98,17 +98,7 @@ export function PrivacyScreen() {
         variant,
       });
     }
-    // If the caller told us where to go after consent, go there instead of
-    // hatching a new assistant (e.g. returning user whose consent flags were
-    // cleared on logout).
-    const returnTo = searchParams.get("returnTo");
-    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
-      void navigate(returnTo, { replace: true });
-      return;
-    }
 
-    // Preserve the hosting param (Local/Docker need it so hatching runs the
-    // local hatch instead of a platform hatch).
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
@@ -126,8 +116,6 @@ export function PrivacyScreen() {
     tosAccepted,
     userId,
   ]);
-
-  const isReturningUser = !!searchParams.get("returnTo");
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">
@@ -188,7 +176,7 @@ export function PrivacyScreen() {
           </div>
         )}
         <h1 className="text-3xl font-semibold tracking-tight">
-          {isReturningUser ? "Review Terms" : "Before You Start"}
+          Before You Start
         </h1>
         <p className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
           Choose your privacy preferences. You can update these anytime in the
@@ -247,7 +235,7 @@ export function PrivacyScreen() {
             onClick={onStart}
             className="h-11 text-base"
           >
-            {isReturningUser ? "Continue" : "Start"}
+            Start
           </Button>
           <Button
             variant="outlined"
