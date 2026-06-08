@@ -1,4 +1,3 @@
-import { b, k1 } from "./needle.js";
 import type { SectionIndex, Slug } from "./types.js";
 
 /**
@@ -9,16 +8,17 @@ import type { SectionIndex, Slug } from "./types.js";
  * prose. Scoring happens at section grain; results are deduped to distinct
  * articles, each tagged with its best-scoring section.
  *
- * This is additive: it does not touch the page-grain {@link buildNeedleIndex}
- * in `needle.ts`, which tree-based routing still uses. The Okapi parameters and
- * tokenizer are shared so both lanes stay calibrated to the same harness.
- *
  * Implementation notes:
  * - Hand-rolled Okapi BM25F (no dependency). The corpus is bounded (one doc per
  *   section), so a plain inverted index is plenty.
  * - To match the validated harness the term stream includes adjacent-token
  *   bigrams (`token[i] + "_" + token[i+1]`) in addition to unigrams.
  */
+
+/** Okapi BM25 term-frequency saturation parameter. */
+const k1 = 1.5;
+/** Okapi BM25 length-normalization parameter. */
+const b = 0.75;
 
 /** `head`-field weight in the BM25F term-frequency blend. */
 export const HEAD_WEIGHT = 2.5;

@@ -34,13 +34,14 @@ import type { AssistantConfig } from "../../../config/schema.js";
 import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
-import type { PoolCandidate, SelectedPage } from "./pool-select.js";
+import type { PoolCandidate } from "./pool-select.js";
 import { selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
   MemoryRoutingTurn,
   Section,
   SectionIndex,
+  SelectedPage,
   Slug,
 } from "./types.js";
 import { WorkingSet } from "./working-set.js";
