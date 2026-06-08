@@ -6,12 +6,13 @@ import { BiometricSettingsCard } from "@/domains/settings/components/biometric-s
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import {
     getDeviceBool,
     getDeviceSetting,
-    setDeviceBool,
     setDeviceSetting,
 } from "@/utils/device-settings";
+import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -63,6 +64,7 @@ export function PrivacyPage() {
   // platformHostedOnly so the divider visibility matches the gate inside
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const hasPlatformSession = useHasPlatformSession();
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
   );
@@ -76,13 +78,13 @@ export function PrivacyPage() {
   const handleAnalyticsToggle = () => {
     const next = !shareAnalytics;
     setShareAnalytics(next);
-    setDeviceBool("shareAnalytics", next);
+    savePreferenceToggle("share_analytics", next, hasPlatformSession);
   };
 
   const handleDiagnosticsToggle = () => {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
-    setDeviceBool("shareDiagnostics", next);
+    savePreferenceToggle("share_diagnostics", next, hasPlatformSession);
   };
 
   const handleRetentionChange = (value: string) => {
