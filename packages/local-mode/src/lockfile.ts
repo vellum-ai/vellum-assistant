@@ -88,6 +88,21 @@ export function upsertLockfileAssistant(
   return { ok: true, lockfile: parseLockfile(stripped) };
 }
 
+export function isActiveAssistant(
+  lockfilePaths: string[],
+  assistantId: string,
+): boolean {
+  for (const candidate of lockfilePaths) {
+    try {
+      const data = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+      return data.activeAssistant === assistantId;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 export function replacePlatformAssistants(
   lockfilePaths: string[],
   platformAssistants: Array<Record<string, unknown>>,

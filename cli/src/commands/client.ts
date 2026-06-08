@@ -27,6 +27,7 @@ import {
   getLockfileData,
   upsertLockfileAssistant,
   replacePlatformAssistants,
+  isActiveAssistant,
   runHatch,
   runRetire,
   getGuardianAccessToken,
@@ -34,6 +35,8 @@ import {
   resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
   isLoopbackAddr,
+  headerHostIsLoopback,
+  originIsAllowed,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -384,6 +387,13 @@ async function handleLocalEndpoints(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (
+    !headerHostIsLoopback(req.headers.get("host") ?? undefined) ||
+    !originIsAllowed(req.headers.get("origin") ?? undefined)
+  ) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   // Lockfile
   if (LOCKFILE_PATTERN.test(pathname)) {
     if (req.method === "GET") {
@@ -487,6 +497,13 @@ async function handleLocalEndpoints(
       return Response.json(
         { ok: false, error: "Missing assistantId" },
         { status: 400 },
+      );
+    }
+
+    if (!isActiveAssistant(lockfilePaths, assistantId)) {
+      return Response.json(
+        { ok: false, error: "Can only retire the active local assistant" },
+        { status: 403 },
       );
     }
 

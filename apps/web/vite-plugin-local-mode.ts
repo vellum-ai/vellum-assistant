@@ -7,9 +7,12 @@ import {
   resolveLocalConfigFromEnv,
   resolveDevCliInvocation,
   isLoopbackAddr,
+  headerHostIsLoopback,
+  originIsAllowed,
   getLockfileData,
   upsertLockfileAssistant,
   replacePlatformAssistants,
+  isActiveAssistant,
   runHatch,
   runRetire,
   runWake,
@@ -46,7 +49,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       );
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
-      server.middlewares.use(retireMiddleware(baseDir));
+      server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
       server.middlewares.use(wakeMiddleware(baseDir));
       server.middlewares.use(
         guardianTokenMiddleware(config.configDir, baseDir, env),
@@ -57,15 +60,20 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   };
 }
 
-function rejectUnlessLoopback(
+function rejectUnlessLocalEndpointRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): boolean {
-  if (isLoopbackAddr(req.socket.remoteAddress ?? "")) return false;
-  res.statusCode = 403;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ error: "Forbidden" }));
-  return true;
+  const peer = req.socket.remoteAddress ?? "";
+  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  if (!isLoopbackAddr(peer) || !headerHostIsLoopback(host) || !originIsAllowed(origin)) {
+    res.statusCode = 403;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: "Forbidden" }));
+    return true;
+  }
+  return false;
 }
 
 function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
@@ -127,7 +135,7 @@ function lockfileMiddleware(
     )
       return next();
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     if (req.method === "GET") {
       const result = getLockfileData(lockfilePaths);
@@ -184,7 +192,7 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
     if (req.url !== "/assistant/__local/hatch" && req.url !== "/__local/hatch")
       return next();
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -243,7 +251,7 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
   };
 }
 
-function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
+function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (
       req.url !== "/assistant/__local/retire" &&
@@ -251,7 +259,7 @@ function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
     )
       return next();
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -281,6 +289,13 @@ function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      if (!isActiveAssistant(lockfilePaths, assistantId)) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Can only retire the active local assistant" }));
         return;
       }
 
@@ -317,7 +332,7 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
     if (req.url !== "/assistant/__local/wake" && req.url !== "/__local/wake")
       return next();
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -393,7 +408,7 @@ function guardianTokenMiddleware(
       return;
     }
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     const assistantId = decodeURIComponent(match[1]!);
 
@@ -435,7 +450,7 @@ function gatewayProxyMiddleware(
     );
     if (decision.kind === "pass") return next();
 
-    if (rejectUnlessLoopback(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
 
     if (decision.kind === "invalid-port") {
       res.statusCode = 400;
