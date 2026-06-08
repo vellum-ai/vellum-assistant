@@ -56,10 +56,7 @@ export function handleConfirmationRequest(
     useInteractionStore
       .getState()
       .setInlineConfirmationToolCallId(result.attachedToolCallId);
-    ctx.confirmationToolCallMap.set(
-      confData.requestId,
-      result.attachedToolCallId,
-    );
+    ctx.setConfirmationToolCall(confData.requestId, result.attachedToolCallId);
   } else {
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   }

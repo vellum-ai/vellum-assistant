@@ -52,7 +52,7 @@ export function makeCtx(
     cancelAndClearStream: mock(() => {}),
     cancelReconciliation: mock(() => {}),
     startReconciliationLoop: mock(() => {}),
-    confirmationToolCallMap: new Map(),
+    setConfirmationToolCall: mock(() => {}),
     setAssetsRefreshKey: mock(() => {}),
     dismissedSurfaceIds: new Set(),
     contextWindowUsageByConversation: new Map(),

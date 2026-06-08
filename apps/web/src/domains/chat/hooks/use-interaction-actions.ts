@@ -387,7 +387,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().addUnknownNudgeToolCallId(nudgeTcId);
       }
 
-      useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
+      useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
       useInteractionStore.getState().submitConfirmationEnd();
     },
     [],
@@ -811,7 +811,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
       useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
+      useChatSessionStore.getState().deleteConfirmationToolCall(context.requestId);
       useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       useRuleEditorStore.getState().dismissRuleEditor();
     },

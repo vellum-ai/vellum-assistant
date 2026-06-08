@@ -61,8 +61,12 @@ export interface ChatSessionState {
   pendingQueuedMessageIds: string[];
   requestIdToMessageId: Map<string, string>;
   pendingLocalDeletions: Set<string>;
-  confirmationToolCallMap: Map<string, string>;
   expandedToolCallIds: Set<string>;
+
+  // --- Confirmation tool-call mapping ---
+  // Managed through actions (setConfirmationToolCall, deleteConfirmationToolCall,
+  // clearConfirmationToolCallMap) so mutations go through Zustand's set().
+  confirmationToolCallMap: Map<string, string>;
   /**
    * Persistent expand state for the activity/tool progress cards and thinking
    * blocks. Held in the store (not local `Transcript` state) so a user's
@@ -130,6 +134,11 @@ export interface ChatSessionActions {
    * change is not treated as a real conversation switch.
    */
   markDraftResolution: () => void;
+
+  // --- Confirmation tool-call mapping ---
+  setConfirmationToolCall: (requestId: string, toolCallId: string) => void;
+  deleteConfirmationToolCall: (requestId: string) => void;
+  clearConfirmationToolCallMap: () => void;
 
   // --- Data-apply coordination ---
   consumeSwitchReset: () => void;
@@ -308,6 +317,24 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   markDraftResolution: () =>
     set({ draftConversationIdResolution: true }),
+
+  // --- Confirmation tool-call mapping ---
+  setConfirmationToolCall: (requestId, toolCallId) =>
+    set((s) => {
+      const next = new Map(s.confirmationToolCallMap);
+      next.set(requestId, toolCallId);
+      return { confirmationToolCallMap: next };
+    }),
+
+  deleteConfirmationToolCall: (requestId) =>
+    set((s) => {
+      const next = new Map(s.confirmationToolCallMap);
+      next.delete(requestId);
+      return { confirmationToolCallMap: next };
+    }),
+
+  clearConfirmationToolCallMap: () =>
+    set({ confirmationToolCallMap: new Map() }),
 
   // --- Data-apply coordination ---
   consumeSwitchReset: () =>

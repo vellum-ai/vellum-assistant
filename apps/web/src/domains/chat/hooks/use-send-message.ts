@@ -433,7 +433,7 @@ export function useSendMessage({
               const result = attachConfirmationToToolCall(prev, capturedConfData);
               if (result.attachedToolCallId) {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-                useChatSessionStore.getState().confirmationToolCallMap.set(capturedConfData.requestId, result.attachedToolCallId);
+                useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
               } else {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(null);
               }
@@ -497,7 +497,7 @@ export function useSendMessage({
       }
       setError(null);
       useInteractionStore.getState().resetSecretAndConfirmation();
-      useChatSessionStore.getState().confirmationToolCallMap.clear();
+      useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
@@ -746,7 +746,7 @@ export function useSendMessage({
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
-    useChatSessionStore.getState().confirmationToolCallMap.clear();
+    useChatSessionStore.getState().clearConfirmationToolCallMap();
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

@@ -64,7 +64,7 @@ export interface StreamHandlerContext {
   startReconciliationLoop: (epoch: number) => void;
 
   // --- Interaction state ---
-  confirmationToolCallMap: Map<string, string>;
+  setConfirmationToolCall: (requestId: string, toolCallId: string) => void;
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
