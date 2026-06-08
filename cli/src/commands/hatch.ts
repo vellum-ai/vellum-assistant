@@ -16,6 +16,7 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { buildNestedConfig } from "../lib/config-utils";
 import { hatchDocker } from "../lib/docker";
+import { parseFeatureFlagArgs } from "../lib/flag-args";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { hatchLocal } from "../lib/hatch-local";
 import {
@@ -178,11 +179,14 @@ interface HatchArgs {
   watch: boolean;
   sourcePath: string | null;
   configValues: Record<string, string>;
+  flagEnvVars: Record<string, string>;
   analyze: boolean;
 }
 
 function parseArgs(): HatchArgs {
-  const args = process.argv.slice(3);
+  const { envVars: flagEnvVars, remaining: args } = parseFeatureFlagArgs(
+    process.argv.slice(3),
+  );
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
   let keepAlive = false;
@@ -221,6 +225,9 @@ function parseArgs(): HatchArgs {
       );
       console.log(
         "  --config <key=value>      Set a workspace config value (repeatable)",
+      );
+      console.log(
+        "  --flag <key=value>        Set a feature flag override as VELLUM_FLAG_<KEY> env var (repeatable)",
       );
       console.log(
         "  --analyze                 Emit a structured hatch-timing log line on stdout",
@@ -289,7 +296,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --analyze`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --flag <key=value>, --analyze`,
       );
       process.exit(1);
     }
@@ -304,6 +311,7 @@ function parseArgs(): HatchArgs {
     watch,
     sourcePath,
     configValues,
+    flagEnvVars,
     analyze,
   };
 }
@@ -538,6 +546,7 @@ export async function hatch(): Promise<void> {
     watch,
     sourcePath,
     configValues,
+    flagEnvVars,
     analyze,
   } = parseArgs();
 
@@ -566,7 +575,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, watch, keepAlive, configValues);
+    await hatchLocal(species, name, watch, keepAlive, configValues, flagEnvVars);
     return;
   }
 
