@@ -488,7 +488,7 @@
       "key": "provider-first-profile-creation",
       "label": "Provider-First Profile Creation",
       "description": "New profile creation flow: pick (or inline-create) a provider first, then a model, with pre-filled provider and profile name/key, plus a quick-add \"+\" in the chat composer's Model Profile menu. When off, profile creation uses the previous field order and there is no composer quick-add.",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "acp",
