@@ -16,7 +16,7 @@ import { describe, expect, mock, test } from "bun:test";
 // store. Register each test's canned stub in a map the mocked store reads from.
 const fakeContextWindowManagers = new Map<string, unknown>();
 mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
-  registerContextWindowManager: () => undefined,
+  createContextWindowManager: () => undefined,
   getContextWindowManager: (conversationId: string) =>
     fakeContextWindowManagers.get(conversationId),
   disposeContextWindowManager: (conversationId: string) => {

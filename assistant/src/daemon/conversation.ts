@@ -59,8 +59,8 @@ import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
+  createContextWindowManager,
   getContextWindowManager,
-  registerContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
 import {
   type ContextWindowManager,
@@ -612,7 +612,7 @@ export class Conversation {
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
     });
-    registerContextWindowManager(this.conversationId, () => ({
+    createContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
@@ -621,15 +621,14 @@ export class Conversation {
       resolveTools: resolveTools
         ? () => resolveTools(this.messages)
         : undefined,
-    }));
+    });
   }
 
   /**
    * The conversation's {@link ContextWindowManager}, owned by the compaction
-   * module's per-conversation store. The constructor registers its recipe
-   * there; this accessor resolves the manager on demand, building it from the
-   * recipe on first access, so the conversation holds no separate handle. The
-   * recipe is present for the conversation's whole in-memory lifetime
+   * module's per-conversation store. The constructor builds and registers it
+   * there; this accessor resolves it on demand so the conversation holds no
+   * separate handle. Present for the conversation's whole in-memory lifetime
    * (registered at construction, released on teardown), so a live conversation
    * always resolves an instance.
    */
