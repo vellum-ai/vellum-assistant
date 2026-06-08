@@ -210,7 +210,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -254,6 +254,7 @@ export function useSendMessage({
         content,
         attachmentIds,
         onboardingContext ?? undefined,
+        clientMessageId,
       );
       if (
         useServerMint &&
@@ -520,9 +521,10 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      const optimisticUserId = crypto.randomUUID();
+      const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
-        id: optimisticUserId,
+        id: clientMessageId,
+        clientMessageId,
         isOptimistic: true,
         role: "user",
         textSegments: [content],
@@ -544,6 +546,8 @@ export function useSendMessage({
             activeConversationId,
             content,
             attachmentIds,
+            undefined,
+            clientMessageId,
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -628,6 +632,7 @@ export function useSendMessage({
           turnId,
           attachments.map((att) => att.id),
           isDraft,
+          clientMessageId,
         );
 
         if (result.status === "failed") {
@@ -666,13 +671,13 @@ export function useSendMessage({
         // POST resolve — swap the optimistic user row's client id for the
         // server's. Gate on `isOptimistic` so a reconcile that already
         // swapped this row doesn't get clobbered. Queued sends skip this
-        // and keep their optimistic id until a later reconcile
-        // content-matches.
+        // and keep their optimistic id until the daemon echoes their
+        // `clientMessageId` back on the persisted row.
         if (result.userMessageId) {
           const serverUserMessageId = result.userMessageId;
           setMessages((prev) =>
             prev.map((m) =>
-              m.isOptimistic && m.id === optimisticUserId
+              m.isOptimistic && m.id === clientMessageId
                 ? { ...m, id: serverUserMessageId, isOptimistic: false }
                 : m,
             ),

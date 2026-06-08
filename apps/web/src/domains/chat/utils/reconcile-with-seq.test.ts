@@ -283,6 +283,202 @@ describe("reconcileMessagesWithSeq", () => {
     expect(messageText(assistants[0])).toBe("Hello there");
   });
 
+  test("folds an optimistic user row into its server echo by clientMessageId", () => {
+    /**
+     * The originating client's optimistic user send carries the nonce it
+     * minted. When the snapshot echoes that nonce back on the persisted row
+     * the optimistic row must collapse into it by identity — independent of
+     * text, so server-side normalization can't spawn a duplicate bubble.
+     */
+    // GIVEN an optimistic user row carrying its nonce and pre-normalized text
+    const local = [
+      makeRow({
+        id: "nonce-1",
+        clientMessageId: "nonce-1",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("  hello  "),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a snapshot echoing the same nonce under a server id with normalized text
+    const server = [
+      makeRow({
+        id: "srv-1",
+        clientMessageId: "nonce-1",
+        role: "user",
+        ...textBody("hello"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN the merge runs with an authoritative snapshot
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the optimistic row collapses into the single server row
+    const users = result.filter((m) => m.role === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0]!.id).toBe("srv-1");
+  });
+
+  test("folds each optimistic user row to its own server echo across two in-flight sends", () => {
+    /**
+     * Two quick-succession sends each carry a distinct nonce. Identity
+     * correlation folds each optimistic row into its matching server row —
+     * a recency heuristic could collapse both into the latest server row.
+     */
+    // GIVEN two optimistic user rows with distinct nonces
+    const local = [
+      makeRow({
+        id: "n1",
+        clientMessageId: "n1",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "n2",
+        clientMessageId: "n2",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // AND a snapshot echoing both nonces under their server ids
+    const server = [
+      makeRow({
+        id: "srv-1",
+        clientMessageId: "n1",
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "srv-2",
+        clientMessageId: "n2",
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // WHEN the merge runs with an authoritative snapshot
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN each optimistic row folds into its own server echo, no duplicates
+    const users = result.filter((m) => m.role === "user");
+    expect(users.map((m) => m.id)).toEqual(["srv-1", "srv-2"]);
+  });
+
+  test("folds an optimistic user row by recency when the daemon echoes no nonce", () => {
+    /**
+     * A daemon that predates the idempotency contract persists no nonce, so
+     * the server row carries no `clientMessageId`. The optimistic row then
+     * folds into the most recent server user row — the single in-flight send
+     * in the common case.
+     */
+    // GIVEN an optimistic user row whose nonce the server never echoes
+    const local = [
+      makeRow({
+        id: "nonce-q",
+        clientMessageId: "nonce-q",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("queued message"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a snapshot whose server row carries no clientMessageId
+    const server = [
+      makeRow({
+        id: "srv-legacy",
+        role: "user",
+        ...textBody("queued message"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN the merge runs with an authoritative snapshot
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the optimistic row collapses into the single server row
+    const users = result.filter((m) => m.role === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0]!.id).toBe("srv-legacy");
+  });
+
+  test("keeps both optimistic rows when two legacy sends share no echoed nonce", () => {
+    /**
+     * Against a pre-idempotency daemon neither server row carries a nonce, so
+     * both optimistic rows fall to the recency branch. Claiming a folded
+     * server row keeps the second optimistic row from collapsing onto the same
+     * server row, so no message is dropped from the transcript.
+     */
+    // GIVEN two optimistic user rows whose nonces the server never echoes
+    const local = [
+      makeRow({
+        id: "nonce-a",
+        clientMessageId: "nonce-a",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "nonce-b",
+        clientMessageId: "nonce-b",
+        isOptimistic: true,
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // AND a snapshot whose two server rows both carry no clientMessageId
+    const server = [
+      makeRow({
+        id: "srv-legacy-1",
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
+      makeRow({
+        id: "srv-legacy-2",
+        role: "user",
+        ...textBody("second"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // WHEN the merge runs with an authoritative snapshot
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN both server rows survive — neither optimistic row is dropped
+    const users = result.filter((m) => m.role === "user");
+    expect(users).toHaveLength(2);
+    expect(users.map((m) => m.id).sort()).toEqual([
+      "srv-legacy-1",
+      "srv-legacy-2",
+    ]);
+  });
+
   test("returns the same reference for a stale no-op snapshot via the row-id walk", () => {
     /**
      * On the streaming hot path a debounced snapshot lags the stream (`S < L`).

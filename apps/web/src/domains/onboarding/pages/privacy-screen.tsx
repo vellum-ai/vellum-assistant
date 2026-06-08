@@ -21,7 +21,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { persistConsentForUser } from "@/utils/onboarding-cleanup";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -94,6 +94,7 @@ export function PrivacyScreen() {
     } catch (err) {
       captureError(err, { context: "onboarding_persist_share_prefs" });
     }
+    persistConsentForUser(userId);
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -104,8 +105,8 @@ export function PrivacyScreen() {
     // If the caller told us where to go after consent, go there instead of
     // hatching a new assistant (e.g. returning user whose consent flags were
     // cleared on logout).
-    const returnTo = sanitizeReturnTo(searchParams.get("returnTo"), "");
-    if (returnTo) {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
       void navigate(returnTo, { replace: true });
       return;
     }

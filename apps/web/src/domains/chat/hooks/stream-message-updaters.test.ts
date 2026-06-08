@@ -939,26 +939,131 @@ describe("applyUserMessageEcho", () => {
     expect(result[0]!.isOptimistic).toBe(true);
   });
 
-  it("upgrades the originating client's optimistic row to the server id", () => {
+  it("upgrades the originating client's optimistic row by clientMessageId", () => {
     /**
      * When the echo beats the 202 response, the originating client still
-     * shows its optimistic row; the echo swaps it to the server id so a
-     * later reconcile content-match cannot produce a duplicate.
+     * shows its optimistic row; the echo correlates on the nonce it minted
+     * and swaps the row to the server id so a later reconcile cannot
+     * produce a duplicate.
      */
-    // GIVEN an optimistic user row matching the echo text
+    // GIVEN an optimistic user row carrying the client nonce
     const prev: DisplayMessage[] = [
-      { id: "client-uuid", role: "user", ...seg("hello"), isOptimistic: true, timestamp: 1 },
+      {
+        id: "client-uuid",
+        clientMessageId: "client-uuid",
+        role: "user",
+        ...seg("hello"),
+        isOptimistic: true,
+        timestamp: 1,
+      },
     ];
 
-    // WHEN the echo for that send arrives with a server id
+    // WHEN the echo for that send arrives with the nonce and a server id
     const result = applyUserMessageEcho(prev, {
       text: "hello",
       messageId: "msg-server-2",
+      clientMessageId: "client-uuid",
     });
 
     // THEN the row is upgraded in place — id swapped, optimistic cleared, no duplicate
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("msg-server-2");
+    expect(result[0]!.isOptimistic).toBe(false);
+  });
+
+  it("correlates by nonce even when the echoed text differs", () => {
+    /**
+     * Identity correlation does not depend on text, so a daemon that
+     * normalizes (trims, rewrites markdown) the persisted content still
+     * folds into the originating optimistic row rather than appending a
+     * duplicate.
+     */
+    // GIVEN an optimistic user row whose nonce the echo carries
+    const prev: DisplayMessage[] = [
+      {
+        id: "nonce-a",
+        clientMessageId: "nonce-a",
+        role: "user",
+        ...seg("  hello  "),
+        isOptimistic: true,
+        timestamp: 1,
+      },
+    ];
+
+    // WHEN the echo arrives with normalized text but the same nonce
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-x",
+      clientMessageId: "nonce-a",
+    });
+
+    // THEN the optimistic row is upgraded in place, not duplicated
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("msg-server-x");
+    expect(result[0]!.isOptimistic).toBe(false);
+  });
+
+  it("folds the correct row when two sends are in flight", () => {
+    /**
+     * Two optimistic sends each carry a distinct nonce. The echo for the
+     * earlier send must upgrade the earlier row — a recency heuristic would
+     * wrongly pick the most recent optimistic row.
+     */
+    // GIVEN two optimistic user rows with distinct nonces
+    const prev: DisplayMessage[] = [
+      {
+        id: "nonce-1",
+        clientMessageId: "nonce-1",
+        role: "user",
+        ...seg("first"),
+        isOptimistic: true,
+        timestamp: 1,
+      },
+      {
+        id: "nonce-2",
+        clientMessageId: "nonce-2",
+        role: "user",
+        ...seg("second"),
+        isOptimistic: true,
+        timestamp: 2,
+      },
+    ];
+
+    // WHEN the echo for the earlier send arrives
+    const result = applyUserMessageEcho(prev, {
+      text: "first",
+      messageId: "msg-server-first",
+      clientMessageId: "nonce-1",
+    });
+
+    // THEN only the earlier row is upgraded; the later row stays optimistic
+    expect(result).toHaveLength(2);
+    expect(result[0]!.id).toBe("msg-server-first");
+    expect(result[0]!.isOptimistic).toBe(false);
+    expect(result[1]!.id).toBe("nonce-2");
+    expect(result[1]!.isOptimistic).toBe(true);
+  });
+
+  it("falls back to the most recent optimistic row when the echo carries no nonce", () => {
+    /**
+     * A daemon that predates the idempotency contract echoes no nonce, so
+     * the originating client folds the most recent still-optimistic user
+     * row — the single in-flight send in the common case.
+     */
+    // GIVEN one optimistic user row and no nonce on either side
+    const prev: DisplayMessage[] = [
+      { id: "client-uuid", role: "user", ...seg("hello"), isOptimistic: true, timestamp: 1 },
+    ];
+
+    // WHEN the echo arrives without a clientMessageId
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-legacy",
+    });
+
+    // THEN the optimistic row is upgraded in place
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("msg-server-legacy");
     expect(result[0]!.isOptimistic).toBe(false);
   });
 

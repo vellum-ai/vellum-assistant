@@ -224,6 +224,12 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy?returnTo=%2Fassistant" });
     });
 
+    test("redirects platform-mode user without consent and no assistants to privacy without returnTo", () => {
+      expect(
+        guard(s({ isLocalMode: false, tosAccepted: false, aiDataConsent: false, hasAssistants: false })),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
     test("does not redirect local-mode user without consent (handled by step 5)", () => {
       expect(
         guard(s({ isLocalMode: true, hasAssistants: true, tosAccepted: false, aiDataConsent: false })),

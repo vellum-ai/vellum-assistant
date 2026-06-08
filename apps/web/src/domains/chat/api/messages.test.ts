@@ -110,6 +110,33 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 });
 
+describe("postChatMessage — clientMessageId wire format", () => {
+  test("sends the client nonce as the idempotency key when provided", async () => {
+    await postChatMessage(
+      "assistant-1",
+      "conv-key",
+      "Hello",
+      [],
+      undefined,
+      "nonce-123",
+    );
+
+    expect(capturedBody).not.toBeNull();
+    expect((capturedBody as Record<string, unknown>).clientMessageId).toBe(
+      "nonce-123",
+    );
+  });
+
+  test("omits clientMessageId when absent so pre-idempotency daemons are unaffected", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(capturedBody).not.toBeNull();
+    expect(
+      (capturedBody as Record<string, unknown>).clientMessageId,
+    ).toBeUndefined();
+  });
+});
+
 describe("normalizeContentOrder", () => {
   test("converts string-format entries to objects", () => {
     const result = normalizeContentOrder(["text:0", "tool:1", "surface:2"]);

@@ -68,6 +68,17 @@ export interface DisplayMessage {
    */
   mergedMessageIds?: string[];
   /**
+   * Client-generated correlation nonce, carried from the wire
+   * `ConversationMessage["clientMessageId"]`. The originating client mints it
+   * at send time, sends it on the POST body, and the daemon echoes it back on
+   * the `user_message_echo` event and the messages snapshot. Reconcile and the
+   * echo handler match an optimistic user row to its confirmed server row on
+   * this identity rather than on text, so duplicate or normalized content
+   * cannot mis-correlate. Absent on rows that never originated a client send
+   * (passive viewers, assistant turns, daemons that predate the field).
+   */
+  clientMessageId?: string;
+  /**
    * Message role, carried straight through from the canonical wire contract
    * (`ConversationMessage["role"]`). The transcript renders `"user"` rows as
    * the sender's bubble and treats every other role as an assistant turn, so
