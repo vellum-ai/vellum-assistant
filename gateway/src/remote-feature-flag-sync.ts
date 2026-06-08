@@ -70,6 +70,7 @@ export class RemoteFeatureFlagSync {
    * change that lands mid-fetch is never dropped (see `syncNow`).
    */
   private pendingResync = false;
+  private hasAuthedSuccessfully = false;
   private waitingForCredentials = false;
   private unsubscribeCredentials: (() => void) | null = null;
   private currentIntervalMs: number;
@@ -363,6 +364,17 @@ export class RemoteFeatureFlagSync {
       return { status: "missing_credentials" };
     }
 
+    // If we previously fetched with auth and the API key is now missing,
+    // treat it as a transient error (backoff + retry) rather than
+    // downgrading to an anonymous fetch that would overwrite per-assistant
+    // flag values with anonymous defaults.
+    if (!assistantCredential && this.hasAuthedSuccessfully) {
+      log.warn(
+        "API key previously available but now missing — treating as transient error",
+      );
+      return { status: "error" };
+    }
+
     const url = `${platformUrl}/v1/feature-flags/assistant-flag-values/`;
     const headers: Record<string, string> = { Accept: "application/json" };
     if (assistantCredential) {
@@ -414,6 +426,10 @@ export class RemoteFeatureFlagSync {
         continue;
       }
       values[key] = value;
+    }
+
+    if (assistantCredential) {
+      this.hasAuthedSuccessfully = true;
     }
 
     return { status: "success", values };

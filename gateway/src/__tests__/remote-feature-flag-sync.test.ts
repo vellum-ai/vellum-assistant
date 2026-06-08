@@ -942,4 +942,43 @@ describe("RemoteFeatureFlagSync", () => {
 
     sync.stop();
   });
+
+  test("does not downgrade to anonymous fetch when API key is transiently lost", async () => {
+    const cache = fakeCredentialCache(defaultCredentials());
+
+    // Initial authenticated fetch succeeds
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "per-assistant-flag": true } }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: cache,
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "per-assistant-flag": true });
+
+    // Simulate transient API key loss (CES hiccup) — platform URL still present
+    cache._setValues({
+      "credential/vellum/platform_base_url": "https://platform.vellum.ai",
+    });
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "per-assistant-flag": false } }),
+    );
+
+    await sync.syncNow();
+
+    // Should NOT have fetched — transient key loss triggers error/backoff,
+    // not an anonymous fetch that would overwrite per-assistant values.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Cached values from the previous authenticated fetch are preserved.
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "per-assistant-flag": true });
+
+    sync.stop();
+  });
 });
