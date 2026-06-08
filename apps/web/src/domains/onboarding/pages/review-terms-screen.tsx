@@ -8,6 +8,7 @@ import {
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
@@ -51,8 +52,9 @@ export function ReviewTermsScreen() {
     userId,
   ]);
 
-  const handleLogout = useCallback(() => {
-    void logout();
+  const handleLogout = useCallback(async () => {
+    await logout();
+    hardNavigate(routes.account.login);
   }, [logout]);
 
   const tosLabel: ReactNode = (
