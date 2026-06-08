@@ -5,6 +5,7 @@ import { client } from "@/generated/api/client.gen";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ASSISTANT_STRING_FLAG_DEFAULTS,
+  getEnvFlagOverridesForScope,
   storeKeyToFlagKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 
@@ -73,6 +74,8 @@ function resetAllConfirmed() {
   resetConfirmedStringFlags();
 }
 
+const envOverrides = getEnvFlagOverridesForScope("assistant");
+
 function latestConfirmedValue(key: string): boolean {
   return confirmedAssistantFlagValues[key] ?? ASSISTANT_FLAG_DEFAULTS[key] ?? false;
 }
@@ -95,16 +98,18 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 
     return ({
       ...ASSISTANT_FLAG_DEFAULTS,
+      ...envOverrides.bool,
       hasHydrated: false,
-      stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS },
+      stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str },
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
           resetConfirmedFlags(flags);
-          const changed = Object.keys(flags).some(
-            (k) => flags[k] !== prev[k],
+          const merged = { ...flags, ...envOverrides.bool };
+          const changed = Object.keys(merged).some(
+            (k) => merged[k] !== prev[k],
           );
-          return changed ? flags : prev;
+          return changed ? merged : prev;
         }),
 
       setFlag: (key: string, value: boolean, assistantId: string | null) => {
@@ -150,25 +155,26 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           confirmedAssistantFlagValues[key] = value;
         }
 
-        set({ [key]: value });
+        set({ [key]: envOverrides.bool[key] ?? value });
       },
 
       markHydrated: () => set({ hasHydrated: true }),
 
       resetForAssistantSwitch: () => {
         resetAllConfirmed();
-        set({ ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false });
-        setStr({ stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS } });
+        set({ ...ASSISTANT_FLAG_DEFAULTS, ...envOverrides.bool, hasHydrated: false });
+        setStr({ stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str } });
       },
 
       setStringFlags: (flags: Record<string, string>) =>
         setStr((prev) => {
           resetConfirmedStringFlags(flags);
+          const merged = { ...flags, ...envOverrides.str };
           const prevStr = prev.stringFlags;
-          const changed = Object.keys(flags).some(
-            (k) => flags[k] !== prevStr[k],
+          const changed = Object.keys(merged).some(
+            (k) => merged[k] !== prevStr[k],
           );
-          return changed ? { stringFlags: flags } : prev;
+          return changed ? { stringFlags: merged } : prev;
         }),
 
       setStringFlag: (key: string, value: string, assistantId: string | null) => {
@@ -212,7 +218,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         }
 
         setStr((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: value },
+          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
         }));
       },
     }) as AssistantFeatureFlagStore;

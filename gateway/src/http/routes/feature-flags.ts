@@ -2,6 +2,7 @@ import {
   loadFeatureFlagDefaults,
   isFlagDeclared,
 } from "../../feature-flag-defaults.js";
+import { readEnvFeatureFlagOverrides } from "../../feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "../../feature-flag-remote-store.js";
 import {
   readPersistedFeatureFlags,
@@ -30,20 +31,23 @@ export function createFeatureFlagsGetHandler() {
       const defaults = loadFeatureFlagDefaults();
       const persisted = readPersistedFeatureFlags();
       const remote = readRemoteFeatureFlags();
+      const envOverrides = readEnvFeatureFlagOverrides();
 
       const entries: FeatureFlagEntry[] = [];
       for (const [key, def] of Object.entries(defaults)) {
         const persistedValue = persisted[key];
         const remoteValue = remote[key];
+        const base =
+          persistedValue !== undefined
+            ? persistedValue
+            : remoteValue !== undefined
+              ? remoteValue
+              : def.defaultEnabled;
+        const envValue = envOverrides[key];
         entries.push({
           key,
           label: def.label,
-          enabled:
-            persistedValue !== undefined
-              ? persistedValue
-              : remoteValue !== undefined
-                ? remoteValue
-                : def.defaultEnabled,
+          enabled: envValue !== undefined ? envValue : base,
           defaultEnabled: def.defaultEnabled,
           description: def.description,
         });

@@ -4,6 +4,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
+  getEnvFlagOverridesForScope,
 } from "@/lib/feature-flags/feature-flag-catalog";
 
 const LS_PREFIX = "vellum:ff:";
@@ -43,6 +44,7 @@ function readStringOverrides(): Record<string, string> {
 
 const localOverrides = readOverrides();
 const localStringOverrides = readStringOverrides();
+const envOverrides = getEnvFlagOverridesForScope("client");
 
 interface ClientFeatureFlagMeta {
   stringFlags: Record<string, string>;
@@ -73,12 +75,13 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
     return ({
       ...CLIENT_FLAG_DEFAULTS,
       ...localOverrides,
-      stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides },
+      ...envOverrides.bool,
+      stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides, ...envOverrides.str },
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
           const overrides = readOverrides();
-          const merged = { ...flags, ...overrides };
+          const merged = { ...flags, ...overrides, ...envOverrides.bool };
           const changed = Object.keys(merged).some(
             (k) => merged[k] !== prev[k],
           );
@@ -91,7 +94,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        set({ [key]: value });
+        set({ [key]: envOverrides.bool[key] ?? value });
       },
 
       clearOverride: (key: string) => {
@@ -100,7 +103,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        const defaultValue = CLIENT_FLAG_DEFAULTS[key];
+        const defaultValue = envOverrides.bool[key] ?? CLIENT_FLAG_DEFAULTS[key];
         if (defaultValue !== undefined) {
           set({ [key]: defaultValue });
         }
@@ -109,7 +112,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       setStringFlags: (flags: Record<string, string>) =>
         setStr((prev) => {
           const overrides = readStringOverrides();
-          const merged = { ...flags, ...overrides };
+          const merged = { ...flags, ...overrides, ...envOverrides.str };
           const prevStr = prev.stringFlags;
           const changed = Object.keys(merged).some(
             (k) => merged[k] !== prevStr[k],
@@ -124,7 +127,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           // localStorage unavailable
         }
         setStr((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: value },
+          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
         }));
       },
 
@@ -134,7 +137,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        const defaultValue = CLIENT_STRING_FLAG_DEFAULTS[key];
+        const defaultValue = envOverrides.str[key] ?? CLIENT_STRING_FLAG_DEFAULTS[key];
         setStr((prev) => ({
           stringFlags: {
             ...prev.stringFlags,

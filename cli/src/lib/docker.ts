@@ -662,6 +662,7 @@ export async function startContainers(
     bootstrapSecret?: string;
     cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
+    extraGatewayEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
@@ -1042,6 +1043,7 @@ export async function hatchDocker(
   name: string | null,
   watch: boolean = false,
   configValues: Record<string, string> = {},
+  flagEnvVars: Record<string, string> = {},
   options: HatchDockerOptions = {},
 ): Promise<void> {
   resetLogFile("hatch.log");
@@ -1321,12 +1323,15 @@ export async function hatchDocker(
       : ownSecret;
 
     emitProgress(4, 6, "Starting containers...");
+    const extraGatewayEnv =
+      Object.keys(flagEnvVars).length > 0 ? flagEnvVars : undefined;
     await startContainers(
       {
         signingKey,
         bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags,
         instanceName,
