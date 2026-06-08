@@ -906,18 +906,6 @@ export async function runAgentLoopImpl(
     // message list downstream.
     let runMessages = memoryCtx.latestMessages;
 
-    // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    // Reducer state, tool-token budget, and calibration provider key consumed
-    // by the post-rejection convergence loop further down. The tool-token
-    // budget is resolved once per turn (the resolved tool set is stable across
-    // the turn); the calibration key matches the key recorded by `handleUsage`
-    // for wrapper providers (OpenRouter routing to Anthropic → key is
-    // `"anthropic"`).
-    let reducerState: ReducerState | undefined;
-    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    const estimationProviderName = getCalibrationProviderKey(ctx.provider);
-
     // user-prompt-submit hook: plugins may transform `runMessages` right
     // before the agent loop receives them. Fires once per user turn at the
     // primary `agentLoop.run` only — the re-entry / retry calls further down
@@ -941,6 +929,16 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     runMessages = finalUserPromptCtx.latestMessages;
+
+    // Reducer state, tool-token budget, and calibration provider key consumed
+    // by the post-rejection convergence loop further down. The tool-token
+    // budget is resolved once per turn (the resolved tool set is stable across
+    // the turn); the calibration key matches the key recorded by `handleUsage`
+    // for wrapper providers (OpenRouter routing to Anthropic → key is
+    // `"anthropic"`).
+    let reducerState: ReducerState | undefined;
+    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
+    const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
