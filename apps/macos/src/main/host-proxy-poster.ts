@@ -152,7 +152,7 @@ export class HostProxyPoster {
   // Transfer content methods
   // -----------------------------------------------------------------------
 
-  async pullTransferContent(transferId: string): Promise<Buffer> {
+  async pullTransferContent(transferId: string): Promise<Buffer | null> {
     try {
       const url = `${this.baseUrl}/v1/transfers/${encodeURIComponent(transferId)}/content`;
       const controller = new AbortController();
@@ -166,14 +166,14 @@ export class HostProxyPoster {
           headers: this.commonHeaders(),
           signal: controller.signal,
         });
-        if (!res.ok) return Buffer.alloc(0);
+        if (!res.ok) return null;
         const arrayBuf = await res.arrayBuffer();
         return Buffer.from(arrayBuf);
       } finally {
         clearTimeout(timer);
       }
     } catch {
-      return Buffer.alloc(0);
+      return null;
     }
   }
 
@@ -219,7 +219,7 @@ export class HostProxyPoster {
 
   private async postJson(
     path: string,
-    payload: Record<string, unknown>,
+    payload: object,
   ): Promise<boolean> {
     try {
       const body = JSON.stringify(payload);

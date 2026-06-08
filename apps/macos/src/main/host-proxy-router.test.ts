@@ -11,7 +11,8 @@ mock.module("./device-id", () => ({
 }));
 
 const mockGetGuardianAccessToken = mock(
-  async () => ({ ok: true, accessToken: "test-token" }) as const,
+  async (): Promise<{ ok: true; accessToken: string } | { ok: false; status: number; error: string }> =>
+    ({ ok: true, accessToken: "test-token" }),
 );
 mock.module("@vellumai/local-mode", () => ({
   getGuardianAccessToken: mockGetGuardianAccessToken,
@@ -25,6 +26,7 @@ mock.module("./lockfile-watcher", () => ({
     lockfileListener = listener;
     return () => { lockfileListener = null; };
   },
+  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
 }));
 
 // Stub electron-log
@@ -88,7 +90,7 @@ describe("host-proxy-router", () => {
     lockfileListener = null;
     mockGetGuardianAccessToken.mockReset();
     mockGetGuardianAccessToken.mockImplementation(
-      async () => ({ ok: true, accessToken: "test-token" }) as const,
+      async () => ({ ok: true, accessToken: "test-token" }),
     );
   });
 
@@ -186,7 +188,7 @@ describe("host-proxy-router", () => {
 
     test("does not connect when guardian token fetch fails", async () => {
       mockGetGuardianAccessToken.mockImplementation(
-        async () => ({ ok: false, status: 401, error: "expired" }) as const,
+        async () => ({ ok: false, status: 401, error: "expired" }),
       );
       installHostProxyBridge(fakeCliResolver);
 
@@ -215,7 +217,7 @@ describe("host-proxy-router", () => {
       const poster = new HostProxyPoster({
         gatewayPort: 9000,
         authToken: "t",
-        fetch: (async () => new Response("ok")) as typeof globalThis.fetch,
+        fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 
       __testing.dispatchMessage(
@@ -241,7 +243,7 @@ describe("host-proxy-router", () => {
       const poster = new HostProxyPoster({
         gatewayPort: 9000,
         authToken: "t",
-        fetch: (async () => new Response("ok")) as typeof globalThis.fetch,
+        fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 
       __testing.dispatchMessage(
@@ -296,7 +298,7 @@ describe("host-proxy-router", () => {
       const poster = new HostProxyPoster({
         gatewayPort: 9000,
         authToken: "t",
-        fetch: (async () => new Response("ok")) as typeof globalThis.fetch,
+        fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 
       // Should not throw

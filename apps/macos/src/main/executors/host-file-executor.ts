@@ -101,7 +101,7 @@ function executeRead(fields: ReadFields): {
   // Text file — apply line-based offset/limit
   const text = raw.toString("utf-8");
   const lines = text.split("\n");
-  const offset = fields.offset ?? 0;
+  const offset = (fields.offset ?? 1) - 1;
   const limit = fields.limit ?? lines.length;
   const sliced = lines.slice(offset, offset + limit);
   return { content: sliced.join("\n") };

@@ -301,8 +301,9 @@ describe("HostProxyPoster", () => {
 
       const buf = await poster.pullTransferContent("xfer-1");
 
+      expect(buf).not.toBeNull();
       expect(Buffer.isBuffer(buf)).toBe(true);
-      expect(buf.toString()).toBe("file-bytes-here");
+      expect(buf!.toString()).toBe("file-bytes-here");
 
       const req = captured[0];
       expect(req.url).toBe(
@@ -313,13 +314,13 @@ describe("HostProxyPoster", () => {
       expect(req.headers["X-Vellum-Client-Id"]).toBe(FAKE_DEVICE_ID);
     });
 
-    test("returns empty buffer on non-2xx", async () => {
+    test("returns null on non-2xx", async () => {
       const { fetchFn } = createBinaryMockFetch(404, Buffer.alloc(0));
       const poster = makePoster(fetchFn);
 
       const buf = await poster.pullTransferContent("xfer-missing");
 
-      expect(buf.length).toBe(0);
+      expect(buf).toBeNull();
     });
 
     test("URL-encodes the transfer ID", async () => {
@@ -401,7 +402,7 @@ describe("HostProxyPoster", () => {
       expect(result).toBe(false);
     });
 
-    test("pullTransferContent returns empty buffer when fetch throws", async () => {
+    test("pullTransferContent returns null when fetch throws", async () => {
       const throwingFetch = (async () => {
         throw new Error("network failure");
       }) as unknown as typeof globalThis.fetch;
@@ -409,7 +410,7 @@ describe("HostProxyPoster", () => {
 
       const buf = await poster.pullTransferContent("xfer-throw");
 
-      expect(buf.length).toBe(0);
+      expect(buf).toBeNull();
     });
 
     test("pushTransferContent returns false when fetch throws", async () => {

@@ -117,7 +117,7 @@ export class HostBrowserExecutor implements HostProxyExecutor {
     if (pending) {
       pending.abortController.abort();
       clearTimeout(pending.timeoutTimer);
-      if (pending.ws && pending.ws.readyState === WebSocket.OPEN) {
+      if (pending.ws && (pending.ws.readyState === WebSocket.OPEN || pending.ws.readyState === WebSocket.CONNECTING)) {
         pending.ws.close();
       }
       pending.settled = true;
@@ -436,6 +436,7 @@ export class HostBrowserExecutor implements HostProxyExecutor {
       ws.addEventListener("close", onClose);
 
       const sendCommand = () => {
+        if (flight.settled || flight.abortController.signal.aborted) return;
         ws.send(JSON.stringify(message));
       };
 

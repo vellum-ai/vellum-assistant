@@ -19,7 +19,7 @@ import { HostProxySseClient, type HostProxySseMessage } from "./host-proxy-sse";
 import { HostProxyPoster } from "./host-proxy-poster";
 import { hostFileExecutor } from "./executors/host-file-executor";
 import { hostTransferExecutor } from "./executors/host-transfer-executor";
-import { onLockfileChange } from "./lockfile-watcher";
+import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
 import log from "./logger";
 
@@ -68,7 +68,7 @@ export function removeExecutor(kind: string): void {
 // Message dispatch
 // ---------------------------------------------------------------------------
 
-const EXECUTOR_KINDS = ["host_bash", "host_file", "host_transfer", "host_browser"] as const;
+const EXECUTOR_KINDS = ["host_bash", "host_file", "host_transfer", "host_browser", "host_cu", "host_app_control"] as const;
 
 /** Route type → executor kind. Returns null for unknown types. */
 function executorKindForType(type: string): { kind: string; action: "request" | "cancel" } | null {
@@ -136,6 +136,19 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
         requestId,
         content: "Executor not yet implemented",
         isError: true,
+      });
+      break;
+    case "host_cu":
+      void poster.postCuResult({
+        requestId,
+        executionError: "Executor not yet implemented",
+      });
+      break;
+    case "host_app_control":
+      void poster.postAppControlResult({
+        requestId,
+        state: "missing",
+        executionError: "Executor not yet implemented",
       });
       break;
   }
@@ -244,6 +257,12 @@ export function installHostProxyBridge(
   setExecutor("host_file", hostFileExecutor);
   setExecutor("host_transfer", hostTransferExecutor);
   unsubscribe = onLockfileChange(handleLockfileChange);
+
+  // Seed from any assistants already present in the lockfile
+  const currentLockfile = getWatchedLockfile();
+  if (currentLockfile.assistants.length > 0) {
+    handleLockfileChange(currentLockfile);
+  }
 
   // Register built-in executors
   const browserExecutor = new HostBrowserExecutor();

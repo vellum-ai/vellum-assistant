@@ -20,6 +20,7 @@ const SIGKILL_GRACE_MS = 2_000;
 interface RunningProcess {
   child: ChildProcess;
   cancelled: boolean;
+  hasExited: boolean;
   killTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -54,7 +55,7 @@ function handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): v
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const entry: RunningProcess = { child, cancelled: false, killTimer: null };
+  const entry: RunningProcess = { child, cancelled: false, hasExited: false, killTimer: null };
   runningProcesses.set(requestId, entry);
 
   child.stdout!.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
@@ -66,13 +67,14 @@ function handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): v
     child.kill("SIGTERM");
 
     entry.killTimer = setTimeout(() => {
-      if (!child.killed) {
+      if (!entry.hasExited) {
         child.kill("SIGKILL");
       }
     }, SIGKILL_GRACE_MS);
   }, timeoutSeconds * 1_000);
 
   child.on("close", (exitCode) => {
+    entry.hasExited = true;
     clearTimeout(timeoutTimer);
     if (entry.killTimer) clearTimeout(entry.killTimer);
     runningProcesses.delete(requestId);
@@ -116,7 +118,7 @@ function handleCancel(message: HostProxySseMessage, _poster: HostProxyPoster): v
   entry.child.kill("SIGTERM");
 
   entry.killTimer = setTimeout(() => {
-    if (!entry.child.killed) {
+    if (!entry.hasExited) {
       entry.child.kill("SIGKILL");
     }
   }, SIGKILL_GRACE_MS);

@@ -35,12 +35,12 @@ mock.module("electron-log/main", () => {
 // Mock fetch at the global level
 // ---------------------------------------------------------------------------
 
-let mockFetchImpl: typeof globalThis.fetch = async () => new Response("[]");
+let mockFetchImpl: typeof globalThis.fetch = (async () => new Response("[]")) as unknown as typeof globalThis.fetch;
 
 // We need to intercept fetch calls for target discovery
-globalThis.fetch = async (...args: Parameters<typeof globalThis.fetch>) => {
+globalThis.fetch = (async (...args: Parameters<typeof globalThis.fetch>) => {
   return mockFetchImpl(...args);
-};
+}) as unknown as typeof globalThis.fetch;
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -104,7 +104,6 @@ class MockWebSocket {
 // Store created WebSocket instances for test manipulation
 let createdWebSockets: MockWebSocket[] = [];
 
-// @ts-expect-error -- mock WebSocket
 globalThis.WebSocket = class extends MockWebSocket {
   constructor(url: string) {
     super(url);
@@ -160,12 +159,12 @@ function capturingPoster() {
 
 /** Set fetch to return the given target list for /json/list. */
 function setTargets(targets: Record<string, unknown>[]) {
-  mockFetchImpl = async () => new Response(JSON.stringify(targets), { status: 200 });
+  mockFetchImpl = (async () => new Response(JSON.stringify(targets), { status: 200 })) as unknown as typeof globalThis.fetch;
 }
 
 /** Set fetch to fail. */
 function setFetchError(msg = "Connection refused") {
-  mockFetchImpl = async () => { throw new Error(msg); };
+  mockFetchImpl = (async () => { throw new Error(msg); }) as unknown as typeof globalThis.fetch;
 }
 
 /**
@@ -203,7 +202,7 @@ describe("HostBrowserExecutor", () => {
 
   afterEach(() => {
     executor.destroy();
-    mockFetchImpl = async () => new Response("[]");
+    mockFetchImpl = (async () => new Response("[]")) as unknown as typeof globalThis.fetch;
   });
 
   // -- Test seams -----------------------------------------------------------

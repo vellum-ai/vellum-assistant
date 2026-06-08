@@ -306,7 +306,7 @@ describe("HostProxySseClient", () => {
     let capturedHeaders: Record<string, string> = {};
 
     const fakeFetch: typeof globalThis.fetch = (async (
-      input: RequestInfo | URL,
+      input: string | URL | Request,
       init?: RequestInit,
     ) => {
       capturedUrl = String(input);

@@ -53,7 +53,7 @@ async function handleToHost(
     return;
   }
 
-  if (data.length === 0) {
+  if (data === null) {
     void poster.postTransferResult({
       requestId,
       isError: true,

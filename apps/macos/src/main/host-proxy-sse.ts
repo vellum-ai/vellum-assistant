@@ -173,8 +173,16 @@ export class HostProxySseClient {
     if (!payload) return;
 
     try {
-      const parsed = JSON.parse(payload) as HostProxySseMessage;
-      this.onMessage?.(parsed);
+      const parsed = JSON.parse(payload);
+      // The daemon's /v1/events endpoint wraps messages in an AssistantEvent
+      // envelope: { id, ..., message: { type, ... } }. Unwrap if present.
+      const msg: HostProxySseMessage =
+        parsed.message != null &&
+        typeof parsed.message === "object" &&
+        typeof parsed.message.type === "string"
+          ? parsed.message
+          : parsed;
+      this.onMessage?.(msg);
     } catch {
       // Malformed JSON — skip
     }
