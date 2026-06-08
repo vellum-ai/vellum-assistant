@@ -172,8 +172,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const store = useOnboardingStore.getState();
       store.setTosAccepted(resolved.tos);
       store.setAiDataConsent(resolved.ai);
-      store.setShareAnalytics(resolved.shareAnalytics);
-      store.setShareDiagnostics(resolved.shareDiagnostics);
+      if (resolved.shareAnalytics !== null) store.setShareAnalytics(resolved.shareAnalytics);
+      if (resolved.shareDiagnostics !== null) store.setShareDiagnostics(resolved.shareDiagnostics);
       persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
       syncOrganizationState(nextUserId);
       return;

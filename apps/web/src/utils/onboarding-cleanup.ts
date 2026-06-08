@@ -83,8 +83,8 @@ export function clearConsentForUser(userId: string | null): void {
 
 export function resolveServerConsent(
   consent: UserConsent | null | undefined,
-): { tos: boolean; ai: boolean; shareAnalytics: boolean; shareDiagnostics: boolean } {
-  if (!consent) return { tos: false, ai: false, shareAnalytics: true, shareDiagnostics: true };
+): { tos: boolean; ai: boolean; shareAnalytics: boolean | null; shareDiagnostics: boolean | null } {
+  if (!consent) return { tos: false, ai: false, shareAnalytics: null, shareDiagnostics: null };
   return {
     tos: consent.tos_accepted_version === CONSENT_VERSION
       && consent.privacy_policy_accepted_version === CONSENT_VERSION,

@@ -28,7 +28,7 @@ const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
 const restoreConsentForUserMock = mock((_userId: string | null) => ({ tos: false, ai: false }));
 const persistConsentForUserMock = mock((_userId: string | null, _tos: boolean, _ai: boolean) => {});
 const resolveServerConsentMock = mock((_consent: unknown) => ({
-  tos: false, ai: false, shareAnalytics: true, shareDiagnostics: true,
+  tos: false, ai: false, shareAnalytics: null, shareDiagnostics: null,
 }));
 
 let mockFetchMeResult: unknown = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
