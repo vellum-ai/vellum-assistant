@@ -67,6 +67,7 @@ const {
   getCliInstallDir,
   getCliBinPath,
   getBundledBunPath,
+  buildInstallEnv,
   isCliInstalled,
   ensureCliInstalled,
   cleanupOldVersions,
@@ -131,7 +132,7 @@ describe("ensureCliInstalled", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("spawns bun add with correct args and cwd", async () => {
+  test("spawns bun add with correct args, cwd, and augmented env", async () => {
     existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
@@ -144,9 +145,13 @@ describe("ensureCliInstalled", () => {
     const [cmd, args, opts] = spawnCalls[0];
     expect(cmd).toBe(`${mockResourcesPath}/bun`);
     expect(args).toEqual(["add", `vellum@${PINNED_CLI_VERSION}`]);
-    expect(opts).toEqual({
-      cwd: `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
-    });
+    expect((opts as { cwd: string }).cwd).toBe(
+      `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
+    );
+    const env = (opts as { env: NodeJS.ProcessEnv }).env;
+    expect(env).toBeDefined();
+    expect(env!.PATH).toContain("/opt/homebrew/bin");
+    expect(env!.PATH).toContain("/usr/local/bin");
   });
 
   test("creates the install directory before spawning", async () => {
@@ -227,6 +232,27 @@ describe("ensureCliInstalled", () => {
     expect(spawnCalls).toHaveLength(2);
     lastChild.emit("close", 0);
     await p2;
+  });
+});
+
+// --- buildInstallEnv ---
+
+describe("buildInstallEnv", () => {
+  test("includes /opt/homebrew/bin and /usr/local/bin in PATH", () => {
+    const env = buildInstallEnv();
+    expect(env.PATH).toContain("/opt/homebrew/bin");
+    expect(env.PATH).toContain("/usr/local/bin");
+  });
+
+  test("includes ~/.bun/bin and ~/.volta/bin in PATH", () => {
+    const env = buildInstallEnv();
+    expect(env.PATH).toContain(".bun/bin");
+    expect(env.PATH).toContain(".volta/bin");
+  });
+
+  test("preserves existing process.env entries", () => {
+    const env = buildInstallEnv();
+    expect(env.HOME).toBeDefined();
   });
 });
 

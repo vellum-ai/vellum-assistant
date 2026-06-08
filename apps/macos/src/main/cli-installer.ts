@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 // Auto-stamped by create-release-branch workflow.
@@ -31,6 +32,41 @@ export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
 }
 
+function findNvmNodeBinDir(home: string): string[] {
+  try {
+    const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
+    const versionsDir = path.join(nvmDir, "versions", "node");
+    for (const entry of readdirSync(versionsDir)) {
+      if (!entry.startsWith("v")) continue;
+      const binDir = path.join(versionsDir, entry, "bin");
+      if (existsSync(path.join(binDir, "node"))) return [binDir];
+    }
+  } catch {
+    // nvm not installed
+  }
+  return [];
+}
+
+export function buildInstallEnv(): NodeJS.ProcessEnv {
+  const home = homedir();
+  const basePath =
+    process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  const pathParts = basePath.split(":");
+  const extraDirs = [
+    path.join(home, ".bun", "bin"),
+    path.join(home, ".local", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    path.join(home, ".volta", "bin"),
+    ...findNvmNodeBinDir(home),
+  ].filter((d) => !pathParts.includes(d));
+
+  return {
+    ...process.env,
+    PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
+  };
+}
+
 function bunAdd(pkg: string): Promise<void> {
   const installDir = getCliInstallDir();
   mkdirSync(installDir, { recursive: true });
@@ -40,6 +76,7 @@ function bunAdd(pkg: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(bunPath, ["add", `${pkg}@${PINNED_CLI_VERSION}`], {
       cwd: installDir,
+      env: buildInstallEnv(),
     });
 
     let stdout = "";
