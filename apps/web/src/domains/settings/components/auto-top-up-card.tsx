@@ -172,7 +172,17 @@ export function AutoTopUpCard() {
   // The backend pauses auto-reload after several declined charges and flips
   // this flag (it's reset once a fresh PM is attached). When set, the card
   // shows a tailored explanation instead of the generic add-PM gate copy.
-  const disabledAfterDeclines = config.disabled_due_to_repeated_failures === true;
+  //
+  // Guard on `!enabled` as well: the backend treats the cutoff as terminal
+  // (cutoff ⇒ enabled=false), but if a stale/raced response ever carried both
+  // `enabled: true` and the flag, we'd otherwise render the enabled summary
+  // ("Add $X when balance falls under $Y") next to the "we paused reloads"
+  // notice — contradictory copy. Folding `!enabled` in keeps the enabled
+  // summary and the cutoff notice mutually exclusive. The enable gate in
+  // `handleToggleChange` still trips correctly because that path only runs
+  // while the config is currently disabled (`if (next && !enabled)`).
+  const disabledAfterDeclines =
+    config.disabled_due_to_repeated_failures === true && !enabled;
 
   /**
    * Transition into form mode. Resets any prior mutation errors so stale
@@ -314,8 +324,17 @@ export function AutoTopUpCard() {
    */
   const handleToggleChange = (next: boolean) => {
     if (next && !enabled) {
-      if (!config.has_payment_method) {
-        // Block enable — PM must be added in the Payment Methods card.
+      if (!config.has_payment_method || disabledAfterDeclines) {
+        // Block enable — either no PM on file, or the backend cut auto-reload
+        // off after repeated declines. In the cutoff case the saved card is
+        // still attached (`has_payment_method: true`), so without this guard
+        // the user could re-enable with the SAME declined card, contradicting
+        // the cutoff notice that tells them to add a NEW payment method. The
+        // generic add-PM notice this sets is suppressed in the render while
+        // `disabledAfterDeclines` is true (the grid is gated on
+        // `showNoPmNotice && !disabledAfterDeclines`), so the cutoff notice
+        // stays the single message — keeping the two notices mutually
+        // exclusive.
         setShowNoPmNotice(true);
         return;
       }
