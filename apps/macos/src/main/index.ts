@@ -36,8 +36,9 @@ import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode } from "./local-mode";
+import { installLocalMode, resolveCliInvocation } from "./local-mode";
 import { installLockfileWatcher } from "./lockfile-watcher";
+import { installHostProxyBridge } from "./host-proxy-router";
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -360,6 +361,8 @@ app
     // switcher submenu has data on its first right-click.
     const teardownLockfileWatcher = installLockfileWatcher();
     app.on("before-quit", teardownLockfileWatcher);
+    const teardownHostProxy = installHostProxyBridge(resolveCliInvocation);
+    app.on("before-quit", teardownHostProxy);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
