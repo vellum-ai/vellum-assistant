@@ -22,7 +22,7 @@ import {
   type Injector,
   type TurnContext,
 } from "../../types.js";
-import { renderV3PageContent } from "./page-content.js";
+import { renderV3SectionContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import {
   MEMORY_V3_LIVE,
@@ -52,7 +52,8 @@ export const memoryV3Injector: Injector = {
       // `renderMemoryBlock` returns "" for an empty selection; inject nothing.
       const text = await renderMemoryBlock(
         result.finalInjection,
-        renderV3PageContent,
+        result.sectionBySlug,
+        renderV3SectionContent,
       );
       if (text.length === 0) return null;
       return {

@@ -364,8 +364,11 @@ describe("memory-v3 shadow plugin", () => {
     expect(block!.placement).toBe("after-memory-prefix");
     expect(block!.text.startsWith("<memory>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory>")).toBe(true);
-    // finalInjection slugs are rendered into the block in order.
-    expect(block!.text).toContain("body for page-1");
+    // Progressive disclosure: a slug with a matched section renders that
+    // section's text (page-1 → "x"), NOT the full page body.
+    expect(block!.text).toContain("# memory/concepts/page-1.md\nx");
+    expect(block!.text).not.toContain("body for page-1");
+    // A slug with no matched section (carry-forward) falls back to the full body.
     expect(block!.text).toContain("body for carried");
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);

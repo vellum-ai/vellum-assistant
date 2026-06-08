@@ -11,9 +11,9 @@ import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-sele
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
-import { renderV3PageContent } from "./page-content.js";
+import { renderV3SectionContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
-import type { Slug } from "./types.js";
+import type { Section, Slug } from "./types.js";
 
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 const MEMORY_V3_LIVE = "memory-v3-live" as const;
@@ -72,7 +72,16 @@ export async function getMemoryV3SelectionForInspector(
     pinned: r.pinned === 1,
   }));
   const slugs: Slug[] = selections.map((s) => s.slug);
-  const injectedText = await renderMemoryBlock(slugs, renderV3PageContent);
+  // The inspector re-renders from persisted rows without re-running
+  // orchestration, so the per-slug matched section is unavailable. An empty map
+  // makes `renderV3SectionContent` fall back to the full/lead page for every
+  // slug — the same full-page rendering the inspector showed before
+  // matched-section injection.
+  const injectedText = await renderMemoryBlock(
+    slugs,
+    new Map<Slug, Section>(),
+    renderV3SectionContent,
+  );
 
   return {
     turn,

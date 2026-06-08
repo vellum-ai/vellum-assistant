@@ -183,7 +183,11 @@ async function runTurn(
     workingSet: deps.workingSet,
     capabilitySlugs: [],
   });
-  const block = await renderMemoryBlock(result.finalInjection, contentOf);
+  const block = await renderMemoryBlock(
+    result.finalInjection,
+    result.sectionBySlug,
+    contentOf,
+  );
   return { result, block };
 }
 
