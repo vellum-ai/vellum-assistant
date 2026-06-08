@@ -448,6 +448,19 @@ function detectToolManifest(
 
 // ─── Skill reading ───────────────────────────────────────────────────────────
 
+/**
+ * Compute a skill's id as its path relative to the skills root, with
+ * forward-slash separators. Flat skills get a single segment (e.g.
+ * `my-skill`); namespaced package-installed skills get three segments
+ * (e.g. `obra/superpowers/brainstorming`).
+ */
+function deriveSkillId(skillsDir: string, directoryPath: string): string {
+  const rel = relative(skillsDir, directoryPath);
+  // path.relative always returns the platform separator; normalize to "/" so
+  // ids are stable across OSes and match the validator's contract.
+  return rel.split(/[\\/]/).join("/");
+}
+
 function readSkillFromDirectory(
   directoryPath: string,
   skillsDir: string,
@@ -490,7 +503,7 @@ function readSkillFromDirectory(
     if (!parsed) return null;
 
     return {
-      id: basename(directoryPath),
+      id: deriveSkillId(skillsDir, directoryPath),
       name: parsed.name,
       displayName: parsed.displayName,
       description: parsed.description,
@@ -625,25 +638,68 @@ function loadBundledSkills(): SkillSummary[] {
   return skills;
 }
 
+/**
+ * Discover skill directories under `skillsDir`. Skills can live at:
+ *
+ *   - 1 level deep — flat: `skills/<skill>/SKILL.md` (single-skill installs,
+ *     vellum catalog, plus bundled skills)
+ *   - 3 levels deep — namespaced: `skills/<owner>/<repo>/<skill>/SKILL.md`
+ *     (third-party package installs, e.g. `obra/superpowers/brainstorming`)
+ *
+ * 2-level (`skills/<owner>/<repo>/SKILL.md`) is intentionally not discovered:
+ * the 2-segment form is reserved for the `assistant skills add owner/repo`
+ * argument, and a real skill never lives at that depth.
+ *
+ * Directories without a `SKILL.md` at depth 1 are descended into to find
+ * namespaced skills, but only down to depth 3 — no deeper. A directory that
+ * contains both `SKILL.md` AND nested skill subdirs is treated as a leaf skill;
+ * we do not recurse into it.
+ */
 function discoverSkillDirectories(skillsDir: string): string[] {
   if (!existsSync(skillsDir)) return [];
 
   const dirs: string[] = [];
   try {
-    const entries = readdirSync(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-      const directoryPath = join(skillsDir, entry.name);
-      if (existsSync(join(directoryPath, "SKILL.md"))) {
-        dirs.push(directoryPath);
-      }
-    }
+    walkForSkills(skillsDir, 1, dirs);
   } catch (err) {
     log.warn({ err, skillsDir }, "Failed to discover skill directories");
     return [];
   }
-
   return dirs.sort((a, b) => a.localeCompare(b));
+}
+
+const MAX_SKILL_DEPTH = 3;
+
+function walkForSkills(
+  currentDir: string,
+  depth: number,
+  out: string[],
+): void {
+  const entries = readdirSync(currentDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const directoryPath = join(currentDir, entry.name);
+
+    if (existsSync(join(directoryPath, "SKILL.md"))) {
+      out.push(directoryPath);
+      continue;
+    }
+
+    // Skip dot-prefixed directories during *recursion* only. The test fixture
+    // `.linked-targets/` is the canonical example: symlink targets staged
+    // inside the skills root but addressed via a symlink at the top level. We
+    // already accept them as leaves above if they directly hold SKILL.md.
+    if (entry.name.startsWith(".")) continue;
+
+    if (depth < MAX_SKILL_DEPTH) {
+      try {
+        walkForSkills(directoryPath, depth + 1, out);
+      } catch {
+        // Unreadable subdir is fine — skip it silently. Loader-level catch
+        // already logged the parent failure if relevant.
+      }
+    }
+  }
 }
 
 // ─── Catalog loading ─────────────────────────────────────────────────────────
@@ -696,7 +752,7 @@ export function loadSkillCatalog(
           const parsed = parseFrontmatter(content, skillFilePath);
           if (!parsed) continue;
 
-          const id = basename(directory);
+          const id = deriveSkillId(dir, directory);
           if (seenIds.has(id)) {
             log.warn(
               { id, directory },
@@ -840,7 +896,7 @@ export function loadSkillCatalog(
         const parsed = parseFrontmatter(content, skillFilePath);
         if (!parsed) continue;
 
-        const id = basename(directory);
+        const id = deriveSkillId(workspaceSkillsDir, directory);
         const workspaceSkill: SkillSummary = {
           id,
           name: parsed.name,
