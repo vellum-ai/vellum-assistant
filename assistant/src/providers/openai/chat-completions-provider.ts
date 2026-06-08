@@ -650,7 +650,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
             : {}),
         },
         stopReason: finishReason,
-        rawRequest: params,
+        // `rawRequest` is persisted to the request-log DB and inspector on every
+        // call. A `logit_bias` preset (e.g. `suppress-cjk`) is ~5.3k deterministic
+        // entries (~68KB); summarize it here so logs don't balloon. The full map
+        // still went out on the wire above.
+        rawRequest: params.logit_bias
+          ? {
+              ...params,
+              logit_bias: `<${Object.keys(params.logit_bias).length} token biases omitted>`,
+            }
+          : params,
         rawResponse,
       };
     } catch (error) {
