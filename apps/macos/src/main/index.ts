@@ -79,6 +79,20 @@ if (!app.isPackaged) {
 }
 const isDev = !app.isPackaged;
 
+// Packaged builds all share the same package.json `name` (`@vellumai/macos`),
+// so Electron resolves `app.getPath("userData")` to the same directory for
+// every environment. This causes `requestSingleInstanceLock()` collisions
+// when multiple environment builds (dev, staging, production) run side-by-side.
+// Append an environment suffix for non-production builds; production keeps the
+// original path for backwards compatibility.
+if (app.isPackaged) {
+  const env = process.env.VELLUM_ENVIRONMENT || "production";
+  if (env !== "production") {
+    const base = app.getPath("userData");
+    app.setPath("userData", `${base}-${env}`);
+  }
+}
+
 // Single-instance lock: relaunches focus the existing window instead of
 // spawning a parallel main process. The second-instance handler fires on the
 // instance that holds the lock (the primary). The instance that fails to
