@@ -16,6 +16,7 @@ export async function handleLogout(navigate: NavigateFunction): Promise<void> {
     const active = getActiveAssistant();
     if (active && isLocalAssistant(active)) {
       await setMenuPlatformSession(false);
+      useAuthStore.setState({ platformSession: "absent" });
       return;
     }
 

@@ -10,6 +10,7 @@ import { getSession } from "@/lib/auth/allauth-client";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
+import { setMenuPlatformSession } from "@/runtime/menu";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -262,6 +263,7 @@ export async function startAuthFlow(
       intent: options.intent,
     });
     if (result?.sessionToken) {
+      await setMenuPlatformSession(true);
       const destination = sanitizeReturnTo(
         options.intent === "signup"
           ? routes.onboarding.privacy

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router";
 
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
+import { setMenuPlatformSession } from "@/runtime/menu";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -58,6 +59,7 @@ export function PlatformLoopbackPage() {
       // sessionStatus to "authenticated" so the auth middleware lets
       // navigation through.
       await useAuthStore.getState().initSession();
+      await setMenuPlatformSession(true);
 
       try {
         const result = await listAssistants();
