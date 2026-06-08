@@ -1,6 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import { getSummaryFromContextMessage } from "../context/window-manager.js";
 import {
   deleteLastExchange,
   deleteMessageById,
@@ -13,6 +12,7 @@ import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { relinkLlmRequestLogs } from "../memory/llm-request-log-store.js";
 import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../memory/qdrant-client.js";
+import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";

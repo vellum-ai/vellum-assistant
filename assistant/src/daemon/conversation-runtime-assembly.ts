@@ -13,7 +13,6 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
-import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
@@ -43,6 +42,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
+import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
 import { MEMORY_V3_BLOCK_ID } from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {

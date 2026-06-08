@@ -24,9 +24,9 @@ import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
-  createContextWindowManager,
   disposeContextWindowManager,
   getContextWindowManager,
+  registerContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
 import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import type {
@@ -131,12 +131,12 @@ function fakeCompaction(
   conversationId: string,
   result: { compacted: boolean; exhausted: boolean },
 ): { trust: TrustContext } {
-  createContextWindowManager({
+  registerContextWindowManager(conversationId, () => ({
     provider: { name: "mock-provider" } as unknown as Provider,
     systemPrompt: "system",
     config: {} as unknown as ContextWindowConfig,
     conversationId,
-  });
+  }));
   const manager = getContextWindowManager(conversationId);
   if (manager) {
     manager.maybeCompact = (async () =>

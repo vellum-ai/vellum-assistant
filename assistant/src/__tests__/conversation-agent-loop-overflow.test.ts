@@ -45,7 +45,7 @@ const conversationRuntimeAssemblyRealSnapshot = {
 // map the mocked store reads from.
 const fakeContextWindowManagers = new Map<string, unknown>();
 mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
-  createContextWindowManager: () => undefined,
+  registerContextWindowManager: () => undefined,
   getContextWindowManager: (conversationId: string) =>
     fakeContextWindowManagers.get(conversationId),
   disposeContextWindowManager: (conversationId: string) => {

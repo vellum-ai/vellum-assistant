@@ -10,7 +10,6 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -22,15 +21,11 @@ import type {
   PreModelCallContext,
   StopContext,
 } from "../plugin-api/types.js";
-import {
-  DEFAULT_COMPACTION_PLUGIN_NAME,
-  defaultCompact,
-} from "../plugins/defaults/compaction/compact.js";
-import { getContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
-import { PluginExecutionError } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -730,17 +725,8 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
-    // The compaction module owns the per-conversation manager; resolve it from
-    // the store rather than holding a handle on the loop. Absent for callers
-    // without a compaction path (agent wakes, standalone unit tests), which
-    // never reach this gate.
-    const manager = getContextWindowManager(this.conversationId);
-    if (manager == null) {
-      throw new PluginExecutionError(
-        `default-compaction: no ContextWindowManager registered for conversation ${this.conversationId} — the compaction store must construct one before compaction runs`,
-        DEFAULT_COMPACTION_PLUGIN_NAME,
-      );
-    }
+    // The compaction module owns the per-conversation manager; pass the
+    // conversation id and let `defaultCompact` resolve it from the store.
     // The mid-loop budget gate is reached only when this turn decides to
     // compact in place, so `force` past the auto-threshold check.
     // `actorTrustClass` comes from the turn's trust snapshot (the actor whose
@@ -748,7 +734,7 @@ export class AgentLoop {
     // guardian-only attachments for untrusted actors. `overrideProfile` is the
     // turn's resolved inference-profile override for the summary call.
     const compactResult = await defaultCompact({
-      manager,
+      conversationId: this.conversationId,
       messages: rawHistory,
       signal,
       force: true,

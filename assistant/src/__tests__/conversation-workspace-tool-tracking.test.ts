@@ -178,7 +178,7 @@ mock.module("../memory/query-builder.js", () => ({
 mock.module("../memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     updateConfig() {}
     shouldCompact() {

@@ -25,7 +25,7 @@ import { truncateToolResultsAcrossHistory } from "../context/tool-result-truncat
 import type {
   ContextWindowCompactOptions,
   ContextWindowResult,
-} from "../context/window-manager.js";
+} from "../plugins/defaults/compaction/window-manager.js";
 import type { Message } from "../providers/types.js";
 import {
   countMediaBlocks,

@@ -218,7 +218,7 @@ mock.module("../memory/retriever.js", () => ({
 let maybeCompactCalls: Array<{ force: boolean }> = [];
 let forceCompactionEnabled = false;
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
     updateConfig() {}

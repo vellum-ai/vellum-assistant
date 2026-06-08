@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { createContextSummaryMessage } from "../context/window-manager.js";
 import { stripMediaPayloadsForRetry } from "../daemon/conversation-media-retry.js";
+import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------

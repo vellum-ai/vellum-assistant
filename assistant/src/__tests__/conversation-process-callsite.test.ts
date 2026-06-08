@@ -249,7 +249,7 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
     updateConfig() {}

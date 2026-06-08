@@ -43,7 +43,6 @@ import {
   estimatePromptTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowCompactOptions } from "../context/window-manager.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -76,6 +75,7 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrosp
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import type { ContextWindowCompactOptions } from "../plugins/defaults/compaction/window-manager.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -1302,7 +1302,7 @@ export async function runAgentLoopImpl(
           reducerState,
           (msgs, signal, opts) =>
             defaultCompact({
-              manager: ctx.contextWindowManager,
+              conversationId: ctx.conversationId,
               messages: msgs,
               signal,
               ...((opts ?? {}) as ContextWindowCompactOptions),
@@ -1399,7 +1399,7 @@ export async function runAgentLoopImpl(
             requestId: reqId,
           });
           const emergencyCompact = await defaultCompact({
-            manager: ctx.contextWindowManager,
+            conversationId: ctx.conversationId,
             messages: ctx.messages,
             signal: abortController.signal,
             force: true,
