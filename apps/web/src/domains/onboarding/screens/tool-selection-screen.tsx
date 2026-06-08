@@ -93,8 +93,8 @@ export function ToolSelectionScreen({
       : `Continue · ${selectedTools.size} selected`;
 
   return (
-    <OnboardingLayout>
-      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}>
+    <OnboardingLayout showCreatureFooter={false}>
+      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "px-8 pt-7 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -123,7 +123,7 @@ export function ToolSelectionScreen({
         </p>
 
         <div
-          className={`${electron ? "mt-4" : "mt-8"} grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4`}
+          className={`grid w-full gap-2 ${electron ? "mt-4 grid-cols-4" : "mt-8 grid-cols-2 sm:grid-cols-3 md:grid-cols-4"}`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
           {PRECHAT_TOOLS.map((tool) => (
@@ -132,25 +132,29 @@ export function ToolSelectionScreen({
               tool={tool}
               selected={selectedTools.has(tool.id)}
               onToggle={() => toggleTool(tool.id)}
+              electron={electron}
             />
           ))}
           {otherExpanded ? null : (
-            <OtherTile onClick={() => setOtherExpanded(true)} />
+            <OtherTile
+              onClick={() => setOtherExpanded(true)}
+              electron={electron}
+            />
           )}
         </div>
 
         {otherExpanded ? (
           <Card
-            padding="md"
+            padding={electron ? "sm" : "md"}
             className="mt-3 w-full border-[var(--primary-base)] bg-[color-mix(in_srgb,var(--primary-base)_8%,transparent)]"
           >
-            <div className="flex flex-col gap-3">
+            <div className={`flex flex-col ${electron ? "gap-2" : "gap-3"}`}>
               <div className="flex items-center gap-2">
                 <Pencil
                   className="h-3.5 w-3.5 text-[var(--content-secondary)]"
                   aria-hidden="true"
                 />
-                <span className="text-body-medium-default text-[var(--content-default)]">
+                <span className="text-body-medium-default prechat-md-regular text-[var(--content-default)]">
                   Something else
                 </span>
                 <button
@@ -199,7 +203,7 @@ export function ToolSelectionScreen({
             fullWidth
             disabled={selectedTools.size === 0}
             onClick={onContinue}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             {continueLabel}
           </Button>
@@ -208,7 +212,7 @@ export function ToolSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             I&apos;ll set this up later
           </Button>
@@ -245,10 +249,12 @@ function ToolTile({
   tool,
   selected,
   onToggle,
+  electron,
 }: {
   tool: PreChatToolItem;
   selected: boolean;
   onToggle: () => void;
+  electron: boolean;
 }) {
   return (
     <button
@@ -256,14 +262,16 @@ function ToolTile({
       onClick={onToggle}
       aria-pressed={selected}
       aria-label={tool.label}
-      className={`relative flex h-[88px] w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border p-2 transition-colors ${
+      className={`relative flex ${electron ? "h-[72px]" : "h-[88px]"} w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border p-2 transition-colors ${
         selected
           ? "border-[var(--primary-base)] bg-[color-mix(in_srgb,var(--primary-base)_10%,transparent)]"
           : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]"
       }`}
     >
       <ToolGlyph tool={tool} size={32} />
-      <span className="line-clamp-2 text-center text-label-medium-default text-[var(--content-default)]">
+      <span
+        className={`${electron ? "w-full truncate" : "line-clamp-2"} text-center text-label-medium-default text-[var(--content-default)]`}
+      >
         {tool.label}
       </span>
       {selected ? (
@@ -281,13 +289,19 @@ function ToolTile({
   );
 }
 
-function OtherTile({ onClick }: { onClick: () => void }) {
+function OtherTile({
+  onClick,
+  electron,
+}: {
+  onClick: () => void;
+  electron: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label="Something else"
-      className="flex h-[88px] w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-2 transition-colors hover:bg-[var(--surface-base)]"
+      className={`flex ${electron ? "min-h-[72px]" : "h-[88px]"} w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-2 transition-colors hover:bg-[var(--surface-base)]`}
     >
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-base)]">
         <MoreHorizontal

@@ -20,7 +20,18 @@ import { CreatureFooter } from "./creature-footer";
  * anchors to the column's containing block (created by the column's transform
  * animation) instead of the viewport, landing far off to the side.
  */
-export function OnboardingLayout({ children }: { children: ReactNode }) {
+export function OnboardingLayout({
+  children,
+  showCreatureFooter = true,
+}: {
+  children: ReactNode;
+  /**
+   * Whether to render the decorative creature footer. Defaults to `true` for
+   * the branded onboarding pages (welcome, hatching, etc.); the prechat funnel
+   * steps pass `false` for a cleaner, footer-free layout.
+   */
+  showCreatureFooter?: boolean;
+}) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
@@ -32,7 +43,7 @@ export function OnboardingLayout({ children }: { children: ReactNode }) {
           {children}
         </PortalContainerProvider>
       </div>
-      <CreatureFooter />
+      {showCreatureFooter && <CreatureFooter />}
       <div ref={setPortalContainer} />
     </div>
   );

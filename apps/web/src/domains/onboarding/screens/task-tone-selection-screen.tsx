@@ -34,8 +34,8 @@ export function TaskToneSelectionScreen({
   };
 
   return (
-    <OnboardingLayout>
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}>
+    <OnboardingLayout showCreatureFooter={false}>
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "px-8 pt-7 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
@@ -85,7 +85,7 @@ export function TaskToneSelectionScreen({
                   {Icon ? <Icon className="h-4 w-4" /> : null}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-body-medium-default text-[var(--content-default)]">
+                  <div className="text-body-medium-default prechat-md-regular text-[var(--content-default)]">
                     {task.label}
                   </div>
                   <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
@@ -119,7 +119,7 @@ export function TaskToneSelectionScreen({
             fullWidth
             disabled={selectedTasks.size === 0}
             onClick={onContinue}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             Continue
           </Button>
@@ -128,7 +128,7 @@ export function TaskToneSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             I&apos;ll set this up later
           </Button>

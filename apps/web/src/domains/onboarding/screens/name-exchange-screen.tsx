@@ -37,9 +37,9 @@ export function NameExchangeScreen({
   const electron = isElectron();
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showCreatureFooter={false}>
       <div
-        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-6" : "px-6 pt-12"} pb-40 text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-11 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}
       >
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
@@ -144,7 +144,7 @@ export function NameExchangeScreen({
             size="regular"
             fullWidth
             onClick={onComplete}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             Let&apos;s go
           </Button>
@@ -153,7 +153,7 @@ export function NameExchangeScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className="h-11 text-base"
+            className={`${electron ? "h-9" : "h-11"} text-base`}
           >
             Skip
           </Button>

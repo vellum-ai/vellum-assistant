@@ -153,7 +153,11 @@ const createMainWindow = (): BrowserWindow => {
     : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
 
   const win = createWindow({
-    browserWindow: { ...sizing, show: false },
+    // `titleBarStyle: "hidden"` removes the native title bar chrome and its
+    // title text (otherwise inherited from the renderer's `<title>` —
+    // "Vellum Assistant") while keeping the macOS traffic lights, so the
+    // renderer content extends up to the top edge behind them.
+    browserWindow: { ...sizing, titleBarStyle: "hidden", show: false },
     navigation: { installGuard: installSameOriginNavigationGuard },
   });
 

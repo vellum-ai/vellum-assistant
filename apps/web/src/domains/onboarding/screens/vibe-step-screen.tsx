@@ -25,7 +25,7 @@ export function VibeStepScreen({
   totalSteps,
 }: VibeStepScreenProps) {
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showCreatureFooter={false}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-40 text-[var(--content-default)]">
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center pb-4"

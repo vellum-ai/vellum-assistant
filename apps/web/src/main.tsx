@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 
 import { AppProviders } from "@/components/providers";
+import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
@@ -42,6 +43,7 @@ async function boot() {
   createRoot(rootEl).render(
     <StrictMode>
       <AppProviders>
+        <WindowDragRegion />
         <RouterProvider
           router={router}
           onError={(error) => {
