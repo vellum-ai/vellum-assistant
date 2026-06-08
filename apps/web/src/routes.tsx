@@ -172,6 +172,10 @@ export const routeTree = [
               lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
             },
             {
+              path: "onboarding/review-terms",
+              lazy: { Component: () => import("@/domains/onboarding/pages/review-terms-screen").then((m) => m.ReviewTermsScreen) },
+            },
+            {
               path: "onboarding/prechat",
               lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow").then((m) => m.PreChatFlow) },
             },
