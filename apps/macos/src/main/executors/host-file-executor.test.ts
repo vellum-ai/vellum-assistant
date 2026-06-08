@@ -168,7 +168,7 @@ describe("host-file-executor", () => {
       const filePath = path.join(dir, "lines.txt");
       fs.writeFileSync(filePath, "a\nb\nc\nd\ne");
 
-      const result = __testing.executeRead({ path: filePath, offset: 1, limit: 2 });
+      const result = __testing.executeRead({ path: filePath, offset: 2, limit: 2 });
       expect(result.content).toBe("b\nc");
     });
 

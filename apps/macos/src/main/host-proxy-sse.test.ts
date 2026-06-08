@@ -252,6 +252,8 @@ describe("HostProxySseClient", () => {
       gatewayPort: 9999,
       authToken: "tok",
       fetch: fakeFetch,
+      idleTimeoutMs: 200,
+      idleCheckIntervalMs: 100,
     });
     client.setMessageCallback((m) => messages.push(m));
     client.connect();
@@ -261,8 +263,8 @@ describe("HostProxySseClient", () => {
     push('data: {"type":"initial"}\n\n');
     await flush(50);
 
-    // Wait for idle timeout (30s) + watchdog check interval (10s) + reconnect
-    await flush(42_000);
+    // Wait for idle timeout (200ms) + check interval (100ms) + reconnect buffer
+    await flush(1_500);
 
     expect(fetchCount).toBeGreaterThanOrEqual(2);
     expect(messages.some((m) => m.type === "reconnected")).toBe(true);

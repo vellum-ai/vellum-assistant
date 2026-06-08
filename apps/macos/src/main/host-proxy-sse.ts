@@ -18,6 +18,10 @@ export interface HostProxySseOptions {
   authToken: string;
   /** Injectable fetch for testing. Defaults to globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
+  /** Override idle timeout for testing. */
+  idleTimeoutMs?: number;
+  /** Override idle check interval for testing. */
+  idleCheckIntervalMs?: number;
 }
 
 export interface HostProxySseMessage {
@@ -37,6 +41,8 @@ export class HostProxySseClient {
   private readonly gatewayHost: string;
   private authToken: string;
   private readonly fetchFn: typeof globalThis.fetch;
+  private readonly idleTimeoutMs: number;
+  private readonly idleCheckIntervalMs: number;
   private onMessage: MessageCallback | null = null;
 
   private abortController: AbortController | null = null;
@@ -52,6 +58,8 @@ export class HostProxySseClient {
     this.gatewayHost = options.gatewayHost ?? "127.0.0.1";
     this.authToken = options.authToken;
     this.fetchFn = options.fetch ?? globalThis.fetch;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
+    this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
   }
 
   /** Register a callback for parsed SSE messages. */
@@ -224,7 +232,7 @@ export class HostProxySseClient {
 
     this.idleWatchdogTimer = setInterval(() => {
       const elapsed = Date.now() - this.lastTrafficAt;
-      if (elapsed >= IDLE_TIMEOUT_MS) {
+      if (elapsed >= this.idleTimeoutMs) {
         this.clearIdleWatchdog();
         // Force-close the current stream so reconnect kicks in
         if (this.abortController) {
@@ -235,7 +243,7 @@ export class HostProxySseClient {
         this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
         this.scheduleReconnect();
       }
-    }, IDLE_CHECK_INTERVAL_MS);
+    }, this.idleCheckIntervalMs);
   }
 
   private clearIdleWatchdog(): void {

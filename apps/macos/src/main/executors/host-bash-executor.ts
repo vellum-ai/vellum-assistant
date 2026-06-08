@@ -11,7 +11,6 @@ import { homedir } from "node:os";
 import type { HostProxyExecutor } from "../host-proxy-router";
 import type { HostProxySseMessage } from "../host-proxy-sse";
 import type { HostProxyPoster } from "../host-proxy-poster";
-import { setExecutor } from "../host-proxy-router";
 import log from "../logger";
 
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -125,9 +124,6 @@ function handleCancel(message: HostProxySseMessage, _poster: HostProxyPoster): v
 }
 
 export const hostBashExecutor: HostProxyExecutor = { handleRequest, handleCancel };
-
-// Register with the router
-setExecutor("host_bash", hostBashExecutor);
 
 // Test seam
 export const __testing = {
