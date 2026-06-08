@@ -47,7 +47,7 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
+import { syncOnboardingUser } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
@@ -488,7 +488,6 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     if (isGatewayAuthMode()) {
       clearSelectedAssistant();
       clearGatewayToken();
-      clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
       // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
@@ -509,7 +508,6 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
       }
       void deleteBiometricToken();
-      clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
