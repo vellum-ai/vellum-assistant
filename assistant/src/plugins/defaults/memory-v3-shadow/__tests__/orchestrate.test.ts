@@ -3,8 +3,10 @@
  *
  * The orchestrator composes three deterministic candidate lanes — the
  * section-grain BM25 needle, the dense lane, and link-graph edge expansion —
- * into ONE unified pool, appends the synthetic capability slugs, runs a SINGLE
- * forced-tool select over the pool, then carries forward the working set.
+ * into ONE unified pool, runs a SINGLE forced-tool select over the pool, then
+ * carries forward the working set. Synthetic capability pages (skills / CLI
+ * commands) are indexed like any other page, so they enter the pool through the
+ * lanes (e.g. the needle) rather than being always-added.
  *
  * The select provider is stubbed (no network); a single stub answers the one
  * `select_pages` call per turn by reading the numbered `<candidates>` block.
@@ -186,14 +188,16 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Pool composition: the candidate pool is the union of the lanes + capabilities.
+// Pool composition: the candidate pool is the union of the lanes. Synthetic
+// capability pages are no longer always-added — they enter through a lane (see
+// the dedicated test below).
 // ---------------------------------------------------------------------------
 
 describe("orchestrate — candidate pool composition", () => {
-  test("pool unions needle ∪ dense ∪ edge ∪ capabilities; one select runs", async () => {
+  test("pool unions needle ∪ dense ∪ edge; one select runs", async () => {
     const lanes = await buildLanes();
     // "apple" hits topic-a (needle). Dense returns topic-b. topic-a links to
-    // topic-d (edge). Capability slug always appended.
+    // topic-d (edge).
     denseHits = [{ article: "topic-b", section: 0 }];
     providerStub = selectProvider([]); // selection is irrelevant to pool union
 
@@ -203,13 +207,40 @@ describe("orchestrate — candidate pool composition", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: ["skills/example"],
     });
 
     expect(selectCalls).toBe(1);
     expect(new Set(lastPool)).toEqual(
-      new Set(["topic-a", "topic-b", "topic-d", "skills/example"]),
+      new Set(["topic-a", "topic-b", "topic-d"]),
     );
+  });
+
+  test("a synthetic capability page enters the pool via the needle lane", async () => {
+    // A capability slug indexed with body content (the section index treats it
+    // like any other page) is ranked by the real needle when the query matches
+    // its text — this is how synthetic pages reach the pool now that they are no
+    // longer always-added.
+    const CAP: Slug = "skills/example";
+    const sectionIndex = await buildSectionIndex([...SLUGS, CAP], async (s) =>
+      s === CAP
+        ? "# Skill: example\nuse the kumquat skill to do the thing"
+        : PAGES[s]!,
+    );
+    const needle = buildSectionNeedle(sectionIndex);
+    const edgeGraph = await buildEdgeGraph(makeEntries(), async (s) => RAW[s]!);
+
+    providerStub = selectProvider([]); // selection irrelevant to pool union
+    await orchestrate(makeTurn(1, "kumquat"), {
+      sectionIndex,
+      needle,
+      denseConfig: config,
+      edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    // The needle ranked the capability page on the "kumquat" term, so it is in
+    // the candidate pool.
+    expect(lastPool).toContain(CAP);
   });
 
   test("edge curated link description becomes the edge candidate's descriptor", async () => {
@@ -235,7 +266,6 @@ describe("orchestrate — candidate pool composition", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: [],
     });
 
     expect(descriptorLine).toContain("the curated edge from a to d");
@@ -258,7 +288,6 @@ describe("orchestrate — candidate pool composition", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: [],
     });
     expect(needleK).toBe(DEFAULT_NEEDLE_K);
     expect(DEFAULT_DENSE_K).toBe(100);
@@ -274,7 +303,6 @@ describe("orchestrate — candidate pool composition", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: [],
     });
     // topic-a matched "apple" in its `## Details` section.
     expect(result.sectionBySlug.get("topic-a")?.article).toBe("topic-a");
@@ -299,7 +327,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
 
     // Turn 2 selects a DIFFERENT page and never re-selects topic-a.
@@ -311,7 +338,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
 
     expect(t2.currentSelections.map((s) => s.slug)).not.toContain("topic-a");
@@ -332,7 +358,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
 
     denseHits = [{ article: "topic-b", section: 0 }];
@@ -343,7 +368,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
 
     expect(t2.currentSelections.map((s) => s.slug)).toEqual(["topic-b"]);
@@ -362,7 +386,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
     expect(t1.finalInjection).toContain("topic-a");
 
@@ -374,7 +397,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
     await orchestrate(makeTurn(3, "x"), {
       sectionIndex: lanes.sectionIndex,
@@ -382,7 +404,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
     const t4 = await orchestrate(makeTurn(4, "x"), {
       sectionIndex: lanes.sectionIndex,
@@ -390,7 +411,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet,
-      capabilitySlugs: [],
     });
     expect(t4.finalInjection).not.toContain("topic-a");
   });
@@ -405,7 +425,6 @@ describe("orchestrate — carry-forward", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: ws,
-      capabilitySlugs: [],
     });
     expect(ws.union().has("topic-a")).toBe(true);
   });
@@ -425,7 +444,6 @@ describe("orchestrate — degradation", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: [],
     });
     expect(result.currentSelections).toEqual([]);
     expect(result.finalInjection).toEqual([]);
@@ -444,10 +462,9 @@ describe("orchestrate — degradation", () => {
       denseConfig: config,
       edgeGraph: lanes.edgeGraph,
       workingSet: new WorkingSet(),
-      capabilitySlugs: ["skills/example"],
     });
     expect(new Set(result.finalInjection)).toEqual(
-      new Set(["topic-a", "topic-b", "topic-d", "skills/example"]),
+      new Set(["topic-a", "topic-b", "topic-d"]),
     );
   });
 });

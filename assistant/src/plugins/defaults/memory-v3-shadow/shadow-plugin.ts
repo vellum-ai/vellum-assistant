@@ -45,7 +45,7 @@ import {
   getWorkspacePromptPath,
 } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
-import { isCapabilitySlug } from "./capabilities.js";
+import { isCapabilitySlug, renderCapabilityContent } from "./capabilities.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { OrchestrateResult } from "./orchestrate.js";
@@ -84,9 +84,6 @@ export interface ShadowLanes {
   denseConfig: AssistantConfig;
   edgeGraph: EdgeGraph;
   workingSet: WorkingSet;
-  /** Synthetic capability slugs (skills / CLI commands), always added to the
-   *  candidate pool in {@link orchestrate}. */
-  capabilitySlugs: Slug[];
 }
 
 /**
@@ -137,8 +134,16 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     pageCache.set(slug, loaded);
     return loaded;
   }
-  const pageBody = async (slug: Slug): Promise<string> =>
-    (await loadPage(slug))?.body ?? "";
+  // Synthetic capability slugs (skills / CLI commands) have no on-disk page, so
+  // they contribute their rendered capability content to the section index —
+  // exactly the content `page-content.ts` injects for them. This puts them in
+  // the section index, so the needle lane (and, once a backfill embeds them, the
+  // dense lane) ranks them by relevance like any other page, instead of being
+  // blindly added to the select pool every turn.
+  const pageBody = async (slug: Slug): Promise<string> => {
+    if (isCapabilitySlug(slug)) return renderCapabilityContent(slug) ?? "";
+    return (await loadPage(slug))?.body ?? "";
+  };
   const pageRaw = async (slug: Slug): Promise<string> => {
     const loaded = await loadPage(slug);
     if (!loaded) throw new Error(`page not found: ${slug}`);
@@ -152,11 +157,6 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   });
   await ensureSectionCollection(config);
 
-  // Synthetic capability slugs (skills + CLI commands) the page index already
-  // carries. Always added to the candidate pool in `orchestrate`; proper
-  // lane-ranking of synthetic pages is a documented fast-follow.
-  const capabilitySlugs = slugs.filter(isCapabilitySlug);
-
   const workingSet = new WorkingSet(
     config.memory.v3.workingSet.maxPages,
     config.memory.v3.workingSet.evictWindow,
@@ -168,7 +168,6 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     denseConfig: config,
     edgeGraph,
     workingSet,
-    capabilitySlugs,
   };
 }
 
@@ -338,7 +337,6 @@ export async function observeTurn(
       denseConfig: lanes.denseConfig,
       edgeGraph: lanes.edgeGraph,
       workingSet: lanes.workingSet,
-      capabilitySlugs: lanes.capabilitySlugs,
       needleK: v3.needleK,
       denseK: v3.denseK,
       edgeSeeds: v3.edge.seedCount,

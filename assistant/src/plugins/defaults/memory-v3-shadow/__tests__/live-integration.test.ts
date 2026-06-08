@@ -181,7 +181,6 @@ async function runTurn(
     denseConfig: config,
     edgeGraph: deps.lanes.edgeGraph,
     workingSet: deps.workingSet,
-    capabilitySlugs: [],
   });
   const block = await renderMemoryBlock(
     result.finalInjection,
