@@ -29,12 +29,6 @@ body {
   --text-body-medium-default-weight: 400;
 }
 
-/* Funnel buttons carry `text-base` (16px); Swift renders button text at 14pt. */
-.electron-prechat-type .text-base {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-
 /* Functional keyframes — app-only animations. Animations consumed by
  * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
  * collapsible-slide-*) live in the library's tokens.css. */

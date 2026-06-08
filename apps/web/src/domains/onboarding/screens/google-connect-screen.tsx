@@ -442,7 +442,7 @@ export function GoogleConnectScreen({
             fullWidth
             onClick={handleConnect}
             disabled={oauthInProgress || startOAuth.isPending}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {oauthInProgress || startOAuth.isPending ? (
               <span className="flex items-center justify-center gap-2">
@@ -459,7 +459,7 @@ export function GoogleConnectScreen({
             fullWidth
             onClick={onSkip}
             disabled={oauthInProgress || startOAuth.isPending}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             Skip for now
           </Button>

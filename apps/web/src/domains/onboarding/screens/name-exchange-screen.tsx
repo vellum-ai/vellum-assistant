@@ -144,7 +144,7 @@ export function NameExchangeScreen({
             size="regular"
             fullWidth
             onClick={onComplete}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             Let&apos;s go
           </Button>
@@ -153,7 +153,7 @@ export function NameExchangeScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             Skip
           </Button>

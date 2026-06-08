@@ -203,7 +203,7 @@ export function ToolSelectionScreen({
             fullWidth
             disabled={selectedTools.size === 0}
             onClick={onContinue}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {continueLabel}
           </Button>
@@ -212,7 +212,7 @@ export function ToolSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             I&apos;ll set this up later
           </Button>

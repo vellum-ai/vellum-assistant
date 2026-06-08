@@ -119,7 +119,7 @@ export function TaskToneSelectionScreen({
             fullWidth
             disabled={selectedTasks.size === 0}
             onClick={onContinue}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             Continue
           </Button>
@@ -128,7 +128,7 @@ export function TaskToneSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             I&apos;ll set this up later
           </Button>

@@ -197,7 +197,7 @@ export function PriorAssistantSelectionScreen({
             fullWidth
             disabled={selectedAssistants.size === 0}
             onClick={onContinue}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {continueLabel}
           </Button>
@@ -206,7 +206,7 @@ export function PriorAssistantSelectionScreen({
             size="regular"
             fullWidth
             onClick={onSkip}
-            className={`${electron ? "h-9" : "h-11"} text-base`}
+            className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             I haven&apos;t used any
           </Button>
