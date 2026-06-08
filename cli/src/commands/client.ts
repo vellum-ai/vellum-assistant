@@ -277,12 +277,14 @@ ${ANSI.bold}DEFAULTS:${ANSI.reset}
 ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client
     vellum client vellum-assistant-foo
-    vellum client --url http://34.56.78.90:${GATEWAY_PORT}
+    # Remote assistants must be reached over https (e.g. a tunnel) — the
+    # guardian refresh token is only sent over https or a loopback address:
+    vellum client --url https://your-tunnel.example
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
 
     # Ephemeral: connect to another machine's assistant with a paired token
     # (no lockfile entry, nothing persisted):
-    vellum client --url http://10.0.0.196:${GATEWAY_PORT} --token <jwt>
+    vellum client --url https://your-tunnel.example --token <jwt>
 `);
 }
 

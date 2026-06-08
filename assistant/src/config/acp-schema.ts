@@ -20,12 +20,6 @@ const AcpAgentConfigSchema = z
 
 export const AcpConfigSchema = z
   .object({
-    enabled: z
-      .boolean()
-      .default(false)
-      .describe(
-        "Whether the Agent Communication Protocol (ACP) system is enabled",
-      ),
     maxConcurrentSessions: z
       .number()
       .int()
@@ -40,7 +34,7 @@ export const AcpConfigSchema = z
       .describe("Map of agent names to their configurations"),
   })
   .describe(
-    "Agent Communication Protocol (ACP) — enables inter-agent communication and delegation",
+    "Agent Communication Protocol (ACP) — inter-agent communication and delegation",
   );
 
 export type AcpConfig = z.infer<typeof AcpConfigSchema>;

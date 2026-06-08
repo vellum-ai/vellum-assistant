@@ -26,24 +26,11 @@ Users can refer to agents by natural names: "claude code", "codex cli", "openai 
 
 ## First-time setup
 
-When the user first tries to use ACP and it's not enabled, set it up automatically:
+ACP is always available - default profiles for `claude`, `codex`, and `gemini` ship out-of-box, so no config edit is needed to start. First-time setup is just making the adapter binary available, then spawning:
 
-1. **Enable the `acp` feature flag** (the primary enablement path). Either PATCH it via the gateway feature-flags endpoint or direct the user to toggle "ACP Coding Agents" in the client's feature flags UI. Flag changes are hot-refreshed in the assistant - no restart needed.
+1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
 
-   As a supported alternative, edit the workspace config file to add the `acp` section. Default profiles for `claude`, `codex`, and `gemini` ship out-of-box, so the minimal config is just:
-   ```json
-   {
-     "acp": {
-       "enabled": true,
-       "maxConcurrentSessions": 4
-     }
-   }
-   ```
-   If you go the config route, **wait a few seconds** for the config watcher to pick up the change (it hot-reloads automatically - no restart needed).
-
-2. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
-
-No manual binary installation is needed first: missing adapter binaries are installed automatically (see below).
+2. Call `acp_spawn`. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
 
 ## Automatic adapter availability
 
@@ -140,7 +127,7 @@ Then retry the `acp_spawn` call.
 
 ## Discoverability
 
-Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether ACP is enabled, whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
+Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
 
 ## Working directory
 

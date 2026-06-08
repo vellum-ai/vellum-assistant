@@ -16,6 +16,14 @@ if ! command -v xcrun >/dev/null 2>&1; then
   exit 1
 fi
 
+TARGET_FLAGS=""
+if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
+  case "$ELECTRON_TARGET_ARCH" in
+    arm64) TARGET_FLAGS="-target arm64-apple-macosx15.0" ;;
+    x64)   TARGET_FLAGS="-target x86_64-apple-macosx15.0" ;;
+  esac
+fi
+
 mkdir -p "$OUTPUT_DIR"
-xcrun swiftc "$SOURCE" -framework AppKit -framework Carbon -o "$OUTPUT"
+xcrun swiftc $TARGET_FLAGS "$SOURCE" -framework AppKit -framework Carbon -o "$OUTPUT"
 chmod 755 "$OUTPUT"

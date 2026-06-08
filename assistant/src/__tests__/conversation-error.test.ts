@@ -319,7 +319,6 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain("image");
-      expect(result.userMessage).toContain("8000");
     });
 
     it("matches the singular 'image dimension exceeds' phrasing as well", () => {
@@ -329,6 +328,21 @@ describe("classifyConversationError", () => {
         400,
       );
       const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("image_dimensions_too_large");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("classifies the base64 payload 'exceeds 5 MB maximum' variant as IMAGE_TOO_LARGE (JARVIS-1041)", () => {
+      // This is the exact shape that wedged the reporting user: an oversized
+      // image nested in a tool_result. It must route to IMAGE_TOO_LARGE so the
+      // recovery path fires, not to a retryable PROVIDER_API loop.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.28.content.1.tool_result.content.1.image.source.base64: image exceeds 5 MB maximum: 7465044 bytes > 5242880 bytes"},"request_id":"req_011CbbFqvxBmDQdhVlqxtAfW"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
     });

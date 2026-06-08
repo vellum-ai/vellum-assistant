@@ -233,10 +233,9 @@ describe("frontmatter feature-flag integration", () => {
 // ---------------------------------------------------------------------------
 
 describe("bundled acp skill discoverability", () => {
-  test("acp skill resolves with the flag off and config.acp disabled (no frontmatter flag gate)", () => {
-    // The ACP skill carries its own first-time-setup instructions, so it must
-    // stay visible even when the acp flag and config.acp.enabled are both off.
-    // Runtime enforcement happens in the ACP tools via isAcpEnabled instead.
+  test("acp skill resolves with no frontmatter flag gate", () => {
+    // The ACP skill carries its own first-time-setup instructions and is
+    // always discoverable: it has no frontmatter feature-flag gate.
     const skillMdPath = fileURLToPath(
       new URL("../config/bundled-skills/acp/SKILL.md", import.meta.url),
     );
@@ -247,10 +246,9 @@ describe("bundled acp skill discoverability", () => {
     expect(skill!.featureFlag).toBeUndefined();
     expect(skillFlagKey(skill!)).toBeUndefined();
 
-    // acp flag at its registry default (off) and config.acp disabled.
     const config = makeConfig({
-      acp: { enabled: false, maxConcurrentSessions: 4, agents: {} },
-    } as Partial<AssistantConfig>);
+      acp: { maxConcurrentSessions: 4, agents: {} },
+    });
 
     const resolved = resolveSkillStates([skill!], config);
     expect(resolved.length).toBe(1);

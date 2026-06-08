@@ -1,3 +1,4 @@
+import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
@@ -1206,13 +1207,22 @@ export async function executeBrowserScreenshot(
       { quality: 80, fullPage },
       context.signal,
     );
-    const base64Data = buffer.toString("base64");
+    const rawBase64 = buffer.toString("base64");
+
+    // Downscale before handing the screenshot to the model. A full-page
+    // capture of a tall or high-DPI page can exceed Anthropic's 5 MB
+    // per-image cap, which would otherwise persist into the conversation
+    // history inside this tool_result and reject every subsequent turn.
+    const { data: base64Data, mediaType } = optimizeImageForTransport(
+      rawBase64,
+      "image/jpeg",
+    );
 
     const imageBlock: ImageContent = {
       type: "image" as const,
       source: {
         type: "base64" as const,
-        media_type: "image/jpeg",
+        media_type: mediaType,
         data: base64Data,
       },
     };
