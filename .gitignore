@@ -57,6 +57,7 @@ worktrees/
 !.claude/skills/update/
 !.claude/skills/release/
 !.claude/skills/e2e/
+!.claude/skills/vellum-skills/
 
 # Shared claude-skills symlinks (managed by claude-skills/setup)
 # These are gitignored because they're symlinks to the shared repo.
