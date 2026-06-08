@@ -70,6 +70,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // values would let a duplicate name overwrite an existing profile and reset
   // the persisted profileOrder to just the new entry.
   const [profilesLoaded, setProfilesLoaded] = useState(false);
+  // Tracks the assistantId that profilesReadyRef was set for, so that
+  // conversationId changes alone don't reset the "ready" gate.
+  const profilesReadyForAssistantRef = useRef<string | null>(null);
 
   const conversationIdRef = useRef(conversationId);
   useLayoutEffect(() => {
@@ -112,12 +115,19 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Fetch daemon config and conversation profile in parallel. Running both under
   // the same [assistantId, conversationId] dep set eliminates the two-effect
   // init race from prior cycles — state is always applied together after both
-  // fetches settle, and re-running on assistantId change resets profilesReadyRef
-  // before the async work starts (ref mutation, no extra render).
+  // fetches settle.
+  //
+  // Only reset the profile-selection gate when the assistant changes. The
+  // profile list doesn't change when conversationId changes, and resetting
+  // the gate on every conversationId transition creates a race window where
+  // profiles are visible but clicks are silently dropped (LUM-2279).
   useEffect(() => {
     if (!assistantId) return;
-    profilesReadyRef.current = false;
-    setProfilesLoaded(false);
+    if (profilesReadyForAssistantRef.current !== assistantId) {
+      profilesReadyRef.current = false;
+      setProfilesLoaded(false);
+      profilesReadyForAssistantRef.current = assistantId;
+    }
     let cancelled = false;
 
     (async () => {
@@ -281,6 +291,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           // capture — avoids clobbering a later successful selection when two
           // requests race (select A → select B → A fails → should stay at B).
           setProfileActiveKey(lastConfirmedProfileRef.current);
+          toast.error("Failed to switch profile. Please try again.");
         }
         return false;
       }

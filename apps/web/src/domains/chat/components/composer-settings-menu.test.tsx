@@ -318,3 +318,27 @@ describe("Model Profile quick-add", () => {
     });
   });
 });
+
+describe("Profile selection after conversation change (LUM-2279)", () => {
+  test("selecting a profile works immediately after conversationId changes", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (convId: string) =>
+      createElement(QueryClientProvider, { client: qc },
+        createElement(ComposerSettingsMenu, { assistantId: "assistant-1", conversationId: convId }));
+
+    const { rerender } = render(tree("conv-1"));
+    await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());
+
+    // Hang subsequent config fetches so the re-fetch from the conversationId
+    // change never completes — holds the race window open.
+    clientGet.mockImplementation(() => new Promise(() => {}));
+    rerender(tree("conv-2"));
+
+    // Click the profile — without the fix this is silently dropped.
+    const smart = screen.getAllByTestId("menu-item").find((b) => b.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+
+    await waitFor(() => expect(inferenceprofilePut).toHaveBeenCalledTimes(1));
+    expect((inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile).toBe("smart");
+  });
+});
