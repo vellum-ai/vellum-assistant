@@ -37,8 +37,8 @@ import type {
   LeafNode,
   LeafPath,
   LeafTree,
+  MemoryRoutingTurn,
   Slug,
-  TurnContext,
 } from "../types.js";
 import liveTurns from "./fixtures/live-turns.json" with { type: "json" };
 
@@ -117,7 +117,10 @@ const contentOf = async (slug: Slug): Promise<string> => `body for ${slug}`;
 /** Needle that never hits — routing alone drives the open set in this fixture. */
 const emptyNeedle: NeedleIndex = { query: () => [] };
 
-function makeTurn(turnNumber: number, currentMessage: string): TurnContext {
+function makeTurn(
+  turnNumber: number,
+  currentMessage: string,
+): MemoryRoutingTurn {
   return {
     conversationId: "conv-xyz",
     turnNumber,

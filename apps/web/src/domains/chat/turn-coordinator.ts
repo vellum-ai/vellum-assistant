@@ -77,7 +77,7 @@ export function endTurn(args: EndTurnArgs): void {
   // dot. Pre-checking lets us short-circuit both stores together.
   if (args.reason === "rescued") {
     const isStaleRescue =
-      !isSending(turn) ||
+      !isSending(turn.phase) ||
       (args.rescuedTurnId != null &&
         turn.activeTurnId !== args.rescuedTurnId);
     if (isStaleRescue) return;

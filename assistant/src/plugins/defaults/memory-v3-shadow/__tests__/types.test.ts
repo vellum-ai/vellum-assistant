@@ -5,9 +5,9 @@ import type {
   LeafNode,
   LeafPath,
   LeafTree,
+  MemoryRoutingTurn,
   SelectionSource,
   Slug,
-  TurnContext,
   WorkingSetEntry,
 } from "../types.js";
 
@@ -37,7 +37,7 @@ test("v3 core types instantiate", () => {
     lastSeenTurn: 2,
   };
 
-  const turnContext: TurnContext = {
+  const turnContext: MemoryRoutingTurn = {
     conversationId: "conv-xyz",
     turnNumber: 3,
     currentMessage: "hello",

@@ -202,7 +202,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   setLastNotifiedInferenceProfile: () => {},
   getLastUserTimestampBefore: () => 0,
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -422,10 +422,8 @@ mock.module("../memory/archive-store.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
-import {
-  type AgentLoopConversationContext,
-  runAgentLoopImpl,
-} from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -436,13 +434,13 @@ import {
 // ── Test helpers ─────────────────────────────────────────────────────
 
 function makeCtx(
-  overrides?: Partial<AgentLoopConversationContext> & {
+  overrides?: Partial<Conversation> & {
     providerResponses?: ScriptedResponse[];
     loopProvider?: Provider;
     loopTools?: ToolDefinition[];
     toolExecutor?: LoopToolExecutor;
   },
-): AgentLoopConversationContext {
+): Conversation {
   const {
     providerResponses,
     loopProvider,
@@ -495,13 +493,14 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
@@ -524,15 +523,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -545,8 +544,8 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
@@ -577,10 +576,10 @@ function makeCtx(
       }),
       retrackCachedNodes: () => {},
       recordPkbQueryVectors: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+    } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 /**
@@ -648,10 +647,9 @@ beforeEach(() => {
   recordUsageMock.mockClear();
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   addMessageMock.mockClear();
-  // Reset the plugin registry and re-register every default so the
-  // orchestrator's pipelines (`overflowReduce`, `persistence`, …) dispatch to
-  // the default middleware, which in turn hits the mocked collaborators
-  // (`reduceContextOverflow`, `syncMessageToDisk`, …) these tests install.
+  // Reset the plugin registry and re-register every default so the compaction
+  // pipeline dispatches to the default middleware, which in turn hits the
+  // mocked collaborators (`syncMessageToDisk`, …) these tests install.
   resetPluginRegistryAndRegisterDefaults();
 });
 
@@ -765,9 +763,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -839,9 +838,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     const ctx = makeCtx({
       loopProvider: provider,
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => ({ compacted: false }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     // WHEN the turn runs
@@ -915,9 +915,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1002,9 +1003,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         loopProvider: provider,
         messages: longHistory,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "analyze this", "msg-1", (msg) =>
@@ -1084,6 +1086,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (
             _msgs: Message[],
@@ -1115,7 +1118,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             }
             return { compacted: false };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1184,6 +1187,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1208,7 +1212,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               summaryModel: "mock-model",
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1290,6 +1294,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           isError: false,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => {
             compactionCalled = true;
@@ -1314,7 +1319,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               summaryModel: "mock-model",
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => {
@@ -1407,6 +1412,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
@@ -1438,7 +1444,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             summaryModel: "mock-model",
           };
         },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1515,6 +1521,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
@@ -1539,7 +1546,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             summaryModel: "mock-model",
           };
         },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1630,6 +1637,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
         // the retry budget lives inside `ContextWindowManager._maybeCompact`,
@@ -1657,7 +1665,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           summaryModel: "mock-model",
           exhausted: true,
         }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1775,9 +1783,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     const ctx = makeCtx({
       providerResponses: [textResponse("done")],
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => ({ compacted: false }),
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1878,6 +1887,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       ],
       toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
+        updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async (
           _msgs: Message[],
@@ -1938,7 +1948,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             summaryModel: "mock-model",
           };
         },
-      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));

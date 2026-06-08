@@ -1,43 +1,29 @@
 import {
-  dedupeDisplayMessages,
   reconcileDisplayMessagesWithLatestHistory,
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
 import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
-import { getAppliedSeq } from "@/lib/streaming/applied-seq";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
-
-/**
- * True when the live stream has carried this conversation past the snapshot's
- * watermark (`F > S`), meaning the snapshot is stale and applying it would
- * regress rows the stream already advanced. Both numbers must be known.
- */
-function isStreamAheadOfSnapshot(
-  conversationId: string,
-  snapshotSeq: number | null,
-): boolean {
-  const appliedSeq = getAppliedSeq(conversationId);
-  return (
-    snapshotSeq != null && appliedSeq != null && snapshotSeq < appliedSeq
-  );
-}
 
 /**
  * Single entry point for merging a `/messages` snapshot into the local
  * transcript, routing between the legacy heuristic reconcile and the seq-aware
  * monotonic merge based on `isSeqGapDetectionEnabled()`.
  *
- * Pure with respect to module state (it only reads the applied frontier), so
- * it is safe to call inside a React state updater. Advancing the frontier
- * (`recordAppliedSeq`) is the caller's responsibility and must run outside the
+ * Fully pure (reads no module state): the caller passes the local seq
+ * `L` — captured before advancing it — so the seq-aware merge can tell whether
+ * this snapshot advanced the frontier. Advancing the frontier
+ * (`recordLocalSeq`) is the caller's responsibility and must run outside the
  * updater.
  */
 export interface ReconcileSnapshotOptions {
-  conversationId: string;
   /** Watermark `seq` the snapshot was persisted at (top-level `/messages` seq). */
-  snapshotSeq: number | null;
+  serverSeq: number | null;
+  /** Local seq `L` as of before this snapshot is applied. */
+  localSeq: number | null;
   oldestPageTimestamp?: number | null;
 }
 
@@ -52,27 +38,29 @@ export function reconcileSnapshot(
     });
   }
 
-  return reconcileMessagesWithSeq(local, server, {
-    snapshotSeq: options.snapshotSeq,
-    appliedSeq: getAppliedSeq(options.conversationId),
+  return reconcileMessagesWithSeq(local, server.map(mapRuntimeToDisplayMessage), {
+    serverSeq: options.serverSeq,
+    localSeq: options.localSeq,
     oldestPageTimestamp: options.oldestPageTimestamp,
   });
 }
 
 /**
- * Seq-aware variant of the latest-history merge used when a freshly fetched
- * latest page is applied over a transcript restored from the in-memory cache.
+ * Apply a freshly fetched latest page over a transcript restored from the
+ * in-memory cache (the initial-load path).
  *
- * The cache-merge can recover live-only SSE events the cache missed, but a
- * stale latest page (`F > S`) would instead regress rows the stream already
- * advanced past `S`. When the seq flag is on and the stream is ahead, the
- * local transcript is kept as-is; otherwise the merge runs unchanged. No
- * behavior change while the flag is off.
+ * When the seq flag is on this routes through the single authoritative
+ * `reconcileMessagesWithSeq`, so initial load uses the same monotonic merge as
+ * every other snapshot-apply site: a stale page (`L > S`) keeps the live local
+ * rows, a fresh page (`S >= L`) is authoritative. The latest page is already a
+ * projected `DisplayMessage[]`, so it feeds the merge directly. While the flag
+ * is off, the legacy cache-merge runs unchanged.
  */
 export interface ReconcileLatestHistoryOptions {
-  conversationId: string;
   /** Watermark `seq` of the latest history page (`latestPage.seq`). */
-  snapshotSeq: number | null;
+  serverSeq: number | null;
+  /** Local seq `L` as of before this page is applied. */
+  localSeq: number | null;
   isProcessing: boolean;
 }
 
@@ -81,11 +69,11 @@ export function reconcileLatestHistorySnapshot(
   latestHistory: DisplayMessage[],
   options: ReconcileLatestHistoryOptions,
 ): DisplayMessage[] {
-  if (
-    isSeqGapDetectionEnabled() &&
-    isStreamAheadOfSnapshot(options.conversationId, options.snapshotSeq)
-  ) {
-    return dedupeDisplayMessages(current);
+  if (isSeqGapDetectionEnabled()) {
+    return reconcileMessagesWithSeq(current, latestHistory, {
+      serverSeq: options.serverSeq,
+      localSeq: options.localSeq,
+    });
   }
 
   return reconcileDisplayMessagesWithLatestHistory(

@@ -18,7 +18,7 @@
  *   1. Lazy-init the v3 lanes ONCE across the whole process (leaf tree, core
  *      set, BM25 needle, carry-forward working set), memoizing the init
  *      promise so concurrent first turns share a single build.
- *   2. Build a {@link TurnContext} from the conversation's recent messages.
+ *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
  *
@@ -53,9 +53,9 @@ import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
 import {
   type LeafPath,
   type LeafTree,
+  type MemoryRoutingTurn,
   type SelectionSource,
   type Slug,
-  type TurnContext,
 } from "./types.js";
 import { WorkingSet } from "./working-set.js";
 
@@ -193,7 +193,7 @@ function buildSituationalContext(): string {
 }
 
 /**
- * Build a v3 {@link TurnContext} from the conversation's persisted messages.
+ * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
  * `currentMessage` is the latest user message; `recentContext` is the tail of
  * the recent transcript; `situationalContext` carries the current date and the
  * live NOW.md scratchpad. Returns `null` when there is no user message to route
@@ -202,7 +202,7 @@ function buildSituationalContext(): string {
 function buildShadowTurn(
   conversationId: string,
   turnIndex: number,
-): TurnContext | null {
+): MemoryRoutingTurn | null {
   const rows = getMessages(conversationId);
   if (rows.length === 0) return null;
 

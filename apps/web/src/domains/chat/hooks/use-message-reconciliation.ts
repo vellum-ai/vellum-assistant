@@ -11,10 +11,10 @@ import {
 } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
-import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
@@ -50,7 +50,7 @@ interface UseMessageReconciliationReturn {
   reconcileFromServer: (
     serverMessages: ConversationMessage[],
     conversationId: string,
-    snapshotSeq: number | null,
+    serverSeq: number | null,
   ) => boolean;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
@@ -92,7 +92,10 @@ function serverHasAssistantProgress(
     const serverUserIndex = serverMessages.findLastIndex((message) => {
       if (message.role !== "user") return false;
       if (lastLocalUser.id && message.id === lastLocalUser.id) return true;
-      return runtimeMessagePlainText(message) === lastLocalUserText;
+      return (
+        segmentsToPlainText(mapRuntimeToDisplayMessage(message).textSegments) ===
+        lastLocalUserText
+      );
     });
     if (serverUserIndex === -1) return false;
     serverSearchStartIndex = serverUserIndex + 1;
@@ -101,7 +104,9 @@ function serverHasAssistantProgress(
   for (const serverMessage of serverMessages.slice(serverSearchStartIndex)) {
     if (serverMessage.role !== "assistant") continue;
 
-    const serverMessageText = runtimeMessagePlainText(serverMessage);
+    const serverMessageText = segmentsToPlainText(
+      mapRuntimeToDisplayMessage(serverMessage).textSegments,
+    );
     const localById = localAssistantById.get(serverMessage.id);
     if (localById) {
       claimedLocal.add(localById);
@@ -150,7 +155,7 @@ export function useMessageReconciliation({
     (
       serverMessages: ConversationMessage[],
       conversationId: string,
-      snapshotSeq: number | null,
+      serverSeq: number | null,
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -161,11 +166,12 @@ export function useMessageReconciliation({
         return { changed: false, assistantProgress: false, messagesAdded: 0 };
       }
 
-      // Advance the applied frontier to the snapshot watermark before the
-      // merge. Kept outside the updater so the updater stays pure; the merge
-      // decision is unaffected since advancing F to S only collapses the
-      // S >= F case (which is server-authoritative either way).
-      recordAppliedSeq(conversationId, snapshotSeq);
+      // Capture the local seq `L` before advancing it, so the merge
+      // can tell whether this snapshot moved the frontier (`S > L`). Then
+      // advance the frontier to the server seq for later consumers.
+      // Both run outside the updater so the updater stays pure.
+      const localSeq = getLocalSeq(conversationId);
+      recordLocalSeq(conversationId, serverSeq);
 
       let changed = false;
       let assistantProgress = false;
@@ -177,11 +183,11 @@ export function useMessageReconciliation({
         assistantProgress = serverHasAssistantProgress(
           prev,
           serverMessages,
-          isSending(useTurnStore.getState()),
+          isSending(useTurnStore.getState().phase),
         );
         const next = reconcileSnapshot(prev, serverMessages, {
-          conversationId,
-          snapshotSeq,
+          serverSeq,
+          localSeq,
           oldestPageTimestamp: initialPageOldestTsRef.current,
         });
         changed = next !== prev;
@@ -213,9 +219,9 @@ export function useMessageReconciliation({
     (
       serverMessages: ConversationMessage[],
       conversationId: string,
-      snapshotSeq: number | null,
+      serverSeq: number | null,
     ): boolean =>
-      reconcileFromServerDetailed(serverMessages, conversationId, snapshotSeq)
+      reconcileFromServerDetailed(serverMessages, conversationId, serverSeq)
         .changed,
     [reconcileFromServerDetailed],
   );
@@ -225,13 +231,13 @@ export function useMessageReconciliation({
       serverMessages: ConversationMessage[],
       snapshotTurnId: string | null,
       snapshotConversationId: string,
-      snapshotSeq: number | null,
+      serverSeq: number | null,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
           serverMessages,
           snapshotConversationId,
-          snapshotSeq,
+          serverSeq,
         );
 
       // Reconcile turn state: only fire the silent-stall rescue when ALL
@@ -261,7 +267,7 @@ export function useMessageReconciliation({
         changed &&
         assistantProgress &&
         snapshotTurnId &&
-        isSending(useTurnStore.getState()) &&
+        isSending(useTurnStore.getState().phase) &&
         useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
         // The rescue must clear BOTH the turn-store (so the local
@@ -306,7 +312,7 @@ export function useMessageReconciliation({
       // Force-complete stale running tool calls. After onPollReconciled the
       // turn is idle. With Zustand, getState() reflects the update
       // immediately.
-      if (wasStuck || !isSending(useTurnStore.getState())) {
+      if (wasStuck || !isSending(useTurnStore.getState().phase)) {
         setMessages((prev) => {
           const hasStaleToolCalls = prev.some((m) =>
             m.toolCalls?.some((tc) => isToolCallRunning(tc)),
@@ -372,7 +378,7 @@ export function useMessageReconciliation({
           .then((snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
-            const snapshotSeq = snapshot?.seq ?? null;
+            const serverSeq = snapshot?.seq ?? null;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
@@ -385,7 +391,7 @@ export function useMessageReconciliation({
               serverMessages,
               snapshotTurnId,
               ctx.conversationId,
-              snapshotSeq,
+              serverSeq,
             );
             if (changed) {
               stableCount = 0;
@@ -465,7 +471,7 @@ export function useMessageReconciliation({
           ctx.conversationId,
         );
         const serverMessages = snapshot?.messages ?? [];
-        const snapshotSeq = snapshot?.seq ?? null;
+        const serverSeq = snapshot?.seq ?? null;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
@@ -480,7 +486,7 @@ export function useMessageReconciliation({
           serverMessages,
           snapshotTurnId,
           ctx.conversationId,
-          snapshotSeq,
+          serverSeq,
         );
       } catch (err) {
         // Re-throw so callers that observe the promise (e.g. gap-detection

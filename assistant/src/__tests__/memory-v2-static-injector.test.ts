@@ -11,6 +11,9 @@
  *   - Skips (re)injection when the `<info>` block is already present in the
  *     turn's working messages (presence detection — the block persists in
  *     history between compactions).
+ *   - Still injects when only a dynamic `<memory>` activation block is present
+ *     (that wrapper must not be mistaken for the static block) — both on a
+ *     normal turn and after compaction strips the prior `<info>` block.
  *
  * The injector sources its content itself via `readMemoryV2StaticContent()`
  * behind the personal-memory trust gate, so each test seeds the workspace
@@ -54,7 +57,6 @@ function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
     conversationId: "conv-test",
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
-    injectionInputs: {},
     ...overrides,
   };
 }
@@ -96,7 +98,7 @@ describe("memory-v2-static injector", () => {
 
   test("returns null in minimal mode even with content", async () => {
     seedEssentials("Alice prefers VS Code.");
-    const ctx = makeContext({ injectionInputs: { mode: "minimal" } });
+    const ctx = makeContext({ mode: "minimal" });
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });
 
@@ -140,10 +142,12 @@ describe("memory-v2-static injector", () => {
     expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
   });
 
-  test("skips (re)injection when a legacy <memory>-wrapped static block is present", async () => {
-    // Rows persisted before the `<info>` switch rehydrate the static block as
-    // `<memory>…</memory>`. Re-injecting a fresh `<info>` copy alongside it
-    // would duplicate the content until the next compaction.
+  test("injects the <info> block even when a dynamic <memory> activation block is present", async () => {
+    // Regression (#33612): the v2 *dynamic* activation block uses the
+    // `<memory>…</memory>` wrapper and `prepareMemory` prepends it to the tail
+    // user message every turn, before this injector runs. The static injector
+    // must NOT treat that as its own `<info>` block — doing so suppressed the
+    // static block on essentially every turn.
     seedEssentials("Alice prefers VS Code.");
     const ctx = makeContext();
     const runMessages: Message[] = [
@@ -152,12 +156,86 @@ describe("memory-v2-static injector", () => {
         content: [
           {
             type: "text",
-            text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+            text: "<memory>\n# memory/concepts/foo.md\nactivated page summary\n</memory>",
           },
           { type: "text", text: "What next?" },
         ],
       },
     ];
+    const block = await memoryV2StaticInjector.produce(ctx, runMessages);
+    expect(block).not.toBeNull();
+    expect(block!.id).toBe("memory-v2-static");
+    expect(block!.text).toBe(
+      "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+    );
+  });
+
+  test("reinjects the <info> block after compaction strips it, alongside a fresh <memory> block", async () => {
+    // Post-compaction state: `stripInjectionsForCompaction` removed the prior
+    // `<info>` block, and the next turn's `prepareMemory` re-added a fresh
+    // dynamic `<memory>` block ahead of the chain. With no `<info>` present, the
+    // injector must reinject it rather than skip on the `<memory>` block.
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const postCompactMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory>\nactivated page summary\n</memory>" },
+          { type: "text", text: "Continue please." },
+        ],
+      },
+    ];
+    const block = await memoryV2StaticInjector.produce(
+      ctx,
+      postCompactMessages,
+    );
+    expect(block).not.toBeNull();
+    expect(block!.id).toBe("memory-v2-static");
+    expect(block!.text).toContain("## Essentials");
+  });
+
+  test("skips (re)injection when the <info> block is carried in a flattened history block", async () => {
+    // Regression: when a historical user message's separate injection content
+    // blocks get collapsed into one text block (observed after a daemon restart
+    // / plugin hot-reload rebuilt the rendered history mid-conversation — the
+    // blocks are joined with "\n"), the `<info>` wrapper is no longer its own
+    // block but a newline-delimited section inside a larger block. Presence
+    // detection must still recognize it; otherwise the injector re-injects a
+    // duplicate `<info>` onto the new tail (the double-injection bug).
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const flattenedFirstUser = [
+      "<workspace>\nRoot: /ws\nFiles: a.md\n</workspace>",
+      "<turn_context>\ncurrent_time: now\n</turn_context>",
+      "<memory>\nactivated page summary\n</memory>",
+      "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      "what should we do next?",
+    ].join("\n");
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: flattenedFirstUser }] },
+      { role: "assistant", content: [{ type: "text", text: "On it." }] },
+      { role: "user", content: [{ type: "text", text: "great, continue" }] },
+    ];
     expect(await memoryV2StaticInjector.produce(ctx, runMessages)).toBeNull();
+  });
+
+  test("still injects when a user message opens an <info> tag without closing it", async () => {
+    // False-positive guard: the wrapper matcher requires BOTH the opening and
+    // closing tags, so user prose that merely opens an injection-like tag must
+    // not be mistaken for a carried block and suppress injection.
+    seedEssentials("Alice prefers VS Code.");
+    const ctx = makeContext();
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\n is this how the tag works?" },
+        ],
+      },
+    ];
+    const block = await memoryV2StaticInjector.produce(ctx, runMessages);
+    expect(block).not.toBeNull();
+    expect(block!.id).toBe("memory-v2-static");
   });
 });

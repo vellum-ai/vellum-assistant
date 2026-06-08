@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -21,6 +21,7 @@
     "lint:unused": "knip --include files,dependencies,unlisted",
     "typecheck": "bunx tsc --noEmit",
     "prebuild": "cd .. && bun run meta/feature-flags/sync-bundled-copies.ts",
+    "prepack": "node ../scripts/prepack-bundled-deps.mjs",
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
@@ -39,6 +40,14 @@
     "web-tree-sitter": "0.26.5",
     "zod": "4.3.6"
   },
+  "bundledDependencies": [
+    "@vellumai/assistant-client",
+    "@vellumai/ces-client",
+    "@vellumai/ipc-server-utils",
+    "@vellumai/service-contracts",
+    "@vellumai/slack-text",
+    "@vellumai/twilio-client"
+  ],
   "devDependencies": {
     "@types/bun": "1.3.9",
     "eslint": "10.0.0",

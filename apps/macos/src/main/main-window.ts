@@ -1,12 +1,12 @@
-import { BrowserWindow, type WebContents, app, shell } from "electron";
-import path from "node:path";
+import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
 
 import { getRendererRootUrl } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
-import { advanceAuthFlow, decideNavigation } from "./auth-nav";
+import { decideNavigation } from "./auth-nav";
 import { type VellumCommand } from "./commands";
 import { handle } from "./ipc";
+import { createWindow } from "./windows";
 import {
   readOnboardingActive,
   restoreBounds,
@@ -115,84 +115,20 @@ const armReadyState = (win: BrowserWindow): ReadyState => {
 // wait for, so callers can compose `await` uniformly.
 const ALREADY_READY: Promise<void> = Promise.resolve();
 
-// ── Sign-in navigation relaxation ───────────────────────────────────────────
-// Platform sign-in runs the OAuth provider chain (WorkOS → Google/Apple → our
-// callback) as top-level navigations in the main window. Those are cross-origin,
-// so the same-origin guard below would normally eject them to the system
-// browser mid-handshake. `beginAuthFlow` (renderer IPC, fired on "Continue
-// with …") relaxes the guard for the duration of the flow; it re-arms once the
-// flow returns to the app origin after visiting a provider (see `did-navigate`
-// below) or after a timeout backstop, so the relaxation can't linger.
-const AUTH_FLOW_TIMEOUT_MS = 5 * 60_000;
-const authFlowActive = new WeakSet<WebContents>();
-const authFlowSawExternal = new WeakSet<WebContents>();
-const authFlowTimers = new WeakMap<WebContents, ReturnType<typeof setTimeout>>();
-
-const endAuthFlow = (wc: WebContents): void => {
-  authFlowActive.delete(wc);
-  authFlowSawExternal.delete(wc);
-  const timer = authFlowTimers.get(wc);
-  if (timer) {
-    clearTimeout(timer);
-    authFlowTimers.delete(wc);
-  }
-};
-
-/**
- * Relax the main window's navigation guard for an in-flight sign-in. Idempotent
- * (resets the timeout). Re-armed by the `did-navigate` handler or the timeout.
- */
-export const beginAuthFlow = (): void => {
-  const win = mainWindow;
-  if (!win || win.isDestroyed()) return;
-  const wc = win.webContents;
-  authFlowActive.add(wc);
-  authFlowSawExternal.delete(wc);
-  const existing = authFlowTimers.get(wc);
-  if (existing) clearTimeout(existing);
-  authFlowTimers.set(
-    wc,
-    setTimeout(() => endAuthFlow(wc), AUTH_FLOW_TIMEOUT_MS),
-  );
-};
-
 const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
-  // Scoped to the main window — popups (OAuth flows etc.) need to
-  // redirect between provider domains and our callback origin, so
-  // they're left unrestricted. Resolved once per window construction
-  // so a `VELLUM_DEV_URL` mutated mid-process can't desync the loader
-  // and the guard.
   const allowedOrigin = resolveAllowedOrigin();
-  const wc = win.webContents;
 
-  wc.on("will-navigate", (event, url) => {
-    const decision = decideNavigation(url, allowedOrigin, authFlowActive.has(wc));
+  win.webContents.on("will-navigate", (event, url) => {
+    const decision = decideNavigation(url, allowedOrigin);
     if (decision.kind === "allow") return;
     event.preventDefault();
-    // External http(s) top-level navigations (e.g.
-    // `window.location.href = "https://billing.stripe.com/..."`) route to the
-    // system browser instead of silently failing. Other schemes stay blocked.
     if (decision.kind === "external") {
       void shell.openExternal(decision.url);
     }
   });
-
-  // Re-arm the relaxed guard once a sign-in returns to the app origin after
-  // visiting a provider domain. `did-navigate` reports each committed top-level
-  // URL (post-redirect), so it sees the provider page and then the callback.
-  wc.on("did-navigate", (_event, url) => {
-    if (!authFlowActive.has(wc)) return;
-    const { end, sawExternal } = advanceAuthFlow(
-      url,
-      allowedOrigin,
-      authFlowSawExternal.has(wc),
-    );
-    if (sawExternal) authFlowSawExternal.add(wc);
-    if (end) endAuthFlow(wc);
-  });
 };
 
-const createWindow = (): BrowserWindow => {
+const createMainWindow = (): BrowserWindow => {
   // The prod load target is the renderer base itself (no `/index.html`
   // suffix). The `app://` protocol handler in `index.ts` falls back
   // to `index.html` for paths without a file extension, so this
@@ -216,19 +152,9 @@ const createWindow = (): BrowserWindow => {
     ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }
     : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
 
-  const win = new BrowserWindow({
-    ...sizing,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      devTools: !app.isPackaged,
-    },
+  const win = createWindow({
+    browserWindow: { ...sizing, show: false },
+    navigation: { installGuard: installSameOriginNavigationGuard },
   });
 
   // Persist bounds only when NOT in onboarding mode. Both layouts are
@@ -279,8 +205,6 @@ const createWindow = (): BrowserWindow => {
     fireVisibilityChange();
   });
 
-  installSameOriginNavigationGuard(win);
-
   win.loadURL(loadTarget).catch((err: unknown) => {
     console.error(`[main-window] loadURL failed for ${loadTarget}:`, err);
   });
@@ -311,7 +235,7 @@ const createWindow = (): BrowserWindow => {
  */
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    const win = createWindow();
+    const win = createMainWindow();
     return readyStates.get(win)?.promise ?? ALREADY_READY;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -436,17 +360,6 @@ export const installMainWindow = (): void => {
     z.tuple([z.boolean()]),
     async ([active]): Promise<void> => {
       setOnboarding(active);
-    },
-  );
-
-  // Renderer-driven sign-in: relax the same-origin navigation guard for the
-  // duration of an OAuth flow so the provider chain runs in the main window
-  // instead of being ejected to the system browser.
-  handle(
-    "vellum:mainWindow:beginAuthFlow",
-    z.tuple([]),
-    async (): Promise<void> => {
-      beginAuthFlow();
     },
   );
 

@@ -97,8 +97,18 @@ mock.module("./menu-icon", () => ({
   menuIcon: () => ({ __kind: "template-icon" }),
 }));
 
+mock.module("./lockfile-watcher", () => ({
+  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
+}));
+
+// Full `./settings` surface so this mock — which leaks into co-run test files
+// via the global module registry — doesn't break sibling modules that import
+// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`).
 mock.module("./settings", () => ({
   readSetting: () => null,
+  readHotkeyOverride: () => null,
+  writeSetting: () => {},
+  onSettingChange: () => () => {},
 }));
 
 mock.module("./window-state", () => ({

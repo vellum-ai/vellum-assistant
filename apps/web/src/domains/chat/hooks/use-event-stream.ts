@@ -299,7 +299,7 @@ export function useEventStream({
     ) {
       return;
     }
-    const hadActiveTurn = isSending(useTurnStore.getState());
+    const hadActiveTurn = isSending(useTurnStore.getState().phase);
     const streamState = useStreamStore.getState();
     recordLifecycleDiagnostic("sse_stream_error", {
       assistantId,
@@ -334,9 +334,9 @@ export function useEventStream({
       return;
     }
 
-    let wasSending = isSending(useTurnStore.getState());
+    let wasSending = isSending(useTurnStore.getState().phase);
     return useTurnStore.subscribe((state) => {
-      const nowSending = isSending(state);
+      const nowSending = isSending(state.phase);
       if (
         !wasSending &&
         nowSending &&

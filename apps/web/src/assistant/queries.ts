@@ -77,6 +77,24 @@ export function pollIntervalFor(
   return TRANSIENT_PHASES.has(phase.kind) ? POLL_INTERVAL_MS : false;
 }
 
+/**
+ * Cache key for the `/assistant/` resolution.
+ *
+ * When no platform assistant is explicitly selected (single-assistant
+ * accounts, or the `multi-platform-assistant` flag off) this is exactly
+ * `ASSISTANT_QUERY_KEY` — so every existing `setQueryData` / `invalidate`
+ * site keeps matching and the resolution path is byte-identical to before
+ * multi-assistant. When an id is selected the key is suffixed with it, so
+ * switching assistants is a key change that triggers a fresh resolve.
+ */
+export function assistantQueryKey(
+  selectedPlatformAssistantId?: string | null,
+): readonly unknown[] {
+  return selectedPlatformAssistantId
+    ? [...ASSISTANT_QUERY_KEY, selectedPlatformAssistantId]
+    : ASSISTANT_QUERY_KEY;
+}
+
 export interface UseAssistantQueryOptions {
   /**
    * Disables the query when false. Used to short-circuit the fetch
@@ -84,12 +102,19 @@ export interface UseAssistantQueryOptions {
    * session is actually available.
    */
   enabled: boolean;
+  /**
+   * The platform assistant the user has selected, when multi-assistant
+   * is active. `null`/absent resolves the default (first listed) assistant —
+   * the pre-multi-assistant behavior.
+   */
+  selectedPlatformAssistantId?: string | null;
 }
 
 export function useAssistantQuery(options: UseAssistantQueryOptions) {
+  const selectedId = options.selectedPlatformAssistantId ?? null;
   return useQuery<GetAssistantResult>({
-    queryKey: ASSISTANT_QUERY_KEY,
-    queryFn: () => getAssistant(),
+    queryKey: assistantQueryKey(selectedId),
+    queryFn: () => getAssistant(selectedId ?? undefined),
     enabled: options.enabled,
     retry: false,
     refetchInterval: (query) => pollIntervalFor(query.state.data),

@@ -20,7 +20,7 @@ import {
 } from "bun:test";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 interface PatchArgs {
   url: string;
@@ -87,12 +87,12 @@ beforeEach(() => {
   setDeviceSettingMock.mockClear();
   captureErrorMock.mockClear();
   patchMock.mockImplementation(async () => ({ data: {} }));
-  useAssistantSelectionStore.setState({ activeAssistantId: "asst-1" });
+  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
 
 afterEach(() => {
   cleanup();
-  useAssistantSelectionStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 describe("TimezoneCard", () => {
@@ -120,7 +120,7 @@ describe("TimezoneCard", () => {
   });
 
   test("with no assistant id, writes the device setting and skips the PATCH", () => {
-    useAssistantSelectionStore.setState({ activeAssistantId: null });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
     const { getByText } = render(<TimezoneCard />);
     fireEvent.click(getByText("pick-zone"));
 
@@ -194,7 +194,7 @@ describe("TimezoneCard", () => {
         }),
     );
 
-    useAssistantSelectionStore.setState({ activeAssistantId: "asst-A" });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-A" });
     const { getByText, rerender } = render(<TimezoneCard />);
 
     // (a) Start a change for assistant A: the first PATCH fires and stays in
@@ -205,7 +205,7 @@ describe("TimezoneCard", () => {
 
     // (b) Switch the active assistant to B and re-render so `assistantIdRef`
     // picks up the new id via its effect.
-    useAssistantSelectionStore.setState({ activeAssistantId: "asst-B" });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-B" });
     rerender(<TimezoneCard />);
 
     // (c) Change the timezone again while A's PATCH is still in flight: this

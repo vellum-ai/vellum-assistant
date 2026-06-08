@@ -75,6 +75,28 @@ private struct FeatureFlagsResponse<Flag: Decodable>: Decodable {
     let flags: [Flag]
 }
 
+/// Mixed-value DTO for the gateway array format where `enabled` and
+/// `defaultEnabled` may be booleans or strings (for experiment flags).
+/// Decodes both shapes, then callers filter to boolean-only entries.
+private struct MixedFeatureFlag: Decodable {
+    let key: String
+    let enabled: FlagDefault
+    let defaultEnabled: FlagDefault?
+    let description: String?
+    let label: String?
+
+    func toBooleanFlag() -> AssistantFeatureFlag? {
+        guard let enabledBool = enabled.boolValue else { return nil }
+        return AssistantFeatureFlag(
+            key: key,
+            enabled: enabledBool,
+            defaultEnabled: defaultEnabled?.boolValue,
+            description: description,
+            label: label
+        )
+    }
+}
+
 /// Wrapper for the platform's dict-format response: `{ "flags": { "key": bool } }`.
 private struct PlatformFeatureFlagsResponse: Decodable {
     let flags: [String: Bool]
@@ -106,8 +128,10 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             throw FeatureFlagError.requestFailed(response.statusCode)
         }
         // Try gateway array format first: { "flags": [{ key, enabled, ... }] }
-        if let decoded = try? JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlag>.self, from: response.data) {
-            return decoded.flags
+        // Use MixedFeatureFlag to tolerate string-typed experiment flags, then
+        // filter to boolean-only entries the UI can represent.
+        if let decoded = try? JSONDecoder().decode(FeatureFlagsResponse<MixedFeatureFlag>.self, from: response.data) {
+            return decoded.flags.compactMap { $0.toBooleanFlag() }
         }
         // Fall back to platform dict format: { "flags": { "key": bool } }
         let platform = try JSONDecoder().decode(PlatformFeatureFlagsResponse.self, from: response.data)
@@ -128,7 +152,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             return AssistantFeatureFlag(
                 key: registryKey,
                 enabled: enabled,
-                defaultEnabled: def?.defaultEnabled,
+                defaultEnabled: def?.defaultEnabled.boolValue,
                 description: def?.description,
                 label: def?.label
             )

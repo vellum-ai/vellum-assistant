@@ -20,7 +20,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -42,6 +42,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
@@ -78,10 +79,8 @@ import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversat
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 
-import {
-  ChatRouteContent,
-  type ChatRouteContentProps,
-} from "@/domains/chat/components/chat-route-content";
+import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
+import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -92,7 +91,7 @@ export function ActiveChatView() {
   const showLlmInspector = canUseLlmInspector(authUser);
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const turnPhase = useTurnStore.use.phase();
@@ -140,10 +139,10 @@ export function ActiveChatView() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
   const transcriptItemsRef = useRef<TranscriptItem[]>([]);
-  // Threaded down to ChatRouteContent and bound on the `<Transcript />`
+  // Threaded down to ChatMainPanel and bound on the `<Transcript />`
   // instance there. Also read by useChatDebugRegistration for scroll state.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
-  // Written by ChatRouteContent every render with the exact `UIContext` it
+  // Written by ChatMainPanel every render with the exact `UIContext` it
   // renders from; read by useChatDebugRegistration so the debug snapshot
   // reflects on-screen state rather than a separate recomputation.
   const uiContextRef = useRef<UIContext | null>(null);
@@ -170,11 +169,12 @@ export function ActiveChatView() {
   }, [reachability.state.phase, refreshEpoch]);
 
   // -------------------------------------------------------------------------
-  // Disk pressure
+  // Disk pressure (only relevant for platform-hosted assistants)
   // -------------------------------------------------------------------------
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const diskPressure = useDiskPressureMonitor({
     assistantId,
-    enabled: true,
+    enabled: isPlatformHosted,
   });
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.mode !== null,
@@ -216,7 +216,7 @@ export function ActiveChatView() {
     true,
   );
 
-  // Avatar — called here for sync-router invalidation; ChatRouteContent
+  // Avatar — called here for sync-router invalidation; ChatMainPanel
   // has its own call (TanStack Query deduplicates the fetch).
   const avatar = useAssistantAvatar(assistantId);
 
@@ -320,7 +320,7 @@ export function ActiveChatView() {
       lifecycleService.clearExpectingFirstMessage();
       return;
     }
-    if (isSending(useTurnStore.getState())) return;
+    if (isSending(useTurnStore.getState().phase)) return;
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
@@ -405,9 +405,9 @@ export function ActiveChatView() {
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly — only values ChatRouteContent can't own locally
+  // Props assembly — only values ChatMainPanel can't own locally
   // -------------------------------------------------------------------------
-  const chatRouteProps: ChatRouteContentProps = {
+  const chatRouteProps: ChatMainPanelProps = {
     // Send message (orchestration owns SSE / queue lifecycle)
     sendMessage,
     handleStopGenerating,
@@ -446,7 +446,7 @@ export function ActiveChatView() {
 
   return (
     <>
-      <ChatRouteContent {...chatRouteProps} />
+      <ChatContentLayout {...chatRouteProps} />
       {showAddCreditsModal ? (
         <LazyBoundary>
           <AddCreditsModal

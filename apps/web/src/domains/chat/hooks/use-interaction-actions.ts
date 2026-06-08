@@ -12,7 +12,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 
 import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -22,6 +22,8 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
+import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
+import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 
 import {
   clearConfirmationByRequestId,
@@ -30,9 +32,9 @@ import {
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
-import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
-import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
+import type { AllowlistOption, DirectoryScopeOption, PendingConfirmationState, ScopeOption } from "@/types/interaction-ui-types";
+import type { TrustRuleItem } from "@/types/trust-rules";
+import type { ChatMessageToolCall, QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 
@@ -105,20 +107,6 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
 // Types
 // ---------------------------------------------------------------------------
 
-/** Context for the trust-rule editor modal. */
-export interface RuleEditorContext {
-  requestId: string;
-  toolName: string;
-  riskLevel: string;
-  allowlistOptions: AllowlistOption[];
-  scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
-  commandText: string;
-  commandDescription: string;
-  existingRule?: TrustRuleItem;
-  suggestion?: TrustRuleSuggestion;
-}
-
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
 export interface ToolCallRuleContext {
   toolName: string;
@@ -127,7 +115,6 @@ export interface ToolCallRuleContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
   matchedTrustRuleId?: string;
 }
@@ -141,20 +128,17 @@ export interface UseInteractionActionsReturn {
   handleSecretCancel: () => void;
   handleContactPromptSubmit: (address: string, channelType: string) => Promise<void>;
   handleContactPromptCancel: () => void;
-  handleConfirmationSubmit: (decision: ConfirmationDecision) => Promise<void>;
-  handleAllowAndCreateRule: () => Promise<void>;
+  handleConfirmationSubmit: (
+    decision: ConfirmationDecision,
+    toolCall?: ChatMessageToolCall,
+  ) => Promise<void>;
+  handleAllowAndCreateRule: (toolCall?: ChatMessageToolCall) => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
+  handleDismissPendingQuestion: () => void;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
-  showRuleEditor: boolean;
-  setShowRuleEditor: Dispatch<boolean>;
-  ruleEditorContext: RuleEditorContext | null;
-  dismissRuleEditor: () => void;
-  isSavingRule: boolean;
-  unknownNudgeToolCallIds: Set<string>;
-  setUnknownNudgeToolCallIds: Dispatch<SetStateAction<Set<string>>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,36 +146,20 @@ export interface UseInteractionActionsReturn {
 // ---------------------------------------------------------------------------
 
 export function useInteractionActions(): UseInteractionActionsReturn {
-  const setMessages = useChatSessionStore.use.setMessages();
-  const setError = useChatSessionStore.use.setError();
-  const pendingSecret = useInteractionStore.use.pendingSecret();
-  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
-  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
-  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
-  const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
-
-  const [showRuleEditor, setShowRuleEditor] = useState(false);
-  const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
-  const [isSavingRule, setIsSavingRule] = useState(false);
-  const [unknownNudgeToolCallIds, setUnknownNudgeToolCallIds] = useState<Set<string>>(new Set());
-  const suggestionAbortRef = useRef<AbortController | null>(null);
-
   // -------------------------------------------------------------------------
   // Secret handlers
   // -------------------------------------------------------------------------
 
   const handleSecretSubmit = useCallback(
     async (value: string, delivery: string = "store") => {
+      const { pendingSecret, isSubmittingSecret } = useInteractionStore.getState();
       if (!pendingSecret || isSubmittingSecret) return;
       useInteractionStore.getState().submitSecretStart();
-      setError(null);
+      useChatSessionStore.getState().setError(null);
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
-        setError({ message: "No active session. Please try again." });
+        useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
         return;
       }
@@ -204,7 +172,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           delivery,
         );
         if (!result.ok) {
-          setError({ message: result.error });
+          useChatSessionStore.getState().setError({ message: result.error });
           useInteractionStore.getState().submitSecretEnd();
           return;
         }
@@ -223,11 +191,11 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }, 1500);
       } catch (err) {
         captureError(err, { context: "submit_secret" });
-        setError({ message: "Failed to submit secret. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to submit secret. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
       }
     },
-    [pendingSecret, isSubmittingSecret],
+    [],
   );
 
   const handleSecretCancel = useCallback(() => {
@@ -250,13 +218,14 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleContactPromptSubmit = useCallback(
     async (address: string, channelType: string) => {
+      const { pendingContactRequest, isSubmittingContactRequest } = useInteractionStore.getState();
       if (!pendingContactRequest || isSubmittingContactRequest) return;
       useInteractionStore.getState().submitContactRequestStart();
-      setError(null);
+      useChatSessionStore.getState().setError(null);
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
-        setError({ message: "No active session. Please try again." });
+        useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
         return;
       }
@@ -270,7 +239,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           pendingContactRequest.role,
         );
         if (!result.ok) {
-          setError({ message: result.error });
+          useChatSessionStore.getState().setError({ message: result.error });
           useInteractionStore.getState().submitContactRequestEnd();
           return;
         }
@@ -285,11 +254,11 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }, 1500);
       } catch (err) {
         captureError(err, { context: "submit_contact_prompt" });
-        setError({ message: "Failed to save contact. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to save contact. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
       }
     },
-    [pendingContactRequest, isSubmittingContactRequest],
+    [],
   );
 
   const handleContactPromptCancel = useCallback(() => {
@@ -311,7 +280,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
    * removes the deterministic mapping entry.
    */
   const cleanupAfterConfirmationDecision = useCallback(
-    (snapshot: NonNullable<typeof pendingConfirmation>, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
+    (snapshot: PendingConfirmationState, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
       useInteractionStore.getState().dismissConfirmation();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
@@ -321,7 +290,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       }
 
       // Clear inline confirmation from the matched tool call by requestId
-      setMessages((prev: DisplayMessage[]) => {
+      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
         let anyChanged = false;
         const updated = prev.map((msg) => {
           if (!msg.toolCalls) return msg;
@@ -361,7 +330,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       })();
 
       // Stamp risk metadata on the correct tool call
-      setMessages((prev: DisplayMessage[]) => {
+      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
         if (mappedToolCallId) {
           for (let i = prev.length - 1; i >= 0; i--) {
             const msg = prev[i];
@@ -415,7 +384,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       });
 
       if (nudgeTcId) {
-        setUnknownNudgeToolCallIds((ids) => new Set([...ids, nudgeTcId]));
+        useInteractionStore.getState().addUnknownNudgeToolCallId(nudgeTcId);
       }
 
       useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
@@ -425,68 +394,79 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   const handleConfirmationSubmit = useCallback(
-    async (decision: ConfirmationDecision) => {
-      const snapshot = pendingConfirmation;
-      if (!pendingConfirmation || isSubmittingConfirmation) return;
+    async (decision: ConfirmationDecision, toolCall?: ChatMessageToolCall) => {
+      // The prompt is sourced from the originating tool call when an inline
+      // chip submits, falling back to the store for the standalone
+      // (directive) card. This lets overlapping confirmations resolve
+      // independently instead of all keying off the single store slot.
+      const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+      const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
+      if (!snapshot) return;
+      // The standalone card shares the global submitting flag; inline chips
+      // track their own per-chip state and pass a toolCall, so they are not
+      // blocked here when another confirmation is mid-submit.
+      if (!toolCall && isSubmittingConfirmation) return;
       useInteractionStore.getState().submitConfirmationStart();
-      setError(null);
+      useChatSessionStore.getState().setError(null);
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
-        setError({ message: "No active session. Please try again." });
+        useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
         return;
       }
 
-      const mappedToolCallId = snapshot ? useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId) : undefined;
+      const mappedToolCallId =
+        toolCall?.id ??
+        useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
       try {
         if (
           decision === "allow" &&
-          pendingConfirmation.persistentDecisionsAllowed !== false &&
-          (pendingConfirmation.allowlistOptions?.length ?? 0) > 0
+          snapshot.persistentDecisionsAllowed !== false &&
+          (snapshot.allowlistOptions?.length ?? 0) > 0
         ) {
-          const firstPattern = pendingConfirmation.allowlistOptions![0]!.pattern;
+          const firstPattern = snapshot.allowlistOptions![0]!.pattern;
           const firstScope =
-            (pendingConfirmation.directoryScopeOptions?.[0]?.scope ??
-            pendingConfirmation.scopeOptions?.[0]?.scope) ||
+            (snapshot.directoryScopeOptions?.[0]?.scope ??
+            snapshot.scopeOptions?.[0]?.scope) ||
             "everywhere";
 
           const result = await submitConfirmation(
             ctx.assistantId,
-            pendingConfirmation.requestId,
+            snapshot.requestId,
             decision,
             { selectedPattern: firstPattern, selectedScope: firstScope },
           );
 
           if (!result.ok) {
-            setError({ message: result.error });
+            useChatSessionStore.getState().setError({ message: result.error });
             useInteractionStore.getState().submitConfirmationEnd();
             return;
           }
-          cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+          cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
           return;
         }
 
         const result = await submitConfirmation(
           ctx.assistantId,
-          pendingConfirmation.requestId,
+          snapshot.requestId,
           decision,
         );
 
         if (!result.ok) {
-          setError({ message: result.error });
+          useChatSessionStore.getState().setError({ message: result.error });
           useInteractionStore.getState().submitConfirmationEnd();
           return;
         }
-        cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
+        cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
       } catch (err) {
         captureError(err, { context: "submit_confirmation" });
-        setError({ message: "Failed to submit confirmation. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to submit confirmation. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
       }
     },
-    [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision],
+    [cleanupAfterConfirmationDecision],
   );
 
   // -------------------------------------------------------------------------
@@ -495,14 +475,14 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleQuestionResponse = useCallback(
     async (responses: QuestionResponseEntry[]) => {
-      const snapshot = pendingQuestion;
+      const { pendingQuestion: snapshot, isSubmittingQuestion } = useInteractionStore.getState();
       if (!snapshot || isSubmittingQuestion) return;
       useInteractionStore.getState().submitQuestionStart();
-      setError(null);
+      useChatSessionStore.getState().setError(null);
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
-        setError({ message: "No active session. Please try again." });
+        useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
         return;
       }
@@ -514,7 +494,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           { kind: "submit", responses },
         );
         if (!result.ok) {
-          setError({ message: result.error });
+          useChatSessionStore.getState().setError({ message: result.error });
           useInteractionStore.getState().submitQuestionEnd();
           return;
         }
@@ -528,12 +508,37 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }
       } catch (err) {
         captureError(err, { context: "submit_question_response" });
-        setError({ message: "Failed to submit response. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to submit response. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
       }
     },
-    [pendingQuestion, isSubmittingQuestion],
+    [],
   );
+
+  const handleDismissPendingQuestion = useCallback(() => {
+    const snapshot = useInteractionStore.getState().pendingQuestion;
+    useInteractionStore.getState().dismissQuestion();
+    if (!snapshot) return;
+    const ctx = useStreamStore.getState().streamContext;
+    if (!ctx) return;
+    submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
+      kind: "close",
+    })
+      .then((result) => {
+        if (!result.ok) {
+          captureError(
+            new Error(`question-response close failed: ${result.error}`),
+            {
+              context: "submit_question_response_close",
+              extra: { status: result.status },
+            },
+          );
+        }
+      })
+      .catch((err) => {
+        captureError(err, { context: "submit_question_response_close" });
+      });
+  }, []);
 
   // -------------------------------------------------------------------------
   // Trust rule suggestion (shared by both rule-editor entry points)
@@ -558,9 +563,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       directoryScopeOptions: DirectoryScopeOption[];
       existingRule?: TrustRuleItem;
     }) => {
-      suggestionAbortRef.current?.abort();
-      const abortController = new AbortController();
-      suggestionAbortRef.current = abortController;
+      const abortController = useRuleEditorStore.getState().newSuggestionController();
 
       const scopeOpts =
         params.resolvedAllowlistOptions.length > 0
@@ -585,7 +588,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
               : undefined,
           });
           if (!abortController.signal.aborted) {
-            setRuleEditorContext((prev) => (prev ? { ...prev, suggestion } : null));
+            useRuleEditorStore.getState().updateRuleEditorContext({ suggestion });
           }
         } catch {
           // Suggestion is best-effort — silently ignore failures.
@@ -599,18 +602,22 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   // Allow & Create Rule flow
   // -------------------------------------------------------------------------
 
-  const handleAllowAndCreateRule = useCallback(async () => {
-    if (!pendingConfirmation || isSubmittingConfirmation) return;
+  const handleAllowAndCreateRule = useCallback(async (toolCall?: ChatMessageToolCall) => {
+    const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+    const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
+    if (!snapshot) return;
+    if (!toolCall && isSubmittingConfirmation) return;
     const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
-      setError({ message: "No active session. Please try again." });
+      useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
       return;
     }
 
-    const snapshot = pendingConfirmation;
     useInteractionStore.getState().submitConfirmationStart();
 
-    const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
+    const mappedToolCallId =
+      toolCall?.id ??
+      useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,
@@ -627,8 +634,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     // suggestion, matching macOS `fetchSuggestionAndOpenEditor`. The confirmation
     // snapshot carries no `matchedTrustRuleId`, so this path is always create-only.
     const openCreateEditor = (context: RuleEditorContext) => {
-      setRuleEditorContext(context);
-      setShowRuleEditor(true);
+      useRuleEditorStore.getState().openRuleEditor(context);
       fireSuggestion({
         assistantId: ctx.assistantId,
         toolName: snapshot.toolName ?? "",
@@ -649,10 +655,10 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       );
 
       if (!result.ok) {
-        setError({ message: result.error });
+        useChatSessionStore.getState().setError({ message: result.error });
         useInteractionStore.getState().submitConfirmationEnd();
         useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-        setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+        useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
         openCreateEditor(editorContext);
         return;
       }
@@ -663,12 +669,12 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     } catch (err) {
       captureError(err, { context: "allow_and_create_rule" });
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       openCreateEditor(editorContext);
-      setError({ message: "Failed to submit confirmation, but you can still create a rule." });
+      useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
       useInteractionStore.getState().submitConfirmationEnd();
     }
-  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision, fireSuggestion]);
+  }, [cleanupAfterConfirmationDecision, fireSuggestion]);
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
@@ -678,8 +684,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       }
 
       // Cancel any previous suggestion fetch.
-      suggestionAbortRef.current?.abort();
-      suggestionAbortRef.current = null;
+      useRuleEditorStore.getState().abortSuggestion();
 
       // Only `riskAllowlistOptions` (minimatch globs) are valid save-path
       // patterns. Per the `tool_result` wire contract, `riskScopeOptions` are a
@@ -720,8 +725,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         }
 
         const editorContext: RuleEditorContext = { ...baseContext, existingRule };
-        setRuleEditorContext(editorContext);
-        setShowRuleEditor(true);
+        useRuleEditorStore.getState().openRuleEditor(editorContext);
 
         // Fire LLM suggestion in the background.
         fireSuggestion({
@@ -745,16 +749,16 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
-      const context = ruleEditorContext;
+      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
       if (!ctx || !context) {
         return;
       }
-      if (isSavingRule) {
+      if (saving) {
         return;
       }
 
       if (!context.requestId) {
-        setIsSavingRule(true);
+        useRuleEditorStore.getState().setIsSavingRule(true);
         try {
           if (context.existingRule) {
             // Edit mode: update the existing rule's risk level.
@@ -772,16 +776,15 @@ export function useInteractionActions(): UseInteractionActionsReturn {
           }
         } catch (err) {
           captureError(err, { context: "save_trust_rule_direct" });
-          setError({ message: "Failed to save trust rule. Please try again." });
+          useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
         } finally {
-          setIsSavingRule(false);
-          setShowRuleEditor(false);
-          setRuleEditorContext(null);
+          useRuleEditorStore.getState().setIsSavingRule(false);
+          useRuleEditorStore.getState().dismissRuleEditor();
         }
         return;
       }
 
-      setIsSavingRule(true);
+      useRuleEditorStore.getState().setIsSavingRule(true);
       useInteractionStore.getState().submitConfirmationStart();
       try {
         const result = await submitConfirmation(
@@ -792,44 +795,41 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         );
 
         if (!result.ok) {
-          setShowRuleEditor(false);
-          setRuleEditorContext(null);
-          setError({ message: result.error });
+          useRuleEditorStore.getState().dismissRuleEditor();
+          useChatSessionStore.getState().setError({ message: result.error });
           return;
         }
       } catch (err) {
         captureError(err, { context: "save_trust_rule" });
-        setShowRuleEditor(false);
-        setRuleEditorContext(null);
-        setError({ message: "Failed to save trust rule. Please try again." });
+        useRuleEditorStore.getState().dismissRuleEditor();
+        useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
         return;
       } finally {
-        setIsSavingRule(false);
+        useRuleEditorStore.getState().setIsSavingRule(false);
         useInteractionStore.getState().submitConfirmationEnd();
       }
 
       useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
-      setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
-      setShowRuleEditor(false);
-      setRuleEditorContext(null);
+      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
+      useRuleEditorStore.getState().dismissRuleEditor();
     },
-    [ruleEditorContext, isSavingRule],
+    [],
   );
 
   const handleSaveAsNewRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
-      const context = ruleEditorContext;
+      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
       if (!ctx || !context) {
         return;
       }
-      if (isSavingRule) {
+      if (saving) {
         return;
       }
 
-      setIsSavingRule(true);
+      useRuleEditorStore.getState().setIsSavingRule(true);
       try {
         await addTrustRule(ctx.assistantId, {
           tool: rule.toolName,
@@ -840,14 +840,13 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         });
       } catch (err) {
         captureError(err, { context: "save_as_new_trust_rule" });
-        setError({ message: "Failed to save trust rule. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
       } finally {
-        setIsSavingRule(false);
-        setShowRuleEditor(false);
-        setRuleEditorContext(null);
+        useRuleEditorStore.getState().setIsSavingRule(false);
+        useRuleEditorStore.getState().dismissRuleEditor();
       }
     },
-    [ruleEditorContext, isSavingRule],
+    [],
   );
 
   // -------------------------------------------------------------------------
@@ -866,7 +865,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
       const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
-        setError({ message: "No active session. Please try again." });
+        useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
         throw new Error("No active session");
       }
 
@@ -880,30 +879,23 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         );
       } catch (err) {
         captureError(err, { context: "submit_surface_action" });
-        setError({ message: "Failed to submit. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
         throw err;
       }
 
       if (!result.ok) {
-        setError({ message: "Failed to submit. Please try again." });
+        useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
         throw new Error("Surface action failed");
       }
 
       useTurnStore.getState().requestSend();
 
-      setMessages((prev: DisplayMessage[]) =>
+      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
         completeSubmittedSurface(prev, surfaceId, actionId),
       );
     },
     [],
   );
-
-  const dismissRuleEditor = useCallback(() => {
-    suggestionAbortRef.current?.abort();
-    suggestionAbortRef.current = null;
-    setShowRuleEditor(false);
-    setRuleEditorContext(null);
-  }, []);
 
   return {
     handleSecretSubmit,
@@ -916,13 +908,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     handleSaveRule,
     handleSaveAsNewRule,
     handleQuestionResponse,
+    handleDismissPendingQuestion,
     handleSurfaceAction,
-    showRuleEditor,
-    setShowRuleEditor,
-    ruleEditorContext,
-    dismissRuleEditor,
-    isSavingRule,
-    unknownNudgeToolCallIds,
-    setUnknownNudgeToolCallIds,
   };
 }

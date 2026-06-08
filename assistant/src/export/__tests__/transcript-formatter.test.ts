@@ -9,6 +9,7 @@ type TestMessage = {
   content: string;
   createdAt: number;
   metadata: string | null;
+  clientMessageId: string | null;
 };
 
 const parentMessages: TestMessage[] = [
@@ -19,6 +20,7 @@ const parentMessages: TestMessage[] = [
     content: JSON.stringify([{ type: "text", text: "go research foo" }]),
     createdAt: 1_700_000_000_000,
     metadata: null,
+    clientMessageId: null,
   },
   {
     id: "msg-parent-2",
@@ -34,6 +36,7 @@ const parentMessages: TestMessage[] = [
         conversationId: "child-conv-1",
       },
     }),
+    clientMessageId: null,
   },
 ];
 
@@ -47,6 +50,7 @@ const childMessages: TestMessage[] = [
     ]),
     createdAt: 1_700_000_002_000,
     metadata: null,
+    clientMessageId: null,
   },
   {
     id: "msg-child-2",
@@ -57,6 +61,7 @@ const childMessages: TestMessage[] = [
     ]),
     createdAt: 1_700_000_003_000,
     metadata: null,
+    clientMessageId: null,
   },
 ];
 

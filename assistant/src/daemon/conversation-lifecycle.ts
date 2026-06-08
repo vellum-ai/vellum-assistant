@@ -1,23 +1,20 @@
 /**
- * Conversation lifecycle methods extracted from Conversation: loadFromDb, abort,
- * and dispose. Each operates on a context interface so the Conversation class
+ * Conversation lifecycle helpers extracted from Conversation: abort and
+ * dispose. Each operates on a context interface so the Conversation class
  * can delegate without exposing its full surface.
  */
 
 import { getConfig } from "../config/loader.js";
-import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -28,15 +25,8 @@ import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
-import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
-import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import { resolveTrustClass, type TrustContext } from "./trust-context.js";
+import type { SurfaceData, SurfaceType } from "./message-protocol.js";
 
 const log = getLogger("conversation-lifecycle");
 
@@ -74,17 +64,6 @@ export function reinjectImageSourcePaths(
 }
 
 // ── Context Interfaces ───────────────────────────────────────────────
-
-export interface LoadFromDbContext {
-  readonly conversationId: string;
-  messages: Message[];
-  usageStats: UsageStats;
-  contextCompactedMessageCount: number;
-  contextCompactedAt: number | null;
-  trustContext?: TrustContext;
-  loadedHistoryTrustClass?: TrustClass;
-  loadedHistoryPersonalMemoryAllowed?: boolean;
-}
 
 export interface AbortContext {
   readonly conversationId: string;
@@ -125,236 +104,6 @@ export interface DisposeContext extends AbortContext {
   /** Active memory node IDs snapshotted from the conversation's InContextTracker before disposal. */
   activeContextNodeIds?: string[];
   abort(): void;
-}
-
-// ── loadFromDb ───────────────────────────────────────────────────────
-
-export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
-  const trustClass = ctx.trustContext?.trustClass;
-  const allDbMessages = getMessages(ctx.conversationId);
-  const dbMessages = isUntrustedTrustClass(trustClass)
-    ? filterMessagesForUntrustedActor(allDbMessages)
-    : allDbMessages;
-
-  const conv = getConversation(ctx.conversationId);
-  const contextSummary = !isUntrustedTrustClass(trustClass)
-    ? conv?.contextSummary?.trim() || null
-    : null;
-  if (isUntrustedTrustClass(trustClass)) {
-    // Compacted summaries may include trusted/guardian-only details, so we
-    // disable summary-based context for untrusted actor views.
-    ctx.contextCompactedMessageCount = 0;
-    ctx.contextCompactedAt = null;
-  } else {
-    ctx.contextCompactedMessageCount = Math.max(
-      0,
-      Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
-    );
-    ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
-  }
-
-  // Every injection-strip event (`/clean` or compaction) updates
-  // `historyStrippedAt`. Messages older than this should skip metadata
-  // rehydration and have any injection prefixes still embedded in their
-  // content stripped, so the post-strip view survives reload and forks.
-  const historyStrippedAt = conv?.historyStrippedAt ?? null;
-  const slicedDbMessages = dbMessages.slice(ctx.contextCompactedMessageCount);
-  let preStrippedCount = 0;
-  if (historyStrippedAt != null) {
-    const boundary = slicedDbMessages.findIndex(
-      (m) => m.createdAt >= historyStrippedAt,
-    );
-    preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
-  }
-
-  // Mirror the injection-time gate (`shouldExposePersonalMemory` in
-  // `conversation-agent-loop.ts`) so background/local conversations
-  // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
-  // v2 static memory block. Use `resolveTrustClass` for parity with the
-  // agent loop — it folds in the HTTP-auth-disabled dev bypass so
-  // rehydration and injection agree on the effective trust class.
-  const personalMemoryAllowed = shouldExposePersonalMemory({
-    sourceChannel: ctx.trustContext?.sourceChannel,
-    isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
-  });
-  const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
-    const isPreStripped = index < preStrippedCount;
-    const role = m.role as "user" | "assistant";
-    let content: ContentBlock[];
-    try {
-      const parsed = JSON.parse(m.content);
-      content = Array.isArray(parsed)
-        ? parsed
-        : [{ type: "text", text: m.content }];
-    } catch {
-      log.warn(
-        { conversationId: ctx.conversationId, messageId: m.id },
-        "Invalid JSON in persisted message content, replacing with safe text block",
-      );
-      content = [{ type: "text", text: m.content }];
-    }
-
-    content = reinjectImageSourcePaths(content, role, m.metadata);
-
-    // Re-inject persisted injection blocks from metadata so it survives
-    // conversation reloads (eviction, restart, fork).
-    if (role === "user" && m.metadata && !isPreStripped) {
-      try {
-        const meta = JSON.parse(m.metadata);
-        const isTail = index === arr.length - 1;
-
-        // Rehydrate in reverse injection order (innermost block first)
-        // so the resulting layout matches `applyRuntimeInjections`'s
-        // after-memory-prefix splices in ascending injector order
-        // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
-        // now-md 40 — the v2 static block lands inside the memory
-        // prefix, so now-md splices *after* it):
-        //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-        //    <info>v2static</info>, <NOW.md>, <system_reminder>,
-        //    <knowledge_base>, ...original]
-        // The v2 static block is replayed verbatim from stored metadata,
-        // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
-        // depending on when they were persisted.
-        // Required so Anthropic's prefix cache keeps matching msg[0]
-        // across daemon restart and conversation eviction. The tail
-        // row only rehydrates `memoryInjectedBlock` — the next turn
-        // re-injects the rest fresh.
-        if (!isTail && typeof meta.pkbContextBlock === "string") {
-          content = [
-            { type: "text" as const, text: meta.pkbContextBlock },
-            ...content,
-          ];
-        }
-
-        if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
-          content = [
-            { type: "text" as const, text: meta.pkbSystemReminderBlock },
-            ...content,
-          ];
-        }
-
-        if (!isTail && typeof meta.nowScratchpadBlock === "string") {
-          content = [
-            { type: "text" as const, text: meta.nowScratchpadBlock },
-            ...content,
-          ];
-        }
-
-        // The v2 static memory block (essentials/threads/recent/buffer
-        // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
-        // carries personal user memory. Trust-gated to mirror
-        // `shouldExposePersonalMemory` at injection time — untrusted-actor
-        // views must not read persisted personal memory back through
-        // metadata. Skipped on the tail row because the next turn
-        // re-injects fresh content on full-mode turns.
-        if (
-          !isTail &&
-          personalMemoryAllowed &&
-          typeof meta.memoryV2StaticBlock === "string"
-        ) {
-          content = [
-            { type: "text" as const, text: meta.memoryV2StaticBlock },
-            ...content,
-          ];
-        }
-
-        // Memory remains rehydrated on all rows (existing behavior).
-        // Strip any pre-existing wrapper before re-wrapping so historical
-        // rows persisted with the wrapper (v2 path before the
-        // injectedBlockText contract was unified with v1's unwrapped form)
-        // don't render double-wrapped after rehydrate. Only unwrap when
-        // the full <memory>...</memory> pair is present so we don't mutate
-        // legitimate unwrapped payloads that happen to start with
-        // "<memory>\n" or end with "\n</memory>".
-        if (typeof meta.memoryInjectedBlock === "string") {
-          const block = meta.memoryInjectedBlock;
-          const inner =
-            block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
-              ? block.slice("<memory>\n".length, -"\n</memory>".length)
-              : block;
-          content = [
-            {
-              type: "text" as const,
-              text: `<memory>\n${inner}\n</memory>`,
-            },
-            ...content,
-          ];
-        }
-
-        if (!isTail && typeof meta.turnContextBlock === "string") {
-          content = [
-            { type: "text" as const, text: meta.turnContextBlock },
-            ...content,
-          ];
-        }
-
-        if (!isTail && typeof meta.workspaceBlock === "string") {
-          content = [
-            { type: "text" as const, text: meta.workspaceBlock },
-            ...content,
-          ];
-        }
-      } catch {
-        /* ignore parse errors — metadata may be malformed */
-      }
-    }
-
-    return { role, content };
-  });
-
-  // Strip pre-clean messages only; post-clean messages keep the fresh
-  // injections they were generated with.
-  const messagesBeforeRepair =
-    preStrippedCount === 0
-      ? parsedMessages
-      : [
-          ...stripInjectionsForCompaction(
-            parsedMessages.slice(0, preStrippedCount),
-          ),
-          ...parsedMessages.slice(preStrippedCount),
-        ];
-
-  // Normalize the canonical persisted history once at load. Every consumer
-  // of `ctx.messages` outside the agent loop (history edit/undo, PKB context
-  // tracking, surfaces) reads this list directly, so it must satisfy the
-  // provider pairing/alternation rules before any of them run. The agent
-  // loop's pre-run repair only repairs the transient per-turn message list it
-  // sends to the provider and never writes back here, so this pass is not
-  // redundant with it.
-  const { messages: repairedMessages, stats } =
-    repairHistory(messagesBeforeRepair);
-  if (
-    stats.assistantToolResultsMigrated > 0 ||
-    stats.missingToolResultsInserted > 0 ||
-    stats.orphanToolResultsDowngraded > 0 ||
-    stats.consecutiveSameRoleMerged > 0
-  ) {
-    log.warn(
-      { conversationId: ctx.conversationId, phase: "load", ...stats },
-      "Repaired persisted history",
-    );
-  }
-  ctx.messages = repairedMessages;
-
-  if (contextSummary) {
-    ctx.messages.unshift(createContextSummaryMessage(contextSummary));
-  }
-
-  if (conv) {
-    ctx.usageStats = {
-      inputTokens: conv.totalInputTokens,
-      outputTokens: conv.totalOutputTokens,
-      estimatedCost: conv.totalEstimatedCost,
-    };
-  }
-
-  ctx.loadedHistoryTrustClass = trustClass;
-  ctx.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
-
-  log.info(
-    { conversationId: ctx.conversationId, count: ctx.messages.length },
-    "Loaded messages from DB",
-  );
 }
 
 // ── abort ─────────────────────────────────────────────────────────────
@@ -493,4 +242,5 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.accumulatedSurfaceState.clear();
   ctx.lastSurfaceAction.clear();
   ctx.workspaceTopLevelContext = null;
+  disposeContextWindowManager(ctx.conversationId);
 }

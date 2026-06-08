@@ -17,6 +17,7 @@ export interface FlagDefinition {
   label: string;
   description: string;
   defaultEnabled: boolean | string;
+  values?: string[];
 }
 
 const flags = registry.flags as FlagDefinition[];

@@ -139,16 +139,23 @@ const LAST_SEEN_SEQ_WIRE_FIELD = "lastSeenSeq";
 /**
  * Build the query params for the events SSE connection.
  *
- * On reconnect, when seq gap detection is enabled, attaches the
- * resumable-stream cursor ({@link LAST_SEEN_SEQ_WIRE_FIELD}) — the
- * highest global seq received so far — so the daemon can replay missed
- * events from its global ring rather than forcing a refetch. A fresh
- * connect has nothing buffered to resume, so the cursor is omitted
- * there.
+ * When seq gap detection is enabled and a resumable cursor exists,
+ * attaches it ({@link LAST_SEEN_SEQ_WIRE_FIELD}) so the daemon replays
+ * every buffered event with `seq > cursor` from its global ring before
+ * going live, rather than forcing a refetch. This applies to both a
+ * reconnect (cursor = highest global seq received so far) and a cold
+ * connect that has been anchored at a snapshot watermark `S` (see
+ * `cold-anchor.ts`): the latter opens `/events?lastSeenSeq=S` so the
+ * gap between the `/messages` snapshot and the stream attaching is
+ * replayed.
+ *
+ * A fresh page load with no cursor seeded yet has nothing to resume —
+ * the cursor is `null` and the param is omitted, byte-identical to the
+ * legacy cursor-less cold connect.
  */
-function buildEventsQuery(isReconnect: boolean): Record<string, string> {
+function buildEventsQuery(): Record<string, string> {
   const query: Record<string, string> = {};
-  if (isReconnect && isSeqGapDetectionEnabled()) {
+  if (isSeqGapDetectionEnabled()) {
     const cursor = getReconnectCursor();
     if (cursor !== null) {
       query[LAST_SEEN_SEQ_WIRE_FIELD] = String(cursor);
@@ -231,7 +238,7 @@ export function subscribeEvents(
     // never-established attempt never emits a spurious close.
     let streamOpened = false;
     try {
-      const query = buildEventsQuery(isReconnect);
+      const query = buildEventsQuery();
       const { stream } = await client.sse.get<Record<string, unknown> | string>(
         {
           url: "/v1/assistants/{assistant_id}/events/",

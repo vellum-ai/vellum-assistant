@@ -9,7 +9,7 @@
  *
  * Publishes its observable state — `assistantState` and
  * `activeAssistantId` — into the two Zustand stores
- * (`useAssistantLifecycleStore`, `useAssistantSelectionStore`),
+ * (`useAssistantLifecycleStore`, `useResolvedAssistantsStore`),
  * which is how the React tree reads it. Inputs from React (auth,
  * env, the navigate callback, the TanStack Query client) flow in
  * through `setInputs()`; `useAssistantLifecycle` is the thin
@@ -39,8 +39,12 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import {
+  ASSISTANT_QUERY_KEY,
+  assistantQueryKey,
+  POLL_INTERVAL_MS,
+} from "@/assistant/queries";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AssistantState } from "@/assistant/types";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
@@ -73,6 +77,12 @@ export interface LifecycleServiceInputs {
   }) => string | null;
   /** The TanStack Query client owned by `RootLayout`'s provider. */
   queryClient: QueryClient;
+  /**
+   * The platform assistant the user has selected (multi-assistant). `null`
+   * resolves the default first-listed assistant — the pre-multi-assistant
+   * behavior. Optional so existing `setInputs` callers/tests need no change.
+   */
+  selectedPlatformAssistantId?: string | null;
 }
 
 const NOOP_REDIRECT = (_: string) => {};
@@ -112,6 +122,7 @@ class AssistantLifecycleService {
     onRedirect: NOOP_REDIRECT,
     resolveOnboardingRedirect: NOOP_RESOLVE,
     queryClient: null as unknown as QueryClient,
+    selectedPlatformAssistantId: null,
   };
 
   // ---------------------------------------------------------------------------
@@ -137,8 +148,8 @@ class AssistantLifecycleService {
    * stores are already at defaults.
    */
   resetForLogout(): void {
-    if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
-      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+    if (useResolvedAssistantsStore.getState().activeAssistantId !== null) {
+      useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
@@ -222,9 +233,10 @@ class AssistantLifecycleService {
       // network so a 10s-old cached 404 or initializing result
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
+      const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
       const result = await this.inputs.queryClient.fetchQuery({
-        queryKey: ASSISTANT_QUERY_KEY,
-        queryFn: () => getAssistant(),
+        queryKey: assistantQueryKey(selectedId),
+        queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
       if (generation !== this.generation) return;
@@ -345,7 +357,7 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(result.data.id);
     this.transition({
@@ -380,7 +392,7 @@ class AssistantLifecycleService {
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
     });
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(result.data.id);
     this.transition({ kind: "self_hosted" });
@@ -396,7 +408,7 @@ class AssistantLifecycleService {
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
-    useAssistantSelectionStore
+    useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
     this.transition({ kind: "active", isLocal: true });
@@ -657,7 +669,7 @@ class AssistantLifecycleService {
       }
 
       this.initializingAssistantId = null;
-      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+      useResolvedAssistantsStore.getState().setActiveAssistantId(null);
       this.hatching = false;
       await this.hatchAndCheck(this.hatchingVersion);
     } catch (err) {
@@ -697,7 +709,7 @@ class AssistantLifecycleService {
       queryClient: null as unknown as QueryClient,
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });
-    useAssistantSelectionStore.setState({ activeAssistantId: null });
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
   }
 }
 

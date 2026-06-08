@@ -13,17 +13,17 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
+  AgentLoopRunOptions,
   CheckpointDecision,
   CheckpointInfo,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
-import type { TurnContext } from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
+import type { TrustContext } from "../daemon/trust-context.js";
+import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import type {
   Message,
   Provider,
@@ -31,6 +31,23 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+
+// The agent loop invokes the default post-compaction re-injection hook directly
+// when it compacts in place. Stub it so these unit tests can drive the
+// re-injection result without the daemon-level injector chain. Tests assign
+// `postCompactImpl` to observe the call or force a failure; when unset
+// the hook is a no-op that returns the history it was handed.
+let postCompactImpl:
+  | ((input: PostCompactContext) => Promise<Message[]>)
+  | null = null;
+mock.module(
+  "../plugins/defaults/memory-retrieval/hooks/post-compact.js",
+  () => ({
+    default: async (input: PostCompactContext) => ({
+      messages: postCompactImpl ? await postCompactImpl(input) : input.history,
+    }),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -101,38 +118,20 @@ const userMessage: Message = {
   content: [{ type: "text", text: "Hello" }],
 };
 
-// A turn context whose `contextWindowManager.maybeCompact` returns a canned
-// result, so the loop's native compaction pipeline runs without the real
-// orchestrator machinery.
-function fakeCompactionTurnContext(result: {
-  compacted: boolean;
-  exhausted: boolean;
-}): TurnContext {
+// A trust snapshot plus a context-window manager whose `maybeCompact` returns a
+// canned result, so the loop's compaction call runs without the real
+// orchestrator machinery. Both are supplied to the loop as dedicated run
+// options.
+function fakeCompaction(result: { compacted: boolean; exhausted: boolean }): {
+  trust: TrustContext;
+  contextWindowManager: AgentLoopRunOptions["contextWindowManager"];
+} {
   return {
-    requestId: "req-compact",
-    conversationId: "conv-compact",
-    turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "unknown" },
     contextWindowManager: {
       maybeCompact: async () => result,
-    },
-  } as unknown as TurnContext;
-}
-
-// A turn context whose compaction call times out, exercising the loop's
-// PluginTimeoutError handling.
-function timeoutCompactionTurnContext(): TurnContext {
-  return {
-    requestId: "req-compact",
-    conversationId: "conv-compact",
-    turnIndex: 0,
-    trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    contextWindowManager: {
-      maybeCompact: async () => {
-        throw new PluginTimeoutError("compaction", "default-compaction", 1);
-      },
-    },
-  } as unknown as TurnContext;
+    } as unknown as AgentLoopRunOptions["contextWindowManager"],
+  };
 }
 
 function lastExitEvent(
@@ -164,12 +163,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("emits exit event exactly once with 'no_tool_calls' on plain text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(countExitEvents(events)).toBe(1);
     const exit = lastExitEvent(events);
@@ -178,12 +183,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("agent_loop_exit is the last event emitted", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(events.length).toBeGreaterThan(0);
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
@@ -193,12 +204,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
     const { provider } = createMockProvider([
       maxTokensResponse("Partial answer"),
     ]);
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(events.map((e) => e.type)).toEqual([
       "llm_call_started",
@@ -229,13 +246,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
       },
     ]);
     const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
       tools: dummyTools,
     });
 
     const events: AgentEvent[] = [];
-    const { history: result } = await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    const { history: result } = await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(events.some((e) => e.type === "tool_use")).toBe(false);
     expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
@@ -246,7 +268,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   test("emits 'aborted_pre_call' when signal is already aborted at run start", async () => {
     const { provider } = createMockProvider([textResponse("never sent")]);
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
+    });
 
     const controller = new AbortController();
     controller.abort();
@@ -257,7 +281,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      { signal: controller.signal },
+      {
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        signal: controller.signal,
+      },
     );
 
     expect(countExitEvents(events)).toBe(1);
@@ -274,14 +301,19 @@ describe("AgentLoop exit-reason instrumentation", () => {
       yieldToUser: true,
     });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
@@ -294,6 +326,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
@@ -307,7 +340,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      { onCheckpoint },
+      {
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        onCheckpoint,
+      },
     );
 
     expect(countExitEvents(events)).toBe(0);
@@ -322,6 +358,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
@@ -330,6 +367,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // of the running history exceeds the mid-loop threshold.
     // WHEN the loop checkpoints after the tool results land
     const result = await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -349,12 +387,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     // WHEN the loop runs to completion
     const result = await loop.run([userMessage], () => {}, {
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
@@ -374,17 +414,16 @@ describe("AgentLoop exit-reason instrumentation", () => {
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     let reinjected = false;
     const events: AgentEvent[] = [];
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        reinjected = true;
-        return [userMessage];
-      },
+    postCompactImpl = async () => {
+      reinjected = true;
+      return [userMessage];
     };
 
     // WHEN the in-loop budget gate trips at the checkpoint
@@ -398,8 +437,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
           maxInputTokens: 10,
           overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
         }),
-        compaction,
-        turnContext: fakeCompactionTurnContext({
+        compactInPlace: true,
+        ...fakeCompaction({
           compacted: true,
           exhausted: false,
         }),
@@ -416,42 +455,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(result.exitReason).not.toBe("budget");
   });
 
-  test("yields 'budget' when inline compaction times out", async () => {
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(provider, "system", {
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        throw new Error("postCompactionHook must not run after a timeout");
-      },
-    };
-    const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
-
-    // WHEN the compaction pipeline throws a PluginTimeoutError
-    const result = await loop.run([userMessage], () => {}, {
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-      compaction,
-      turnContext: timeoutCompactionTurnContext(),
-    });
-
-    // THEN the loop records the timeout as a compaction failure against its
-    // own circuit breaker, and yields for budget so the orchestrator can
-    // escalate.
-    expect(recordOutcomeSpy).toHaveBeenCalledTimes(1);
-    expect(recordOutcomeSpy.mock.calls[0]?.[0]).toBe(true);
-    expect(result.exitReason).toBe("budget");
-  });
-
   test("yields 'budget' when inline compaction reports exhausted", async () => {
     const { provider } = createMockProvider([
       toolUseResponse("t1", "read_file", { path: "/a.txt" }),
@@ -459,14 +462,15 @@ describe("AgentLoop exit-reason instrumentation", () => {
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    const compaction: MidLoopCompaction = {
-      postCompactionHook: async () => {
-        throw new Error("postCompactionHook must not run when exhausted");
-      },
+    postCompactImpl = async () => {
+      throw new Error(
+        "post-compaction re-injection must not run when exhausted",
+      );
     };
 
     // WHEN compaction exhausts its retry budget
@@ -475,8 +479,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
       }),
-      compaction,
-      turnContext: fakeCompactionTurnContext({
+      compactInPlace: true,
+      ...fakeCompaction({
         compacted: false,
         exhausted: true,
       }),
@@ -493,12 +497,18 @@ describe("AgentLoop exit-reason instrumentation", () => {
         throw new Error("provider exploded");
       },
     };
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop(provider, "system prompt", {
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("error");
@@ -517,14 +527,19 @@ describe("AgentLoop exit-reason instrumentation", () => {
       yieldToUser: true,
     });
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => {
-      events.push(e);
-    });
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
+    );
 
     expect(countExitEvents(events)).toBe(1);
   });
@@ -541,6 +556,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       return { content: "ok", isError: false };
     };
     const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
@@ -551,7 +567,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      { signal: controller.signal },
+      {
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        signal: controller.signal,
+      },
     );
 
     expect(countExitEvents(events)).toBe(1);

@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
@@ -46,7 +46,7 @@ export function useChatHeaderRegistration({
   handleCopyConversation,
   refreshLatestMessages,
 }: UseChatHeaderRegistrationOptions): void {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const messages = useChatSessionStore.use.messages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();

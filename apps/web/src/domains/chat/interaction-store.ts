@@ -44,6 +44,10 @@ export interface InteractionState {
   isQuestionCardDismissed: boolean;
 
   inlineConfirmationToolCallId: string | null;
+
+  /** Tool call IDs whose risk level was "unknown" when the user approved
+   *  them — triggers the "command not recognized" nudge below their chip. */
+  unknownNudgeToolCallIds: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +85,10 @@ export interface InteractionActions {
   dismissQuestion: () => void;
   dismissQuestionCard: () => void;
 
+  // Nudge tracking
+  addUnknownNudgeToolCallId: (toolCallId: string) => void;
+  removeUnknownNudgeToolCallId: (toolCallId: string) => void;
+
   // Resets
   resetSecretAndConfirmation: () => void;
   resetAll: () => void;
@@ -109,6 +117,8 @@ const INITIAL_STATE: InteractionState = {
   isQuestionCardDismissed: false,
 
   inlineConfirmationToolCallId: null,
+
+  unknownNudgeToolCallIds: new Set<string>(),
 };
 
 // ---------------------------------------------------------------------------
@@ -229,6 +239,21 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       // the question would hide the card while the daemon blocks on
       // /question-response/.
     }),
+
+  // ----- Nudge tracking -----
+  addUnknownNudgeToolCallId: (toolCallId) => {
+    const current = get().unknownNudgeToolCallIds;
+    if (current.has(toolCallId)) return;
+    set({ unknownNudgeToolCallIds: new Set([...current, toolCallId]) });
+  },
+
+  removeUnknownNudgeToolCallId: (toolCallId) => {
+    const current = get().unknownNudgeToolCallIds;
+    if (!current.has(toolCallId)) return;
+    const next = new Set(current);
+    next.delete(toolCallId);
+    set({ unknownNudgeToolCallIds: next });
+  },
 
   resetAll: () => set(INITIAL_STATE),
 }));

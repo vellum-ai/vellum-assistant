@@ -110,7 +110,7 @@ describe("memory-v3-live v2 suppression", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     // Exactly one <memory> source across the WHOLE assembled context.
@@ -149,7 +149,7 @@ describe("memory-v3-live v2 suppression", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     // v2's block survives — the turn still ships memory.
@@ -177,7 +177,7 @@ describe("memory-v3-live v2 suppression", () => {
     // captures the exact pre-flag assembly behavior: v2 prefix stays, v3
     // splices after it.
     const offResult = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     // The tail keeps v2's block AND gains v3's (the historical double-injection
@@ -206,7 +206,7 @@ describe("memory-v3-live v2 suppression", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     expect(result.messages).toEqual(runMessages);

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
@@ -18,17 +18,17 @@ import { routes } from "@/utils/routes";
  * Resolves (and persists) the edit conversation for this `(assistant, app)`
  * pair so repeated edits land back in the same thread, loads the app into the
  * viewer if it isn't already there, and navigates to that conversation so
- * `ChatRouteContent` renders the `app-editing` split.
+ * `ChatMainPanel` renders the `app-editing` split.
  *
  * On a mobile viewport the split layout doesn't fit, so the viewer stays
  * full-screen (`app`) while still binding the edit conversation — matching
  * `useOpenAppFromChat`.
  *
- * Shared by the in-chat app viewer (`ChatRouteContent`) and the standalone
+ * Shared by the in-chat app viewer (`ChatMainPanel`) and the standalone
  * Library app view (`LibraryDetailPage`).
  */
 export function useEditApp(): (app: OpenedAppState) => void {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { pathname } = useLocation();

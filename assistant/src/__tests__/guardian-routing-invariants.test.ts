@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 const _conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
@@ -51,9 +51,7 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  listGuardianDecisionPrompts,
-} from "../runtime/routes/guardian-action-routes.js";
+import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
 
 initializeDb();
 

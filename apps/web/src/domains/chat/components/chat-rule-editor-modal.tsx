@@ -8,7 +8,7 @@
  * - LLM suggestion pre-population with `hasUserInteracted` guard
  * - Suggestion annotation in edit mode ("Suggested: {risk}")
  *
- * Rendered by `ChatRouteContent` when `showRuleEditor` is `true`. Driven by
+ * Rendered by `ChatMainPanel` when `showRuleEditor` is `true`. Driven by
  * `RuleEditorContext` from `useInteractionActions`.
  */
 
@@ -18,7 +18,7 @@ import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
-import type { RuleEditorContext } from "@/domains/chat/hooks/use-interaction-actions";
+import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------

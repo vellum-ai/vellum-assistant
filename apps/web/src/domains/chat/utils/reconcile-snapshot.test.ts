@@ -6,10 +6,6 @@ mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
 }));
 
 const {
-  __resetAppliedSeqForTesting,
-  recordAppliedSeq,
-} = await import("@/lib/streaming/applied-seq");
-const {
   reconcileLatestHistorySnapshot,
   reconcileSnapshot,
 } = await import("@/domains/chat/utils/reconcile-snapshot");
@@ -28,7 +24,6 @@ function makeLocal(
 
 beforeEach(() => {
   seqEnabled = true;
-  __resetAppliedSeqForTesting();
 });
 
 describe("reconcileSnapshot", () => {
@@ -38,7 +33,6 @@ describe("reconcileSnapshot", () => {
      * regress the streamed answer.
      */
     // GIVEN the stream has carried the conversation to frontier 10
-    recordAppliedSeq("conv-1", 10);
     const local = [
       makeLocal({ id: "a1", role: "assistant", ...textBody("AAA"), timestamp: 1000 }),
     ];
@@ -53,8 +47,8 @@ describe("reconcileSnapshot", () => {
 
     // WHEN a snapshot at watermark 5 (behind the frontier) is reconciled
     const result = reconcileSnapshot(local, server, {
-      conversationId: "conv-1",
-      snapshotSeq: 5,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the streamed local content is kept
@@ -68,7 +62,6 @@ describe("reconcileSnapshot", () => {
      */
     // GIVEN a frontier exists but the flag is off
     seqEnabled = false;
-    recordAppliedSeq("conv-1", 10);
     const local = [
       makeLocal({ id: "a1", role: "assistant", ...textBody("AAA"), timestamp: 1000 }),
     ];
@@ -83,8 +76,8 @@ describe("reconcileSnapshot", () => {
 
     // WHEN the snapshot is reconciled
     const result = reconcileSnapshot(local, server, {
-      conversationId: "conv-1",
-      snapshotSeq: 5,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the server content is applied (no seq gate)
@@ -93,55 +86,56 @@ describe("reconcileSnapshot", () => {
 });
 
 describe("reconcileLatestHistorySnapshot", () => {
-  test("flag on + stream ahead: keeps the local transcript, ignores the page", () => {
+  test("flag on + stream ahead: keeps streamed content but admits new rows", () => {
     /**
-     * A stale latest page would regress the streamed transcript, so when the
-     * stream is ahead the cached local rows are kept as-is.
+     * The initial-load path now routes through the single seq-aware merge, so
+     * a stale latest page cannot regress a streamed row, yet genuinely-new
+     * history the page carries still flows in.
      */
     // GIVEN the stream is ahead of the latest page watermark
-    recordAppliedSeq("conv-1", 10);
     const current = [
       makeLocal({ id: "a1", role: "assistant", ...textBody("live"), timestamp: 1000 }),
     ];
+    // AND the page carries a stale copy of the live row plus a brand-new row
     const latestHistory = [
-      makeLocal({ id: "z9", role: "assistant", ...textBody("stale page"), timestamp: 2000 }),
+      makeLocal({ id: "a1", role: "assistant", ...textBody("stale"), timestamp: 1000 }),
+      makeLocal({ id: "z9", role: "user", ...textBody("new turn"), timestamp: 1100 }),
     ];
 
-    // WHEN the latest page (watermark 5) is merged
+    // WHEN the latest page (watermark 5, behind the frontier) is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      conversationId: "conv-1",
-      snapshotSeq: 5,
+      serverSeq: 5,
+      localSeq: 10,
       isProcessing: false,
     });
 
-    // THEN only the live local row survives
-    expect(result).toHaveLength(1);
-    expect(result.find((m) => m.id === "z9")).toBeUndefined();
-    expect(messageText(result[0])).toBe("live");
+    // THEN the streamed row keeps its content AND the new row is admitted
+    expect(messageText(result.find((m) => m.id === "a1"))).toBe("live");
+    expect(messageText(result.find((m) => m.id === "z9"))).toBe("new turn");
   });
 
-  test("flag on + not ahead: merges the latest page in", () => {
+  test("flag on + not ahead: snapshot is authoritative", () => {
     /**
-     * When the page is not stale the cache-merge runs so a row the cache
-     * missed is recovered.
+     * When the page is not stale (`S >= L`) the seq merge trusts the server,
+     * so the page content supersedes the local row.
      */
     // GIVEN no frontier ahead of the page watermark
     const current = [
-      makeLocal({ id: "a1", role: "assistant", ...textBody("live"), timestamp: 1000 }),
+      makeLocal({ id: "a1", role: "assistant", ...textBody("local"), timestamp: 1000 }),
     ];
     const latestHistory = [
-      makeLocal({ id: "z9", role: "assistant", ...textBody("recovered"), timestamp: 2000 }),
+      makeLocal({ id: "a1", role: "assistant", ...textBody("authoritative"), timestamp: 1000 }),
     ];
 
     // WHEN the latest page is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      conversationId: "conv-1",
-      snapshotSeq: 50,
+      serverSeq: 50,
+      localSeq: null,
       isProcessing: false,
     });
 
-    // THEN the page row is merged into the transcript
-    expect(result.find((m) => m.id === "z9")).toBeDefined();
+    // THEN the page content wins
+    expect(messageText(result.find((m) => m.id === "a1"))).toBe("authoritative");
   });
 
   test("flag off: always merges regardless of the frontier", () => {
@@ -151,7 +145,6 @@ describe("reconcileLatestHistorySnapshot", () => {
      */
     // GIVEN a frontier ahead of the page but the flag is off
     seqEnabled = false;
-    recordAppliedSeq("conv-1", 10);
     const current = [
       makeLocal({ id: "a1", role: "assistant", ...textBody("live"), timestamp: 1000 }),
     ];
@@ -161,8 +154,8 @@ describe("reconcileLatestHistorySnapshot", () => {
 
     // WHEN the latest page is merged
     const result = reconcileLatestHistorySnapshot(current, latestHistory, {
-      conversationId: "conv-1",
-      snapshotSeq: 5,
+      serverSeq: 5,
+      localSeq: 10,
       isProcessing: false,
     });
 

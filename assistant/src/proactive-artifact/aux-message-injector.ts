@@ -7,7 +7,7 @@
  */
 
 import { createAssistantMessage } from "../agent/message-types.js";
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   conversationMessagesSyncTag,
   SYNC_TAGS,

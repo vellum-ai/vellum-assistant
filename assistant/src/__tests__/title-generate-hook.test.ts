@@ -51,9 +51,9 @@ import type {
   StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
+import { defaultTitleGeneratePlugin } from "../plugins/defaults/index.js";
 import stop from "../plugins/defaults/title-generate/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/title-generate/hooks/user-prompt-submit.js";
-import { defaultTitleGeneratePlugin } from "../plugins/defaults/title-generate/register.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,

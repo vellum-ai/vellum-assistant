@@ -3,17 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
-  makeServerMessage,
   messageText,
   textBody,
-  wireTextBody,
-  wireTimestamp,
 } from "@/domains/chat/utils/message-test-helpers";
 
-// Test factory that produces a DisplayMessage with `id` assigned. Every
-// production construction site assigns `id`; tests must too so the type-level
-// requirement holds.
-function makeLocal(
+// Both sides of the merge are `DisplayMessage[]` (callers project the wire
+// snapshot at the reconcile boundary), so local and server rows share one
+// factory. `id` is assigned because every production construction site assigns
+// it, so the type-level requirement holds.
+function makeRow(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
   const { id, ...rest } = overrides;
@@ -21,15 +19,15 @@ function makeLocal(
 }
 
 describe("reconcileMessagesWithSeq", () => {
-  test("keeps the live local row when the snapshot is stale (F > S)", () => {
+  test("keeps the live local row when the snapshot is stale (L > S)", () => {
     /**
      * The core ATL-781 fix: a debounced snapshot whose watermark sits behind
-     * the applied frontier must not regress the text the stream already
+     * the local seq must not regress the text the stream already
      * rendered.
      */
     // GIVEN a fully-streamed assistant row applied by the stream
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("Full streamed answer"),
@@ -39,18 +37,18 @@ describe("reconcileMessagesWithSeq", () => {
 
     // AND a stale snapshot that carries only a truncated prefix of that row
     const server = [
-      makeServerMessage({
+      makeRow({
         id: "a1",
         role: "assistant",
-        ...wireTextBody("Full str"),
-        timestamp: wireTimestamp(1000),
+        ...textBody("Full str"),
+        timestamp: 1000,
       }),
     ];
 
-    // WHEN the snapshot watermark S is below the applied frontier F
+    // WHEN the server seq S is below the local seq L
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the streamed text is preserved (the stale snapshot is ignored)
@@ -59,14 +57,14 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result[0]!.id).toBe("a1");
   });
 
-  test("takes the server row wholesale when the snapshot is fresh (S >= F)", () => {
+  test("takes the server row wholesale when the snapshot is fresh (S >= L)", () => {
     /**
      * A snapshot that has seen everything the stream applied is authoritative,
      * so the server copy wins.
      */
     // GIVEN a local row the snapshot supersedes
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("partial"),
@@ -76,18 +74,18 @@ describe("reconcileMessagesWithSeq", () => {
 
     // AND a fresher server snapshot of the same row
     const server = [
-      makeServerMessage({
+      makeRow({
         id: "a1",
         role: "assistant",
-        ...wireTextBody("authoritative answer"),
-        timestamp: wireTimestamp(1000),
+        ...textBody("authoritative answer"),
+        timestamp: 1000,
       }),
     ];
 
-    // WHEN the snapshot watermark S is at or above the applied frontier F
+    // WHEN the server seq S is at or above the local seq L
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: 10,
-      appliedSeq: 5,
+      serverSeq: 10,
+      localSeq: 5,
     });
 
     // THEN the server content replaces the local row
@@ -102,7 +100,7 @@ describe("reconcileMessagesWithSeq", () => {
      */
     // GIVEN a local row and a differing server row
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("local"),
@@ -110,18 +108,18 @@ describe("reconcileMessagesWithSeq", () => {
       }),
     ];
     const server = [
-      makeServerMessage({
+      makeRow({
         id: "a1",
         role: "assistant",
-        ...wireTextBody("server"),
-        timestamp: wireTimestamp(1000),
+        ...textBody("server"),
+        timestamp: 1000,
       }),
     ];
 
-    // WHEN the snapshot watermark is unknown even though a frontier exists
+    // WHEN the server seq is unknown even though a frontier exists
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: null,
-      appliedSeq: 10,
+      serverSeq: null,
+      localSeq: 10,
     });
 
     // THEN the server content is applied
@@ -136,7 +134,7 @@ describe("reconcileMessagesWithSeq", () => {
      */
     // GIVEN a live local assistant row
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("Streamed answer"),
@@ -146,24 +144,24 @@ describe("reconcileMessagesWithSeq", () => {
 
     // AND a stale snapshot that also carries a never-seen user row
     const server = [
-      makeServerMessage({
+      makeRow({
         id: "a1",
         role: "assistant",
-        ...wireTextBody("Stream"),
-        timestamp: wireTimestamp(1000),
+        ...textBody("Stream"),
+        timestamp: 1000,
       }),
-      makeServerMessage({
+      makeRow({
         id: "u2",
         role: "user",
-        ...wireTextBody("follow-up question"),
-        timestamp: wireTimestamp(1100),
+        ...textBody("follow-up question"),
+        timestamp: 1100,
       }),
     ];
 
-    // WHEN the snapshot is stale (F > S)
+    // WHEN the snapshot is stale (L > S)
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the live row keeps its streamed text AND the new row is added
@@ -181,7 +179,7 @@ describe("reconcileMessagesWithSeq", () => {
      */
     // GIVEN a local transcript with no duplicates
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("answer"),
@@ -191,8 +189,8 @@ describe("reconcileMessagesWithSeq", () => {
 
     // WHEN an empty server snapshot is merged
     const result = reconcileMessagesWithSeq(local, [], {
-      snapshotSeq: 5,
-      appliedSeq: 10,
+      serverSeq: 5,
+      localSeq: 10,
     });
 
     // THEN the same local rows come back
@@ -206,7 +204,7 @@ describe("reconcileMessagesWithSeq", () => {
      */
     // GIVEN a local window whose oldest row is at t=1000
     const local = [
-      makeLocal({
+      makeRow({
         id: "a1",
         role: "assistant",
         ...textBody("in-window"),
@@ -216,29 +214,183 @@ describe("reconcileMessagesWithSeq", () => {
 
     // AND a snapshot carrying an older row from before the window
     const server = [
-      makeServerMessage({
+      makeRow({
         id: "old",
         role: "user",
-        ...wireTextBody("ancient history"),
-        timestamp: wireTimestamp(10),
+        ...textBody("ancient history"),
+        timestamp: 10,
       }),
-      makeServerMessage({
+      makeRow({
         id: "a1",
         role: "assistant",
-        ...wireTextBody("in-window"),
-        timestamp: wireTimestamp(1000),
+        ...textBody("in-window"),
+        timestamp: 1000,
       }),
     ];
 
     // WHEN the merge runs with the oldest-page boundary set
     const result = reconcileMessagesWithSeq(local, server, {
-      snapshotSeq: 10,
-      appliedSeq: 5,
+      serverSeq: 10,
+      localSeq: 5,
       oldestPageTimestamp: 1000,
     });
 
     // THEN the pre-window row is dropped
     expect(result.find((m) => m.id === "old")).toBeUndefined();
     expect(result).toHaveLength(1);
+  });
+
+  test("folds an optimistic assistant tail into the confirmed server row", () => {
+    /**
+     * Against pre-anchor-protocol daemons a streamed assistant delta arrives
+     * with no `messageId`, so the live row stays optimistic with a client
+     * UUID. When the snapshot carries the same turn under its server id the
+     * optimistic prefix must collapse into it, not render as a second bubble.
+     */
+    // GIVEN an optimistic assistant tail (client UUID) holding a streamed prefix
+    const local = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({
+        id: "client-uuid",
+        isOptimistic: true,
+        role: "assistant",
+        ...textBody("Hello"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // AND a snapshot carrying the same assistant turn under its server id
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({
+        id: "srv-a1",
+        role: "assistant",
+        ...textBody("Hello there"),
+        timestamp: 1001,
+      }),
+    ];
+
+    // WHEN the merge runs with no honest seq (snapshot authoritative)
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the optimistic prefix collapses into the single server row
+    const assistants = result.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]!.id).toBe("srv-a1");
+    expect(messageText(assistants[0])).toBe("Hello there");
+  });
+
+  test("returns the same reference for a stale no-op snapshot via the row-id walk", () => {
+    /**
+     * On the streaming hot path a debounced snapshot lags the stream (`S < L`).
+     * The merge keeps the live local rows, so an identical row-id sequence
+     * proves it was structurally a no-op — the original reference comes back
+     * without a deep content comparison.
+     */
+    // GIVEN a local transcript
+    const local = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
+    ];
+
+    // AND a stale snapshot of the same rows behind the local seq
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("hi"), timestamp: 1000 }),
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1001 }),
+    ];
+
+    // WHEN the snapshot is stale (S < L)
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 5,
+      localSeq: 10,
+    });
+
+    // THEN the original reference is returned (no-op merge)
+    expect(result).toBe(local);
+  });
+
+  test("surfaces an authoritative correction at the same watermark even when row ids are unchanged", () => {
+    /**
+     * The case a row-id walk alone would miss: at the authoritative boundary
+     * (`S >= L`) the merge takes the server row wholesale, so an existing row's
+     * content can change while its id stays put (a server-normalized row
+     * re-persisted at the same watermark). The correction must surface rather
+     * than be masked by matching ids.
+     */
+    // GIVEN a local row already carrying the server id
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("v1"), timestamp: 1000 }),
+    ];
+
+    // AND a snapshot of the same row id with corrected content
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("v2"), timestamp: 1000 }),
+    ];
+
+    // WHEN the snapshot sits at the local seq (S == L)
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 7,
+      localSeq: 7,
+    });
+
+    // THEN the authoritative server content surfaces (not the stale local copy)
+    expect(result).not.toBe(local);
+    expect(messageText(result[0])).toBe("v2");
+  });
+
+  test("returns the same reference for an authoritative no-op snapshot via content equality", () => {
+    /**
+     * Once persistence catches up to the stream (`S >= L`) the poll loop keeps
+     * refetching the same authoritative snapshot. The content comparison lets
+     * it settle by returning the original reference when nothing changed,
+     * instead of treating every identical refetch as a change.
+     */
+    // GIVEN a local transcript
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // AND an authoritative snapshot of the same content at the frontier
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // WHEN the snapshot is authoritative and introduces nothing (S == L)
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 9,
+      localSeq: 9,
+    });
+
+    // THEN the original reference is returned (no-op merge)
+    expect(result).toBe(local);
+  });
+
+  test("falls back to content equality for reference stability when seq is unknown", () => {
+    /**
+     * On the no-seq skew path there is no watermark to trust, so a structural
+     * content comparison still lets the reconciliation poll loop settle by
+     * returning the original reference for a no-op merge.
+     */
+    // GIVEN a local transcript
+    const local = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // AND a snapshot of the same content with no honest seq
+    const server = [
+      makeRow({ id: "a1", role: "assistant", ...textBody("answer"), timestamp: 1000 }),
+    ];
+
+    // WHEN the merge runs with no honest seq and no new server content
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the original reference is returned
+    expect(result).toBe(local);
   });
 });

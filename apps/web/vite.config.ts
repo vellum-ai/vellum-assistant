@@ -109,6 +109,7 @@ export default defineConfig(({ mode }) => {
           replacement: path.resolve(import.meta.dirname, "src") + "/",
         },
       ],
+      dedupe: ["react", "react-dom"],
       preserveSymlinks: true,
     },
     server: {

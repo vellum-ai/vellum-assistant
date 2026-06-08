@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { createSyncTagRegistry } from "@/lib/sync/tag-registry";
 import {
@@ -21,13 +21,7 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  */
 export function useSettingsSync(): void {
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
-
-  // The sync-tag registry is rebuilt whenever the active assistant
-  // changes so dispatches always carry the current assistant id. A
-  // ref-stored registry would re-target stale callbacks after an
-  // assistant switch.
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const registry = useMemoizedRegistry(queryClient, assistantId);
 
   useBusSubscription("sse.event", (envelope) => {

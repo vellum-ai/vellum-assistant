@@ -18,10 +18,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/index.js";
 import postToolUse, {
   TOOL_ERROR_NUDGE_TEXT,
 } from "../plugins/defaults/tool-error/hooks/post-tool-use.js";
-import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error/register.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,

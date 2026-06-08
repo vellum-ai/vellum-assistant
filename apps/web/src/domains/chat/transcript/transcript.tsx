@@ -20,6 +20,7 @@ import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-uti
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
@@ -39,14 +40,11 @@ export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
   assistantDisplayName?: string | null;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
     surfaceId: string,
     action: string,
     input?: unknown,
   ) => void;
-  onRetryError: () => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
@@ -61,15 +59,10 @@ export interface TranscriptProps {
    *  should pass stable refs (the chat session store's maps). */
   expandedCardIds?: Map<string, boolean>;
   expandedThinkingKeys?: Map<string, boolean>;
-  /** Optional renderer for `kind: "pendingSecret"` items. PR 7 passes the
-   *  real `SecretPromptCard` here. */
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingConfirmation"` items. PR 7 passes
-   *  the real `ConfirmationPromptCard` here. */
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "pendingContactRequest"` items. */
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
-  /** Optional renderer for `kind: "onboardingChoice"` items. */
+  /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends
+   *  on props from the parent (sendMessage, didOnboarding, etc.) and has a
+   *  different lifecycle than interaction prompts, so it stays as a
+   *  render-prop for now. */
   renderOnboardingChoice?: () => ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
@@ -81,7 +74,6 @@ export interface TranscriptProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    riskScopeOptions: import("@/types/interaction-ui-types").RiskScopeOption[];
     directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
@@ -89,15 +81,13 @@ export interface TranscriptProps {
   unknownNudgeToolCallIds?: Set<string>;
   /** Dismiss handler for an unknown-nudge entry. */
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation.
-   *  Only the matching chip renders the inline confirmation UI. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -239,23 +229,15 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       expandedCardIds,
       expandedThinkingKeys,
       onSurfaceAction: rest.onSurfaceAction,
-      onSecretSubmit: rest.onSecretSubmit,
-      onConfirmationDecision: rest.onConfirmationDecision,
-      onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,
-      renderPendingSecret: rest.renderPendingSecret,
-      renderPendingConfirmation: rest.renderPendingConfirmation,
-      renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,
-      isSubmittingConfirmation: rest.isSubmittingConfirmation,
       onConfirmationSubmit: rest.onConfirmationSubmit,
       onAllowAndCreateRule: rest.onAllowAndCreateRule,
-      pendingConfirmationToolCallId: rest.pendingConfirmationToolCallId,
       onOpenApp: rest.onOpenApp,
       onOpenDocument: rest.onOpenDocument,
       assistantId: rest.assistantId,

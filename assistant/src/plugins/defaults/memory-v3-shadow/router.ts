@@ -38,7 +38,7 @@ import type { Message, ToolDefinition } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { retryForResult } from "./llm-retry.js";
 import { cachedTextBlock } from "./provider-blocks.js";
-import type { LeafPath, LeafTree, TurnContext } from "./types.js";
+import type { LeafPath, LeafTree, MemoryRoutingTurn } from "./types.js";
 
 const log = getLogger("memory-v3-router");
 
@@ -117,7 +117,7 @@ export function renderLeafBlock(tree: LeafTree): string {
  * degrading to the deterministic recall lanes the orchestrator unions in.
  */
 export async function routeL1(
-  turn: TurnContext,
+  turn: MemoryRoutingTurn,
   tree: LeafTree,
 ): Promise<LeafPath[]> {
   const paths = sortedLeaves(tree);

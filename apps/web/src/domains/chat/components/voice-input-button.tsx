@@ -143,8 +143,8 @@ export function isBatchSttSupported(): boolean {
 
 /**
  * Map a structured STT failure reason to the string `onError` code consumed
- * by `formatVoiceError` in `AssistantPageClient`. Kept as a pure helper so
- * the reason taxonomy can evolve without touching the recording flow.
+ * by `formatVoiceError`. Kept as a pure helper so the reason taxonomy can
+ * evolve without touching the recording flow.
  */
 export function errorCodeForReason(reason: SttFailureReason): string {
   switch (reason) {

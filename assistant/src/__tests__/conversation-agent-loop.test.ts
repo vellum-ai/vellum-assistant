@@ -312,16 +312,14 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
-const buildUnifiedTurnContextBlockMock = mock(
-  (options: Record<string, unknown>) =>
-    `<turn_context>\ncurrent_time: ${String(options.timestamp)}\n</turn_context>`,
-);
-const applyRuntimeInjectionsMock = mock(
-  async (msgs: Message[], _options?: unknown) => ({
-    messages: msgs,
-    blocks: { ...mockInjectionBlocks },
-  }),
-);
+const defaultApplyRuntimeInjectionsImpl = async (
+  msgs: Message[],
+  _options?: unknown,
+) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+});
+const applyRuntimeInjectionsMock = mock(defaultApplyRuntimeInjectionsImpl);
 let mockSlackChronologicalContext: {
   renderedMessages: Array<{
     message: Message;
@@ -358,7 +356,6 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  buildUnifiedTurnContextBlock: buildUnifiedTurnContextBlockMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
@@ -537,8 +534,8 @@ mock.module("../proactive-artifact/index.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
-  type AgentLoopConversationContext,
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
@@ -552,13 +549,13 @@ import {
 // ── Test helpers ─────────────────────────────────────────────────────
 
 function makeCtx(
-  overrides?: Partial<AgentLoopConversationContext> & {
+  overrides?: Partial<Conversation> & {
     providerResponses?: ScriptedResponse[];
     loopProvider?: Provider;
     loopTools?: ToolDefinition[];
     toolExecutor?: LoopToolExecutor;
   },
-): AgentLoopConversationContext {
+): Conversation {
   const {
     providerResponses,
     loopProvider,
@@ -616,15 +613,24 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
-    contextCompactedMessageCount: 0,
-    contextCompactedAt: null,
+    } as unknown as Conversation["contextWindowManager"],
+    conversationType: mockConversationRow?.conversationType ?? undefined,
+    source: mockConversationRow?.source ?? undefined,
+    contextSummary: mockConversationRow?.contextSummary ?? null,
+    contextCompactedMessageCount:
+      mockConversationRow?.contextCompactedMessageCount ?? 0,
+    contextCompactedAt: mockConversationRow?.contextCompactedAt ?? null,
+    slackContextCompactionWatermarkTs:
+      mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
+    lastNotifiedInferenceProfile:
+      mockConversationRow?.lastNotifiedInferenceProfile ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
@@ -645,15 +651,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -666,8 +672,8 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
@@ -698,10 +704,32 @@ function makeCtx(
       }),
       retrackCachedNodes: () => {},
       recordPkbQueryVectors: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+    } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
+}
+
+type CompactionResult = Parameters<typeof applyCompactionResult>[1];
+
+function makeCompactionResult(
+  overrides?: Partial<CompactionResult>,
+): CompactionResult {
+  return {
+    messages: [{ role: "user", content: [{ type: "text", text: "summary" }] }],
+    compactedPersistedMessages: 4,
+    previousEstimatedInputTokens: 12000,
+    estimatedInputTokens: 3000,
+    maxInputTokens: 100000,
+    thresholdTokens: 80000,
+    compactedMessages: 4,
+    summaryCalls: 1,
+    summaryInputTokens: 100,
+    summaryOutputTokens: 20,
+    summaryModel: "mock-model",
+    summaryText: "summary",
+    ...overrides,
+  };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -741,7 +769,9 @@ beforeEach(() => {
   setConversationHistoryStrippedAtMock.mockClear();
   setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
-  buildUnifiedTurnContextBlockMock.mockClear();
+  applyRuntimeInjectionsMock.mockImplementation(
+    defaultApplyRuntimeInjectionsImpl,
+  );
   resolveTurnTimezoneContextMock.mockClear();
   formatTurnTimestampMock.mockClear();
   mockSlackChronologicalContext = null;
@@ -754,11 +784,10 @@ beforeEach(() => {
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
   mockMessageById = null;
-  // Orchestrator pipelines (overflowReduce, persistence, …) run through the
-  // plugin registry; reset and re-register every default so the pipelines
-  // dispatch to middleware backed by the mocked collaborators these tests
-  // install (`reduceContextOverflow`, `syncMessageToDisk`, etc.) instead of
-  // hitting the bare terminals.
+  // The compaction pipeline runs through the plugin registry; reset and
+  // re-register every default so it dispatches to middleware backed by the
+  // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
+  // instead of hitting the bare terminal.
   resetPluginRegistryAndRegisterDefaults();
 });
 
@@ -782,7 +811,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("passes resolved canonical timezones into unified turn context", async () => {
+    test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
       mockUiConfig = {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
@@ -799,17 +828,25 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      expect(formatTurnTimestampMock).toHaveBeenCalledWith({
-        timeZone: "America/New_York",
-      });
-      expect(buildUnifiedTurnContextBlockMock).toHaveBeenCalled();
-      const turnContextOptions =
-        buildUnifiedTurnContextBlockMock.mock.calls[0]?.[0];
-      expect(turnContextOptions).toMatchObject({
-        configuredUserTimezone: "America/New_York",
+      // The turn-start client timezone and the long-absence gap are frozen on
+      // the conversation as `currentTurnTemporalSnapshot`; the live
+      // `clientTimezone` would otherwise be clobbered mid-turn. `current_time`
+      // is not frozen — it is computed fresh at each injection inside
+      // `applyRuntimeInjections`.
+      expect(ctx.currentTurnTemporalSnapshot).toEqual({
         clientTimezone: "America/Los_Angeles",
-        detectedTimezone: "America/Chicago",
+        timeSinceLastMessage: null,
       });
+      // Neither the timezones nor the long-absence gap are threaded through the
+      // options bag — `applyRuntimeInjections` sources the client timezone and
+      // gap from the snapshot and the config timezones from config
+      // (`ui.userTimezone`, `ui.detectedTimezone`).
+      const injectionOptions = applyRuntimeInjectionsMock.mock.calls[0]?.[1];
+      expect(injectionOptions).not.toHaveProperty("timestamp");
+      expect(injectionOptions).not.toHaveProperty("clientTimezone");
+      expect(injectionOptions).not.toHaveProperty("configuredUserTimezone");
+      expect(injectionOptions).not.toHaveProperty("detectedTimezone");
+      expect(injectionOptions).not.toHaveProperty("timeSinceLastMessage");
     });
   });
 
@@ -877,7 +914,23 @@ describe("session-agent-loop", () => {
   });
 
   describe("disk pressure injection context", () => {
-    test("passes cleanup context into runtime injections for cleanup-mode turns", async () => {
+    // The loop sets `ctx.diskPressureCleanupModeActive` for the duration of the
+    // turn (the disk-pressure-warning injector reads it via the per-conversation
+    // registry) and resets it in the turn-end cleanup path. Snapshot the flag at
+    // each `applyRuntimeInjections` call so assertions observe its value while
+    // injection runs, not the post-turn reset.
+    function captureCleanupFlagDuringInjection(ctx: {
+      diskPressureCleanupModeActive?: boolean;
+    }): () => Array<boolean | undefined> {
+      const observed: Array<boolean | undefined> = [];
+      applyRuntimeInjectionsMock.mockImplementation(async (msgs: Message[]) => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+        return { messages: msgs, blocks: { ...mockInjectionBlocks } };
+      });
+      return () => observed;
+    }
+
+    test("sets the cleanup-mode flag on the conversation for cleanup-mode turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -898,8 +951,9 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -918,21 +972,16 @@ describe("session-agent-loop", () => {
           },
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("passes cleanup context into runtime injections for local-owner turns", async () => {
+    test("sets the cleanup-mode flag on the conversation for local-owner turns", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "local-owner",
       };
       const ctx = makeCtx();
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
@@ -944,16 +993,10 @@ describe("session-agent-loop", () => {
           trustContext: null,
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        diskPressureContext?: { cleanupModeActive: boolean } | null;
-      };
-      expect(firstInjectionOptions.diskPressureContext).toEqual({
-        cleanupModeActive: true,
-      });
+      expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
-    test("keeps cleanup context on overflow recovery reinjection", async () => {
+    test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
         reason: "guardian",
@@ -973,20 +1016,16 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "telegram",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
       });
+      const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
       await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
 
       expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
-      for (const call of applyRuntimeInjectionsMock.mock.calls) {
-        const options = call[1] as {
-          diskPressureContext?: { cleanupModeActive: boolean } | null;
-        };
-        expect(options.diskPressureContext).toEqual({
-          cleanupModeActive: true,
-        });
-      }
+      const flags = cleanupFlagDuringInjection();
+      expect(flags.length).toBeGreaterThan(1);
+      expect(flags.every((flag) => flag === true)).toBe(true);
     });
 
     test("blocks policy-denied turns before runtime injection or model execution", async () => {
@@ -1005,7 +1044,7 @@ describe("session-agent-loop", () => {
           emit: (...args: unknown[]) => {
             traceEvents.push(args);
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1166,7 +1205,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1215,7 +1254,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1281,7 +1320,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1332,7 +1371,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1343,7 +1382,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1390,7 +1429,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
         traceEmitter: {
           emit: (
             event: string,
@@ -1401,7 +1440,7 @@ describe("session-agent-loop", () => {
               traceEvents.push({ label, attrs: payload.attributes ?? {} });
             }
           },
-        } as unknown as AgentLoopConversationContext["traceEmitter"],
+        } as unknown as Conversation["traceEmitter"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1457,7 +1496,7 @@ describe("session-agent-loop", () => {
             usage: { inputTokens: 0, outputTokens: 0 },
             stopReason: "end_turn",
           }),
-        } as unknown as AgentLoopConversationContext["provider"],
+        } as unknown as Conversation["provider"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1602,9 +1641,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1623,6 +1663,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
@@ -1642,7 +1683,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 200,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1682,9 +1723,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1731,6 +1773,7 @@ describe("session-agent-loop", () => {
         ],
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1749,7 +1792,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1831,6 +1874,7 @@ describe("session-agent-loop", () => {
         toolExecutor: async () => ({ content: "data", isError: false }),
         hasNoClient: true,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
@@ -1849,7 +1893,7 @@ describe("session-agent-loop", () => {
             summaryOutputTokens: 100,
             summaryModel: "mock-model",
           }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1916,9 +1960,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         providerResponses: [new Error("context_length_exceeded")],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1954,9 +1999,10 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         loopProvider: provider,
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -2021,7 +2067,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "file content", isError: false }),
         canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2052,7 +2098,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "content", isError: false }),
         canHandoffAtCheckpoint: () => false,
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2203,7 +2249,7 @@ describe("session-agent-loop", () => {
         drainQueue: (reason: string) => {
           drainReason = reason;
         },
-      } as unknown as Partial<AgentLoopConversationContext>);
+      } as unknown as Partial<Conversation>);
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
@@ -2645,9 +2691,10 @@ describe("session-agent-loop", () => {
           textResponse("retry succeeded"),
         ],
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
@@ -3151,12 +3198,13 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: (messages: Message[]) => {
             shouldCompactInputs.push(messages);
             return { needed: true, estimatedTokens: 95_000 };
@@ -3186,7 +3234,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-start", () => {});
@@ -3202,11 +3250,6 @@ describe("session-agent-loop", () => {
         "1700000020.000000",
         expect.any(Number),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBeNull();
     });
 
     test("overflow reducer Slack compaction persists watermark from rendered context", async () => {
@@ -3288,15 +3331,16 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-overflow", () => {});
@@ -3310,15 +3354,6 @@ describe("session-agent-loop", () => {
         "1700000020.000000",
         expect.any(Number),
       );
-      const reinjectionOptions = applyRuntimeInjectionsMock.mock.calls.find(
-        (call) => {
-          const options = call[1] as {
-            slackChronologicalMessages?: Message[] | null;
-          };
-          return options.slackChronologicalMessages === null;
-        },
-      )?.[1] as { slackChronologicalMessages?: Message[] | null } | undefined;
-      expect(reinjectionOptions?.slackChronologicalMessages).toBeNull();
     });
 
     test("same-turn Slack compaction updates watermark from projected provenance", async () => {
@@ -3416,12 +3451,13 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: true, estimatedTokens: 120_000 }),
           maybeCompact: async (messages: Message[]) => {
             expect(messages).toBe(renderedSlackMessages);
@@ -3442,7 +3478,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-repeat", () => {});
@@ -3539,12 +3575,13 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
         }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async (messages: Message[]) => {
             maybeCompactInputs.push(messages);
@@ -3590,7 +3627,7 @@ describe("session-agent-loop", () => {
               summaryFailed: false,
             };
           },
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       await runAgentLoopImpl(ctx, "next reply", "user-msg-mid-loop", () => {});
@@ -3608,7 +3645,7 @@ describe("session-agent-loop", () => {
       ).not.toHaveBeenCalled();
     });
 
-    test("next inbound Slack turn injects the watermark-filtered chronological context", async () => {
+    test("next inbound Slack turn loads chronological context using the persisted watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted Slack context",
@@ -3668,7 +3705,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3687,26 +3724,9 @@ describe("session-agent-loop", () => {
           trustClass: "guardian",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      expect(firstInjectionOptions.slackChronologicalMessages).toBe(
-        mockSlackChronologicalContext.messages,
-      );
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted Slack context");
-      expect(rendered).toContain("after watermark reply");
-      expect(rendered).not.toContain("before watermark");
     });
 
-    test("subsequent Slack turn keeps long-thread compaction summary and filtered tail", async () => {
+    test("subsequent Slack turn loads chronological context using the persisted long-thread watermark", async () => {
       mockConversationRow = {
         ...mockConversationRow,
         contextSummary: "## Summary\n- compacted long Slack thread",
@@ -3776,7 +3796,7 @@ describe("session-agent-loop", () => {
         trustContext: {
           sourceChannel: "slack",
           trustClass: "guardian",
-        } as AgentLoopConversationContext["trustContext"],
+        } as Conversation["trustContext"],
         getTurnChannelContext: () => ({
           userMessageChannel: "slack" as const,
           assistantMessageChannel: "slack" as const,
@@ -3799,21 +3819,6 @@ describe("session-agent-loop", () => {
           slackContextCompactionWatermarkTs: "1700000080.000000",
         }),
       );
-      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
-        .calls[0]![1] as {
-        slackChronologicalMessages?: Message[] | null;
-      };
-      const rendered = firstInjectionOptions
-        .slackChronologicalMessages!.flatMap((message) => message.content)
-        .filter((block): block is { type: "text"; text: string } => {
-          return block.type === "text";
-        })
-        .map((block) => block.text)
-        .join("\n");
-      expect(rendered).toContain("compacted long Slack thread");
-      expect(rendered).toContain("reply after compaction");
-      expect(rendered).not.toContain("pre-compaction");
-      expect(rendered).not.toContain("original root");
     });
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
@@ -3855,6 +3860,59 @@ describe("session-agent-loop", () => {
         true,
       );
     });
+
+    test("applyCompactionResult advances the persisted count from the trusted in-context boundary", async () => {
+      // Trusted views slice past the already-compacted prefix, so a further
+      // compaction advances the persisted count from the mirrored DB boundary.
+
+      // GIVEN a trusted (guardian) conversation that has already compacted 5
+      // persisted messages, so its in-context history starts past that prefix
+      const ctx = makeCtx({
+        contextCompactedMessageCount: 5,
+        trustContext: {
+          trustClass: "guardian",
+        } as Conversation["trustContext"],
+      });
+
+      // WHEN a turn compacts 4 more in-context messages
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult({ compactedPersistedMessages: 4 }),
+        () => {},
+        "req-1",
+      );
+
+      // THEN the persisted count advances from the prior boundary (5 + 4)
+      expect(ctx.contextCompactedMessageCount).toBe(9);
+    });
+
+    test("applyCompactionResult resets the persisted count to the unsliced boundary for untrusted views", async () => {
+      // Untrusted views render history unsliced (boundary 0), so a compaction
+      // must record only the new summary's prefix instead of adding to the raw
+      // mirror — otherwise future loads slice past unsummarized rows.
+
+      // GIVEN an untrusted view of a conversation whose raw DB count mirrors a
+      // 5-message compacted prefix — but untrusted views render that history
+      // unsliced (boundary 0), so the compactor operates on the full list
+      const ctx = makeCtx({
+        contextCompactedMessageCount: 5,
+        trustContext: {
+          trustClass: "unknown",
+        } as Conversation["trustContext"],
+      });
+
+      // WHEN that turn compacts 4 in-context messages
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult({ compactedPersistedMessages: 4 }),
+        () => {},
+        "req-1",
+      );
+
+      // THEN the persisted count reflects only the new summary's prefix (0 + 4)
+      // rather than double-counting the raw mirror (which would yield 9)
+      expect(ctx.contextCompactedMessageCount).toBe(4);
+    });
   });
 
   describe("compaction-strip marker persistence", () => {
@@ -3891,9 +3949,10 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       // WHEN the orchestrator runs the turn to completion
@@ -3940,9 +3999,10 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "ok", isError: false }),
         contextWindowManager: {
+          updateConfig: () => {},
           shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        } as unknown as Conversation["contextWindowManager"],
       });
 
       // Must not throw — the strip-site marker write is wrapped in try/catch.

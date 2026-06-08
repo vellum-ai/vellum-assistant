@@ -23,11 +23,7 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
   const url = new URL(request.url);
   // Auth has already been verified by the parent auth middleware.
   const decision = resolveNavigation(
-    buildNavigationState({
-      sessionSettled: true,
-      isAuthenticated: true,
-      isReplay: url.searchParams.has("replay"),
-    }),
+    buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
     { kind: "route-guard", pathname: url.pathname },
   );
   if (decision.action === "redirect") throw redirect(decision.to);

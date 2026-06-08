@@ -32,7 +32,7 @@ export interface ElectronDiagnostics {
   };
   appMetrics: Electron.ProcessMetric[];
   idleTime: number;
-  featureFlags: unknown;
+  featureFlags: Record<string, boolean> | null;
   redactionVersion: number;
 }
 

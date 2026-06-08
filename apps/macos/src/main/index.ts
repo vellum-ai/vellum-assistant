@@ -1,8 +1,9 @@
-import { app, net, protocol, session, shell } from "electron";
+import "./env-seed";
+
+import { app, net, protocol, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { z } from "zod";
 
 import {
   readAllowedGatewayPorts,
@@ -11,11 +12,11 @@ import {
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about";
-import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { installCsp } from "./csp";
-import { ensureWebInstalled, getWebDistPath } from "./cli-installer";
-import { handle, handleSync } from "./ipc";
+import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
+import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import { planPlatformForward } from "./platform-forward";
 import {
@@ -23,12 +24,19 @@ import {
   handleDeepLink,
   installDeepLinks,
 } from "./deep-links";
+import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
 import { installHotkeyHelper } from "./hotkey-helper";
+import { installHotkeysIpc } from "./hotkeys";
+import { installPopoutWindows } from "./popout-window";
+import { installQuickInput } from "./quick-input-window";
 import { installLocalMode } from "./local-mode";
+import { installLockfileWatcher } from "./lockfile-watcher";
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -36,11 +44,14 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
+import { installNotifications } from "./notifications";
+import { installPermissionHandler } from "./permissions";
 import { installPowerEvents } from "./power-events";
-import { readSetting, writeSetting } from "./settings";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTray } from "./tray";
+import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -91,6 +102,16 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
 ]);
 
 // Deep-link plumbing — register at module top-level so the
@@ -99,6 +120,7 @@ protocol.registerSchemesAsPrivileged([
 // can fire before `whenReady`). Registering in `whenReady` misses
 // the launching URL — the #1 deep-link bug in Electron apps.
 installDeepLinks();
+installFileOpen();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -115,7 +137,7 @@ const RENDERER_MOUNT = "/assistant";
 
 const resolveRendererRoot = (): string => {
   if (app.isPackaged) {
-    return getWebDistPath();
+    return path.join(process.resourcesPath, "web-dist");
   }
   // Dev source tree: apps/web/dist — requires `bun run build` in apps/web/.
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
@@ -215,6 +237,12 @@ const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
 let cachedCsrfToken: string | null = null;
 handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
 
+const resolvedConfig = resolveLocalConfigFromEnv(process.env);
+handleSync("vellum:config:get", () => ({
+  webUrl: resolvedConfig.webUrl,
+  platformUrl: resolvedConfig.platformUrl,
+}));
+
 const captureCsrfToken = (response: Response): void => {
   const setCookies = response.headers.getSetCookie?.() ?? [];
   for (const raw of setCookies) {
@@ -259,38 +287,6 @@ const forwardPlatformRequest = async (
   return response;
 };
 
-// Deny renderer permission requests by default. Specific permissions
-// (microphone for voice input, notifications, etc.) are allowlisted in the
-// follow-up tickets that wire each feature, so the bridge surface stays
-// honest about what the app can actually do at any given commit.
-const installPermissionHandler = (): void => {
-  session.defaultSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
-      callback(false);
-    },
-  );
-};
-
-// IPC bridge for the `window.vellum.settings.*` API exposed by preload.
-// The IPC layer only asserts the key is a string; electron-store's own
-// ajv schema is the validator for both the key namespace and each
-// value's shape, so the value crosses as `unknown` rather than being
-// re-modeled here (a second schema would just be a drift risk).
-// Validator errors (thrown as SyntaxError from `set`) propagate as
-// rejected Promises to the renderer.
-const installSettingsIpc = (): void => {
-  handle("vellum:settings:get", z.tuple([z.string()]), ([key]) =>
-    readSetting(key),
-  );
-  handle(
-    "vellum:settings:set",
-    z.tuple([z.string(), z.unknown()]),
-    ([key, value]) => {
-      writeSetting(key, value);
-    },
-  );
-};
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -299,19 +295,24 @@ app
   .whenReady()
   .then(async () => {
     if (!isDev) {
-      // TODO(LUM-2214): a deep-link or second-instance activation during
-      // this await can create a window before the protocol handler exists.
-      await ensureWebInstalled();
       registerAppProtocol();
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
+    installBundleFlow();
+    onFileOpen(handleBundleFile);
     installPermissionHandler();
     installCsp();
-    installSettingsIpc();
+    installHotkeysIpc();
+    installFeatureFlagsIpc();
     installLocalMode();
     installHotkeyHelper();
     installAbout();
     installFeedbackIpc();
     installApplicationMenu();
+    installQuickInput();
+    installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
@@ -319,6 +320,7 @@ app
     installAvatarIpc();
     installDock();
     installPowerEvents();
+    installNotifications();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
@@ -326,11 +328,16 @@ app
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);
+    // Start watching the lockfile before the tray installs so the assistant
+    // switcher submenu has data on its first right-click.
+    const teardownLockfileWatcher = installLockfileWatcher();
+    app.on("before-quit", teardownLockfileWatcher);
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
+    installNativeAuth();
     installMainWindow();
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
@@ -359,6 +366,13 @@ app.on("second-instance", (_event, argv) => {
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
   if (deepLink) handleDeepLink(deepLink);
+  // Forward .vellum file paths from second-instance argv so the
+  // buffer/broadcast pipeline handles them identically to open-file.
+  for (const arg of argv) {
+    if (/\.vellum$/i.test(arg)) {
+      handleFileOpen(arg);
+    }
+  }
 });
 
 app.on("web-contents-created", (_event, contents) => {
@@ -386,18 +400,14 @@ app.on("web-contents-created", (_event, contents) => {
     // callbacks, so allow these as in-app child windows that inherit the
     // hardened webPreferences from the parent.
     if (disposition === "new-window") {
+      // Child popups inherit the same hardened baseline as every window. The
+      // preload is intentionally omitted (these are OAuth/connect popups, not
+      // Vellum-bridge surfaces), which is why `hardenedWebPreferences()`
+      // leaves it out for the caller to add.
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webSecurity: true,
-            allowRunningInsecureContent: false,
-            experimentalFeatures: false,
-            devTools: isDev,
-          },
+          webPreferences: hardenedWebPreferences(),
         },
       };
     }

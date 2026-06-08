@@ -40,9 +40,16 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
 }));
 
+const ASSISTANT_ID = "asst-1";
+
+// Seed the selection store so useActiveAssistantId() (called by
+// EmailServiceCard) finds a non-null id without a route-level gate.
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  useActiveAssistantId: () => ASSISTANT_ID,
+}));
+
 const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
 
-const ASSISTANT_ID = "asst-1";
 const ASSISTANT_HANDLE = "my-assistant";
 
 function makeSubscription(

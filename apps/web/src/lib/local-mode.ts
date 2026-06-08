@@ -58,6 +58,15 @@ const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
+export function getPlatformRuntimeUrl(): string {
+  const injected = (
+    window as unknown as {
+      __VELLUM_CONFIG__?: { platformUrl?: string };
+    }
+  ).__VELLUM_CONFIG__;
+  return injected?.platformUrl || window.location.origin;
+}
+
 // Advance the in-memory cache and mirror the lockfile to persisted storage in
 // one step. The mirror lets the synchronous `getLockfile()` hydrate from
 // storage on a cold read before the host transport has responded.
@@ -133,6 +142,26 @@ export async function saveLockfileAssistant(
 }
 
 /**
+ * Mark an already-known assistant as the lockfile's active assistant, leaving
+ * its other fields untouched. Used when switching managed assistants so the
+ * lockfile `activeAssistant` — read by the macOS tray, the CLI, and the native
+ * client — tracks the in-app selection. No-ops in the browser (no lockfile
+ * host) and when the id isn't a known entry.
+ */
+export async function setActiveLockfileAssistant(
+  assistantId: string,
+): Promise<void> {
+  const entry = getLockfile().assistants.find(
+    (a) => a.assistantId === assistantId,
+  );
+  if (!entry) return;
+  const result = await saveLockfileAssistantHost({ ...entry }, assistantId);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
  * Replace all platform-hosted assistant entries in the lockfile with the
  * current set from the API. Removes stale entries and adds new ones atomically.
  */
@@ -144,7 +173,7 @@ export async function syncPlatformAssistantsToLockfile(
     .map((a) => ({
       assistantId: a.id,
       cloud: "vellum",
-      runtimeUrl: window.location.origin,
+      runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,
     }));
 

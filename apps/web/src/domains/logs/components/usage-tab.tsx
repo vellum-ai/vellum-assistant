@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Sparkles, Wand2, X } from "lucide-react";
+import { AlertTriangle, Sparkles, Wand2 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -12,6 +12,7 @@ import {
 import {
     UsageTrendChart,
     UsageTrendSkeleton,
+    type UsageTrendChartLegendItem,
 } from "@/domains/logs/components/usage-trend-chart";
 import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
@@ -29,6 +30,7 @@ import {
 import {
     decorateUsageSeriesGroups,
     seriesFromDailyBuckets,
+    usageSeriesKeyForGroupValue,
 } from "@/domains/logs/usage-series";
 import {
     buildUsageSearchParams,
@@ -74,7 +76,6 @@ const RANGE_OPTIONS: { value: UsageTimeRange; label: string }[] = [
   { value: "all", label: "All time" },
 ];
 
-const ALL_USAGE_FILTER_VALUE = "";
 const PROFILE_METADATA_STALE_TIME_MS = 5 * 60 * 1000;
 const COST_ANALYSIS_PROMPT = [
   "Please load the llm-cost-optimizer skill.",
@@ -134,17 +135,6 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     },
     [updateUsageSearchParams],
   );
-
-  const handleScheduleFilterChange = useCallback(
-    (nextScheduleId: string | null) => {
-      updateUsageSearchParams({ scheduleId: nextScheduleId });
-    },
-    [updateUsageSearchParams],
-  );
-
-  const handleClearScheduleFilter = useCallback(() => {
-    updateUsageSearchParams({ scheduleId: null });
-  }, [updateUsageSearchParams]);
 
   const totalsQuery = useQuery({
     queryKey: [
@@ -367,7 +357,13 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const isHourly = effectiveGranularity === "hourly";
   const trendGroupBy =
     seriesGroupBy && seriesQuery.error ? undefined : effectiveGroupBy;
-  const showScheduleFilter = effectiveGroupBy === "schedule";
+  const selectedScheduleLegendItems = useMemo(() => {
+    if (effectiveGroupBy !== "schedule" || !scheduleId) {
+      return undefined;
+    }
+
+    return buildSelectedScheduleLegendItems(schedulesQuery.data, scheduleId);
+  }, [effectiveGroupBy, scheduleId, schedulesQuery.data]);
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
     if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
@@ -412,14 +408,6 @@ export function UsageTab({ assistantId }: UsageTabProps) {
               {trendTitle(effectiveGranularity, trendGroupBy)}
             </h4>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {showScheduleFilter ? (
-                <ScheduleFilterPicker
-                  scheduleId={scheduleId}
-                  schedules={schedulesQuery.data}
-                  onChange={handleScheduleFilterChange}
-                  onClear={handleClearScheduleFilter}
-                />
-              ) : null}
               <GroupByPicker
                 value={effectiveGroupBy}
                 onChange={handleGroupByChange}
@@ -430,7 +418,11 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             query={trendQuery}
             skeleton={<UsageTrendSkeleton isHourly={isHourly} />}
             render={(buckets) => (
-              <UsageTrendChart buckets={buckets} isHourly={isHourly} />
+              <UsageTrendChart
+                buckets={buckets}
+                isHourly={isHourly}
+                legendItems={selectedScheduleLegendItems}
+              />
             )}
           />
         </div>
@@ -449,82 +441,35 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   );
 }
 
-function ScheduleFilterPicker({
-  scheduleId,
-  schedules,
-  onChange,
-  onClear,
-}: {
-  scheduleId: string | undefined;
-  schedules: AssistantSchedule[] | undefined;
-  onChange: (scheduleId: string | null) => void;
-  onClear: () => void;
-}) {
-  const options = useMemo(
-    () => buildScheduleFilterOptions(schedules, scheduleId),
-    [schedules, scheduleId],
-  );
-
-  return (
-    <div className="flex items-center gap-1">
-      <Dropdown<string>
-        value={scheduleId ?? ALL_USAGE_FILTER_VALUE}
-        onChange={(value) =>
-          onChange(value === ALL_USAGE_FILTER_VALUE ? null : value)
-        }
-        options={options}
-        className="w-44"
-        menuMinWidth={220}
-        aria-label="Schedule usage filter"
-      />
-      {scheduleId ? (
-        <button
-          type="button"
-          onClick={onClear}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors"
-          style={{
-            borderColor: "var(--border-base)",
-            color: "var(--content-secondary)",
-            background: "transparent",
-          }}
-          aria-label="Clear schedule filter"
-          title="Clear schedule filter"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function buildScheduleFilterOptions(
+function buildSelectedScheduleLegendItems(
   schedules: readonly Pick<AssistantSchedule, "id" | "name">[] | undefined,
-  selectedScheduleId: string | undefined,
-): Array<{ value: string; label: string }> {
-  const options: Array<{ value: string; label: string }> = [
-    { value: ALL_USAGE_FILTER_VALUE, label: "All usage" },
-  ];
-  const knownScheduleIds = new Set<string>();
-
-  for (const schedule of schedules ?? []) {
-    knownScheduleIds.add(schedule.id);
-  }
-
-  if (selectedScheduleId && !knownScheduleIds.has(selectedScheduleId)) {
-    options.push({
-      value: selectedScheduleId,
-      label: unknownScheduleLabel(selectedScheduleId),
-    });
-  }
-
-  for (const schedule of schedules ?? []) {
-    options.push({
-      value: schedule.id,
+  selectedScheduleId: string,
+): UsageTrendChartLegendItem[] {
+  const knownSchedules = schedules ?? [];
+  const hasSelectedSchedule = knownSchedules.some(
+    (schedule) => schedule.id === selectedScheduleId,
+  );
+  const legendSources = [
+    ...(hasSelectedSchedule
+      ? []
+      : [
+          {
+            id: selectedScheduleId,
+            label: unknownScheduleLabel(selectedScheduleId),
+          },
+        ]),
+    ...knownSchedules.map((schedule) => ({
+      id: schedule.id,
       label: schedule.name || schedule.id,
-    });
-  }
+    })),
+  ];
 
-  return options;
+  return legendSources.map((schedule, colorIndex) => ({
+    seriesKey: usageSeriesKeyForGroupValue(schedule.id, "schedule"),
+    label: schedule.label,
+    colorIndex,
+    state: schedule.id === selectedScheduleId ? "active" : "inactive",
+  }));
 }
 
 function unknownScheduleLabel(scheduleId: string) {

@@ -18,9 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
-import {
-    assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
@@ -33,23 +31,18 @@ import { toast } from "@vellumai/design-library/components/toast";
 /**
  * Shared hook for the active assistant's ID and a lazy resolver.
  *
- * The settings page renders outside `ActiveAssistantGate`, so `assistantId`
- * may be `undefined` while the assistant list is loading. `resolveAssistantId`
- * returns the cached value when available, or fetches the list and resolves
- * it as a fallback — so callers never need to gate on the list being loaded.
+ * Settings content is gated in `SettingsLayout` so the selection store
+ * is guaranteed to have a non-null `activeAssistantId` by the time this
+ * hook runs. `resolveAssistantId` returns the same value wrapped in a
+ * Promise to satisfy the async interface that mutations expect.
  */
 export function useAssistantId() {
-  const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantId = useActiveAssistantId();
 
-  const resolveAssistantId = useCallback(async (): Promise<string> => {
-    if (assistantId) return assistantId;
-    const list = await queryClient.fetchQuery(assistantsListOptions());
-    const resolved = list.results?.[0]?.id;
-    if (!resolved) throw new Error("No assistant found");
-    return resolved;
-  }, [assistantId, queryClient]);
+  const resolveAssistantId = useCallback(
+    async (): Promise<string> => assistantId,
+    [assistantId],
+  );
 
   return { assistantId, resolveAssistantId };
 }
@@ -72,7 +65,7 @@ export function useDaemonConfigQuery() {
     queryKey: assistantDaemonConfigQueryKey(assistantId),
     queryFn: async () => {
       const { data } = await configGet({
-        path: { assistant_id: assistantId! },
+        path: { assistant_id: assistantId },
         throwOnError: true,
       });
       // The daemon config endpoint's OpenAPI spec doesn't define a typed

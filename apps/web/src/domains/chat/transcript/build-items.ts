@@ -1,9 +1,7 @@
 // Pure projection from chat state onto the flat `TranscriptItem[]` list
-// the virtualized transcript consumes. No React, no DOM — the rules here
-// mirror the rendering logic currently embedded inside
-// `AssistantPageClient.tsx` (messages loop + trailers block) so the
-// forthcoming Transcript component can render a single flat list
-// without re-implementing those projection rules.
+// the virtualized transcript consumes. No React, no DOM — takes chat
+// messages + interaction state and emits a flat item array that the
+// Transcript component renders via a virtualised list.
 
 import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type {
@@ -29,14 +27,13 @@ export interface BuildTranscriptItemsInput {
   thinkingLabel?: string | null;
   /** Human-readable label when the daemon auto-routed to a different inference profile. */
   autoRoutedProfileLabel?: string | null;
-  errorNotice: string | null;
   showOnboardingChoice?: boolean;
 }
 
 /**
  * Project the chat state into an ordered flat list of transcript items.
  *
- * Rules (mirror the JSX in `AssistantPageClient.tsx`):
+ * Rules:
  *
  *   1. For each `DisplayMessage` in order, emit a `MessageItem` with
  *      `key = message.id`. Inline surfaces attached to a message are
@@ -49,8 +46,6 @@ export interface BuildTranscriptItemsInput {
  *        a. `ThinkingItem` when `isThinking`.
  *        b. `PendingSecretItem` when `pendingSecret` is set.
  *        c. `PendingConfirmationItem` when `pendingConfirmation` is set.
- *        d. `ErrorItem` when `errorNotice` is a non-empty string.
- *
  * Every returned item carries a non-empty, distinct `key`.
  */
 export function buildTranscriptItems(
@@ -62,7 +57,6 @@ export function buildTranscriptItems(
     pendingConfirmation,
     pendingContactRequest,
     isThinking,
-    errorNotice,
   } = input;
 
   const items: TranscriptItem[] = [];
@@ -134,14 +128,6 @@ export function buildTranscriptItems(
       role: pendingContactRequest.role,
     };
     items.push(item);
-  }
-
-  if (errorNotice && errorNotice.length > 0) {
-    items.push({
-      kind: "error",
-      key: "error-notice",
-      message: errorNotice,
-    });
   }
 
   if (input.showOnboardingChoice) {

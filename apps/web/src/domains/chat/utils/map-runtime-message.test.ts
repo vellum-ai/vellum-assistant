@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ConversationMessage } from "@vellumai/assistant-api";
-import {
-  mapRuntimeToDisplayMessage,
-  prepareServerMessage,
-  runtimeMessagePlainText,
-} from "@/domains/chat/utils/map-runtime-message";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 
 import {
   makeServerMessage,
@@ -16,17 +12,18 @@ function makeMessage(overrides: Partial<ConversationMessage>): ConversationMessa
   return makeServerMessage({ id: "msg-1", role: "assistant", ...overrides });
 }
 
-describe("prepareServerMessage", () => {
+describe("text-segment cleaning", () => {
+  // The `[File attachment]` stripping logic lives inside the single
+  // `ConversationMessage → DisplayMessage` boundary; it is exercised through
+  // the public `mapRuntimeToDisplayMessage`, which surfaces the cleaned
+  // segments on `textSegments`.
   test("returns unchanged segments when no attachment markers appear", () => {
     const m = makeMessage({
       textSegments: ["hello world"],
       contentOrder: ["text:0"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(runtimeMessagePlainText(m)).toBe("hello world");
-    expect(prepared.normalizedSegments).toEqual(["hello world"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["hello world"]);
   });
 
   test("strips attachment summary appended to the only segment", () => {
@@ -37,10 +34,7 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(runtimeMessagePlainText(m)).toBe("here you go");
-    expect(prepared.normalizedSegments).toEqual(["here you go"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual(["here you go"]);
   });
 
   test("strips attachment summary from the trailing segment for interleaved messages (LUM-1527)", () => {
@@ -57,10 +51,10 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "tool:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(runtimeMessagePlainText(m)).toBe("preamble after-tool");
-    expect(prepared.normalizedSegments).toEqual(["preamble", "after-tool"]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
+      "preamble",
+      "after-tool",
+    ]);
   });
 
   test("strips attachment summary when it lands in segment[1] but segment[0] is unrelated", () => {
@@ -75,15 +69,10 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "surface:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(prepared.normalizedSegments).toEqual([
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
       "Connected as user@example.com",
       "Here is the analysis.",
     ]);
-    expect(runtimeMessagePlainText(m)).toBe(
-      "Connected as user@example.com Here is the analysis.",
-    );
   });
 
   test("collapses an attachment-only trailing segment to an empty string", () => {
@@ -98,11 +87,11 @@ describe("prepareServerMessage", () => {
       contentOrder: ["text:0", "text:1"],
     });
 
-    const prepared = prepareServerMessage(m);
-
-    expect(prepared.normalizedSegments).toEqual(["look at this", ""]);
+    expect(mapRuntimeToDisplayMessage(m).textSegments).toEqual([
+      "look at this",
+      "",
+    ]);
   });
-
 });
 
 describe("mapRuntimeToDisplayMessage", () => {
@@ -148,6 +137,49 @@ describe("mapRuntimeToDisplayMessage", () => {
       { type: "thinking", id: "0" },
       { type: "thinking", id: "1" },
       { type: "text", id: "0" },
+    ]);
+  });
+
+  test("passes a daemon-provided contentBlocks projection through verbatim", () => {
+    // GIVEN a history message that already ships the unified contentBlocks list
+    const contentBlocks = [
+      { type: "thinking" as const, thinking: "reason" },
+      { type: "text" as const, text: "answer" },
+    ];
+    const m = makeMessage({
+      id: "msg-blocks",
+      role: "assistant",
+      textSegments: ["answer"],
+      thinkingSegments: ["reason"],
+      contentOrder: ["thinking:0", "text:0"],
+      contentBlocks,
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN the wire projection is carried onto the display row unchanged
+    expect(display.contentBlocks).toEqual(contentBlocks);
+  });
+
+  test("reconstructs contentBlocks from positional arrays for older daemons", () => {
+    // GIVEN a pre-projection assistant message with only positional arrays
+    const m = makeMessage({
+      id: "msg-noblocks",
+      role: "assistant",
+      textSegments: ["answer"],
+      thinkingSegments: ["reason"],
+      contentOrder: ["thinking:0", "text:0"],
+    });
+
+    // WHEN it is mapped into a display message
+    const display = mapRuntimeToDisplayMessage(m);
+
+    // THEN an equivalent contentBlocks list is synthesized at ingest so the
+    // renderer always has a wire-shaped ordering regardless of daemon version
+    expect(display.contentBlocks).toEqual([
+      { type: "thinking", thinking: "reason" },
+      { type: "text", text: "answer" },
     ]);
   });
 

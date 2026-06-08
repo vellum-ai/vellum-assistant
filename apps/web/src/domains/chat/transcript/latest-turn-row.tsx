@@ -6,6 +6,7 @@ import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/type
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items
@@ -29,14 +30,8 @@ export interface LatestTurnRowProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
-  onSecretSubmit: (requestId: string, value: string) => void;
-  onConfirmationDecision: (requestId: string, decision: string) => void;
-  onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
-  renderPendingSecret?: (requestId: string) => ReactNode;
-  renderPendingConfirmation?: (requestId: string) => ReactNode;
-  renderPendingContactRequest?: (requestId: string) => ReactNode;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
@@ -45,19 +40,17 @@ export interface LatestTurnRowProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    riskScopeOptions: import("@/types/interaction-ui-types").RiskScopeOption[];
     directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;
@@ -76,22 +69,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   expandedCardIds,
   expandedThinkingKeys,
   onSurfaceAction,
-  onSecretSubmit,
-  onConfirmationDecision,
-  onRetryError,
   onForkConversation,
   onInspectMessage,
-  renderPendingSecret,
-  renderPendingConfirmation,
-  renderPendingContactRequest,
   renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
@@ -113,22 +98,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         expandedCardIds={expandedCardIds}
         expandedThinkingKeys={expandedThinkingKeys}
         onSurfaceAction={onSurfaceAction}
-        onSecretSubmit={onSecretSubmit}
-        onConfirmationDecision={onConfirmationDecision}
-        onRetryError={onRetryError}
         onForkConversation={onForkConversation}
         onInspectMessage={onInspectMessage}
-        renderPendingSecret={renderPendingSecret}
-        renderPendingConfirmation={renderPendingConfirmation}
-        renderPendingContactRequest={renderPendingContactRequest}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
-        isSubmittingConfirmation={isSubmittingConfirmation}
         onConfirmationSubmit={onConfirmationSubmit}
         onAllowAndCreateRule={onAllowAndCreateRule}
-        pendingConfirmationToolCallId={pendingConfirmationToolCallId}
         onOpenApp={onOpenApp}
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
@@ -144,22 +121,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             expandedCardIds={expandedCardIds}
             expandedThinkingKeys={expandedThinkingKeys}
             onSurfaceAction={onSurfaceAction}
-            onSecretSubmit={onSecretSubmit}
-            onConfirmationDecision={onConfirmationDecision}
-            onRetryError={onRetryError}
             onForkConversation={onForkConversation}
             onInspectMessage={onInspectMessage}
-            renderPendingSecret={renderPendingSecret}
-            renderPendingConfirmation={renderPendingConfirmation}
-            renderPendingContactRequest={renderPendingContactRequest}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}
-            isSubmittingConfirmation={isSubmittingConfirmation}
             onConfirmationSubmit={onConfirmationSubmit}
             onAllowAndCreateRule={onAllowAndCreateRule}
-            pendingConfirmationToolCallId={pendingConfirmationToolCallId}
             onOpenApp={onOpenApp}
             onOpenDocument={onOpenDocument}
             assistantId={assistantId}

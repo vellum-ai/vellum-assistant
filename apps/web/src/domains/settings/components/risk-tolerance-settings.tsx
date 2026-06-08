@@ -3,9 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-    assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
     getGlobalThresholds,
     setGlobalThresholds,
@@ -30,14 +28,12 @@ const PRESET_OPTIONS = THRESHOLD_PRESETS.map((p) => ({
 }));
 
 export function RiskToleranceSettings() {
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id ?? null;
+  const assistantId = useActiveAssistantId();
 
   const queryClient = useQueryClient();
   const { data: thresholds, isError: loadError } = useQuery({
     queryKey: ["thresholds", assistantId],
-    queryFn: () => getGlobalThresholds(assistantId!),
-    enabled: !!assistantId,
+    queryFn: () => getGlobalThresholds(assistantId),
     staleTime: 30_000,
   });
 

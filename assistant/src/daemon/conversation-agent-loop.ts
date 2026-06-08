@@ -4,7 +4,7 @@
  * This module contains the core agent loop orchestration: pre-flight
  * setup, event handling, retry logic, history reconstruction, and
  * completion event emission.  The Conversation class delegates its
- * runAgentLoop method here via the AgentLoopConversationContext interface.
+ * runAgentLoop method here, passing itself as the loop context.
  */
 
 import { v4 as uuid } from "uuid";
@@ -12,10 +12,8 @@ import { v4 as uuid } from "uuid";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
-  AgentLoop,
   AgentLoopExitReason,
   CheckpointDecision,
-  MidLoopCompaction,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -24,7 +22,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -47,8 +44,7 @@ import {
   estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowManager } from "../context/window-manager.js";
-import type { ToolProfiler } from "../events/tool-profiling-listener.js";
+import type { ContextWindowCompactOptions } from "../context/window-manager.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -62,10 +58,10 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
-  getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
   updateMessageMetadata,
@@ -73,55 +69,43 @@ import {
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { isReplaceableTitle } from "../memory/conversation-title-service.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import postCompactReinject from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
 } from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
-import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
-import type {
-  CompactionArgs,
-  CompactionResult,
-  OverflowReduceArgs,
-  OverflowReduceResult,
-  TurnContext as PluginTurnContext,
-} from "../plugins/types.js";
-import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
+import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import {
+  isUntrustedTrustClass,
+  resolveActorTrust,
+} from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
-import {
-  type AssistantAttachmentDraft,
-  cleanAssistantContent,
-} from "./assistant-attachments.js";
+import { cleanAssistantContent } from "./assistant-attachments.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
+import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
@@ -140,34 +124,22 @@ import {
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
-  ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  buildActiveDocuments,
-  buildActiveSurfaceContext,
-  buildSubagentStatusBlock,
-  buildUnifiedTurnContextBlock,
   getSlackCompactionWatermarkForPrefix,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
-import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  formatTurnTimestamp,
-  resolveTurnTimezoneContext,
-} from "./date-context.js";
+import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import type {
@@ -176,13 +148,15 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { ConfirmationStateChanged } from "./message-types/messages.js";
+import {
+  type OverflowReduceArgs,
+  runOverflowReductionLoop,
+} from "./overflow-reduction-loop.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
   UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
-import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveTrustClass, type TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
@@ -205,23 +179,14 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   skill_execute: "Run Skill Tool",
 };
 
-type GitServiceInitializer = {
-  ensureInitialized(): Promise<void>;
-};
-
 function formatDiskPressureBlockedMessage(): string {
   return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
-//
-// Canonical {@link PluginTurnContext} builder threaded into every
-// `runPipeline` call inside `runAgentLoopImpl`. The orchestrator composes
-// the context on demand at each call site from ambient state rather than
-// carrying a persistent `TurnContext` instance across the turn.
 
 /**
- * Synthetic fallback trust context used when the orchestrator fires a pipeline
+ * Synthetic fallback trust context used when the orchestrator fires a hook
  * before the per-turn trust snapshot has been captured (e.g. invocations that
  * bypass `processMessage` / `drainQueue`). We bias to `unknown` rather than
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
@@ -233,64 +198,22 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
- * Build the {@link TurnContext} passed to {@link runPipeline}.
- *
- * Canonical source of truth for every pipeline call site inside the agent
- * loop. Every `runPipeline` invocation in `runAgentLoopImpl` (and in the
- * handlers that share its ambient state) must route through this helper
- * rather than constructing a `TurnContext` literal inline — this keeps
- * `turnIndex`, trust resolution, and the `contextWindowManager` attachment
- * consistent across pipeline slots, which in turn keeps structured logs
- * filtered by `conversationId`/`turnIndex` coherent across slots.
- *
- * Behavior:
- * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
- *   0-based turn counter. Reading from a single source avoids the
- *   earlier inconsistency (`ctx.turnCount`, `ctx.messages.length - 1`,
- *   `ctx.messages.length`, and `0` were all used for the same turn).
- * - Trust pulls from the per-turn snapshot first, then the conversation-
- *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
- *   the one inside the orchestrator's inline injection assembly so
- *   middleware reads the same trust class the runtime sees.
- * - `contextWindowManager` is attached unconditionally. Pipelines that
- *   don't need it can ignore it; the default compaction plugin reads it
- *   via the typed optional field on `TurnContext`.
- */
-function buildPluginTurnContext(
-  ctx: AgentLoopConversationContext,
-  requestId: string,
-): PluginTurnContext {
-  const trust =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId,
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-    contextWindowManager: ctx.contextWindowManager,
-    callSite: ctx.currentCallSite,
-  };
-}
-
-/**
  * Trust class of the actor whose turn is in progress, for the compactor's
  * image manifest filter. Prefers the turn-start snapshot
- * ({@link AgentLoopConversationContext.currentTurnTrustContext}) over the live
+ * ({@link Conversation.currentTurnTrustContext}) over the live
  * trust context so compaction running in a later tool iteration can't pick up
  * a concurrent request's actor.
  */
 function resolveTurnActorTrustClass(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
 ): TrustContext["trustClass"] | undefined {
   return (ctx.currentTurnTrustContext ?? ctx.trustContext)?.trustClass;
 }
 
-// ── Context Interface ────────────────────────────────────────────────
-
 /**
  * Per-surface entry tracked on the current turn. Inline shape kept stable so
  * routes and persistence helpers can consume it via a named import instead of
- * `infer`-extracting from {@link AgentLoopConversationContext}.
+ * `infer`-extracting from {@link Conversation}.
  */
 export interface AssistantSurface {
   surfaceId: string;
@@ -309,177 +232,10 @@ export interface AssistantSurface {
   toolCallId?: string;
 }
 
-export interface AgentLoopConversationContext {
-  readonly conversationId: string;
-  messages: Message[];
-  isProcessing(): boolean;
-  setProcessing(value: boolean): void;
-  abortController: AbortController | null;
-  currentRequestId?: string;
-  /**
-   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
-   * `options?.callSite ?? "mainAgent"`. Read by {@link buildPluginTurnContext}
-   * so pipeline/injector plugins can tell the main reply apart from
-   * background agent-loop work (compaction, subagents, …) on this same
-   * conversation. Per-turn mutable, mirroring {@link currentRequestId}.
-   */
-  currentCallSite?: LLMCallSite;
-
-  readonly agentLoop: AgentLoop;
-  readonly provider: Provider;
-  readonly systemPrompt: string;
-
-  readonly contextWindowManager: ContextWindowManager;
-  contextCompactedMessageCount: number;
-  contextCompactedAt: number | null;
-  /**
-   * Set by `applyCompactionResult` when compaction strips runtime injections
-   * from the preserved tail. The next agent loop turn promotes this into a
-   * `compactedThisTurn` signal so NOW.md, PKB, and the v2 static block are
-   * re-injected on the first turn following `/compact` (which runs outside
-   * the agent loop and so has no other way to surface that compaction
-   * happened just before this turn).
-   */
-  pendingPostCompactReinject: boolean;
-
-  readonly graphMemory: ConversationGraphMemory;
-
-  currentActiveSurfaceId?: string;
-  currentPage?: string;
-  readonly surfaceState: Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-    }
-  >;
-  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
-  surfaceActionRequestIds: Set<string>;
-  approvedViaPromptThisTurn?: boolean;
-  currentTurnSurfaces: AssistantSurface[];
-
-  workingDir: string;
-  channelCapabilities?: ChannelCapabilities;
-  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
-  currentTurnTrustContext?: TrustContext;
-  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
-  currentTurnChannelCapabilities?: ChannelCapabilities;
-  /**
-   * Current inference-profile override for this turn. Read by
-   * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
-   * profile the agent loop is sending to the provider. Refreshed between
-   * model calls so an explicitly confirmed profile session opened mid-turn
-   * is inherited by later tool executions and nested subagents.
-   */
-  currentTurnOverrideProfile?: string;
-  /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
-   */
-  toolRoutedProfile?: string;
-  commandIntent?: { type: string; payload?: string; languageCode?: string };
-  trustContext?: TrustContext;
-  /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
-  taskRunId?: string;
-  assistantId?: string;
-  voiceCallControlPrompt?: string;
-  transportHints?: string[];
-  clientTimezone?: string;
-
-  readonly coreToolNames: Set<string>;
-  allowedToolNames?: Set<string>;
-  diskPressureCleanupModeActive?: boolean;
-  toolsDisabledDepth: number;
-  preactivatedSkillIds?: string[];
-  readonly skillProjectionState: Map<string, string>;
-  readonly skillProjectionCache: SkillProjectionCache;
-
-  readonly traceEmitter: TraceEmitter;
-  readonly profiler: ToolProfiler;
-  usageStats: UsageStats;
-  turnCount: number;
-
-  lastAssistantAttachments: AssistantAttachmentDraft[];
-  lastAttachmentWarnings: string[];
-
-  hasNoClient: boolean;
-  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
-  isSubagent?: boolean;
-  headlessLock?: boolean;
-  readonly streamThinking: boolean;
-  readonly prompter: PermissionPrompter;
-  readonly queue: MessageQueue;
-
-  emitActivityState(
-    phase:
-      | "idle"
-      | "thinking"
-      | "streaming"
-      | "tool_running"
-      | "awaiting_confirmation",
-    reason:
-      | "message_dequeued"
-      | "thinking_delta"
-      | "first_text_delta"
-      | "tool_use_start"
-      | "preview_start"
-      | "tool_result_received"
-      | "confirmation_requested"
-      | "confirmation_resolved"
-      | "context_compacting"
-      | "message_complete"
-      | "generation_cancelled"
-      | "error_terminal",
-    options?: {
-      anchor?: "assistant_turn" | "user_turn" | "global";
-      requestId?: string;
-      statusText?: string;
-    },
-  ): void;
-  emitConfirmationStateChanged(
-    params: ConfirmationStateChanged extends {
-      type: infer _;
-    }
-      ? Omit<ConfirmationStateChanged, "type">
-      : never,
-  ): void;
-
-  /**
-   * Optional callback invoked by the Conversation when a confirmation state changes.
-   * The agent loop registers this to track requestId → toolUseId mappings
-   * and record confirmation outcomes for persistence.
-   */
-  onConfirmationOutcome?: (
-    requestId: string,
-    state: string,
-    toolUseId?: string,
-  ) => void;
-
-  getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
-  commitTurnChanges?: typeof commitTurnChanges;
-
-  markWorkspaceTopLevelDirty(): void;
-  getQueueDepth(): number;
-  hasQueuedMessages(): boolean;
-  canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): Promise<void>;
-  getTurnChannelContext(): TurnChannelContext | null;
-  getTurnInterfaceContext(): TurnInterfaceContext | null;
-}
-
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
 export async function runAgentLoopImpl(
-  ctx: AgentLoopConversationContext,
+  ctx: Conversation,
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
@@ -552,26 +308,22 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
-  // Expose the turn's call site to plugin pipeline/injector contexts (read by
-  // buildPluginTurnContext) so plugins can scope behaviour to the main reply.
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
-
-  // Read the conversation row once for both the override-profile derivation
-  // below and the title-replaceability check at turn start. Later reads in
-  // this function (post-turn truncation, disk sync, home-feed emission)
-  // intentionally re-read because state can change during the turn.
-  const turnStartConversation = getConversation(ctx.conversationId);
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
   // this turn. Caller-supplied `options.overrideProfile` (e.g.
   // SubagentManager forwarding the parent's pinned profile into the
-  // spawned subagent's background conversation) wins over the row read
-  // so the agent loop's own background-skip rule doesn't zero out an
-  // explicitly inherited override.
+  // spawned subagent's background conversation) wins over the conversation's
+  // own override so the agent loop's background-skip rule doesn't zero out an
+  // explicitly inherited override. The override state is mirrored onto the
+  // live conversation (hydrated on load, kept current by the HTTP setters and
+  // the expiry reaper), so the derivation reads `ctx` rather than re-fetching
+  // the row.
   const userExplicitOverride =
-    options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(turnStartConversation);
+    options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
   const config = getConfig();
 
@@ -584,9 +336,7 @@ export async function runAgentLoopImpl(
 
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(
-      getConversation(ctx.conversationId),
-    ) ??
+    resolveOverrideProfile(ctx) ??
     ctx.toolRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
@@ -604,11 +354,7 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     currentEffectiveContextWindow,
   );
-  const contextWindowManager =
-    ctx.contextWindowManager as ContextWindowManager & {
-      updateConfig?: (config: ContextWindowConfig) => void;
-    };
-  contextWindowManager.updateConfig?.(currentContextWindowConfig);
+  ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
   let emittedToolRoutedProfile: string | undefined;
@@ -628,7 +374,7 @@ export async function runAgentLoopImpl(
         }).contextWindow,
         currentEffectiveContextWindow,
       );
-      contextWindowManager.updateConfig?.(currentContextWindowConfig);
+      ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },
@@ -747,11 +493,17 @@ export async function runAgentLoopImpl(
 
   const isInteractiveResolved =
     options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+  // Whether the in-flight turn has no human present to answer clarification
+  // questions. Derived from the loop's `isInteractive` option (which can fall
+  // back to mutable client/headless state that flips mid-turn), so it is
+  // resolved once here and threaded into every re-injection — including the
+  // post-compaction hook — rather than re-read per assembly call.
+  const isNonInteractive = !isInteractiveResolved;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
-      conversationType: turnStartConversation?.conversationType ?? null,
-      conversationSource: turnStartConversation?.source ?? null,
+      conversationType: ctx.conversationType ?? null,
+      conversationSource: ctx.source ?? null,
       callSite: turnCallSite,
       isInteractive: isInteractiveResolved,
       sourceChannel:
@@ -768,10 +520,6 @@ export async function runAgentLoopImpl(
         : null,
     },
   );
-  const diskPressureContext =
-    diskPressureDecision.action === "allow-cleanup-mode"
-      ? { cleanupModeActive: true }
-      : null;
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
 
@@ -875,21 +623,7 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
-    // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
-    // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
-    // turn even when no mid-turn compaction fires. Clear the flag immediately
-    // so this fires exactly once per `/compact` event.
-    const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
-    ctx.pendingPostCompactReinject = false;
-    let compactedThisTurn = consumedPostCompactReinject;
-    let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
-    let currentSlackContextSummary =
-      turnStartConversation?.contextSummary ?? null;
-    let currentSlackContextCompactedMessageCount =
-      turnStartConversation?.contextCompactedMessageCount ?? 0;
-    let currentSlackContextCompactionWatermarkTs =
-      turnStartConversation?.slackContextCompactionWatermarkTs ?? null;
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
         if (!isSlackConversation) return null;
@@ -898,11 +632,10 @@ export async function runAgentLoopImpl(
           ctx.channelCapabilities!,
           {
             trustClass: ctx.trustContext?.trustClass,
-            contextSummary: currentSlackContextSummary,
-            contextCompactedMessageCount:
-              currentSlackContextCompactedMessageCount,
+            contextSummary: ctx.contextSummary,
+            contextCompactedMessageCount: ctx.contextCompactedMessageCount,
             slackContextCompactionWatermarkTs:
-              currentSlackContextCompactionWatermarkTs,
+              ctx.slackContextCompactionWatermarkTs,
           },
         );
       };
@@ -996,15 +729,6 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
-      currentSlackContextSummary = result.summaryText;
-      currentSlackContextCompactedMessageCount =
-        ctx.contextCompactedMessageCount;
-      if (slackWatermarkTs) {
-        currentSlackContextCompactionWatermarkTs = slackWatermarkTs;
-      }
-      if (isSlackConversation) {
-        slackCompactedThisTurn = true;
-      }
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
         compactedBasis,
@@ -1024,48 +748,18 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
     }
-    const compactionOptions = {
-      precomputedEstimate: compactCheck.estimatedTokens,
-      overrideProfile: resolveCurrentOverrideProfile() ?? null,
-      actorTrustClass: resolveTurnActorTrustClass(ctx),
-    };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
     > | null = null;
     if (autoCompactAllowed) {
-      try {
-        compacted = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: messagesForStartOfTurnCompaction,
-            signal: abortController.signal,
-            options: compactionOptions,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Pipeline exceeded its budget. Record the failure so the circuit
-          // breaker tracks consecutive timeouts (it trips after three),
-          // then degrade gracefully by skipping compaction this turn —
-          // the turn proceeds with the un-compacted history rather than
-          // hard-failing. The inner summary call has been aborted by the
-          // runner's signal-linking, so updateSummary's local fallback
-          // also ran before this catch block is reached.
-          rlog.warn(
-            { err, phase: "start-of-turn-compaction" },
-            "Compaction pipeline timed out — skipping compaction this turn",
-          );
-          await ctx.agentLoop.compactionCircuit.recordOutcome(true, onEvent);
-          compacted = null;
-        } else {
-          throw err;
-        }
-      }
+      compacted = await defaultCompact({
+        manager: ctx.contextWindowManager,
+        messages: messagesForStartOfTurnCompaction,
+        signal: abortController.signal,
+        precomputedEstimate: compactCheck.estimatedTokens,
+        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        actorTrustClass: resolveTurnActorTrustClass(ctx),
+      });
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
@@ -1083,9 +777,6 @@ export async function runAgentLoopImpl(
         compacted,
         messagesForStartOfTurnCompaction,
       );
-      if (compacted.compactedPersistedMessages > 0) {
-        compactedThisTurn = true;
-      }
     }
 
     // Register confirmation outcome tracker so the agent loop can link
@@ -1154,17 +845,19 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Resolve the channel/interface labels and the guardian flag for this
-    // turn. These derive only from the captured turn context and the resolved
-    // actor trust class — never from retrieval — so they settle before context
-    // assembly.
-    const interfaceName =
-      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
-    const channelName =
-      capturedTurnChannelContext?.userMessageChannel ?? undefined;
+    // Resolve the guardian flag for this turn. It derives only from the
+    // resolved actor trust class — never from retrieval — so it settles before
+    // context assembly.
     const isGuardian =
       resolvedInboundActorContext?.trustClass === "guardian" ||
       !resolvedInboundActorContext;
+
+    // Unified `<turn_context>` actor input, included only for non-guardian
+    // turns. Resolved once at turn start and threaded per call site (like
+    // `modelProfile`) so post-compaction re-injection receives it as an
+    // explicit hook input rather than re-deriving it from live state that can
+    // flip mid-turn.
+    const actorContext = isGuardian ? null : resolvedInboundActorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
     // the absence naturally. Gated at >12h to avoid noisy injection during
@@ -1185,6 +878,19 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Freeze the turn-start client timezone and long-absence gap on the
+    // conversation so `applyRuntimeInjections` sources them from live state —
+    // like the channel/voice/transport hints. Frozen here (rather than read
+    // live in assembly) because the live `ctx.clientTimezone` is overwritten
+    // when a newer message for the same conversation arrives mid-turn, which
+    // would otherwise leak a queued message's timezone into the in-flight turn.
+    // The `current_time` value is computed fresh at each injection point, so
+    // it is not part of this snapshot.
+    ctx.currentTurnTemporalSnapshot = {
+      clientTimezone: timezoneContext.clientTimezone,
+      timeSinceLastMessage,
+    };
+
     // Resolve the effective profile key for this turn and detect changes.
     // Only inject model_profile into the turn context when the profile
     // changed since the last turn (or on the first turn of a conversation)
@@ -1193,7 +899,7 @@ export async function runAgentLoopImpl(
       turnOverrideProfile ??
       config.llm.activeProfile ??
       resolveDefaultProfileKey("mainAgent", config.llm);
-    const lastNotified = turnStartConversation?.lastNotifiedInferenceProfile;
+    const lastNotified = ctx.lastNotifiedInferenceProfile;
     let modelProfileStr: string | null = null;
     if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
       const profileEntry = config.llm.profiles?.[effectiveProfileKey];
@@ -1241,145 +947,26 @@ export async function runAgentLoopImpl(
     // loop only reuses the injected message list downstream.
     let runMessages = memoryCtx.latestMessages;
 
-    // Capture wall-clock "now" at its point of use, after the blocking memory
-    // retrieval, so the injected `<turn_context>` timestamp reflects current
-    // time rather than the moment the turn began.
-    const timestamp = formatTurnTimestamp({
-      timeZone: timezoneContext.effectiveTimezone,
-    });
-
-    // Build unified turn context block that replaces the separate temporal,
-    // channel, interface, and actor context blocks.
-    const baseTurnContext = {
-      timestamp,
-      interfaceName,
-      channelName,
-      configuredUserTimezone: timezoneContext.configuredUserTimezone,
-      clientTimezone: timezoneContext.clientTimezone,
-      detectedTimezone: timezoneContext.detectedTimezone,
-      timeSinceLastMessage,
-      modelProfile: modelProfileStr,
-    };
-    const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
-      isGuardian
-        ? baseTurnContext
-        : {
-            ...baseTurnContext,
-            actorContext: resolvedInboundActorContext,
-          },
-    );
-
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
-
-    // Subagent status injection — gives the parent LLM visibility into active/completed children.
-    // Skipped when this conversation IS a subagent (no nesting) or has no children.
-    const subagentStatusBlock = ctx.isSubagent
-      ? null
-      : buildSubagentStatusBlock(
-          getSubagentManager().getChildrenOf(ctx.conversationId),
-        );
-
-    // For any Slack conversation (channels and DMs alike), build a
-    // chronological transcript from the persisted message rows so the
-    // model sees one channel-wide view instead of the gateway's per-turn
-    // hints. DMs render as a flat sequence (no thread tags), channels
-    // include sibling threads.
-    const slackConversationForInjection = isSlackConversation
-      ? (getConversation(ctx.conversationId) ?? turnStartConversation)
-      : turnStartConversation;
-    if (isSlackConversation && !slackCompactedThisTurn) {
-      slackChronologicalContext ??= loadSlackChronologicalContext(
-        ctx.conversationId,
-        ctx.channelCapabilities!,
-        {
-          trustClass: ctx.trustContext?.trustClass,
-          contextSummary: slackConversationForInjection?.contextSummary,
-          contextCompactedMessageCount:
-            slackConversationForInjection?.contextCompactedMessageCount,
-          slackContextCompactionWatermarkTs:
-            slackConversationForInjection?.slackContextCompactionWatermarkTs,
-        },
-      );
-    }
-    const slackChronologicalMessages =
-      slackChronologicalContext?.messages ?? null;
-
-    // Active-thread focus block: when the inbound user message belongs to
-    // a Slack thread, append a non-persisted `<active_thread>` tail block
-    // to the final user turn listing the thread's parent + replies. Helps
-    // the model orient when the channel transcript is long and
-    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
-    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
-    // since DMs do not have threads.
-    const slackActiveThreadFocusBlock = isSlackConversation
-      ? loadSlackActiveThreadFocusBlock(
-          ctx.conversationId,
-          ctx.channelCapabilities!,
-          {
-            trustClass: ctx.trustContext?.trustClass,
-            contextCompactedMessageCount:
-              slackConversationForInjection?.contextCompactedMessageCount,
-            slackContextCompactionWatermarkTs:
-              slackConversationForInjection?.slackContextCompactionWatermarkTs,
-          },
-        )
-      : null;
-
-    state.reducerCompacted = compactedThisTurn;
-
-    // memory-v3-live: when on, the provider anchors its long-TTL cache
-    // breakpoint on the most recent STABLE user message, since the latest user
-    // message now carries the volatile per-turn `<memory>` block the v3
-    // injector emits. The matching v2-suppression strip is owned by
-    // `applyRuntimeInjections`, which reads the same flag itself. Flag off →
-    // bit-for-bit identical to today's v2 path.
-    const memoryV3Live = isAssistantFeatureFlagEnabled(
-      "memory-v3-live",
-      getConfig(),
-    );
-
-    // Shared injection options — reused whenever we need to re-inject after reduction.
-    const injectionOpts = {
-      diskPressureContext,
-      // Resolved from the conversation's surface state here, where the
-      // runtime injector is the only consumer of the active-surface block.
-      activeSurface: buildActiveSurfaceContext({
-        currentActiveSurfaceId: ctx.currentActiveSurfaceId,
-        currentPage: ctx.currentPage,
-        surfaceState: ctx.surfaceState,
-      }),
-      // Resolved here, where the runtime injector is the only consumer of the
-      // active-documents block.
-      activeDocuments: buildActiveDocuments(ctx.conversationId),
-      channelCapabilities: ctx.channelCapabilities ?? null,
-      channelCommandContext: ctx.commandIntent ?? null,
-      unifiedTurnContext: unifiedTurnContextStr,
-      voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
-      transportHints: ctx.transportHints ?? null,
-      isNonInteractive: !isInteractiveResolved,
-      isBackgroundConversation: isBackgroundConversationType(
-        turnStartConversation?.conversationType,
-      ),
-      subagentStatusBlock,
-      slackChronologicalMessages,
-      slackActiveThreadFocusBlock,
-    } as const;
 
     let currentInjectionMode: InjectionMode = "full";
 
-    // Canonical per-turn TurnContext forwarded to the injector chain. The
-    // per-turn injection inputs are built inside `applyRuntimeInjections`
-    // from the `injectionOpts` bag; we only need to hand in identity +
-    // trust here so third-party injectors see the real turn metadata.
-    const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
-
+    // `applyRuntimeInjections` self-resolves every per-turn injection input —
+    // the Slack chronological transcript, the unified `<turn_context>` block,
+    // channel/voice/transport hints, and the turn's trust/index/call-site —
+    // from the live conversation, so we only hand in the request id (the one
+    // turn-identity field it can't recover) plus the conversation id that keys
+    // that lookup. `isNonInteractive`, `modelProfile`, and `actorContext` are
+    // resolved once at turn start and threaded per call site so post-compaction
+    // re-injection receives them as explicit inputs rather than via live state
+    // that can flip mid-turn.
     const injection = await applyRuntimeInjections(runMessages, {
-      ...injectionOpts,
-      slackChronologicalMessages: state.reducerCompacted
-        ? null
-        : injectionOpts.slackChronologicalMessages,
+      isNonInteractive,
+      modelProfile: modelProfileStr,
+      actorContext,
       mode: currentInjectionMode,
-      turnContext: injectionTurnCtx,
+      requestId: reqId,
+      conversationId: ctx.conversationId,
     });
     runMessages = injection.messages;
 
@@ -1460,16 +1047,12 @@ export async function runAgentLoopImpl(
         "Preflight budget exceeded — running overflow reducer before provider call",
       );
 
-      // Overflow reduction runs through the plugin pipeline. The default
-      // middleware (`default-overflow-reduce`, registered at bootstrap)
-      // contains the historical tier loop — forced compaction → tool-result
-      // truncation → media stubbing → injection downgrade — plus the
-      // re-inject/re-estimate convergence check. The callbacks below are
-      // the orchestrator-specific side effects that the plugin coordinates
-      // per iteration (activity emission, compaction application, runtime
-      // injection reassembly, token re-estimation). Registered plugins that
-      // wrap the `overflowReduce` slot see each iteration through their own
-      // middleware `next` callback.
+      // `runOverflowReductionLoop` drives the tier loop — forced compaction →
+      // tool-result truncation → media stubbing → injection downgrade — plus
+      // the re-inject/re-estimate convergence check. The callbacks below are
+      // the orchestrator-specific side effects it coordinates per iteration
+      // (activity emission, compaction application, runtime injection
+      // reassembly, token re-estimation).
       const messagesForPreflightOverflowReduction =
         slackChronologicalContext?.messages ?? ctx.messages;
       const overflowArgs: OverflowReduceArgs = {
@@ -1483,71 +1066,18 @@ export async function runAgentLoopImpl(
         maxAttempts: resolveCurrentContextBudget().overflowRecovery.maxAttempts,
         abortSignal: abortController.signal,
         compactFn: async (msgs, signal, opts) => {
-          // Route the reducer's forced-compaction tier through the
-          // `compaction` pipeline so registered plugins observe these
-          // invocations. Without this, custom compaction middleware only
-          // sees the three orchestrator-owned call sites and misses the
-          // reducer-initiated forced compactions entirely.
-          //
-          // Pipeline timeouts must be caught locally — a `PluginTimeoutError`
-          // bubbling out of here would abort the overflow-reducer tier loop
-          // entirely, skipping fallback tiers (tool-result truncation, media
-          // stubbing, injection downgrade) and bypassing circuit-breaker
-          // bookkeeping. On timeout, record the failure and return a
-          // `compacted: false` result so the reducer falls through to the
-          // next tier.
-          try {
-            return (await runPipeline<CompactionArgs, CompactionResult>(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: msgs,
-                signal,
-                options: {
-                  ...(opts ?? {}),
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                  actorTrustClass: resolveTurnActorTrustClass(ctx),
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              rlog.warn(
-                { err, phase: "overflow-reducer-forced-compaction" },
-                "Compaction pipeline timed out — falling through to next reducer tier",
-              );
-              await ctx.agentLoop.compactionCircuit.recordOutcome(
-                true,
-                onEvent,
-              );
-              return {
-                messages: msgs,
-                compacted: false,
-                previousEstimatedInputTokens: 0,
-                estimatedInputTokens: 0,
-                maxInputTokens: 0,
-                thresholdTokens: 0,
-                compactedMessages: 0,
-                compactedPersistedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-                reason: "compaction pipeline timed out",
-              };
-            }
-            throw err;
-          }
+          // Delegate the reducer's forced-compaction tier to the default
+          // compaction plugin, overlaying the turn's resolved inference
+          // profile and actor trust class onto the reducer-supplied options.
+          const reducerOptions = (opts ?? {}) as ContextWindowCompactOptions;
+          return defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: msgs,
+            signal,
+            ...reducerOptions,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: resolveTurnActorTrustClass(ctx),
+          });
         },
         emitActivityState: () => {
           ctx.emitActivityState("thinking", "context_compacting", {
@@ -1574,21 +1104,14 @@ export async function runAgentLoopImpl(
             await applySuccessfulCompaction(result, compactedBasis);
           }
         },
-        reinjectForMode: async (
-          reducedMessages,
-          mode,
-          stepCompacted,
-          accumulatedCompacted,
-        ) => {
-          // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
-          // reducer's latest output before re-injection runs, because other
-          // sites consulted through `injectionOpts` (slack history, etc.) and
-          // the injectors' own message-presence scans depend on it, and
-          // `applyCompactionResult` only updates `ctx.messages` on a
-          // compaction tier. Assigning here
-          // keeps non-compaction tiers (tool-result truncation, media
-          // stubbing, injection downgrade) observable to downstream
-          // injection assembly on the same turn.
+        reinjectForMode: async (reducedMessages, mode) => {
+          // `ctx.messages` must track the reducer's latest output before
+          // re-injection runs: the injectors' message-presence scans and the
+          // self-resolved Slack chronological transcript read live conversation
+          // state, and `applyCompactionResult` only updates `ctx.messages` on a
+          // compaction tier. Assigning here keeps non-compaction tiers
+          // (tool-result truncation, media stubbing, injection downgrade)
+          // observable to downstream injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
           // When THIS iteration compacted, it stripped the existing
@@ -1600,17 +1123,12 @@ export async function runAgentLoopImpl(
           // self-gate inside their injectors on whether they are already
           // present in `reducedMessages`.)
           const injection = await applyRuntimeInjections(reducedMessages, {
-            ...injectionOpts,
-            // Once ANY iteration has compacted `ctx.messages`, the captured
-            // `slackChronologicalMessages` snapshot (built from the full
-            // persisted transcript) would overwrite the compacted history
-            // and undo compaction. Suppress the override from here on —
-            // sticky across subsequent non-compacting iterations.
-            slackChronologicalMessages: accumulatedCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            isNonInteractive,
+            modelProfile: modelProfileStr,
+            actorContext,
             mode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           let next = injection.messages;
           if (isTrustedActor && mode !== "minimal") {
@@ -1626,37 +1144,12 @@ export async function runAgentLoopImpl(
           }),
       };
 
-      const overflowResult = await runPipeline<
-        OverflowReduceArgs,
-        OverflowReduceResult
-      >(
-        "overflowReduce",
-        getMiddlewaresFor("overflowReduce"),
-        // Terminal — only reached when every registered middleware calls
-        // `next` and delegates past the innermost layer. The default plugin
-        // is a terminal itself (it doesn't call `next`), so in practice
-        // this fallback fires only when the default has been explicitly
-        // deregistered (tests) and no user plugin replaces it. Strict-fail
-        // semantics: throw so the missing terminal surfaces as a visible
-        // error instead of silently returning the history untouched.
-        async () => {
-          throw new PluginExecutionError(
-            "overflowReduce pipeline has no terminal handler — every reducer middleware called next() without providing a replacement",
-            "overflowReduce",
-          );
-        },
-        overflowArgs,
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.overflowReduce,
-      );
+      const overflowResult = await runOverflowReductionLoop(overflowArgs);
 
       ctx.messages = overflowResult.messages;
       runMessages = overflowResult.runMessages;
       currentInjectionMode = overflowResult.injectionMode;
       reducerState = overflowResult.reducerState;
-      if (overflowResult.reducerCompacted) {
-        state.reducerCompacted = true;
-      }
     }
 
     // Replace historical web_search_tool_result blocks with text summaries.
@@ -1729,54 +1222,26 @@ export async function runAgentLoopImpl(
 
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
-    // Thread the orchestrator's canonical per-turn context into the agent
-    // loop so its internal pipeline invocations (e.g. compaction) see the
-    // real conversation identity / trust / contextWindowManager instead of
-    // the synthesized `"agent-loop"` placeholder. The loop clones this value
-    // and overwrites `turnIndex` with its own tool-use iteration counter.
-    const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    // Hook for the loop-owned mid-loop compaction. The agent loop owns the
-    // trigger (its budget gate), the `compaction` pipeline call, the result
-    // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
-    // and the inline continue; this callback bridges the injection state the
-    // loop is intentionally blind to. Durable persistence is signalled via
-    // events; re-injection stays orchestrator-supplied for now.
-    const midLoopCompaction: MidLoopCompaction = {
-      postCompactionHook: async ({ history, turnContext }) => {
-        // stripInjectionsForCompaction() unconditionally removed the existing
-        // memory-static block, so re-inject the current content regardless of
-        // whether compaction actually ran. The `<knowledge_base>`, NOW.md, and
-        // v2 static `<info>` blocks self-gate inside their injectors on block
-        // presence.
-        const injection = await postCompactReinject({
-          ...injectionOpts,
-          // Suppress the chronological-transcript snapshot once the reducer
-          // has collapsed `ctx.messages`; the captured snapshot reflects the
-          // full persisted transcript and would overwrite compaction.
-          slackChronologicalMessages: state.reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
-          mode: currentInjectionMode,
-          turnContext,
-          history,
-          logger: rlog,
-        });
-        return injection.messages;
-      },
-    };
+    // Trust snapshot the loop forwards to its mid-loop in-place compaction
+    // (scoping the compactor's image manifest) and the post-compaction
+    // re-injection. Prefers the per-turn snapshot, then the conversation-level
+    // context, then the fallback — matching the trust the runtime injection
+    // assembly resolves for the same turn. The loop's other turn-identity
+    // fields self-resolve from its own conversation id.
+    const loopTrust =
+      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
     /**
      * Shared closure: runs the agent loop with the orchestrator's turn
      * context and maps the loop's returned checkpoint pause-reason into the
      * orchestrator's yield bookkeeping. Returns the updated history so call
-     * sites consume it exactly as before. Pass `compaction` only for the
+     * sites consume it exactly as before. Pass `compactInPlace` only for the
      * primary run, where the loop compacts in place when its budget gate
      * trips; reruns omit it and keep yielding for budget.
      */
     const runAgentLoop = async (
       msgs: Message[],
-      compaction?: MidLoopCompaction,
+      compactInPlace = false,
     ): Promise<Message[]> => {
       const { history, exitReason, appendedNewMessages, newMessages } =
         await ctx.agentLoop.run(msgs, eventHandler, {
@@ -1784,15 +1249,15 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
-          turnContext: loopTurnCtx,
+          trust: loopTrust,
+          contextWindowManager: ctx.contextWindowManager,
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
-          compaction,
-          // memory-v3-live: the latest user message carries the volatile v3
-          // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
-          // on the most recent stable message instead.
-          mutableLatestUserMessage: memoryV3Live,
+          compactInPlace,
+          isNonInteractive,
+          modelProfile: modelProfileStr,
+          actorContext,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
@@ -1806,7 +1271,7 @@ export async function runAgentLoopImpl(
       return history;
     };
 
-    let updatedHistory = await runAgentLoop(runMessages, midLoopCompaction);
+    let updatedHistory = await runAgentLoop(runMessages, true);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2091,8 +1556,11 @@ export async function runAgentLoopImpl(
           },
           reducerState,
           (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, {
-              ...(opts ?? {}),
+            defaultCompact({
+              manager: ctx.contextWindowManager,
+              messages: msgs,
+              signal,
+              ...((opts ?? {}) as ContextWindowCompactOptions),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
               actorTrustClass: resolveTurnActorTrustClass(ctx),
             }),
@@ -2122,7 +1590,6 @@ export async function runAgentLoopImpl(
             step.compactionResult,
             convergenceCompactionBasis,
           );
-          state.reducerCompacted = true;
         }
 
         // Only re-inject the memory-static block when ctx.messages was
@@ -2131,12 +1598,12 @@ export async function runAgentLoopImpl(
         // blocks self-gate inside their injectors on whether they are already
         // present in `ctx.messages`.)
         const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
-          slackChronologicalMessages: state.reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
+          isNonInteractive,
+          modelProfile: modelProfileStr,
+          actorContext,
           mode: currentInjectionMode,
-          turnContext: buildPluginTurnContext(ctx, reqId),
+          requestId: reqId,
+          conversationId: ctx.conversationId,
         });
         runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -2194,68 +1661,24 @@ export async function runAgentLoopImpl(
           ctx.emitActivityState("thinking", "context_compacting", {
             requestId: reqId,
           });
-          let emergencyCompact: Awaited<
-            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-          > | null = null;
-          try {
-            emergencyCompact = (await runPipeline<
-              CompactionArgs,
-              CompactionResult
-            >(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: ctx.messages,
-                signal: abortController.signal,
-                options: {
-                  force: true,
-                  minKeepRecentUserTurns: 0,
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              // Emergency compaction timed out. Record the circuit-breaker
-              // failure and fall through to the graceful-error path below
-              // (the unsuccessful-compaction fallback) rather than hard-
-              // failing the turn.
-              rlog.warn(
-                { err, phase: "emergency-compaction" },
-                "Emergency compaction pipeline timed out — continuing with overflow fallback",
-              );
-              await ctx.agentLoop.compactionCircuit.recordOutcome(
-                true,
-                onEvent,
-              );
-              emergencyCompact = null;
-            } else {
-              throw err;
-            }
-          }
+          const emergencyCompact = await defaultCompact({
+            manager: ctx.contextWindowManager,
+            messages: ctx.messages,
+            signal: abortController.signal,
+            force: true,
+            minKeepRecentUserTurns: 0,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+          });
           // Only track when the summary LLM actually ran; `force: true`
           // bypasses the auto-threshold gate but not the early-return paths.
-          if (
-            emergencyCompact &&
-            emergencyCompact.summaryFailed !== undefined
-          ) {
+          if (emergencyCompact.summaryFailed !== undefined) {
             await ctx.agentLoop.compactionCircuit.recordOutcome(
               emergencyCompact.summaryFailed,
               onEvent,
             );
           }
-          if (emergencyCompact?.compacted) {
+          if (emergencyCompact.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-            state.reducerCompacted = true;
           }
 
           // Only re-inject the memory-static block when ctx.messages was
@@ -2264,12 +1687,12 @@ export async function runAgentLoopImpl(
           // self-gate inside their injectors on whether they are already
           // present in `ctx.messages`.)
           const injection = await applyRuntimeInjections(ctx.messages, {
-            ...injectionOpts,
-            slackChronologicalMessages: state.reducerCompacted
-              ? null
-              : injectionOpts.slackChronologicalMessages,
+            isNonInteractive,
+            modelProfile: modelProfileStr,
+            actorContext,
             mode: currentInjectionMode,
-            turnContext: buildPluginTurnContext(ctx, reqId),
+            requestId: reqId,
+            conversationId: ctx.conversationId,
           });
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -2865,10 +2288,7 @@ export async function runAgentLoopImpl(
 // ── Helper ───────────────────────────────────────────────────────────
 
 function emitUsage(
-  ctx: Pick<
-    AgentLoopConversationContext,
-    "conversationId" | "provider" | "usageStats"
-  >,
+  ctx: Pick<Conversation, "conversationId" | "provider" | "usageStats">,
   inputTokens: number,
   outputTokens: number,
   model: string,
@@ -2908,17 +2328,18 @@ function emitUsage(
 }
 
 /**
- * Minimal context shape consumed by `applyCompactionResult`. Both
- * `AgentLoopConversationContext` and `Conversation` satisfy this via structural
- * typing, so the helper can back both the 5 agent-loop auto-compaction sites
- * and the single `forceCompact` user-initiated site.
+ * Minimal context shape consumed by `applyCompactionResult`, satisfied by
+ * `Conversation` via structural typing, so the helper can back both the 5
+ * agent-loop auto-compaction sites and the single `forceCompact`
+ * user-initiated site.
  */
 export interface CompactionApplyContext {
   readonly conversationId: string;
   messages: Message[];
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  pendingPostCompactReinject: boolean;
+  contextSummary: string | null;
+  slackContextCompactionWatermarkTs: string | null;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
   usageStats: UsageStats;
@@ -2965,13 +2386,22 @@ export async function applyCompactionResult(
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
-  ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  // Compaction operates on the in-context history. Untrusted actor views
+  // render that history unsliced (boundary 0); trusted views start past the
+  // already-compacted prefix (the mirrored DB count). Advance from that
+  // in-context boundary rather than the raw mirror so the persisted count
+  // stays consistent with what the new summary represents and never
+  // double-counts an unsliced untrusted view.
+  const inContextCompactedCount = isUntrustedTrustClass(
+    ctx.trustContext?.trustClass,
+  )
+    ? 0
+    : ctx.contextCompactedMessageCount;
+  ctx.contextCompactedMessageCount =
+    inContextCompactedCount + result.compactedPersistedMessages;
+  ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  // Signal to the next agent loop turn that NOW.md / PKB / v2 static blocks
-  // were stripped from the tail and need fresh re-injection. Consumed and
-  // cleared at the top of the next `runAgentLoopImpl` run.
-  ctx.pendingPostCompactReinject = true;
   await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
@@ -2985,6 +2415,8 @@ export async function applyCompactionResult(
       options.slackContextCompactionWatermarkTs,
       compactedAt,
     );
+    ctx.slackContextCompactionWatermarkTs =
+      options.slackContextCompactionWatermarkTs;
   }
   enqueueAutoAnalysisOnCompaction(
     ctx.conversationId,

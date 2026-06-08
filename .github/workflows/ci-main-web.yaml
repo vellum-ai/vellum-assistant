@@ -13,7 +13,7 @@ on:
       - '.github/actions/install-shared-packages/**'
       # The deploy/publish logic lives in this reusable workflow, so a change to
       # it alone must still exercise the full web CI/CD pipeline.
-      - '.github/workflows/deploy-web-spa.yaml'
+      - '.github/workflows/deploy-platform-web-spa.yaml'
 
 # Serialize runs per branch and cancel any superseded in-flight run, so an
 # older commit's deploy can never finish after — and overwrite the bucket's
@@ -141,7 +141,7 @@ jobs:
           done
 
   # ── CD: build + publish the SPA to each environment's GCS bucket ──────────
-  # Each environment is an independent instance of the `deploy-web-spa` reusable
+  # Each environment is an independent instance of the `deploy-platform-web-spa` reusable
   # workflow (fail-fast: false), which internally splits an unprivileged build
   # from the privileged GCP publish. Matrixing the *caller* — rather than the
   # build/deploy jobs directly — keeps each environment independent: a failure
@@ -165,7 +165,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-web-spa.yaml
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
     with:
       environment: ${{ matrix.environment }}
     secrets: inherit

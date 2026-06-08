@@ -1,17 +1,22 @@
 /**
- * Tests for the user plugin loader (PR 29).
+ * Tests for the user plugin loader.
  *
  * Redirects `getWorkspaceDir()` into a per-test temp directory via
  * `VELLUM_WORKSPACE_DIR` so `loadUserPlugins()` walks an isolated tree
  * that we populate on demand.
  *
- * Covers:
- * - A plugin whose `register.ts` calls `registerPlugin()` at import time
- *   ends up in the registry after `loadUserPlugins()` resolves.
- * - A plugin whose `register.ts` throws during import is logged + skipped;
- *   other plugins in the same directory still load.
- * - A missing `getWorkspaceDir()/plugins/` directory is a no-op (zero installed
- *   user plugins is the default shape of a fresh daemon).
+ * The loader's own responsibility is directory discovery and dispatch: it
+ * scans `<workspaceDir>/plugins/*` and hands every subdirectory carrying a
+ * `package.json` to `loadExternalPlugin`. The plugin-build mechanics
+ * (manifest parsing, hook/tool wiring, the per-plugin timeout, error
+ * isolation) are covered directly in `external-plugin-loader.test.ts`; here
+ * we assert the discovery contract:
+ *
+ * - A directory with a `package.json` is loaded and registered.
+ * - A directory without a `package.json` is skipped silently.
+ * - A missing `getWorkspaceDir()/plugins/` directory is a no-op (zero
+ *   installed user plugins is the default shape of a fresh daemon).
+ * - One failing plugin does not prevent a sibling from registering.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +31,6 @@ import { loadUserPlugins } from "../plugins/user-loader.js";
 
 // Isolate every run under its own tempdir so parallel test files (and
 // repeated runs of this file) cannot collide on `<workspaceDir>/plugins/`.
-// Each describe-scope gets a fresh subdirectory.
 const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-user-plugin-loader-test-${process.pid}-${Date.now()}`,
@@ -37,30 +41,26 @@ process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 const PLUGINS_DIR = join(TEST_WORKSPACE_DIR, "plugins");
 
 /**
- * Write a plugin directory with a `register.ts` (TypeScript source, so bun
- * can import it at test time without a build step) that executes the given
- * body. The body has access to `registerPlugin` via a relative import back
- * into the repo's registry module.
- *
- * `relativeRegistryImport` points from the synthetic plugin file at
- * `<TEST_WORKSPACE_DIR>/plugins/<name>/register.ts` to the real
- * registry source at `<repo>/assistant/src/plugins/registry.ts`. Using a
- * relative path (rather than a project-root alias) keeps the test hermetic
- * and matches how an on-disk user plugin would actually import the
- * registry's public API in a real install.
+ * Write a directory-convention plugin: a `package.json` manifest plus any
+ * surface files (`hooks/<name>.ts`, `tools/<name>.ts`) whose default export
+ * the loader wires up.
  */
-function writePlugin(name: string, body: string): void {
+function writePlugin(
+  name: string,
+  pkg: Record<string, unknown>,
+  files: Record<string, string> = {},
+): void {
   const pluginDir = join(PLUGINS_DIR, name);
   mkdirSync(pluginDir, { recursive: true });
-  // Resolve the absolute path to the registry module so the synthetic
-  // register.ts can import it. bun happily resolves `.ts` files at runtime
-  // when the test suite itself is running in source mode.
-  const registryPath = join(import.meta.dir, "..", "plugins", "registry.ts");
-  const registerSource = `
-import { registerPlugin } from ${JSON.stringify(registryPath)};
-${body}
-`;
-  writeFileSync(join(pluginDir, "register.ts"), registerSource);
+  writeFileSync(join(pluginDir, "package.json"), JSON.stringify(pkg, null, 2));
+  for (const [rel, body] of Object.entries(files)) {
+    const parts = rel.split("/");
+    parts.pop();
+    if (parts.length > 0) {
+      mkdirSync(join(pluginDir, ...parts), { recursive: true });
+    }
+    writeFileSync(join(pluginDir, rel), body);
+  }
 }
 
 function clearPluginsDir(): void {
@@ -73,17 +73,14 @@ describe("user plugin loader", () => {
     clearPluginsDir();
   });
 
-  test("loads a valid plugin whose register.ts calls registerPlugin()", async () => {
+  test("loads a plugin via its package.json manifest and registers it", async () => {
     writePlugin(
       "my-plugin",
-      `
-registerPlugin({
-  manifest: {
-    name: "my-plugin",
-    version: "0.0.1",
-  },
-});
-`,
+      { name: "my-plugin", version: "0.1.0" },
+      {
+        "hooks/init.ts":
+          "export default async function init(_ctx: unknown): Promise<void> {}\n",
+      },
     );
 
     await loadUserPlugins();
@@ -91,34 +88,22 @@ registerPlugin({
     const registered = getRegisteredPlugins();
     expect(registered).toHaveLength(1);
     expect(registered[0]?.manifest.name).toBe("my-plugin");
+    expect(typeof registered[0]?.hooks?.init).toBe("function");
   });
 
   test("per-plugin failure is isolated: other plugins still load", async () => {
-    // Plugin A throws at import time. The loader must log and move on so
-    // Plugin B still ends up registered — one bad user plugin cannot brick
-    // the entire user-plugin surface or crash the daemon.
-    writePlugin(
-      "broken-plugin",
-      `
-throw new Error("boom at import time");
-`,
-    );
-    writePlugin(
-      "good-plugin",
-      `
-registerPlugin({
-  manifest: {
-    name: "good-plugin",
-    version: "0.0.1",
-  },
-});
-`,
-    );
+    // Plugin A has a malformed package.json; the loader must isolate the
+    // failure and still register the healthy sibling — one bad user plugin
+    // cannot brick the entire user-plugin surface or crash the daemon.
+    const brokenDir = join(PLUGINS_DIR, "broken-plugin");
+    mkdirSync(brokenDir, { recursive: true });
+    writeFileSync(join(brokenDir, "package.json"), "{ not valid json");
+
+    writePlugin("good-plugin", { name: "good-plugin", version: "0.1.0" });
 
     await loadUserPlugins();
 
-    const registered = getRegisteredPlugins();
-    const names = registered.map((p) => p.manifest.name);
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
     // Order is not guaranteed (filesystem-dependent) — assert membership.
     expect(names).toContain("good-plugin");
     expect(names).not.toContain("broken-plugin");
@@ -132,92 +117,9 @@ registerPlugin({
     expect(getRegisteredPlugins()).toHaveLength(0);
   });
 
-  test("plugin with hanging top-level await is timed out and skipped", async () => {
-    // A plugin whose module evaluation never resolves (hanging top-level
-    // await) would otherwise block daemon startup indefinitely. The loader
-    // must bound the import with a timeout so the hang is isolated the same
-    // way a thrown error would be. A neighboring well-behaved plugin must
-    // still load.
-    writePlugin(
-      "hanging-plugin",
-      `
-await new Promise(() => {
-  // Intentionally never resolves — simulates a plugin whose top-level
-  // await blocks forever.
-});
-registerPlugin({
-  manifest: {
-    name: "hanging-plugin",
-    version: "0.0.1",
-  },
-});
-`,
-    );
-    writePlugin(
-      "healthy-plugin",
-      `
-registerPlugin({
-  manifest: {
-    name: "healthy-plugin",
-    version: "0.0.1",
-  },
-});
-`,
-    );
-
-    // Use a short test-only timeout so the suite does not wait the full
-    // production 10s for the hung-plugin path.
-    await loadUserPlugins({ importTimeoutMs: 250 });
-
-    const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).toContain("healthy-plugin");
-    expect(names).not.toContain("hanging-plugin");
-  });
-
-  test("plugin whose top-level await resolves AFTER the timeout cannot register late", async () => {
-    // Codex/Devin P1 regression: racing `import(moduleUrl)` against a timeout
-    // only stops the loader from awaiting the module — it does NOT cancel
-    // module evaluation. A plugin whose top-level await eventually resolves
-    // continues running in the background and would otherwise call
-    // `registerPlugin()` after `loadUserPlugins()` has returned (and after
-    // `bootstrapPlugins()` has potentially already walked the registry),
-    // leaving the plugin visible to `getMiddlewaresFor()` with its `init()`
-    // hook never invoked.
-    //
-    // The `closeRegistration()` latch must reject that late arrival so the
-    // registry stays consistent with the bootstrap invariant.
-    writePlugin(
-      "slow-late-plugin",
-      `
-await new Promise((resolve) => setTimeout(resolve, 200));
-registerPlugin({
-  manifest: {
-    name: "slow-late-plugin",
-    version: "0.0.1",
-  },
-});
-`,
-    );
-
-    // Time out well before the plugin's top-level await resolves. The loader
-    // returns immediately; the abandoned import keeps evaluating in the
-    // background.
-    await loadUserPlugins({ importTimeoutMs: 25 });
-
-    // Wait long enough for the abandoned import's top-level await to resolve
-    // and try to `registerPlugin()`. The closed-registration latch must
-    // reject the call; the `.catch(() => {})` on the abandoned import must
-    // swallow the resulting rejection so the test does not see an
-    // unhandled-rejection crash.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("slow-late-plugin");
-  });
-
-  test("subdirectory without register.{ts,js} is silently skipped", async () => {
-    // Populate a directory that looks like a plugin but lacks a register
-    // file. The loader must skip it without throwing.
+  test("subdirectory without package.json is silently skipped", async () => {
+    // Populate a directory that looks like a plugin but lacks a manifest.
+    // The loader must skip it without throwing.
     const stubDir = join(PLUGINS_DIR, "not-a-plugin");
     mkdirSync(stubDir, { recursive: true });
     writeFileSync(join(stubDir, "README.md"), "# not actually a plugin\n");
@@ -226,146 +128,12 @@ registerPlugin({
     expect(getRegisteredPlugins()).toHaveLength(0);
   });
 
-  describe("experimental plugin framework branch", () => {
-    /**
-     * Write a directory-convention plugin (package.json + optional
-     * hooks/tools default exports). Mirrors `writePlugin()` above but
-     * targets the new experimental loader path.
-     */
-    function writeExperimentalPlugin(
-      name: string,
-      pkg: Record<string, unknown>,
-      files: Record<string, string> = {},
-    ): void {
-      const pluginDir = join(PLUGINS_DIR, name);
-      mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "package.json"),
-        JSON.stringify(pkg, null, 2),
-      );
-      for (const [rel, body] of Object.entries(files)) {
-        const parts = rel.split("/");
-        parts.pop();
-        if (parts.length > 0) {
-          mkdirSync(join(pluginDir, ...parts), { recursive: true });
-        }
-        writeFileSync(join(pluginDir, rel), body);
-      }
-    }
+  test("strips npm scope from package.json name", async () => {
+    writePlugin("scoped", { name: "@vellumai/cool-plugin", version: "0.1.0" });
 
-    test("loads a plugin via the package.json branch and registers it", async () => {
-      writeExperimentalPlugin(
-        "experimental-one",
-        { name: "experimental-one", version: "0.1.0" },
-        {
-          "hooks/init.ts":
-            "export default async function init(_ctx: unknown): Promise<void> {}\n",
-        },
-      );
+    await loadUserPlugins();
 
-      await loadUserPlugins();
-
-      const names = getRegisteredPlugins().map((p) => p.manifest.name);
-      expect(names).toContain("experimental-one");
-      const registered = getRegisteredPlugins().find(
-        (p) => p.manifest.name === "experimental-one",
-      );
-      expect(typeof registered?.hooks?.init).toBe("function");
-    });
-
-    test("strips npm scope from package.json name", async () => {
-      writeExperimentalPlugin("scoped", {
-        name: "@vellumai/cool-plugin",
-        version: "0.1.0",
-      });
-
-      await loadUserPlugins();
-
-      const names = getRegisteredPlugins().map((p) => p.manifest.name);
-      expect(names).toContain("cool-plugin");
-    });
-
-    test("a broken experimental plugin is logged and skipped without affecting others", async () => {
-      // Plugin A has a malformed package.json; Plugin B is a healthy
-      // legacy register.ts. The loader must isolate A's failure and still
-      // register B — same per-plugin contract as the legacy path.
-      const brokenDir = join(PLUGINS_DIR, "broken-experimental");
-      mkdirSync(brokenDir, { recursive: true });
-      writeFileSync(join(brokenDir, "package.json"), "{ not valid json");
-
-      writePlugin(
-        "healthy-legacy",
-        `
-registerPlugin({
-  manifest: {
-    name: "healthy-legacy",
-    version: "0.0.1",
-  },
-});
-`,
-      );
-
-      await loadUserPlugins();
-
-      const names = getRegisteredPlugins().map((p) => p.manifest.name);
-      expect(names).toContain("healthy-legacy");
-      expect(names).not.toContain("broken-experimental");
-    });
-
-    test("experimental and legacy plugins coexist in one workspace", async () => {
-      writeExperimentalPlugin("new-style", {
-        name: "new-style",
-        version: "0.1.0",
-      });
-      writePlugin(
-        "old-style",
-        `
-registerPlugin({
-  manifest: {
-    name: "old-style",
-    version: "0.0.1",
-  },
-});
-`,
-      );
-
-      await loadUserPlugins();
-
-      const names = getRegisteredPlugins()
-        .map((p) => p.manifest.name)
-        .sort();
-      expect(names).toEqual(["new-style", "old-style"]);
-    });
-
-    test("package.json branch wins over a stale register.ts in the same dir", async () => {
-      // A migrated plugin may keep its old register.ts on disk while it
-      // adopts the new convention. The package.json gate takes the
-      // experimental path and the legacy register.ts is never imported,
-      // so the plugin must register exactly once.
-      const dir = join(PLUGINS_DIR, "migrated");
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(
-        join(dir, "package.json"),
-        JSON.stringify({ name: "migrated", version: "0.1.0" }),
-      );
-      // A register.ts that would double-register if both paths fired.
-      const registryPath = join(
-        import.meta.dir,
-        "..",
-        "plugins",
-        "registry.ts",
-      );
-      writeFileSync(
-        join(dir, "register.ts"),
-        `import { registerPlugin } from ${JSON.stringify(registryPath)};
-registerPlugin({ manifest: { name: "migrated", version: "0.0.1", requires: { pluginRuntime: "v1" } } });
-`,
-      );
-
-      await loadUserPlugins();
-
-      const names = getRegisteredPlugins().map((p) => p.manifest.name);
-      expect(names.filter((n) => n === "migrated")).toHaveLength(1);
-    });
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).toContain("cool-plugin");
   });
 });

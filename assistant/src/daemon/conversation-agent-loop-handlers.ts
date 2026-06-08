@@ -76,10 +76,8 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type {
-  AgentLoopConversationContext,
-  AssistantSurface,
-} from "./conversation-agent-loop.js";
+import type { Conversation } from "./conversation.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
@@ -295,20 +293,11 @@ export interface EventHandlerState {
    * never claims content a flush has not yet written.
    */
   lastPersistedContentSeq: number | undefined;
-  /**
-   * Whether the reducer has compacted `ctx.messages`, gating the Slack
-   * chronological-transcript override on re-injection. The captured
-   * transcript is the full persisted history; blindly replaying it after
-   * compaction would overwrite the reduced messages and undo compaction, so
-   * once this is `true` the override falls back to the reduced
-   * `ctx.messages`.
-   */
-  reducerCompacted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
-  readonly ctx: AgentLoopConversationContext;
+  readonly ctx: Conversation;
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
@@ -383,7 +372,6 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     lastPersistedContentSeq: undefined,
-    reducerCompacted: false,
   };
 }
 
@@ -645,9 +633,7 @@ function computeToolUseStatusText(
   return `Running ${friendlyToolName(name)}`;
 }
 
-function resolveAssistantReplyTimestampTimezone(
-  ctx: AgentLoopConversationContext,
-): string {
+function resolveAssistantReplyTimestampTimezone(ctx: Conversation): string {
   const config = getConfig();
   return resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui?.userTimezone ?? null,
@@ -1649,6 +1635,8 @@ export async function handleMessageComplete(
       deps.ctx.conversationId,
       state.pendingNotifiedInferenceProfile,
     );
+    deps.ctx.lastNotifiedInferenceProfile =
+      state.pendingNotifiedInferenceProfile;
     state.pendingNotifiedInferenceProfile = null;
   }
 
@@ -2292,16 +2280,14 @@ export async function dispatchAgentEvent(
         // so re-injection re-applies onto the stripped history even when the
         // pipeline ran but did not compact. When it did compact, commit the
         // durable result (DB-record fields, Slack provenance, SSE) — which
-        // overwrites `ctx.messages` with the compacted history — and flip the
-        // per-turn re-injection guards the orchestrator reads. This runs
+        // overwrites `ctx.messages` with the compacted history. This runs
         // before the loop's `reinject` hook (the loop awaits this dispatch),
-        // so the guards are set in time. A failed durable commit re-throws
-        // below to abort the turn rather than re-injecting against
-        // half-applied state.
+        // so the committed history is in place in time. A failed durable
+        // commit re-throws below to abort the turn rather than re-injecting
+        // against half-applied state.
         deps.ctx.messages = event.basis;
         if (event.result.compacted) {
           await deps.applyCompaction(event.result, event.basis);
-          state.reducerCompacted = true;
         }
         break;
       case "history_stripped":

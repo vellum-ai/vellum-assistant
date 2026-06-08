@@ -16,7 +16,7 @@ export const CSP_POLICY = [
   "img-src 'self' https: data: blob:",
   "media-src 'self' blob:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
-  "font-src 'self'",
+  "font-src 'self' data:",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",

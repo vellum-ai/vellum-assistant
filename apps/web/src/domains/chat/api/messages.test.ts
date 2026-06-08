@@ -13,11 +13,28 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   getChatHistory,
   mapRuntimeToolCalls,
+  normalizeContentBlocks,
   normalizeContentOrder,
   postChatMessage,
 } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
-import type { ConversationMessageToolCall } from "@vellumai/assistant-api";
+import type {
+  ConversationContentBlock,
+  ConversationMessage,
+  ConversationMessageToolCall,
+} from "@vellumai/assistant-api";
+
+function wireMessage(
+  overrides: Partial<ConversationMessage>,
+): ConversationMessage {
+  return {
+    id: "m1",
+    role: "assistant",
+    timestamp: "2026-05-15T12:34:56.000Z",
+    attachments: [],
+    ...overrides,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -151,6 +168,118 @@ describe("normalizeContentOrder", () => {
       { type: "text", id: "0" },
       { type: "tool", id: "1" },
     ]);
+  });
+});
+
+describe("normalizeContentBlocks", () => {
+  test("returns the daemon's contentBlocks projection verbatim when present", () => {
+    // GIVEN a wire message that already carries a unified contentBlocks list
+    const contentBlocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "reasoning" },
+      { type: "text", text: "hello" },
+    ];
+    const message = wireMessage({
+      contentBlocks,
+      // AND stale positional arrays that should be ignored in favour of blocks
+      textSegments: ["different"],
+      thinkingSegments: ["different reasoning"],
+      contentOrder: ["text:0"],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the wire projection is returned unchanged (same reference)
+    expect(result).toBe(contentBlocks);
+  });
+
+  test("trusts an empty contentBlocks array over reconstructing from positional arrays", () => {
+    // GIVEN a daemon that emits the projection but for a contentless message,
+    // so contentBlocks is a defined-but-empty array
+    const contentBlocks: ConversationContentBlock[] = [];
+    const message = wireMessage({
+      contentBlocks,
+      // AND positional arrays that would otherwise be reconstructed from
+      contentOrder: ["text:0"],
+      textSegments: ["should be ignored"],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the authoritative empty projection wins; positional arrays are not
+    // reconstructed (a sent-but-empty field is a genuinely contentless message,
+    // not a missing projection)
+    expect(result).toBe(contentBlocks);
+  });
+
+  test("reconstructs blocks from positional arrays for daemons that omit them", () => {
+    // GIVEN a pre-projection message carrying only positional arrays
+    const toolCall: ConversationMessageToolCall = {
+      id: "call-a",
+      name: "bash",
+      input: {},
+    };
+    const surface = { surfaceId: "s0", surfaceType: "card", data: {} };
+    const attachment = {
+      id: "att-0",
+      filename: "file.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1,
+      kind: "document",
+    };
+    const message = wireMessage({
+      contentOrder: [
+        "thinking:0",
+        "tool:0",
+        "text:0",
+        "surface:0",
+        "attachment:0",
+      ],
+      thinkingSegments: ["reasoning"],
+      textSegments: ["hello"],
+      toolCalls: [toolCall],
+      surfaces: [surface],
+      attachments: [attachment],
+    });
+
+    // WHEN we resolve the message's content blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN an equivalent discriminated-union list is built in contentOrder order
+    expect(result).toEqual([
+      { type: "thinking", thinking: "reasoning" },
+      { type: "tool_use", toolCall },
+      { type: "text", text: "hello" },
+      { type: "surface", surface },
+      { type: "attachment", attachment },
+    ]);
+  });
+
+  test("strips inlined [File attachment] summaries and drops fully-consumed text", () => {
+    // GIVEN a text segment whose only content is an attachment summary line
+    const message = wireMessage({
+      contentOrder: ["text:0", "text:1"],
+      textSegments: [
+        "real body",
+        "[File attachment] file.pdf, type=application/pdf",
+      ],
+    });
+
+    // WHEN we reconstruct the blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN the summary-only segment is dropped and the real body survives
+    expect(result).toEqual([{ type: "text", text: "real body" }]);
+  });
+
+  test("returns undefined when neither blocks nor contentOrder are present", () => {
+    // GIVEN a message with no ordering information at all
+    const message = wireMessage({ textSegments: ["orphan"] });
+
+    // WHEN we resolve the message's content blocks
+    // THEN there is nothing to project
+    expect(normalizeContentBlocks(message)).toBeUndefined();
   });
 });
 

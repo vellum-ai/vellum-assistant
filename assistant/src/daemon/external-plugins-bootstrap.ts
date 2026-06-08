@@ -2,21 +2,22 @@
  * Plugin bootstrap — runs every registered plugin's `init()` hook once during
  * daemon startup.
  *
- * Plugins register themselves via side-effect imports elsewhere in the boot
- * sequence (first-party) or at runtime (hot-reload). By the time
- * {@link bootstrapPlugins} runs, the registry has been fully populated for
- * this boot cycle. This function:
+ * The registry is populated before this runs: first-party defaults are
+ * registered explicitly (step 1 below), user plugins are registered by the
+ * user-plugin loader from the workspace `plugins/` directory, and hot-reload
+ * registers at runtime. By the time {@link bootstrapPlugins} runs, the
+ * registry has been fully populated for this boot cycle. This function:
  *
  * 1. Registers the canonical first-party default plugins via
- *    {@link registerDefaultPlugins} (one per pipeline). Registration is
- *    idempotent so repeat calls (e.g. during integration tests) do not throw.
+ *    {@link registerDefaultPlugins}. Registration is idempotent so repeat
+ *    calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
  *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
  *    contributions, no entry in the shutdown hook, and the plugin is also
- *    dropped from the registry via {@link unregisterPlugin} so its middleware
- *    stops participating in pipeline runs. This is the primary mechanism for
+ *    dropped from the registry via {@link unregisterPlugin} so none of its
+ *    hooks participate in the turn lifecycle. This is the primary mechanism for
  *    shipping experimental plugins behind a feature flag.
  * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
  *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
@@ -64,7 +65,6 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
-import { installPluginRuntime } from "../plugins/external-api.js";
 import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
 import {
   registerPluginSkills,
@@ -186,21 +186,17 @@ function getDisabledPluginFlag(
  * Bring the plugin layer up during daemon startup. Runs the full sequence in
  * the one order the rest of the system depends on:
  *
- * 1. Install the `globalThis.__vellumPluginRuntime` bridge so plugins can touch
- *    it from their module body (see `plugins/external-api.ts` — compiled-binary
- *    module identity).
- * 2. Register the first-party defaults so their middleware composes innermost,
+ * 1. Register the first-party defaults so their middleware composes innermost,
  *    ahead of any user plugins.
- * 3. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
+ * 2. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
  *    logged and skipped; `loadUserPlugins()` closes the registration window
  *    when it returns, so the defaults must already be registered by then.
- * 4. Run every registered plugin's `init()` via {@link bootstrapPlugins}.
+ * 3. Run every registered plugin's `init()` via {@link bootstrapPlugins}.
  *
  * Plugin bootstrap is wrapped so a failing plugin cannot block daemon startup —
  * the daemon comes up with degraded plugin functionality instead.
  */
 export async function initializePlugins(): Promise<void> {
-  installPluginRuntime();
   registerDefaultPlugins();
   await loadUserPlugins();
   try {
@@ -261,9 +257,8 @@ export async function bootstrapPlugins(): Promise<void> {
   // Tear down a plugin's contributions AND remove it from the registry. The
   // two steps always move together on the bootstrap failure path: the former
   // clears tools/routes/skills (so they stop appearing to the model/HTTP
-  // server), the latter drops the plugin's entry from the Map (so
-  // `getMiddlewaresFor` doesn't re-enter an uninitialized plugin on the next
-  // pipeline invocation).
+  // server), the latter drops the plugin's entry from the Map (so the registry
+  // doesn't expose an uninitialized plugin's hooks).
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the bootstrap-failure rollback and the normal
   // shutdown hook below. Only `assistantVersion` is exposed today; future

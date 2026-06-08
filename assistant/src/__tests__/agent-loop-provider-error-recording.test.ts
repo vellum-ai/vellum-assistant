@@ -83,13 +83,16 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider, calls } = makeThrowingProvider("anthropic", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "you are a helpful assistant");
+    const loop = new AgentLoop(provider, "you are a helpful assistant", {
+      conversationId: "test-conversation",
+    });
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       (e) => {
         events.push(e);
       },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     expect(calls).toHaveLength(1);
@@ -122,13 +125,16 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider } = makeThrowingProvider("gemini", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       (e) => {
         events.push(e);
       },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const providerErrorIdx = events.findIndex(
@@ -148,13 +154,16 @@ describe("AgentLoop provider_error event emission", () => {
     const { provider } = makeThrowingProvider("openai", () => thrown);
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       (e) => {
         events.push(e);
       },
+      { trust: { sourceChannel: "vellum", trustClass: "unknown" } },
     );
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");
@@ -179,14 +188,19 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     const events: AgentEvent[] = [];
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop(provider, "system", {
+      conversationId: "test-conversation",
+    });
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       (e) => {
         events.push(e);
       },
-      { signal: controller.signal },
+      {
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        signal: controller.signal,
+      },
     );
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");

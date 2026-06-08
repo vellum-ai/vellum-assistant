@@ -42,7 +42,7 @@
     },
     {
       "name": "document_update",
-      "description": "Update content in an open document editor. Use this to stream generated content or apply edits.",
+      "description": "Append to or fully replace a document's content. Takes the full Markdown in `content` plus a `mode`: \"append\" adds it to the end (use this to stream generated content in chunks), \"replace\" overwrites the entire document. This tool does NOT do targeted edits — for changing specific words, phrases, or sections, use document_replace_text instead. There is no old/new or find/replace parameter here.",
       "category": "document-editor",
       "risk": "low",
       "input_schema": {

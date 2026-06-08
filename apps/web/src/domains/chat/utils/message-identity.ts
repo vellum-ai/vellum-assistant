@@ -1,5 +1,4 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { ConversationMessage } from "@vellumai/assistant-api";
 
 /**
  * Identity helpers shared by the snapshot/stream reconcilers.
@@ -11,7 +10,7 @@ import type { ConversationMessage } from "@vellumai/assistant-api";
  * rows that were merged after the local copy was built.
  */
 
-type MessageIdentity = {
+export type MessageIdentity = {
   id?: string;
   mergedMessageIds?: string[];
 };
@@ -39,10 +38,10 @@ export function indexDisplayMessageByIdentity(
   }
 }
 
-/** Find a previously-indexed local row matching any of a server row's ids. */
+/** Find a previously-indexed local row matching any of another row's ids. */
 export function findDisplayMessageByRuntimeIdentity(
   indexById: Map<string, DisplayMessage>,
-  message: ConversationMessage,
+  message: MessageIdentity,
 ): DisplayMessage | undefined {
   for (const id of messageIdentityKeys(message)) {
     const existing = indexById.get(id);

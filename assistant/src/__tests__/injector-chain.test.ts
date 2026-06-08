@@ -38,26 +38,60 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-const { applyRuntimeInjections, composeInjectorChain } =
-  await import("../daemon/conversation-runtime-assembly.js");
+// `applyRuntimeInjections` computes the `<turn_context>` `current_time` live
+// via `formatTurnTimestamp`; pin it so the rendered block matches the
+// deterministic `buildUnifiedTurnContextBlock` expectations below. The rest of
+// the module (timezone canonicalization/resolution) keeps its real behavior.
+const FIXED_TURN_TIMESTAMP = "2026-04-22";
+const realDateContext = await import("../daemon/date-context.js");
+mock.module("../daemon/date-context.js", () => ({
+  ...realDateContext,
+  formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
+}));
+
+const {
+  applyRuntimeInjections,
+  buildSubagentStatusBlock,
+  composeInjectorChain,
+} = await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
   await import("../plugins/defaults/memory-retrieval/injectors.js");
 const { getInjectorChain } =
   await import("../plugins/defaults/memory-retrieval/injector-chain.js");
+import { eq } from "drizzle-orm";
+
 import {
-  registerConversationWorkspace,
-  unregisterConversationWorkspace,
-  type WorkspaceConversationContext,
-} from "../daemon/conversation-workspace.js";
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { getPkbRoot } from "../memory/pkb/types.js";
+import { conversations, messages } from "../memory/schema.js";
+import {
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+
+// `applyRuntimeInjections` self-resolves the Slack active-thread focus block
+// from the persisted message rows, so the schema must exist for Slack-channel
+// turns; with no seeded rows the focus loader resolves to null.
+initializeDb();
 
 // `makeTurnContext` and the workspace registry seed share this id so the
 // `workspace-context` injector resolves the seeded block for the turn.
 const TEST_CONVERSATION_ID = "conv-test-1";
+// Conversation id the fallback-context test registers its live conversation
+// under; passed explicitly now that `applyRuntimeInjections` requires the
+// caller to name the conversation it resolves through.
+const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 
 /** A fake TurnContext sufficient for driving `composeInjectorChain`. */
 function makeTurnContext(): TurnContext {
@@ -103,35 +137,158 @@ function clearNowScratchpad(): void {
   rmSync(getWorkspacePromptPath("NOW.md"), { force: true });
 }
 
-// The workspace-context injector sources its block from the per-conversation
-// workspace registry keyed by `conversationId`. Register a non-dirty context
-// under the id `makeTurnContext()` uses so the injector emits the block;
-// unregister between tests so suites that assert the workspace block is absent
-// stay unaffected.
-let registeredWorkspace: WorkspaceConversationContext | null = null;
-
-function seedWorkspaceContext(text: string): void {
-  registeredWorkspace = {
+// The workspace-context injector sources its block off the live `Conversation`
+// looked up by `conversationId`. Seed a fake instance carrying a non-dirty
+// workspace cache under the id `makeTurnContext()` uses so the injector emits
+// the block; `clearConversations()` between tests keeps suites that assert the
+// workspace block is absent unaffected.
+function seedWorkspaceContext(
+  text: string,
+  currentTurnTemporalSnapshot?: {
+    clientTimezone: string | null;
+  },
+  interfaceName?: string,
+): void {
+  setConversation(TEST_CONVERSATION_ID, {
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/sandbox",
     workspaceTopLevelContext: text,
     workspaceTopLevelDirty: false,
-  };
-  registerConversationWorkspace(registeredWorkspace);
+    currentTurnTemporalSnapshot,
+    currentTurnInterfaceContext: interfaceName
+      ? {
+          userMessageInterface: interfaceName,
+          assistantMessageInterface: interfaceName,
+        }
+      : undefined,
+  } as never);
 }
 
-function clearWorkspaceContext(): void {
-  if (registeredWorkspace) {
-    unregisterConversationWorkspace(registeredWorkspace);
-    registeredWorkspace = null;
+// `applyRuntimeInjections` gates the `<turn_context>` block on the live
+// conversation's frozen `currentTurnTemporalSnapshot` (computing `current_time`
+// live). Tests that drive the chain without a caller-supplied `turnContext`
+// fall back to the runtime-assembly fallback conversation, so seed the snapshot
+// there.
+function seedFallbackTemporalSnapshot(): void {
+  setConversation("runtime-assembly-fallback", {
+    conversationId: "runtime-assembly-fallback",
+    workingDir: "/sandbox",
+    workspaceTopLevelContext: "",
+    workspaceTopLevelDirty: false,
+    currentTurnTemporalSnapshot: { clientTimezone: null },
+  } as never);
+}
+
+// Persist Slack-channel rows for the turn conversation so
+// `applyRuntimeInjections` self-resolves the chronological transcript from
+// conversation state, exactly as production does (the slack-messages injector
+// reads the live conversation rather than receiving a pre-built transcript).
+const SLACK_CHANNEL_ID = "C0123CHANNEL";
+function seedSlackChannelRows(
+  conversationId: string,
+  rows: Array<{
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    channelTs: string;
+    displayName: string;
+    createdAt: number;
+  }>,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations)
+    .values({ id: conversationId, createdAt: now, updatedAt: now })
+    .onConflictDoNothing()
+    .run();
+  for (const r of rows) {
+    const meta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID,
+      channelTs: r.channelTs,
+      eventKind: "message",
+      displayName: r.displayName,
+    } as SlackMessageMetadata;
+    db.insert(messages)
+      .values({
+        id: r.id,
+        conversationId,
+        role: r.role,
+        content: JSON.stringify([{ type: "text", text: r.text }]),
+        createdAt: r.createdAt,
+        metadata: JSON.stringify({
+          provenanceTrustClass: "guardian",
+          slackMeta: writeSlackMetadata(meta),
+        }),
+      })
+      .run();
   }
+}
+
+// `applyRuntimeInjections` self-resolves the `<active_subagents>` block from the
+// global subagent manager keyed by the conversation, so tests seed children
+// directly into the manager's private maps rather than threading a pre-built
+// block through options.
+interface SubagentManagerTestInternals {
+  subagents: Map<string, { state: SubagentState }>;
+  parentToChildren: Map<string, Set<string>>;
+}
+
+function makeSubagentState(
+  id: string,
+  label: string,
+  status: SubagentState["status"],
+): SubagentState {
+  return {
+    config: {
+      id,
+      parentConversationId: TEST_CONVERSATION_ID,
+      label,
+      objective: "obj",
+    },
+    status,
+    conversationId: `conv-${id}`,
+    isFork: false,
+    createdAt: Date.now() - 60_000,
+    startedAt: Date.now() - 55_000,
+    completedAt: status === "completed" ? Date.now() : undefined,
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+  };
+}
+
+function seedSubagentChild(
+  parentConversationId: string,
+  state: SubagentState,
+): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.set(state.config.id, { state });
+  const ids =
+    internals.parentToChildren.get(parentConversationId) ?? new Set<string>();
+  ids.add(state.config.id);
+  internals.parentToChildren.set(parentConversationId, ids);
+}
+
+function clearSeededSubagents(): void {
+  const internals =
+    getSubagentManager() as unknown as SubagentManagerTestInternals;
+  internals.subagents.clear();
+  internals.parentToChildren.clear();
 }
 
 describe("injector chain", () => {
   beforeEach(() => {
     clearPkbContent();
     clearNowScratchpad();
-    clearWorkspaceContext();
+    clearConversations();
+    clearSeededSubagents();
+    const db = getDb();
+    db.delete(messages)
+      .where(eq(messages.conversationId, TEST_CONVERSATION_ID))
+      .run();
+    db.delete(conversations)
+      .where(eq(conversations.id, TEST_CONVERSATION_ID))
+      .run();
   });
 
   test("defaultInjectors lists the defaults in the documented order", () => {
@@ -222,7 +379,7 @@ describe("injector chain", () => {
     ];
 
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
+      ...makeTurnContext(),
     });
 
     expect(result.blocks.injectorChainBlock).toBeUndefined();
@@ -234,22 +391,28 @@ describe("injector chain", () => {
   test("applyRuntimeInjections without turnContext still runs the chain under a synthesized context", async () => {
     // The static chain is the canonical injection path, so
     // `applyRuntimeInjections` must drive it even when the caller doesn't
-    // pass a `turnContext`. Call sites that rely on option fields to opt
-    // into injections continue to work because the synthesized fallback
-    // exposes `injectionInputs` built from `options`.
+    // pass a `turnContext`. With no caller-supplied context the assembly
+    // falls back to the runtime-assembly fallback conversation id, so the
+    // live-sourced unified turn context resolves off that conversation.
     const runMessages: Message[] = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ];
 
+    // The fallback conversation has no per-turn or origin interface, so the
+    // unified-turn-context injector resolves the interface label to the `web`
+    // default.
+    const synthesizedBlock = buildUnifiedTurnContextBlock({
+      timestamp: FIXED_TURN_TIMESTAMP,
+      interfaceName: "web",
+    });
+    seedFallbackTemporalSnapshot();
     const result = await applyRuntimeInjections(runMessages, {
-      unifiedTurnContext: "<turn_context>\nsynthesized\n</turn_context>",
+      conversationId: FALLBACK_CONVERSATION_ID,
     });
 
     // The unified-turn-context injector fires even without a caller-supplied
     // turnContext, proving the chain runs under the synthesized context.
-    expect(result.blocks.unifiedTurnContext).toBe(
-      "<turn_context>\nsynthesized\n</turn_context>",
-    );
+    expect(result.blocks.unifiedTurnContext).toBe(synthesizedBlock);
   });
 
   test("golden-path: default chain injects workspace + unified-turn + PKB + NOW + subagent in the correct positions", async () => {
@@ -282,16 +445,21 @@ describe("injector chain", () => {
 
     const workspaceText =
       "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>";
-    const unifiedTurn =
-      "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
-    const subagentBlock =
-      '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
+    // The interface label flows through the options bag; the timestamp is
+    // computed live at injection time.
+    const unifiedTurn = buildUnifiedTurnContextBlock({
+      timestamp: FIXED_TURN_TIMESTAMP,
+      interfaceName: "macos",
+    });
+    // A completed child renders deterministically (no elapsed clock), so the
+    // block the injector self-resolves matches `buildSubagentStatusBlock`.
+    const subagentChild = makeSubagentState("sub-1", "worker", "completed");
+    seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
+    const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText);
+    seedWorkspaceContext(workspaceText, { clientTimezone: null }, "macos");
     const result = await applyRuntimeInjections(runMessages, {
-      turnContext: makeTurnContext(),
-      unifiedTurnContext: unifiedTurn,
-      subagentStatusBlock: subagentBlock,
+      ...makeTurnContext(),
     });
 
     // Extract the tail user message content as a list of text strings.
@@ -329,13 +497,12 @@ describe("injector chain", () => {
     );
   });
 
-  test("slack-messages injector replaces runMessages when a chronological transcript is provided", async () => {
-    // End-to-end verification for the `replace-run-messages` placement:
-    // a Slack channel turn with a pre-rendered chronological transcript
-    // swaps the incoming `runMessages` for the transcript before the
-    // after-memory/append placements run. Memory-prefix blocks from the
-    // original tail are re-prepended onto the new tail so PKB / NOW
-    // splices still find them.
+  test("slack-messages injector replaces runMessages with the self-resolved transcript", async () => {
+    // End-to-end verification for the `replace-run-messages` placement: a
+    // Slack channel turn swaps the incoming `runMessages` for the
+    // self-resolved chronological transcript before the after-memory/append
+    // placements run. Memory-prefix blocks from the original tail are
+    // re-prepended onto the new tail so PKB / NOW splices still find them.
     const originalRun: Message[] = [
       {
         role: "user",
@@ -350,19 +517,30 @@ describe("injector chain", () => {
         ],
       },
     ];
-    const slackTranscript: Message[] = [
+    seedSlackChannelRows(TEST_CONVERSATION_ID, [
       {
+        id: "s1",
         role: "user",
-        content: [{ type: "text", text: "[12:00 alice]: kickoff" }],
+        text: "kickoff",
+        channelTs: "1700000000.000001",
+        displayName: "alice",
+        createdAt: 1700000000_000,
       },
       {
+        id: "s2",
         role: "user",
-        content: [{ type: "text", text: "[12:05 @user]: What's happening?" }],
+        text: "What's happening?",
+        channelTs: "1700000005.000001",
+        displayName: "user",
+        createdAt: 1700000005_000,
       },
-    ];
-
-    const result = await applyRuntimeInjections(originalRun, {
-      turnContext: makeTurnContext(),
+    ]);
+    setConversation(TEST_CONVERSATION_ID, {
+      conversationId: TEST_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      trustContext: { trustClass: "guardian" },
       channelCapabilities: {
         channel: "slack",
         dashboardCapable: false,
@@ -370,7 +548,9 @@ describe("injector chain", () => {
         supportsVoiceInput: false,
         chatType: "channel",
       },
-      slackChronologicalMessages: slackTranscript,
+    } as never);
+    const result = await applyRuntimeInjections(originalRun, {
+      ...makeTurnContext(),
     });
 
     // The swap replaced the run-messages wholesale but preserved the
@@ -388,7 +568,7 @@ describe("injector chain", () => {
       true,
     );
     expect(texts).toContain("<memory __injected>\nrecalled fact\n</memory>");
-    expect(texts[texts.length - 1]).toBe("[12:05 @user]: What's happening?");
+    expect(texts[texts.length - 1]).toContain("What's happening?");
   });
 
   test("minimal mode: only unified-turn-context survives; workspace/PKB/NOW/subagent are skipped", async () => {
@@ -397,6 +577,21 @@ describe("injector chain", () => {
     // opts out in minimal mode, so the tail should carry only the turn
     // context prepend plus any non-injector hardcoded content (none
     // here).
+    // Empty workspace text keeps that injector inert while the unified
+    // turn-context timestamp flows through the conversation's frozen temporal
+    // snapshot. The interface label is sourced from the live conversation,
+    // which has no per-turn or origin interface here and so resolves to the
+    // `web` default. A live child subagent is seeded so the subagent-status
+    // injector has a block to skip.
+    const minimalTurnBlock = buildUnifiedTurnContextBlock({
+      timestamp: FIXED_TURN_TIMESTAMP,
+      interfaceName: "web",
+    });
+    seedWorkspaceContext("", { clientTimezone: null });
+    seedSubagentChild(
+      TEST_CONVERSATION_ID,
+      makeSubagentState("sub-1", "worker", "running"),
+    );
     const result = await applyRuntimeInjections(
       [
         {
@@ -405,10 +600,8 @@ describe("injector chain", () => {
         },
       ],
       {
-        turnContext: makeTurnContext(),
+        ...makeTurnContext(),
         mode: "minimal",
-        unifiedTurnContext: "<turn_context>...</turn_context>",
-        subagentStatusBlock: "<active_subagents>...</active_subagents>",
       },
     );
 
@@ -417,10 +610,8 @@ describe("injector chain", () => {
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text);
 
-    expect(texts).toEqual(["<turn_context>...</turn_context>", "hi"]);
-    expect(result.blocks.unifiedTurnContext).toBe(
-      "<turn_context>...</turn_context>",
-    );
+    expect(texts).toEqual([minimalTurnBlock, "hi"]);
+    expect(result.blocks.unifiedTurnContext).toBe(minimalTurnBlock);
     expect(result.blocks.workspaceBlock).toBeUndefined();
     expect(result.blocks.pkbContextBlock).toBeUndefined();
     expect(result.blocks.nowScratchpadBlock).toBeUndefined();

@@ -41,7 +41,7 @@ export interface WorkingSetEntry {
   lastSeenTurn: number;
 }
 
-export interface TurnContext {
+export interface MemoryRoutingTurn {
   conversationId: string;
   turnNumber: number;
   currentMessage: string;

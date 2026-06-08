@@ -1,9 +1,9 @@
 import { BrowserWindow, app, shell } from "electron";
-import path from "node:path";
 import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle } from "./ipc";
+import { createWindow } from "./windows";
 
 /**
  * Branded About window — replaces Electron's default `aboutPanel`
@@ -27,13 +27,21 @@ import { handle } from "./ipc";
  * right metadata.
  */
 
-const APP_NAME = "Vellum";
 const WEBSITE = "https://vellum.ai";
 
-// Injected by `electron.vite.config.ts` at build time. Resolves to a
-// short SHA in CI / dev checkouts, or "unknown" if neither
-// `GITHUB_SHA` nor a git tree is available.
+// Injected by `electron.vite.config.ts` at build time.
 declare const __VELLUM_BUILD_SHA__: string;
+declare const __VELLUM_ENVIRONMENT__: string;
+
+const VELLUM_ENV: string =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
+
+const APP_NAME =
+  VELLUM_ENV === "production"
+    ? "Vellum"
+    : `Vellum ${VELLUM_ENV.charAt(0).toUpperCase() + VELLUM_ENV.slice(1)}`;
 
 const COMMIT_SHA: string =
   typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown";
@@ -80,25 +88,28 @@ export const openAboutWindow = (): void => {
     return;
   }
 
-  aboutWindow = new BrowserWindow({
-    width: 360,
-    height: 360,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    // `hiddenInset` keeps the macOS traffic-light buttons but removes
-    // the title bar's chrome — same effect as Swift's
-    // `titlebarAppearsTransparent = true`.
-    titleBarStyle: "hiddenInset",
-    title: `About ${APP_NAME}`,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+  // `deny-all` navigation: the About window has no legitimate top-level
+  // navigation — its only outbound link routes through
+  // `window.vellum.app.openWebsite()` → `shell.openExternal` in main — so the
+  // seam blocks every other path and every popup, keeping the
+  // preload-exposed `window.vellum` surface from being carried somewhere we
+  // don't control.
+  aboutWindow = createWindow({
+    browserWindow: {
+      width: 360,
+      height: 360,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      // `hiddenInset` keeps the macOS traffic-light buttons but removes
+      // the title bar's chrome — same effect as Swift's
+      // `titlebarAppearsTransparent = true`.
+      titleBarStyle: "hiddenInset",
+      title: `About ${APP_NAME}`,
+      show: false,
     },
+    navigation: "deny-all",
   });
 
   aboutWindow.once("ready-to-show", () => {
@@ -108,18 +119,6 @@ export const openAboutWindow = (): void => {
   aboutWindow.on("closed", () => {
     aboutWindow = null;
   });
-
-  // The About window has no legitimate top-level navigations — its
-  // only outbound link routes through `window.vellum.app.openWebsite()`
-  // → `shell.openExternal` in main. Block every other path so the
-  // preload-exposed `window.vellum` surface can't be carried into a
-  // destination we don't control: bare-`<a>` href fallbacks, dropped
-  // URLs or files onto the window, `window.location` writes from
-  // future renderer code, etc.
-  aboutWindow.webContents.on("will-navigate", (event) => {
-    event.preventDefault();
-  });
-  aboutWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   void aboutWindow.loadURL(aboutWindowUrl());
 };

@@ -4,6 +4,7 @@ import { getConversation } from "../memory/conversation-crud.js";
 import { resolveConversationDirectoryPaths } from "../memory/conversation-directories.js";
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 
 /**
  * Subset of Conversation state that workspace context helpers need.
@@ -26,51 +27,19 @@ export interface WorkspaceConversationContext {
 }
 
 /**
- * Registry of the live, per-conversation workspace contexts keyed by
- * conversation id. A `Conversation` registers itself on construction and
- * removes itself on `dispose`, so the `workspace-context` injector — which
- * only knows a conversation id — can source the dirty-guarded top-level cache
- * itself instead of having the agent loop compute and thread it. Not a general
- * service locator: it holds only the workspace-context slice, and the daemon's
- * `Conversation` remains the owner of the instance's lifecycle.
- */
-const liveByConversation = new Map<string, WorkspaceConversationContext>();
-
-/** Register a conversation's live workspace context in the lookup registry. */
-export function registerConversationWorkspace(
-  ctx: WorkspaceConversationContext,
-): void {
-  liveByConversation.set(ctx.conversationId, ctx);
-}
-
-/**
- * Remove a conversation's workspace context from the registry. Guards against
- * clobbering a newer registration for the same id (eviction + recreation) by
- * only deleting when the stored entry still points at this instance.
- */
-export function unregisterConversationWorkspace(
-  ctx: WorkspaceConversationContext,
-): void {
-  if (liveByConversation.get(ctx.conversationId) === ctx) {
-    liveByConversation.delete(ctx.conversationId);
-  }
-}
-
-/**
  * Resolve the live workspace top-level block for a conversation, refreshing
  * the dirty-guarded cache first so a workspace-mutating tool's
  * `markWorkspaceTopLevelDirty` from the prior turn is picked up. Returns `null`
- * when no conversation is registered (no active conversation, or a context with
+ * when no live conversation is found (no active conversation, or a context with
  * no conversation id) or when the rendered context is empty.
  */
 export function resolveWorkspaceTopLevelContext(
   conversationId: string | undefined,
 ): string | null {
-  if (!conversationId) return null;
-  const ctx = liveByConversation.get(conversationId);
-  if (!ctx) return null;
-  refreshWorkspaceTopLevelContextIfNeeded(ctx);
-  return ctx.workspaceTopLevelContext;
+  const conversation = findConversationOrSubagent(conversationId);
+  if (!conversation) return null;
+  refreshWorkspaceTopLevelContextIfNeeded(conversation);
+  return conversation.workspaceTopLevelContext;
 }
 
 /** Refresh workspace top-level directory context if needed. */

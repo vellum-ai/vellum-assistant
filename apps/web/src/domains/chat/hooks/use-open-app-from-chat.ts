@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -55,7 +55,7 @@ export function chooseSidebarOpenAppDestination(
 }
 
 export function useOpenAppFromChat(): (appId: string) => Promise<void> {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const isMobile = useIsMobile();
 

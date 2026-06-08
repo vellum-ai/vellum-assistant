@@ -23,9 +23,28 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "quickInputSubmit"; message: string };
 
-// Surface exposed to the renderer as `window.vellum`. `platform`, `settings`,
+// Whether a hotkey is a system-wide global shortcut or a focused-app menu
+// accelerator. Mirrors `HotkeyScope` in `apps/macos/src/main/hotkeys.ts`.
+export type HotkeyScope = "global" | "menu";
+
+// A rebindable command resolved against the current settings. Mirrors
+// `ResolvedHotkey` in `apps/macos/src/main/hotkeys.ts` (kept inline for the
+// same three-TS-project reason as `VellumCommand`). `override` is `null` when
+// the default is in use, `""` when the binding is disabled, or a custom
+// accelerator string.
+export interface ResolvedHotkey {
+  key: string;
+  label: string;
+  scope: HotkeyScope;
+  defaultAccelerator: string;
+  override: string | null;
+  accelerator: string;
+}
+
+// Surface exposed to the renderer as `window.vellum`. `platform`, `hotkeys`,
 // and `commands` are wired through IPC; `auth` and `helper` are typed stubs
 // that reject with "not implemented yet" until their feature tickets land.
 // When adding new bridge methods, see the "When to extend the bridge with
@@ -112,6 +131,79 @@ export type ConnectivityState =
   | "device-offline"
   | "backend-unreachable";
 
+/**
+ * Mirror of `NotificationCategory` in `apps/macos/src/main/notifications.ts`.
+ * Inlined for the same reason as the other bridge types: preload + main +
+ * renderer each have their own TS project.
+ */
+export type NotificationCategory =
+  | "activityComplete"
+  | "toolConfirmation"
+  | "voiceResponseComplete"
+  | "notificationIntent";
+
+/**
+ * Payload the renderer sends to main to post a native notification.
+ * Mirror of `ShowNotificationPayload` in `apps/macos/src/main/notifications.ts`.
+ */
+export interface ShowNotificationPayload {
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Event main broadcasts to the renderer when the user clicks a
+ * notification body or an action button. Mirror of
+ * `NotificationActionEvent` in `apps/macos/src/main/notifications.ts`.
+ */
+export interface NotificationActionEvent {
+  kind: "click" | "action";
+  category: NotificationCategory;
+  actionIndex?: number;
+  actionText?: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Mirror of `BundleScanData` in `apps/macos/src/main/bundle-manager.ts`.
+ * Inlined for the same reason as the other bridge types: preload + main +
+ * renderer each have their own TS project. Drift surfaces as a renderer
+ * field that's `undefined` at runtime rather than a build error.
+ */
+export interface BundleScanData {
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    capabilities: string[];
+    created_by: string;
+    created_at: string;
+  };
+  scanResult: {
+    passed: boolean;
+    blocked: string[];
+    warnings: string[];
+  };
+  signatureResult: {
+    trustTier: "verified" | "signed" | "unsigned" | "tampered";
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+    message?: string;
+  };
+  bundleSizeBytes: number;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -133,13 +225,33 @@ export interface VellumBridge {
     getToken(): string | null;
   };
   auth: {
-    signIn(): Promise<void>;
-    signOut(): Promise<void>;
-    getToken(): Promise<string | null>;
+    startOAuth(options: {
+      providerHint?: string;
+      loginHint?: string;
+      intent?: string;
+    }): Promise<{ sessionToken: string }>;
+    cancelOAuth(): Promise<void>;
   };
-  settings: {
-    get<T = unknown>(key: string): Promise<T | null>;
-    set<T = unknown>(key: string, value: T): Promise<void>;
+  hotkeys: {
+    /** Resolved catalog of rebindable commands and their effective bindings. */
+    get(): Promise<ResolvedHotkey[]>;
+    /**
+     * Persist one override: `null` clears it (revert to the compiled default),
+     * `""` disables the binding, any other string is a custom accelerator
+     * (validated against Electron's grammar by main, rejecting the promise on
+     * an invalid value).
+     */
+    set(key: string, accelerator: string | null): Promise<void>;
+    /**
+     * Subscribe to hotkey-catalog changes — including ones another window
+     * initiated — so an open settings view stays in sync. Returns an
+     * unsubscribe function; call it on cleanup to avoid leaks.
+     */
+    onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
+  };
+  featureFlags: {
+    /** Publish the renderer's feature-flag map to main (fire-and-forget). */
+    set(flags: Record<string, boolean>): void;
   };
   helper: {
     ping(): Promise<"pong">;
@@ -194,16 +306,17 @@ export interface VellumBridge {
      * Publish the unread count so the main process can update the macOS
      * Dock badge. Pass `0` (or any non-positive number) to clear. Main
      * formats per Swift Vellum's convention — pass-through up to 99,
-     * `"99+"` beyond.
+     * `"99+"` beyond. Fire-and-forget — no acknowledgement.
      */
-    setBadge(count: number): Promise<void>;
+    setBadge(count: number): void;
     /**
      * Publish the user's signed-in state so the main process can decide
      * whether to keep the Dock icon visible after the last window
      * closes. Temporary — once main owns auth state directly, this
-     * call becomes a no-op and the renderer drops it.
+     * call becomes a no-op and the renderer drops it. Fire-and-forget —
+     * no acknowledgement.
      */
-    setSignedIn(signedIn: boolean): Promise<void>;
+    setSignedIn(signedIn: boolean): void;
   };
   localMode: {
     /**
@@ -289,14 +402,6 @@ export interface VellumBridge {
      * right size.
      */
     setOnboarding(active: boolean): Promise<void>;
-    /**
-     * Relax the main window's same-origin navigation guard for the duration
-     * of a sign-in so the OAuth provider chain (WorkOS → Google/Apple → our
-     * callback) runs in-window instead of being ejected to the system
-     * browser. Call right before kicking off the provider redirect; the guard
-     * re-arms automatically when the flow returns to the app.
-     */
-    beginAuthFlow(): Promise<void>;
   };
   power: {
     /**
@@ -332,6 +437,21 @@ export interface VellumBridge {
      */
     onLink(callback: (link: DeepLink) => void): () => void;
   };
+  fileOpen: {
+    /**
+     * Drain and return the buffer of `.vellum` file paths that arrived
+     * before the renderer was ready. Returns ALL pending paths and clears
+     * the buffer. Also registers the caller as a subscriber so subsequent
+     * file-open events broadcast directly rather than buffering.
+     */
+    drain(): Promise<string[]>;
+    /**
+     * Subscribe to live file-open events (files opened after the renderer
+     * is up). Returns an unsubscribe function; callers invoke it on
+     * cleanup.
+     */
+    onFile(callback: (filePath: string) => void): () => void;
+  };
   feedback: {
     /** Collect Electron-specific diagnostics (versions, platform, metrics). */
     diagnostics(): Promise<Record<string, unknown>>;
@@ -345,6 +465,48 @@ export interface VellumBridge {
     setDevice(online: boolean): void;
     /** User-triggered retry — kicks an immediate health probe. */
     retry(): void;
+  };
+  notifications: {
+    /**
+     * Post a native macOS notification via `electron.Notification` in the
+     * main process. Supports category-based action buttons (View, Approve /
+     * Reject, Open) that the Web Notification API cannot provide.
+     *
+     * Resolves with `{ success, errorMessage? }` so the renderer can send
+     * the daemon ack without maintaining its own notification lookup table.
+     */
+    show(
+      payload: ShowNotificationPayload,
+    ): Promise<{ success: boolean; errorMessage?: string }>;
+    /**
+     * Subscribe to notification interaction events (body click or action
+     * button press). Returns an unsubscribe function. The renderer routes
+     * these to navigate to conversations, approve/reject tool calls, etc.
+     */
+    onAction(callback: (event: NotificationActionEvent) => void): () => void;
+  };
+  bundleConfirm: {
+    /** Fetch the scan data for the bundle awaiting confirmation. */
+    getData(): Promise<BundleScanData | null>;
+    /** Accept or cancel the pending bundle installation. */
+    respond(accepted: boolean): void;
+  };
+  quickInput: {
+    /** Submit a message from the quick input panel. Main closes the panel,
+     * ensures the main window is visible, and dispatches a `quickInputSubmit`
+     * command so the chat domain creates a new conversation and auto-sends. */
+    submit(message: string): Promise<void>;
+    /** Dismiss the quick input panel without submitting. */
+    dismiss(): Promise<void>;
+  };
+  popout: {
+    /**
+     * Open (or focus) a pop-out window for a conversation. Main creates an
+     * independent BrowserWindow showing only the conversation without sidebar
+     * chrome. If a pop-out for the given conversation already exists, it is
+     * focused instead of creating a duplicate.
+     */
+    open(conversationId: string): Promise<void>;
   };
 }
 
@@ -364,15 +526,43 @@ const bridge: VellumBridge = {
       ipcRenderer.sendSync("vellum:csrf:getToken") as string | null,
   },
   auth: {
-    signIn: notImplemented("auth.signIn"),
-    signOut: notImplemented("auth.signOut"),
-    getToken: notImplemented("auth.getToken"),
+    startOAuth: (options: {
+      providerHint?: string;
+      loginHint?: string;
+      intent?: string;
+    }): Promise<{ sessionToken: string }> =>
+      ipcRenderer.invoke("vellum:auth:startOAuth", options) as Promise<{
+        sessionToken: string;
+      }>,
+    cancelOAuth: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:auth:cancelOAuth") as Promise<void>,
   },
-  settings: {
-    get: <T>(key: string): Promise<T | null> =>
-      ipcRenderer.invoke("vellum:settings:get", key) as Promise<T | null>,
-    set: <T>(key: string, value: T): Promise<void> =>
-      ipcRenderer.invoke("vellum:settings:set", key, value) as Promise<void>,
+  hotkeys: {
+    get: (): Promise<ResolvedHotkey[]> =>
+      ipcRenderer.invoke("vellum:hotkeys:get") as Promise<ResolvedHotkey[]>,
+    set: (key: string, accelerator: string | null): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:hotkeys:set",
+        key,
+        accelerator,
+      ) as Promise<void>,
+    onChange: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        catalog: ResolvedHotkey[],
+      ): void => {
+        callback(catalog);
+      };
+      ipcRenderer.on("vellum:hotkeys:changed", handler);
+      return () => {
+        ipcRenderer.off("vellum:hotkeys:changed", handler);
+      };
+    },
+  },
+  featureFlags: {
+    set: (flags: Record<string, boolean>): void => {
+      ipcRenderer.send("vellum:featureFlags:set", flags);
+    },
   },
   helper: {
     ping: notImplemented("helper.ping"),
@@ -415,10 +605,12 @@ const bridge: VellumBridge = {
     },
   },
   dock: {
-    setBadge: (count: number): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
-    setSignedIn: (signedIn: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+    setBadge: (count: number): void => {
+      ipcRenderer.send("vellum:dock:setBadge", count);
+    },
+    setSignedIn: (signedIn: boolean): void => {
+      ipcRenderer.send("vellum:dock:setSignedIn", signedIn);
+    },
   },
   localMode: {
     hatch: (species: string, remote?: string) =>
@@ -476,8 +668,6 @@ const bridge: VellumBridge = {
         "vellum:mainWindow:setOnboarding",
         active,
       ) as Promise<void>,
-    beginAuthFlow: (): Promise<void> =>
-      ipcRenderer.invoke("vellum:mainWindow:beginAuthFlow") as Promise<void>,
   },
   power: {
     onEvent: (callback) => {
@@ -506,6 +696,21 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:deepLinks:event", handler);
         ipcRenderer.send("vellum:deepLinks:unsubscribe");
+      };
+    },
+  },
+  fileOpen: {
+    drain: (): Promise<string[]> =>
+      ipcRenderer.invoke("vellum:fileOpen:drain") as Promise<string[]>,
+    onFile: (callback) => {
+      ipcRenderer.send("vellum:fileOpen:subscribe");
+      const handler = (_event: IpcRendererEvent, filePath: string) => {
+        callback(filePath);
+      };
+      ipcRenderer.on("vellum:fileOpen:event", handler);
+      return () => {
+        ipcRenderer.send("vellum:fileOpen:unsubscribe");
+        ipcRenderer.off("vellum:fileOpen:event", handler);
       };
     },
   },
@@ -542,9 +747,57 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:connectivity:retry");
     },
   },
+  notifications: {
+    show: (
+      payload: ShowNotificationPayload,
+    ): Promise<{ success: boolean; errorMessage?: string }> =>
+      ipcRenderer.invoke(
+        "vellum:notifications:show",
+        payload,
+      ) as Promise<{ success: boolean; errorMessage?: string }>,
+    onAction: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        event: NotificationActionEvent,
+      ) => {
+        callback(event);
+      };
+      ipcRenderer.on("vellum:notifications:action", handler);
+      return () => {
+        ipcRenderer.off("vellum:notifications:action", handler);
+      };
+    },
+  },
+  bundleConfirm: {
+    getData: () =>
+      ipcRenderer.invoke(
+        "vellum:bundleConfirm:getData",
+      ) as Promise<BundleScanData | null>,
+    respond: (accepted: boolean): void => {
+      ipcRenderer.send("vellum:bundleConfirm:respond", accepted);
+    },
+  },
+  quickInput: {
+    submit: (message: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
+    dismiss: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
+  },
+  popout: {
+    open: (conversationId: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:popout:open", conversationId) as Promise<void>,
+  },
 };
 
 contextBridge.exposeInMainWorld("vellum", bridge);
+
+const vellumConfig = ipcRenderer.sendSync("vellum:config:get") as {
+  webUrl: string;
+  platformUrl: string;
+} | null;
+if (vellumConfig) {
+  contextBridge.exposeInMainWorld("__VELLUM_CONFIG__", vellumConfig);
+}
 
 declare global {
   interface Window {

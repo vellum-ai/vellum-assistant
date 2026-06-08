@@ -43,7 +43,40 @@ export type VellumCommand =
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
-  | { kind: "commandPalette" };
+  | { kind: "commandPalette" }
+  | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "createAssistant" }
+  | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "quickInputSubmit"; message: string };
+
+/**
+ * Whether a hotkey is a system-wide global shortcut (active even when the app
+ * is unfocused) or a focused-app menu accelerator. Renderer-side mirror of
+ * `HotkeyScope` in `apps/macos/src/main/hotkeys.ts`.
+ */
+export type HotkeyScope = "global" | "menu";
+
+/**
+ * A rebindable command resolved against the current settings: the compiled
+ * default, the user's override, and the effective accelerator. `override` is
+ * `null` when the default is in use, `""` when the binding is disabled, or a
+ * custom accelerator string. Renderer-side mirror of `ResolvedHotkey` in
+ * `apps/macos/src/main/hotkeys.ts`.
+ */
+export interface ResolvedHotkey {
+  key: string;
+  label: string;
+  scope: HotkeyScope;
+  defaultAccelerator: string;
+  override: string | null;
+  accelerator: string;
+  /**
+   * Whether the user can rebind this command. `false` entries are reserved
+   * accelerators (e.g. Find, Settings) carried only so the recorder can flag
+   * conflicts against them; the page filters them out of the rendered rows.
+   */
+  rebindable: boolean;
+}
 
 /**
  * Renderer-side mirror of `AssistantStatus` in
@@ -83,6 +116,81 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+/**
+ * Renderer-side mirror of `NotificationCategory` in
+ * `apps/macos/src/main/notifications.ts`. Each variant maps to a set of
+ * macOS action buttons (View, Approve/Reject, Open) that the Web
+ * Notification API cannot provide.
+ */
+export type NotificationCategory =
+  | "activityComplete"
+  | "toolConfirmation"
+  | "voiceResponseComplete"
+  | "notificationIntent";
+
+/**
+ * Renderer → main payload for posting a native notification.
+ * Mirror of `ShowNotificationPayload` in
+ * `apps/macos/src/main/notifications.ts`.
+ */
+export interface ElectronShowNotificationPayload {
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Main → renderer event when the user interacts with a native
+ * notification. Mirror of `NotificationActionEvent` in
+ * `apps/macos/src/main/notifications.ts`.
+ */
+export interface ElectronNotificationActionEvent {
+  kind: "click" | "action";
+  category: NotificationCategory;
+  actionIndex?: number;
+  actionText?: string;
+  deliveryId?: string;
+  conversationId?: string;
+  toolCallId?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/**
+ * Renderer-side mirror of `BundleScanData` in
+ * `apps/macos/src/main/bundle-manager.ts`. Inline for the same reason
+ * as `VellumCommand` — main, preload, and renderer each have their
+ * own TS project.
+ */
+export interface BundleScanData {
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    capabilities: string[];
+    created_by: string;
+    created_at: string;
+  };
+  scanResult: {
+    passed: boolean;
+    blocked: string[];
+    warnings: string[];
+  };
+  signatureResult: {
+    trustTier: "verified" | "signed" | "unsigned" | "tampered";
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+    message?: string;
+  };
+  bundleSizeBytes: number;
+}
+
 declare global {
   interface Window {
     vellum?: {
@@ -100,9 +208,17 @@ declare global {
       csrf?: {
         getToken(): string | null;
       };
-      settings: {
-        get<T = unknown>(key: string): Promise<T | null>;
-        set<T = unknown>(key: string, value: T): Promise<void>;
+      // Optional: an older preload predates the hotkeys/featureFlags channels.
+      // The macOS app and web bundle don't release together, so a newer
+      // renderer can run against an older preload; callers must guard on
+      // presence (see `status`/`icon` below for the same pattern).
+      hotkeys?: {
+        get(): Promise<ResolvedHotkey[]>;
+        set(key: string, accelerator: string | null): Promise<void>;
+        onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
+      };
+      featureFlags?: {
+        set(flags: Record<string, boolean>): void;
       };
       helper?: {
         hotkey?: {
@@ -123,8 +239,8 @@ declare global {
         setAvatar(png: Uint8Array | null): void;
       };
       dock: {
-        setBadge(count: number): Promise<void>;
-        setSignedIn(signedIn: boolean): Promise<void>;
+        setBadge(count: number): void;
+        setSignedIn(signedIn: boolean): void;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
@@ -155,10 +271,18 @@ declare global {
           | { ok: false; status: number; error: string }
         >;
       };
+      // Optional: older Electron shells predate the native OAuth IPC channel.
+      auth?: {
+        startOAuth(options: {
+          providerHint?: string;
+          loginHint?: string;
+          intent?: string;
+        }): Promise<{ sessionToken: string }>;
+        cancelOAuth(): Promise<void>;
+      };
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
-        beginAuthFlow(): Promise<void>;
       };
       power: {
         onEvent(
@@ -195,6 +319,29 @@ declare global {
         ): () => void;
         setDevice(online: boolean): void;
         retry(): void;
+      };
+      // Optional: older Electron shells predate the quick input channel.
+      quickInput?: {
+        submit(message: string): Promise<void>;
+        dismiss(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the notifications channel.
+      notifications?: {
+        show(
+          payload: ElectronShowNotificationPayload,
+        ): Promise<{ success: boolean; errorMessage?: string }>;
+        onAction(
+          callback: (event: ElectronNotificationActionEvent) => void,
+        ): () => void;
+      };
+      // Optional: older Electron shells predate the popout channel.
+      popout?: {
+        open(conversationId: string): Promise<void>;
+      };
+      // Optional: older Electron shells predate the bundleConfirm channel.
+      bundleConfirm?: {
+        getData(): Promise<BundleScanData | null>;
+        respond(accepted: boolean): void;
       };
     };
   }

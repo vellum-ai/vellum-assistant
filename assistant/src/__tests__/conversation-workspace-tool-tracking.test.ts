@@ -141,7 +141,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   setLastNotifiedInferenceProfile: () => {},
-  getConversationOverrideProfileFromRow: () => undefined,
+  resolveOverrideProfile: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
@@ -180,6 +180,7 @@ mock.module("../memory/retrieval-budget.js", () => ({
 }));
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }

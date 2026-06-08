@@ -7,9 +7,9 @@
  */
 
 import type { Conversation } from "../../../daemon/conversation.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
-  findConversation,
   getOrCreateConversation,
 } from "../../../daemon/conversation-store.js";
 import {

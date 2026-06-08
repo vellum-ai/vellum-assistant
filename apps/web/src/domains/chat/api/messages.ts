@@ -9,10 +9,12 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
+  ConversationContentBlock,
   ConversationMessage,
   ConversationMessageToolCall,
   ConversationSubagentNotification,
 } from "@vellumai/assistant-api";
+import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
@@ -165,6 +167,81 @@ export function normalizeContentOrder(
     if (normalized) result.push(normalized);
   }
   return result.length > 0 ? result : undefined;
+}
+
+/**
+ * Resolve a message's unified `contentBlocks` projection.
+ *
+ * The daemon emits `contentBlocks` directly from the model-native content
+ * (`renderHistoryContent`) as the authoritative, single-ordered list of
+ * text / thinking / tool_use / surface / attachment blocks. Any defined value
+ * — including an empty array — is returned verbatim: the server having sent
+ * the field at all means it is authoritative (an empty list is a genuinely
+ * contentless message, not a missing projection), so the renderer consumes
+ * the canonical wire shape with no client-side reshaping.
+ *
+ * The reconstruction path below exists solely for assistants versioned
+ * `< 0.8.8`, which predate the projection and omit `contentBlocks` entirely.
+ * Those ship only the positional
+ * `contentOrder`/`textSegments`/`thinkingSegments`/`toolCalls`/`surfaces`/
+ * `attachments` arrays, so we rebuild the same discriminated-union list from
+ * them and the renderer always has a wire-shaped list regardless of daemon
+ * version. The reconstruction mirrors the daemon's own builder: text segments
+ * are stripped of their inlined `[File attachment]` summary lines (attachments
+ * surface as `attachment` blocks, not text) and fully-consumed (empty) text
+ * segments are dropped, so a reconstructed row is indistinguishable from a
+ * daemon-provided one. It can be deleted once `< 0.8.8` assistants are no
+ * longer supported.
+ */
+export function normalizeContentBlocks(
+  m: ConversationMessage,
+): ConversationContentBlock[] | undefined {
+  if (m.contentBlocks !== undefined) {
+    return m.contentBlocks;
+  }
+
+  const order = normalizeContentOrder(m.contentOrder);
+  if (!order) return undefined;
+
+  const blocks: ConversationContentBlock[] = [];
+  for (const { type, id } of order) {
+    const idx = Number.parseInt(id, 10);
+    if (Number.isNaN(idx)) continue;
+    switch (type) {
+      case "text": {
+        const raw = m.textSegments?.[idx];
+        if (raw == null) break;
+        const { cleanedContent } = parseAttachmentSummariesFromContent(raw);
+        if (cleanedContent.trim().length > 0) {
+          blocks.push({ type: "text", text: cleanedContent });
+        }
+        break;
+      }
+      case "thinking": {
+        const thinking = m.thinkingSegments?.[idx];
+        if (thinking != null) blocks.push({ type: "thinking", thinking });
+        break;
+      }
+      case "tool":
+      case "toolCall": {
+        const toolCall = m.toolCalls?.[idx];
+        if (toolCall) blocks.push({ type: "tool_use", toolCall });
+        break;
+      }
+      case "surface": {
+        const surface = m.surfaces?.[idx];
+        if (surface) blocks.push({ type: "surface", surface });
+        break;
+      }
+      case "attachment": {
+        const attachment = m.attachments[idx];
+        if (attachment) blocks.push({ type: "attachment", attachment });
+        break;
+      }
+    }
+  }
+
+  return blocks.length > 0 ? blocks : undefined;
 }
 
 export type ChatHistoryResult =

@@ -27,7 +27,7 @@
  *     conversation, the wake is queued behind it (single-flight per
  *     `conversationId`).
  *   - While the wake's agent loop is running, the conversation is marked
- *     as processing (via {@link WakeTarget.markProcessing}) so a user send
+ *     as processing (via the conversation's processing marker) so a user send
  *     that arrives mid-wake is queued by `enqueueMessage` instead of
  *     launching a concurrent `agentLoop.run()` on the same conversation.
  *
@@ -43,7 +43,6 @@
 
 import type {
   AgentEvent,
-  AgentLoop,
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
@@ -51,19 +50,25 @@ import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
   classifyDiskPressureTurnPolicy,
   type DiskPressureTurnPolicyDecision,
 } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  broadcastWakeSurface,
+  emitWakeAgentEvent,
+  persistWakeTailMessage,
+  scopeWakeAllowedTools,
+} from "../daemon/wake-conversation-ops.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
-import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -76,102 +81,6 @@ const WAKE_PREAMBLE =
 /** Static postamble user message — ends conversation on a user turn. */
 const WAKE_POSTAMBLE =
   "[system] End of message from external system, continue the conversation.";
-
-/**
- * Minimum surface area of a conversation needed to wake it. Defined as an
- * interface rather than importing `Conversation` directly so the wake
- * helper stays decoupled from the heavyweight conversation class and is
- * easy to exercise under unit tests.
- *
- * Translation note: the wake deliberately hands the adapter a raw
- * {@link AgentEvent} via {@link emitAgentEvent} rather than a
- * `ServerMessage`. The normal user-turn path translates `AgentEvent` into
- * the correctly-shaped wire protocol frames (e.g.
- * `text_delta` → `assistant_text_delta` with `conversationId`) via the
- * canonical handler in `conversation-agent-loop-handlers.ts`. Passing raw
- * events means the adapter can reuse that translation rather than the
- * wake helper shipping malformed frames.
- */
-export interface WakeTarget {
-  readonly conversationId: string;
-  readonly agentLoop: Pick<AgentLoop, "run">;
-  /**
-   * Live LLM-visible history. We read a snapshot, append the internal hint
-   * for the run, and then (on non-empty output) append the resulting
-   * assistant message(s) to this array so subsequent turns see them.
-   */
-  getMessages(): Message[];
-  pushMessage(message: Message): void;
-  /**
-   * Forward a raw agent event so the adapter can translate it to the
-   * correct `ServerMessage` shape (e.g. stamping `conversationId`,
-   * renaming `text_delta` → `assistant_text_delta`) before emission.
-   *
-   * Only called when the wake produces output worth emitting — silent
-   * no-op wakes never flush buffered events.
-   */
-  emitAgentEvent(event: AgentEvent): void;
-  /** True if the conversation is already processing a turn. */
-  isProcessing(): boolean;
-  /**
-   * Toggle the conversation's in-flight processing marker. The wake
-   * wraps its `agentLoop.run()` invocation in
-   * `markProcessing(true) … markProcessing(false)` so a concurrent user
-   * send sees `isProcessing() === true` and queues the message instead
-   * of spawning a parallel agent loop.
-   */
-  markProcessing(on: boolean): void;
-  /**
-   * Persist a single tail message produced by the wake (assistant
-   * outputs and intervening tool_result user messages). The daemon
-   * adapter is responsible for building channel/interface metadata and
-   * syncing the persisted message to the disk view so wake-produced
-   * messages match the canonical user-turn persistence path. Kept as a
-   * hook so `runtime/agent-wake.ts` stays decoupled from daemon
-   * internals (trust context, turn channel/interface contexts,
-   * disk-view layout).
-   */
-  persistTailMessage(message: Message): Promise<void>;
-  /**
-   * Drain any messages that arrived (and were queued) while the wake
-   * was running. Optional because not every wake target has a queue —
-   * unit-test stubs typically omit it.
-   *
-   * The wake invokes this in its `finally` block AFTER
-   * `markProcessing(false)`. Order matters: if drain ran while
-   * processing was still true, `enqueueMessage`'s gate
-   * (`if (!ctx.isProcessing()) return ...`) would still see processing=true
-   * and the drain itself would be a no-op against any racy late sends.
-   * Running drain after processing is released matches the canonical
-   * user-turn finally path in `conversation-agent-loop.ts`.
-   */
-  drainQueue?(): Promise<void>;
-  /**
-   * Called after a wake produces visible output (text or tool calls).
-   * The daemon adapter uses this to emit a live SSE event so connected
-   * clients see the wake indicator immediately. The `surfaceId` matches
-   * the `ui_surface` content block already injected into the first
-   * assistant tail message — both must share the same ID so the client
-   * doesn't render duplicates. Optional because unit-test stubs
-   * typically omit it.
-   */
-  onWakeProducedOutput?(source: string, hint: string, surfaceId: string): void;
-  /**
-   * Apply a trust context to the underlying conversation before the agent
-   * loop runs. Internal background jobs (memory consolidation, update
-   * bulletin) use this to declare guardian trust so side-effect tools
-   * (file_edit, file_write, bash) clear the approval gate. Inbound message
-   * conversations populate trust via `processMessage()` and don't pass
-   * `trustContext` through the wake.
-   */
-  setTrustContext?(ctx: TrustContext): void;
-  /**
-   * Temporarily restrict the tools visible/executable during this wake.
-   * Returns a restore callback so the wake can release the scope before any
-   * queued user turn is drained.
-   */
-  setWakeAllowedTools?(tools: ReadonlySet<string>): () => void;
-}
 
 export interface WakeOptions {
   conversationId: string;
@@ -214,7 +123,7 @@ export interface WakeOptions {
    * Documented intent: this wake must not trigger auto-threshold compaction.
    *
    * Today this is automatically satisfied because the wake invokes
-   * `target.agentLoop.run()` directly, bypassing the daemon orchestrator
+   * `conversation.agentLoop.run()` directly, bypassing the daemon orchestrator
    * (`conversation-agent-loop.ts`) where the compaction pipeline lives. The
    * flag is recorded in the wake's structured log line so operators can
    * verify the contract holds across refactors. If compaction is ever moved
@@ -279,9 +188,9 @@ export interface WakeResult {
  */
 export interface WakeDeps {
   /**
-   * Resolve the wake target for a wake invocation.
+   * Resolve the live {@link Conversation} for a wake invocation.
    * Returns `null` if the conversation doesn't exist, `"archived"` if it
-   * exists but is archived, or a `WakeTarget` to proceed with the wake.
+   * exists but is archived, or the `Conversation` to proceed with the wake.
    *
    * Receives the full {@link WakeOptions} so the default resolver can
    * thread `trustContext` into `getOrCreateConversation`. Without that
@@ -290,7 +199,9 @@ export interface WakeDeps {
    * out every guardian-provenance message — fatal for fork-based memory
    * retrospectives.
    */
-  resolveTarget: (opts: WakeOptions) => Promise<WakeTarget | null | "archived">;
+  resolveTarget: (
+    opts: WakeOptions,
+  ) => Promise<Conversation | null | "archived">;
   /** Timestamp source (for deterministic tests). */
   now?: () => number;
 }
@@ -298,12 +209,12 @@ export interface WakeDeps {
 // ── Default resolution ────────────────────────────────────────────────
 //
 // When `wakeAgentForOpportunity()` is called without explicit `deps`,
-// it resolves the target directly by importing `getConversation`,
-// `getOrCreateConversation`, and `conversationToWakeTarget`.
+// it resolves the live conversation directly via `getConversation` and
+// `getOrCreateConversation`.
 
 async function defaultResolveTarget(
   opts: WakeOptions,
-): Promise<WakeTarget | null | "archived"> {
+): Promise<Conversation | null | "archived"> {
   const { conversationId } = opts;
   // Lazy-import daemon modules to avoid pulling heavyweight transitive
   // deps (conversation store → config/loader → provider catalogs) at
@@ -313,8 +224,6 @@ async function defaultResolveTarget(
   const { getConversation } = await import("../memory/conversation-crud.js");
   const { getOrCreateConversation } =
     await import("../daemon/conversation-store.js");
-  const { conversationToWakeTarget } =
-    await import("../daemon/wake-target-adapter.js");
   try {
     const existing = getConversation(conversationId);
     if (!existing) return null;
@@ -334,7 +243,7 @@ async function defaultResolveTarget(
     const conversation = await getOrCreateConversation(conversationId, {
       trustContext: opts.trustContext,
     });
-    return conversationToWakeTarget(conversation);
+    return conversation;
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -385,15 +294,15 @@ async function runSingleFlight<T>(
  * while our wake was queued.
  */
 async function waitUntilIdle(
-  target: WakeTarget,
+  conversation: Conversation,
   nowFn: () => number,
   timeoutMs = 30_000,
 ): Promise<boolean> {
   const deadline = nowFn() + timeoutMs;
-  while (target.isProcessing() && nowFn() < deadline) {
+  while (conversation.isProcessing() && nowFn() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  return !target.isProcessing();
+  return !conversation.isProcessing();
 }
 
 function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
@@ -417,25 +326,30 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
   return { decision, status };
 }
 
-function buildWakeTurnContext(
+/**
+ * Trust snapshot the wake hands to the agent loop. A wake has no compaction
+ * path (it runs with overflow recovery disabled), so this snapshot is unread
+ * except on the disk-pressure cleanup-mode path, whose guardian value scopes
+ * the compactor's image manifest if cleanup ever compacts. Other wakes pass an
+ * `unknown`-class snapshot so a missing actor cannot grant elevated trust.
+ */
+function buildWakeTrust(
   opts: WakeOptions,
   decision: DiskPressureTurnPolicyDecision,
-): TurnContext | undefined {
-  if (decision.action !== "allow-cleanup-mode") return undefined;
-  return {
-    requestId: `wake:${opts.source}`,
-    conversationId: opts.conversationId,
-    turnIndex: 0,
-    trust:
-      opts.trustContext ??
-      ({
-        sourceChannel: opts.sourceChannel ?? "vellum",
-        trustClass: "guardian",
-      } satisfies TrustContext),
-    injectionInputs: {
-      diskPressureContext: { cleanupModeActive: true },
-    },
-  };
+): TrustContext {
+  if (decision.action !== "allow-cleanup-mode") {
+    return {
+      sourceChannel: opts.sourceChannel ?? "vellum",
+      trustClass: "unknown",
+    };
+  }
+  return (
+    opts.trustContext ??
+    ({
+      sourceChannel: opts.sourceChannel ?? "vellum",
+      trustClass: "guardian",
+    } satisfies TrustContext)
+  );
 }
 
 /**
@@ -492,9 +406,10 @@ function inspectWakeOutput(
  * are serialized per `conversationId`.
  *
  * The `deps` argument is optional in production — when omitted, the
- * default resolver imports `getConversation`, `getOrCreateConversation`,
- * and `conversationToWakeTarget` directly. Tests that want tight
- * control over resolution continue to pass explicit deps.
+ * default resolver imports `getConversation` and
+ * `getOrCreateConversation` directly to return the live conversation.
+ * Tests that want tight control over resolution continue to pass
+ * explicit deps.
  */
 export async function wakeAgentForOpportunity(
   opts: WakeOptions,
@@ -525,7 +440,7 @@ export async function wakeAgentForOpportunity(
       );
       return { invoked: false, producedToolCalls: false, reason: "not_found" };
     }
-    const target = resolved;
+    const conversation = resolved;
 
     const { decision: diskPressureDecision, status: diskPressureStatus } =
       classifyWakeDiskPressurePolicy(opts);
@@ -551,7 +466,7 @@ export async function wakeAgentForOpportunity(
       };
     }
 
-    const idle = await waitUntilIdle(target, nowFn);
+    const idle = await waitUntilIdle(conversation, nowFn);
     if (!idle) {
       log.warn(
         { conversationId, source },
@@ -563,18 +478,18 @@ export async function wakeAgentForOpportunity(
     // Apply caller-supplied trust before the agent loop reads its per-turn
     // snapshot. Background jobs without an inbound message use this to
     // declare guardian trust so side-effect tools clear the approval gate.
-    if (opts.trustContext && target.setTrustContext) {
-      target.setTrustContext(opts.trustContext);
+    if (opts.trustContext) {
+      conversation.setTrustContext(opts.trustContext);
     }
 
-    const baseline = target.getMessages();
+    const baseline = conversation.getMessages();
     // Snapshot the baseline length BEFORE the run starts. Incremental
-    // persistence calls `target.pushMessage` mid-run, which grows the
+    // persistence pushes onto `conversation.messages` mid-run, which grows the
     // live history array `baseline` aliases. Reading `baseline.length`
     // post-run would therefore include the tail we just pushed and the
     // tail-slice math would skip every message.
     const baselineLength = baseline.length;
-    const wakeTurnContext = buildWakeTurnContext(opts, diskPressureDecision);
+    const wakeTrust = buildWakeTrust(opts, diskPressureDecision);
     // Build the hint injection. Three modes:
     //   - `skipHintInjection`: caller has already persisted an instruction
     //     message into the conversation history (typical for fork-based
@@ -674,7 +589,7 @@ export async function wakeAgentForOpportunity(
     };
     const safeEmit = (event: AgentEvent): void => {
       try {
-        target.emitAgentEvent(event);
+        emitWakeAgentEvent(conversation, event);
       } catch (err) {
         log.warn(
           { conversationId, source, err },
@@ -744,8 +659,8 @@ export async function wakeAgentForOpportunity(
     // Transition from buffered to live emission. Idempotent — only the
     // first call has an effect. Mutates the first assistant message in
     // the tail to prepend the ui_surface block, emits the live
-    // ui_surface event, then drains the buffered events through the
-    // target's translator. The translator is what stamps `conversationId`
+    // ui_surface event, then drains the buffered events through
+    // `emitWakeAgentEvent`. The translator is what stamps `conversationId`
     // and renames `text_delta` → `assistant_text_delta`; bypassing it
     // would ship malformed wire frames.
     const goLive = (currentHistory: Message[]): void => {
@@ -772,13 +687,13 @@ export async function wakeAgentForOpportunity(
         }
         surfaceInjected = true;
       }
-      if (!opts.suppressWakeSurface && target.onWakeProducedOutput) {
+      if (!opts.suppressWakeSurface) {
         try {
-          target.onWakeProducedOutput(source, hint, wakeSurfaceId);
+          broadcastWakeSurface(conversation, source, hint, wakeSurfaceId);
         } catch (err) {
           log.warn(
             { conversationId, source, err },
-            "agent-wake: onWakeProducedOutput threw; continuing",
+            "agent-wake: broadcastWakeSurface threw; continuing",
           );
         }
       }
@@ -815,11 +730,11 @@ export async function wakeAgentForOpportunity(
       if (start >= currentHistory.length) return;
       const newMessages = currentHistory.slice(start);
       for (const msg of newMessages) {
-        target.pushMessage(msg);
+        conversation.messages.push(msg);
       }
       for (const msg of newMessages) {
         try {
-          await target.persistTailMessage(msg);
+          await persistWakeTailMessage(conversation, msg);
         } catch (err) {
           log.warn(
             { conversationId, source, err, role: msg.role },
@@ -836,7 +751,7 @@ export async function wakeAgentForOpportunity(
     // silently violating the user's pinned preference. Resolve the effective
     // context budget here as well because wakes bypass the normal user-turn
     // path that computes it for tool-result truncation. Read before
-    // `markProcessing(true)` so a thrown DB/config read can't strand the
+    // `setProcessing(true)` so a thrown DB/config read can't strand the
     // processing flag.
     const overrideProfile = getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
@@ -864,15 +779,9 @@ export async function wakeAgentForOpportunity(
     };
     const applyWakeAllowedTools = (): boolean => {
       if (!opts.allowedTools) return true;
-      if (!target.setWakeAllowedTools) {
-        log.warn(
-          { conversationId, source, allowedTools: opts.allowedTools },
-          "agent-wake: target cannot apply requested tool allowlist; skipping",
-        );
-        return false;
-      }
       try {
-        restoreWakeToolScope = target.setWakeAllowedTools(
+        restoreWakeToolScope = scopeWakeAllowedTools(
+          conversation,
           new Set(opts.allowedTools),
         );
         return true;
@@ -891,11 +800,7 @@ export async function wakeAgentForOpportunity(
     // interleave writes to `conversation.messages`). This happens before
     // applying a wake-scoped tool allowlist so a concurrent user turn cannot
     // start under the wake's restricted tool set.
-    try {
-      target.markProcessing(true);
-    } catch (err) {
-      throw err;
-    }
+    conversation.setProcessing(true);
 
     // Fires after each tool-execution turn finalizes (assistant message
     // + matching tool_result user message both in history). A single
@@ -927,7 +832,7 @@ export async function wakeAgentForOpportunity(
 
       let updatedHistory: Message[];
       try {
-        ({ history: updatedHistory } = await target.agentLoop.run(
+        ({ history: updatedHistory } = await conversation.agentLoop.run(
           runInput,
           onEvent,
           {
@@ -940,7 +845,7 @@ export async function wakeAgentForOpportunity(
             // short-circuit and silently drop both per-callsite config and the
             // pinned `overrideProfile` below.
             callSite,
-            turnContext: wakeTurnContext,
+            trust: wakeTrust,
             overrideProfile,
             // Wake runs have no orchestrator-side mid-loop compaction path,
             // so the budget gate stays disabled (`overflowRecovery.enabled =
@@ -1004,34 +909,32 @@ export async function wakeAgentForOpportunity(
 
       // Drain queued messages AFTER tail is pushed + persisted so the
       // next dequeued user message sees the complete, up-to-date
-      // history. markProcessing(false) must come first (the queue only
+      // history. setProcessing(false) must come first (the queue only
       // accepts entries while processing === true, and drain expects
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
       restoreWakeAllowedTools();
       try {
-        target.markProcessing(false);
+        conversation.setProcessing(false);
       } catch (err) {
         log.warn(
           { conversationId, source, err },
-          "agent-wake: markProcessing(false) threw; continuing",
+          "agent-wake: setProcessing(false) threw; continuing",
         );
       }
-      if (target.drainQueue) {
-        try {
-          await target.drainQueue();
-        } catch (err) {
-          log.warn(
-            { conversationId, source, err },
-            "agent-wake: drainQueue threw; continuing",
-          );
-        }
+      try {
+        await conversation.drainQueue();
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: drainQueue threw; continuing",
+        );
       }
       drainedInTry = true;
 
       return { invoked: true, producedToolCalls };
     } finally {
-      // The success path (above) already called markProcessing(false)
+      // The success path (above) already called setProcessing(false)
       // + drainQueue after tail persist. This catch-all handles the
       // error and early-return paths where no tail was produced — those
       // exit the try body before reaching the drain block, so
@@ -1039,22 +942,20 @@ export async function wakeAgentForOpportunity(
       if (!drainedInTry) {
         restoreWakeAllowedTools();
         try {
-          target.markProcessing(false);
+          conversation.setProcessing(false);
         } catch (err) {
           log.warn(
             { conversationId, source, err },
-            "agent-wake: markProcessing(false) threw; continuing",
+            "agent-wake: setProcessing(false) threw; continuing",
           );
         }
-        if (target.drainQueue) {
-          try {
-            await target.drainQueue();
-          } catch (err) {
-            log.warn(
-              { conversationId, source, err },
-              "agent-wake: drainQueue threw; continuing",
-            );
-          }
+        try {
+          await conversation.drainQueue();
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: drainQueue threw; continuing",
+          );
         }
       }
 

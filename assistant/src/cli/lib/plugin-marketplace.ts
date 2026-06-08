@@ -1,0 +1,197 @@
+/**
+ * Read the curated plugin marketplace manifest from the canonical repo.
+ *
+ * The manifest at `experimental/plugins/marketplace.json` whitelists external
+ * ecosystem plugins so they appear in `assistant plugins search` / the web
+ * catalog and become installable by name. Its shape is a subset of the
+ * Claude Code marketplace manifest
+ * (https://code.claude.com/docs/en/plugin-marketplaces) — `name` + `owner` +
+ * a `plugins` array where each entry carries a `name` and a `source`. Only
+ * `github` sources are resolved today.
+ *
+ * Like the first-party plugin listing, the manifest is fetched from the repo
+ * at a git ref (via the GitHub Contents API) rather than bundled into the
+ * assistant build — so the whitelist can grow without shipping a new release.
+ * Every external source pins an explicit `ref` (tag/SHA/branch): the catalog
+ * is curated and the fetched code is version-locked, not a floating branch.
+ *
+ * Designed for direct programmatic use with an injected `fetch`, mirroring
+ * {@link ./search-plugins} and {@link ./install-from-github}.
+ */
+
+import { z } from "zod";
+
+// Type-only import: keeps the dependency direction one-way at runtime
+// (install-from-github resolves sources *through* this module) while still
+// sharing the injected-`fetch` shape.
+import type { FetchLike } from "./install-from-github.js";
+
+/** Canonical location of the marketplace manifest. */
+const MARKETPLACE_SOURCE_OWNER = "vellum-ai";
+const MARKETPLACE_SOURCE_REPO = "vellum-assistant";
+const MARKETPLACE_FILE_PATH = "experimental/plugins/marketplace.json";
+
+// ---------------------------------------------------------------------------
+// Manifest schema (subset of the Claude Code marketplace schema)
+// ---------------------------------------------------------------------------
+
+/** `owner/repo`, kebab/underscore/dot segments — matches GitHub's slug rules. */
+const REPO_SLUG_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/** Install name: a single kebab-case path segment (same rule as the CLI). */
+const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+
+const githubSourceSchema = z.object({
+  /** Discriminator. Only GitHub sources are resolved today. */
+  source: z.literal("github"),
+  /** `owner/repo` of the external plugin repository. */
+  repo: z.string().regex(REPO_SLUG_RE, "expected an `owner/repo` slug"),
+  /**
+   * Directory within the repo that holds the plugin root. Omitted / empty
+   * means the repository root. Must not escape the repo.
+   */
+  path: z
+    .string()
+    .refine(
+      (p) => !p.split(/[/\\]/).some((seg) => seg === ".." || seg === ""),
+      "path must be a clean repo-relative directory",
+    )
+    .optional(),
+  /**
+   * Git ref (tag, SHA, or branch) to fetch the plugin from. Required so every
+   * whitelisted external plugin is version-pinned.
+   */
+  ref: z.string().min(1),
+});
+
+const marketplaceEntrySchema = z.object({
+  /** Install name. `assistant plugins install <name>` resolves to this entry. */
+  name: z.string().regex(PLUGIN_NAME_RE, "expected a kebab-case install name"),
+  source: githubSourceSchema,
+  description: z.string().optional(),
+  /** Free-form grouping hint (e.g. `productivity`). Informational. */
+  category: z.string().optional(),
+  homepage: z.string().optional(),
+  license: z.string().optional(),
+});
+
+const marketplaceManifestSchema = z.object({
+  name: z.string(),
+  owner: z
+    .object({
+      name: z.string(),
+      url: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .optional(),
+  plugins: z.array(marketplaceEntrySchema),
+});
+
+/** A single whitelisted external plugin entry. */
+export type MarketplaceEntry = z.infer<typeof marketplaceEntrySchema>;
+
+/** Concrete GitHub coordinates an entry resolves to for install. */
+export interface ResolvedPluginSource {
+  readonly owner: string;
+  readonly repo: string;
+  /** Directory within the repo holding the plugin root; `""` = repo root. */
+  readonly path: string;
+  /** Git ref to fetch from. */
+  readonly ref: string;
+}
+
+/** Options controlling which marketplace revision to read. */
+export interface FetchMarketplaceOptions {
+  /** Ref of the canonical repo to read the manifest from. */
+  readonly ref: string;
+}
+
+/** Dependencies injected by the caller. */
+export interface FetchMarketplaceDeps {
+  /** HTTP client. Production callers pass `globalThis.fetch.bind(globalThis)`. */
+  readonly fetch: FetchLike;
+}
+
+/**
+ * The manifest could not be read or did not validate. Distinct from "no
+ * manifest at this ref" (a missing file is a normal, empty result) — this
+ * signals an upstream/parse problem the caller may choose to surface or
+ * degrade past.
+ */
+export class MarketplaceFetchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MarketplaceFetchError";
+  }
+}
+
+/**
+ * Fetch and validate the marketplace manifest, returning its plugin entries.
+ *
+ * A missing manifest (HTTP 404) is treated as an empty whitelist — the
+ * marketplace is supplementary to the first-party plugin listing, so its
+ * absence is not an error. Any other HTTP failure, a non-JSON body, or a
+ * schema violation throws {@link MarketplaceFetchError}.
+ */
+export async function fetchMarketplaceEntries(
+  deps: FetchMarketplaceDeps,
+  opts: FetchMarketplaceOptions,
+): Promise<readonly MarketplaceEntry[]> {
+  const { ref } = opts;
+  const url =
+    `https://api.github.com/repos/${MARKETPLACE_SOURCE_OWNER}/${MARKETPLACE_SOURCE_REPO}` +
+    `/contents/${MARKETPLACE_FILE_PATH}?ref=${encodeURIComponent(ref)}`;
+
+  const res = await deps.fetch(url, {
+    headers: {
+      // Ask for the raw file body rather than the base64-wrapped Contents
+      // envelope, so the response text is the manifest JSON directly.
+      Accept: "application/vnd.github.raw",
+      "User-Agent": "vellum-assistant-cli",
+    },
+  });
+
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    throw new MarketplaceFetchError(
+      `Marketplace manifest fetch failed for ${MARKETPLACE_FILE_PATH} @ ${ref}: HTTP ${res.status}`,
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(await res.text());
+  } catch (err) {
+    throw new MarketplaceFetchError(
+      `Marketplace manifest is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const parsed = marketplaceManifestSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new MarketplaceFetchError(
+      `Marketplace manifest failed validation: ${parsed.error.message}`,
+    );
+  }
+
+  return parsed.data.plugins;
+}
+
+/**
+ * Resolve a plugin name to concrete GitHub coordinates using the supplied
+ * marketplace entries. Returns `null` when no entry claims the name (the
+ * caller then falls back to the first-party source convention).
+ */
+export function resolveMarketplaceSource(
+  name: string,
+  entries: readonly MarketplaceEntry[],
+): ResolvedPluginSource | null {
+  const entry = entries.find((e) => e.name === name);
+  if (!entry) return null;
+  const [owner, repo] = entry.source.repo.split("/", 2) as [string, string];
+  return {
+    owner,
+    repo,
+    path: entry.source.path ?? "",
+    ref: entry.source.ref,
+  };
+}

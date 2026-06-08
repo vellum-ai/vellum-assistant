@@ -96,6 +96,16 @@ const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {
 } as const;
 
 /**
+ * Minimum buffer entries required for a scheduled consolidation run. The
+ * time-based schedule noops when `memory/buffer.md` has fewer non-empty lines
+ * than this threshold — the LLM cost of a full consolidation pass outweighs
+ * the benefit when the buffer is nearly empty. Mirrors the heartbeat
+ * max-consecutive-runs skip pattern. Manual "Run now" and the size-based
+ * trigger are not affected.
+ */
+export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
+
+/**
  * V1 job types that read or write the v1 Qdrant collection via
  * `getQdrantClient()`. When `memory.v2.enabled` is true, the v1 client is
  * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
@@ -815,6 +825,20 @@ export function maybeEnqueueGraphMaintenanceJobs(
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
     if (nowMs - lastRun >= intervalMs) {
+      // Noop scheduled consolidation when the buffer has too few entries to
+      // justify an LLM run — mirrors the heartbeat max-consecutive-runs skip.
+      // The checkpoint advances so the next check fires after the regular
+      // interval. Manual "Run now" is unaffected (routes layer, not schedule).
+      if (jobType === consolidateEntry.jobType) {
+        const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
+        if (countBufferLines(bufferPath) < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
+          log.debug(
+            "Scheduled consolidation skipped: buffer under minimum line threshold",
+          );
+          setMemoryCheckpoint(key, String(nowMs));
+          continue;
+        }
+      }
       const payload =
         jobType === consolidateEntry.jobType
           ? AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD

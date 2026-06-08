@@ -237,6 +237,35 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  ci-cli:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: cli
+
+      - name: Lint
+        run: bun run lint
+        working-directory: cli
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: cli
+
   # ── Docker Images ──────────────────────────────────────────────────────
 
   push-assistant-image:
@@ -1205,7 +1234,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release]
+    needs: [compute-version, register-release, register-preview-release, build-electron]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1234,6 +1263,7 @@ jobs:
           # This is the same anchor the changelog walk-back uses below, so a
           # failure downstream of register-release still posts the changelog.
           RELEASE_RESULT: ${{ needs.register-release.result }}
+          ELECTRON_RESULT: ${{ needs.build-electron.result }}
         run: |
           set -euo pipefail
 
@@ -1300,12 +1330,16 @@ jobs:
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
           LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
           RESOLVE_AUTHOR='if ((.author.login // "") | test("\\[bot\\]$")) then (([.commit.message | scan("(?i)co-authored-by:\\s*[^<]*<([^>]+)>")] | map(.[0]) | map(select(test("\\[bot\\]") | not)) | .[0]) // .author.login) else (.author.login // .commit.author.name) end'
+          # Prefix "@" only for GitHub logins. Email-style authors (resolved from
+          # a Co-authored-by trailer, e.g. "user@example.com") are left bare so
+          # Slack doesn't render a leading "@" + email as a noisy keyword mention.
+          MENTION='if test("@") then . else "@" + . end'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1315,7 +1349,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(\$a | ${MENTION})\"")
             fi
           fi
 
@@ -1334,19 +1368,35 @@ jobs:
           # Top-level blocks: header, "N commits since last dev release", buttons.
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
+          # When the release registered but the Electron build failed,
+          # swap the header emoji and append a warning so the notification
+          # surfaces the failure instead of looking fully green.
+          if [ "${ELECTRON_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            ELECTRON_WARNING='{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }'
+          else
+            HEADER_EMOJI="🚀"
+            ELECTRON_WARNING=""
+          fi
+
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
             --arg run_url "$RUN_URL" \
             --arg compare_url "$COMPARE_URL" \
+            --arg emoji "$HEADER_EMOJI" \
             '[
-              { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
+              { type: "header", text: { type: "plain_text", text: ($emoji + " Dev Release " + $version), emoji: true } },
               { type: "section", text: { type: "mrkdwn", text: $header } },
               { type: "actions", elements: [
                 { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
                 { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
               ] }
             ]')
+
+          if [ -n "$ELECTRON_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$ELECTRON_WARNING" '. += [$warn]')
+          fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
           # respect Slack's 3000-char-per-section limit.
@@ -1760,10 +1810,9 @@ jobs:
   # ── Electron DMG ──────────────────────────────────────────────────────
 
   build-electron:
-    needs: [compute-version]
+    needs: [compute-version, publish-meta-dev]
     runs-on: macos-26
     timeout-minutes: 30
-    continue-on-error: true
     defaults:
       run:
         working-directory: apps/macos
@@ -1818,8 +1867,37 @@ jobs:
         with:
           packages: packages/environments packages/local-mode
 
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: |
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+
+      - name: Generate API clients
+        working-directory: apps/web
+        run: bun run openapi-ts
+
+      - name: Build web SPA
+        working-directory: apps/web
+        env:
+          VITE_PLATFORM_MODE: "false"
+        run: bun run build
+
+      - name: Bundle web dist into Electron resources
+        run: mkdir -p resources && cp -R ../../apps/web/dist resources/web-dist
+
       - name: Stamp dev version into package.json
         run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+      - name: Stamp PINNED_CLI_VERSION for dev
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          sed -i '' "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" src/main/cli-installer.ts
 
       - name: Build and package Electron app
         env:
@@ -1921,6 +1999,139 @@ jobs:
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
+
+  # ── Dev npm publishing ─────────────────────────────────────────────────
+
+  publish-npm-dev:
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Sync feature flag registry
+        run: bun run meta/feature-flags/sync-bundled-copies.ts
+      - name: Stamp dev version
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
+      - name: Install and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd "${{ matrix.package }}"
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
+
+  publish-web-dev:
+    name: publish-npm-dev (web)
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: |
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      - name: Generate API clients
+        working-directory: apps/web
+        run: bun run openapi-ts
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+      - name: Build
+        working-directory: apps/web
+        env:
+          VITE_PLATFORM_MODE: "false"
+        run: bun run build
+      - name: Rewrite package.json for publish
+        working-directory: apps/web
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
+      - name: Publish
+        working-directory: apps/web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
+
+  publish-meta-dev:
+    name: publish-npm-dev (meta)
+    needs: [compute-version, publish-npm-dev, publish-web-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Stamp dev version into meta package.json
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          cd meta
+          jq --arg v "$VERSION" '
+            .version = $v |
+            .dependencies["@vellumai/assistant"] = $v |
+            .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/credential-executor"] = $v |
+            .dependencies["@vellumai/vellum-gateway"] = $v |
+            .dependencies["@vellumai/web"] = $v
+          ' package.json > tmp && mv tmp package.json
+      - name: Publish
+        working-directory: meta
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish --tag dev --access public --no-provenance
 
   # ── Sparkle Rolling Release ────────────────────────────────────────────
   # ── Upload Sparkle artifacts to GCS ───────────────────────────────────

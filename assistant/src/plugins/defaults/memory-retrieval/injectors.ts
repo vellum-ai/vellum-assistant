@@ -3,8 +3,8 @@
  * drives the per-turn injection sequence consumed by
  * `applyRuntimeInjections`.
  *
- * Each default injector reads its per-turn inputs from
- * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
+ * Each default injector reads its per-turn inputs directly off the
+ * {@link TurnContext}, runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
  * {@link InjectionPlacement} that yields the canonical positional
@@ -47,6 +47,7 @@ import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
+import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
@@ -72,8 +73,8 @@ import {
   type InjectionBlock,
   type Injector,
   type TurnContext,
-  type TurnInjectionInputs,
 } from "../../types.js";
+import { buildUnifiedTurnContextBlock } from "./unified-turn-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -112,10 +113,6 @@ export const DEFAULT_INJECTOR_ORDER = {
   threadFocus: 70,
 } as const satisfies Record<string, number>;
 
-function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
-  return ctx.injectionInputs ?? {};
-}
-
 export const DISK_PRESSURE_WARNING_PROMPT = `<disk_pressure_warning>
 Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is critically full.
 
@@ -126,12 +123,22 @@ Then help the user clean up storage. Prefer safe inspection steps first, such as
 Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
 </disk_pressure_warning>`;
 
+/**
+ * `disk-pressure-warning` injector — order 5, prepend-user-tail.
+ *
+ * Emits the storage cleanup-mode warning at the very top of the user tail when
+ * the turn is restricted to disk-pressure cleanup. Reads the cleanup-mode flag
+ * off the live `Conversation` looked up by conversation id — the agent loop
+ * sets `diskPressureCleanupModeActive` when it classifies the turn's
+ * disk-pressure policy — rather than having the loop thread it as an injection
+ * input.
+ */
 const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (!inputs.diskPressureContext?.cleanupModeActive) return null;
+    const conversation = findConversationOrSubagent(ctx.conversationId);
+    if (!conversation?.diskPressureCleanupModeActive) return null;
     return {
       id: "disk-pressure-warning",
       text: DISK_PRESSURE_WARNING_PROMPT,
@@ -190,8 +197,7 @@ const workspaceContextInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const text = resolveWorkspaceTopLevelContext(ctx.conversationId);
     if (!text) return null;
@@ -225,9 +231,8 @@ const backgroundTurnInjector: Injector = {
   name: "background-turn",
   order: DEFAULT_INJECTOR_ORDER.backgroundTurn,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (!inputs.isBackgroundConversation) return null;
-    if (!inputs.isNonInteractive) return null;
+    if (!ctx.isBackgroundConversation) return null;
+    if (!ctx.isNonInteractive) return null;
     const inner = getConfig().conversations.backgroundInjection;
     if (!inner) return null;
     return {
@@ -241,10 +246,11 @@ const backgroundTurnInjector: Injector = {
 /**
  * `unified-turn-context` injector — order 20, prepend-user-tail.
  *
- * Injects the pre-built `<turn_context>` block that combines temporal,
- * actor, channel, and interface context. The orchestrator builds the text
- * via `buildUnifiedTurnContextBlock` before the chain runs and hands it in
- * via `ctx.injectionInputs.unifiedTurnContext`.
+ * Injects the `<turn_context>` block that combines temporal, actor, channel,
+ * and interface context. The orchestrator resolves the block's inputs onto the
+ * per-turn {@link TurnContext}; this injector builds the text from them
+ * via `buildUnifiedTurnContextBlock`. Emits nothing when no `timestamp` is
+ * present (the inputs were not resolved for this turn).
  *
  * Active in both `full` and `minimal` mode — unified turn context is
  * safety-critical grounding that must survive injection downgrade.
@@ -253,9 +259,19 @@ const unifiedTurnContextInjector: Injector = {
   name: "unified-turn-context",
   order: DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const text = inputs.unifiedTurnContext;
-    if (!text) return null;
+    const { timestamp } = ctx;
+    if (!timestamp) return null;
+    const text = buildUnifiedTurnContextBlock({
+      timestamp,
+      interfaceName: ctx.interfaceName,
+      channelName: ctx.channelName,
+      actorContext: ctx.actorContext,
+      configuredUserTimezone: ctx.configuredUserTimezone,
+      clientTimezone: ctx.clientTimezone,
+      detectedTimezone: ctx.detectedTimezone,
+      timeSinceLastMessage: ctx.timeSinceLastMessage,
+      modelProfile: ctx.modelProfile,
+    });
     return {
       id: "unified-turn-context",
       text,
@@ -296,8 +312,7 @@ const pkbContextInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     if (isPkbInjectionSilencedByV2()) return null;
     const content = readGatedPkbContext(ctx.trust);
@@ -332,8 +347,7 @@ const pkbReminderInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     if (!isPkbActive(ctx.trust)) return null;
     if (isPkbInjectionSilencedByV2()) return null;
@@ -422,27 +436,40 @@ const NOW_MD_BLOCK_PREFIXES = [
  * merely starting with `<info>\n` is never mistaken for an injection — matching
  * the full-wrapper requirement the compaction strip uses for this block.
  *
- * The static block is wrapped in `<info>…</info>` today, but rows persisted
- * before that switch rehydrate verbatim as `<memory>…</memory>` (see
- * `conversation-lifecycle`), so the legacy wrapper counts as present too.
- * Matching `<memory>` cannot wrongly skip a needed injection: the static block
- * is only (re)injected on the first turn (empty history) and right after
- * compaction (which strips both wrappers), and on neither is a `<memory>` block
- * present — the dynamic activation `<memory>` block only survives on normal
- * cached turns, which is exactly when this injector must skip anyway.
+ * Match ONLY the `<info>…</info>` wrapper — the form the static block is always
+ * written as today (see {@link buildMemoryV2StaticBlock}). The matcher must NOT
+ * also match `<memory>…</memory>`: the v2 *dynamic* activation block uses that
+ * same wrapper and `prepareMemory` prepends it to the tail user message every
+ * turn, before this injector chain runs. Counting `<memory>` as "static block
+ * already present" made the static injector skip on essentially every turn —
+ * including the first turn and right after compaction, where the dynamic block
+ * is re-added ahead of the chain — which dropped the `<info>` block entirely.
+ *
+ * Tradeoff: a conversation whose static block was persisted under the legacy
+ * `<memory>` wrapper (pre-`<info>` switch) is no longer recognized here, so its
+ * first post-fix turn may briefly carry both the stale `<memory>` view and a
+ * fresh `<info>` block. That is rare (ancient histories only), cosmetic, and
+ * self-heals on the next compaction (which strips both wrappers).
  */
 const MEMORY_V2_STATIC_BLOCK_MATCHERS: readonly InjectionMatcher[] = [
   { prefix: "<info>\n", suffix: "\n</info>" },
-  { prefix: "<memory>\n", suffix: "\n</memory>" },
 ];
 
 /**
  * Whether a block matching any of the given matchers is already present in the
- * turn's working messages. Mirrors `stripUserTextBlocksByPrefix` (a
- * user-message text block whose content matches a bare-prefix or a
- * `{ prefix, suffix }` wrapper matcher), so presence detection stays in
- * lockstep with what compaction strips: a block is present here exactly when
- * compaction would strip it.
+ * turn's working messages — used to skip re-injection of a block the history
+ * already carries.
+ *
+ * Recognizes both the canonical standalone form (a text block that IS the
+ * wrapper) and the "flattened" form where the wrapper sits as a newline-
+ * delimited section inside a larger text block (see {@link textCarriesInjection}).
+ *
+ * Detection is intentionally BROADER than `stripUserTextBlocksByPrefix`, which
+ * stays whole-block-only: re-injection must be suppressed even when a historical
+ * user message's separate injection blocks have been collapsed into one text
+ * block, whereas the strip must never delete a block that also holds the user's
+ * own text. (A flattened block is summarized away at the next compaction, where
+ * fresh injection resumes.)
  */
 function hasInjectedUserTextBlock(
   runMessages: Message[] | undefined,
@@ -455,14 +482,42 @@ function hasInjectedUserTextBlock(
       message.content.some(
         (block) =>
           block.type === "text" &&
-          matchers.some((m) =>
-            typeof m === "string"
-              ? block.text.startsWith(m)
-              : block.text.startsWith(m.prefix) &&
-                block.text.endsWith(m.suffix),
-          ),
+          matchers.some((m) => textCarriesInjection(block.text, m)),
       ),
   );
+}
+
+/**
+ * Whether `text` carries an injected block matching `matcher`, recognizing both
+ * the canonical standalone form (the text IS the wrapper) and a "flattened"
+ * form where the wrapper sits as a newline-delimited section inside a larger
+ * text block.
+ *
+ * The flattened form arises when a historical user message's separate injection
+ * content blocks get collapsed into a single text block joined with "\n" —
+ * observed when a daemon restart / plugin hot-reload rebuilt the rendered
+ * history mid-conversation. Without recognizing it, the standalone-only check
+ * returns false for the carried block and the injector re-injects a duplicate
+ * `<workspace>` / `<info>` onto the new tail.
+ *
+ * Anchoring on line boundaries ("\n" before the opening tag, and "\n" or the
+ * block edge after the closing tag) keeps the false-positive surface as narrow
+ * as the standalone check: ordinary prose would have to contain the exact
+ * wrapper as its own line-delimited section to be mistaken for an injection. The
+ * `{ prefix, suffix }` form still requires BOTH tags, so a message that opens
+ * (but never closes) an injection-like tag never suppresses injection.
+ */
+function textCarriesInjection(
+  text: string,
+  matcher: InjectionMatcher,
+): boolean {
+  if (typeof matcher === "string") {
+    return text.startsWith(matcher) || text.includes(`\n${matcher}`);
+  }
+  const { prefix, suffix } = matcher;
+  const hasOpen = text.startsWith(prefix) || text.includes(`\n${prefix}`);
+  const hasClose = text.endsWith(suffix) || text.includes(`${suffix}\n`);
+  return hasOpen && hasClose;
 }
 
 /**
@@ -588,8 +643,7 @@ const memoryV2StaticInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const content = readGatedMemoryV2Static(ctx.trust);
     if (!content) return null;
@@ -643,8 +697,7 @@ const nowMdInjector: Injector = {
     ctx: TurnContext,
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     const content = readGatedNowScratchpad(ctx.trust);
     if (!content) return null;
@@ -674,10 +727,9 @@ const activeDocumentsInjector: Injector = {
   name: "active-documents",
   order: DEFAULT_INJECTOR_ORDER.activeDocuments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const docs = inputs.activeDocuments;
+    const docs = ctx.activeDocuments;
     if (!docs || docs.length === 0) return null;
     const lines = docs.map(
       (d) =>
@@ -722,10 +774,9 @@ const documentCommentsInjector: Injector = {
   name: "document-comments",
   order: DEFAULT_INJECTOR_ORDER.documentComments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const docs = inputs.activeDocuments;
+    const docs = ctx.activeDocuments;
     if (!docs || docs.length === 0) return null;
 
     const sections: string[] = [];
@@ -769,9 +820,9 @@ ${sections.join("\n\n")}
  * Appends a pre-built `<active_subagents>` block to the tail user message
  * so the parent LLM has visibility into active/completed child subagents.
  *
- * The orchestrator builds the block via `buildSubagentStatusBlock` before
- * the chain runs; this injector is a thin passthrough that applies gating
- * and positioning.
+ * `applyRuntimeInjections` resolves the block from the live subagent manager
+ * before the chain runs; this injector is a thin passthrough that applies
+ * gating and positioning.
  *
  * Gating:
  *  - `mode === "full"`.
@@ -781,10 +832,9 @@ const subagentStatusInjector: Injector = {
   name: "subagent-status",
   order: DEFAULT_INJECTOR_ORDER.subagentStatus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const block = inputs.subagentStatusBlock;
+    const block = ctx.subagentStatusBlock;
     if (!block) return null;
     return {
       id: "subagent-status",
@@ -819,9 +869,8 @@ const slackMessagesInjector: Injector = {
   name: "slack-messages",
   order: DEFAULT_INJECTOR_ORDER.slackMessages,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    if (inputs.channelCapabilities?.channel !== "slack") return null;
-    const messages = inputs.slackChronologicalMessages;
+    if (ctx.channelCapabilities?.channel !== "slack") return null;
+    const messages = ctx.slackChronologicalMessages;
     if (!messages || messages.length === 0) return null;
     return {
       id: "slack-messages",
@@ -858,14 +907,13 @@ const threadFocusInjector: Injector = {
   name: "thread-focus",
   order: DEFAULT_INJECTOR_ORDER.threadFocus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    const inputs = readInjectionInputs(ctx);
-    const mode = inputs.mode ?? "full";
+    const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const caps = inputs.channelCapabilities;
+    const caps = ctx.channelCapabilities;
     if (!caps || caps.channel !== "slack" || caps.chatType !== "channel") {
       return null;
     }
-    const block = inputs.slackActiveThreadFocusBlock;
+    const block = ctx.slackActiveThreadFocusBlock;
     if (typeof block !== "string" || block.length === 0) return null;
     return {
       id: "thread-focus",

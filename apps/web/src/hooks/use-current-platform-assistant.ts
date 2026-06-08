@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
-import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 const PLATFORM_LIST_OPTIONS = assistantsListOptions({
@@ -27,7 +27,8 @@ export interface UseCurrentPlatformAssistantResult {
  */
 export function useCurrentPlatformAssistant(): UseCurrentPlatformAssistantResult {
   const orgId = useOrganizationStore.use.currentOrganizationId();
-  const byOrg = useCurrentPlatformAssistantStore.use.byOrg();
+  const byOrg =
+    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
 
   const storedId = orgId ? (byOrg[orgId] ?? null) : null;
 
@@ -56,16 +57,18 @@ export function useCurrentPlatformAssistant(): UseCurrentPlatformAssistantResult
     if (platformAssistants.length === 0) return;
     if (resolvedId === storedId) return;
     if (resolvedId != null && orgId) {
-      useCurrentPlatformAssistantStore
+      useResolvedAssistantsStore
         .getState()
-        .setAssistantId(orgId, resolvedId);
+        .setSelectedPlatformAssistant(orgId, resolvedId);
     }
   }, [isListLoaded, platformAssistants.length, resolvedId, storedId, orgId]);
 
   const setAssistantId = useCallback(
     (id: string | null) => {
       if (!orgId) return;
-      useCurrentPlatformAssistantStore.getState().setAssistantId(orgId, id);
+      useResolvedAssistantsStore
+        .getState()
+        .setSelectedPlatformAssistant(orgId, id);
     },
     [orgId],
   );

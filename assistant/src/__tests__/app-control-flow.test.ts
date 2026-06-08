@@ -103,7 +103,7 @@ const { ROUTES } = await import("../runtime/routes/host-app-control-routes.js");
 const { surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 const { setConversation, clearConversations } =
-  await import("../daemon/conversation-store.js");
+  await import("../daemon/conversation-registry.js");
 type SurfaceConversationContext =
   import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
 

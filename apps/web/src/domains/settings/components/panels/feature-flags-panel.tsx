@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { client } from "@/generated/api/client.gen";
 import { fetchAssistantFlagValues } from "@/hooks/use-assistant-feature-flag-sync";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import {
     ALL_FLAGS,
@@ -16,8 +18,27 @@ import {
 import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { cn } from "@vellumai/design-library";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+interface FlagDefinitionResponse {
+  key: string;
+  type: "boolean" | "string";
+  values?: string[];
+}
+
+async function fetchFlagDefinitions(): Promise<FlagDefinitionResponse[]> {
+  const { data, response } = await client.get<
+    { flags: FlagDefinitionResponse[] },
+    Record<string, unknown>,
+    false
+  >({ url: "/v1/feature-flags/", throwOnError: false });
+  if (!response?.ok) return [];
+  const parsed = data as { flags?: FlagDefinitionResponse[] } | undefined;
+  return parsed?.flags ?? [];
+}
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
   client: "warning",
@@ -42,6 +63,7 @@ type FlagDisplayEntry =
       description: string;
       value: string;
       defaultValue: string;
+      values?: string[];
     };
 
 export function FeatureFlagsPanel() {
@@ -60,6 +82,25 @@ export function FeatureFlagsPanel() {
     ...freshness,
     retry: 1,
   });
+
+  const isOrgReady = useIsOrgReady();
+  const { data: definitions } = useQuery({
+    queryKey: ["feature-flag-definitions"],
+    queryFn: fetchFlagDefinitions,
+    enabled: isOrgReady,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const valuesMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!definitions) return map;
+    for (const def of definitions) {
+      if (def.type === "string" && def.values?.length) {
+        map.set(def.key, def.values);
+      }
+    }
+    return map;
+  }, [definitions]);
 
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();
@@ -104,13 +145,14 @@ export function FeatureFlagsPanel() {
           description: flag.description,
           value,
           defaultValue: flag.defaultEnabled,
+          values: valuesMap.get(flag.key) ?? flag.values,
         });
       }
     }
     return entries.sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
-  }, [clientState, assistantState]);
+  }, [clientState, assistantState, valuesMap]);
 
   const filteredFlags = useMemo(() => {
     if (!searchText.trim()) {
@@ -253,14 +295,22 @@ function StringFlagRow({
     setLocalValue(flag.value);
   }, [flag.value]);
 
-  const handleBlur = () => {
-    if (localValue === flag.value) return;
+  const commitValue = (next: string) => {
+    if (next === flag.value) return;
     if (scopeIncludes(flag.scope, "client")) {
-      clientSetStringFlag(flag.storeKey, localValue);
+      clientSetStringFlag(flag.storeKey, next);
     }
     if (scopeIncludes(flag.scope, "assistant")) {
-      assistantSetStringFlag(flag.storeKey, localValue, assistantId);
+      assistantSetStringFlag(flag.storeKey, next, assistantId);
     }
+  };
+
+  const isDirty = localValue !== flag.value;
+  const knownValues = flag.values && flag.values.length > 0 ? flag.values : null;
+  const isInvalid = isDirty && knownValues != null && !knownValues.includes(localValue);
+
+  const handleBlur = () => {
+    if (!isInvalid) commitValue(localValue);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -268,6 +318,8 @@ function StringFlagRow({
       e.currentTarget.blur();
     }
   };
+
+  const hasDropdown = knownValues != null && knownValues.includes(flag.value);
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -281,15 +333,40 @@ function StringFlagRow({
         <span className="block text-body-small-default text-[var(--content-tertiary)]">
           {flag.description}
         </span>
-        <input
-          type="text"
-          value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
-          placeholder={flag.defaultValue || "Enter value..."}
-        />
+        {hasDropdown ? (
+          <Dropdown
+            value={flag.value}
+            onChange={(next) => {
+              setLocalValue(next);
+              commitValue(next);
+            }}
+            options={knownValues.map((v) => ({ value: v, label: v }))}
+            className="w-48"
+            aria-label={`${flag.label} value`}
+          />
+        ) : (
+          <div className="space-y-1">
+            <input
+              type="text"
+              value={localValue}
+              onChange={(e) => setLocalValue(e.target.value)}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className={cn(
+                "w-full rounded-lg border bg-[var(--surface-default)] px-3 py-1.5 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none",
+                isInvalid
+                  ? "border-[var(--system-negative-strong)]"
+                  : "border-[var(--border-base)] focus:border-[var(--border-focus)]",
+              )}
+              placeholder={flag.defaultValue || "Enter value..."}
+            />
+            {isInvalid && (
+              <span className="block text-body-small-default text-[var(--system-negative-strong)]">
+                Expected one of: {knownValues!.join(", ")}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <span className="text-body-small-default text-[var(--content-tertiary)]">
             Default:

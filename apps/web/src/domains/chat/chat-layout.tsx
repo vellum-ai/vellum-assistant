@@ -15,7 +15,7 @@ import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { haptic } from "@/utils/haptics";
@@ -43,6 +43,7 @@ import {
     useConversationGroupsQuery,
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -150,7 +151,7 @@ interface SideMenuRenderArgs {
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
  * keyboard shortcuts (Ctrl+\, Ctrl+[/], Ctrl+K), and the chat header
- * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
+ * bar. Reads the resolved assistant from `useResolvedAssistantsStore`,
  * the lifecycle phase from `useAssistantLifecycleStore`, and header
  * slot content from `useChatLayoutSlotsStore` (which child routes
  * write to from their own effects).
@@ -160,7 +161,14 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+
+  // Capture pop-out mode once at mount so it persists across in-window
+  // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
+  // persistent layout route — it stays mounted when child routes change, so
+  // this initial value remains stable for the window's lifetime.
+  const [isPopout] = useState(() => location.search.includes("popout=1"));
+
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,
   );
@@ -566,6 +574,12 @@ export function ChatLayout() {
       const next = conversations[idx + 1];
       if (next) handleSelectConversation(next.conversationId);
     },
+    popOut: () => {
+      if (!activeConversationId) {
+        return;
+      }
+      void openPopoutWindow(activeConversationId);
+    },
   });
 
   const handleOpenLibrary = useCallback(() => {
@@ -671,6 +685,7 @@ export function ChatLayout() {
       />
     ),
     [
+      activeConversationId,
       assistantId,
       assistantName,
       assistantVersion,
@@ -706,24 +721,26 @@ export function ChatLayout() {
 
   return (
     <>
-      <ChatLayoutHeader
-        isMobile={isMobile}
-        drawerOpen={drawerOpen}
-        collapsed={collapsed}
-        sidebarWidth={sidebarWidth}
-        toggleSidebar={toggleSidebar}
-        topBarCenter={topBarCenter}
-        topBarRightSlot={topBarRightSlot}
-        canGoBack={canGoBack}
-        canGoForward={canGoForward}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
-        onOpenHome={handleOpenHome}
-        isHomeActive={isHomeActive}
-        hasUnreadHome={hasUnreadHome}
-      />
+      {!isPopout && (
+        <ChatLayoutHeader
+          isMobile={isMobile}
+          drawerOpen={drawerOpen}
+          collapsed={collapsed}
+          sidebarWidth={sidebarWidth}
+          toggleSidebar={toggleSidebar}
+          topBarCenter={topBarCenter}
+          topBarRightSlot={topBarRightSlot}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={handleGoBack}
+          onGoForward={handleGoForward}
+          onOpenHome={handleOpenHome}
+          isHomeActive={isHomeActive}
+          hasUnreadHome={hasUnreadHome}
+        />
+      )}
 
-      <OfflineBanner />
+      {!isPopout && <OfflineBanner />}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -761,6 +778,10 @@ export function ChatLayout() {
             </div>
           ) : null}
         </main>
+      ) : isPopout ? (
+        <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+          <Outlet />
+        </main>
       ) : (
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
@@ -771,7 +792,7 @@ export function ChatLayout() {
             {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet  />
+            <Outlet />
           </main>
         </div>
       )}
@@ -861,7 +882,7 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
 // ---------------------------------------------------------------------------
 
 function ChatConversationHeader() {
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();

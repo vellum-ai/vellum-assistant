@@ -23,34 +23,12 @@ import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
+import {
+  clearHistory,
+  insertHistoryRow,
+  readHistoryRow,
+} from "./helpers/acp-history-db.js";
 initializeDb();
-
-function clearHistory() {
-  getSqlite().run("DELETE FROM acp_session_history");
-}
-
-interface HistoryRow {
-  id: string;
-  agent_id: string;
-  acp_session_id: string;
-  parent_conversation_id: string;
-  started_at: number;
-  completed_at: number | null;
-  status: string;
-  stop_reason: string | null;
-  error: string | null;
-  event_log_json: string;
-}
-
-function readHistoryRow(id: string): HistoryRow | null {
-  return getSqlite()
-    .query(
-      `SELECT id, agent_id, acp_session_id, parent_conversation_id,
-              started_at, completed_at, status, stop_reason, error, event_log_json
-       FROM acp_session_history WHERE id = ?`,
-    )
-    .get(id) as HistoryRow | null;
-}
 
 /**
  * Builds a manager with a fake session pre-injected and returns the handles
@@ -61,6 +39,7 @@ function buildSessionWithFakeProcess(opts: {
   agentId: string;
   protocolSessionId: string;
   parentConversationId: string;
+  cwd?: string;
 }): {
   manager: AcpSessionManager;
   resolvePrompt: (v: { stopReason: string }) => void;
@@ -126,7 +105,7 @@ function buildSessionWithFakeProcess(opts: {
     sendToVellum: wrappedSend,
     currentPrompt: null as Promise<unknown> | null,
     parentConversationId: opts.parentConversationId,
-    cwd: "/tmp",
+    cwd: opts.cwd ?? "/tmp",
     command: "claude-agent-acp",
   };
   sessions.set(opts.id, entry);
@@ -343,6 +322,94 @@ describe("AcpSessionManager — terminal persistence", () => {
     // Persisted JSON must respect the 256 KB cap (allowing a small margin
     // for the surrounding `[…]` and inter-element commas).
     expect(row!.event_log_json.length).toBeLessThan(256 * 1024 + 1024);
+  });
+
+  test("persists the spawn cwd on terminal transition", async () => {
+    const id = "session-cwd-1";
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-cwd",
+      protocolSessionId: "proto-cwd",
+      parentConversationId: "conv-cwd",
+      cwd: "/Users/me/projects/widget",
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.cwd).toBe("/Users/me/projects/widget");
+  });
+
+  test("legacy rows without a cwd read back as null", () => {
+    insertHistoryRow({
+      id: "legacy-row-1",
+      agentId: "agent-legacy",
+      acpSessionId: "proto-legacy",
+      parentConversationId: "conv-legacy",
+      startedAt: 1000,
+      completedAt: null,
+      status: "completed",
+      stopReason: null,
+      cwd: null,
+    });
+
+    const row = readHistoryRow("legacy-row-1");
+    expect(row).not.toBeNull();
+    expect(row!.cwd).toBeNull();
+  });
+
+  test("upserts over a pre-existing row with the same id (resumed runs)", async () => {
+    const id = "session-upsert-1";
+    // Simulate the row left behind by the original run that a resumed run
+    // reuses the id of.
+    insertHistoryRow({
+      id,
+      agentId: "agent-up",
+      acpSessionId: "proto-up",
+      parentConversationId: "conv-up",
+      startedAt: 1000,
+      completedAt: 2000,
+      status: "cancelled",
+      stopReason: "daemon_restarted",
+      eventLogJson: '[{"old":true}]',
+      cwd: "/old/cwd",
+    });
+
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-up",
+      protocolSessionId: "proto-up",
+      parentConversationId: "conv-up",
+      cwd: "/new/cwd",
+    });
+
+    handles.emitUpdate({
+      type: "acp_session_update",
+      acpSessionId: id,
+      updateType: "agent_message_chunk",
+      content: "from the resumed run",
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const count = getSqlite()
+      .query(`SELECT COUNT(*) AS n FROM acp_session_history WHERE id = ?`)
+      .get(id) as { n: number };
+    expect(count.n).toBe(1);
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.status).toBe("completed");
+    expect(row!.stop_reason).toBe("end_turn");
+    expect(row!.cwd).toBe("/new/cwd");
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ content: "from the resumed run" });
   });
 
   test("persists empty event log when no updates were emitted", async () => {

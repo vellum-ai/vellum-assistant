@@ -196,7 +196,7 @@ type MockConversation = {
 };
 let mockConversations: Map<string, MockConversation> = new Map();
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => mockConversations.get(id),
 }));
 

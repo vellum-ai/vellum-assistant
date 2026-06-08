@@ -17,7 +17,7 @@
  *
  * Returns:
  * - Refs consumed by `useSendMessage` and `useConversationLoader` (shared ownership)
- * - Flags consumed by `ChatRouteContent` via props
+ * - Flags consumed by `ChatMainPanel` via props
  */
 
 import { type MutableRefObject, useEffect, useRef, useState } from "react";

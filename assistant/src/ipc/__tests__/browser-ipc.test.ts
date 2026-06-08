@@ -55,7 +55,7 @@ mock.module("../../browser/operations.js", () => ({
   },
 }));
 
-mock.module("../../daemon/conversation-store.js", () => ({
+mock.module("../../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) => {
     mockFindConversationCalls.push(conversationId);
     return mockConversation ?? undefined;

@@ -507,7 +507,9 @@ describe("assistant db repair — conversation-backfill step", () => {
     expect(parsed.steps[1].result.data.recovered).toBe(0);
     expect(parsed.steps[1].result.data.skipped).toBe(1);
     expect(parsed.steps[1].result.status).toBe("ok");
-  });
+    // Two full repair passes (each walks the DB via integrity-check) exceed
+    // bun's 5s per-test default, so raise the ceiling to keep CI stable.
+  }, 30_000);
 
   test("reports nothing-to-backfill on an empty conversations dir", async () => {
     await initSchema();

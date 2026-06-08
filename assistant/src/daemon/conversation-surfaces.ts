@@ -1960,6 +1960,15 @@ export function refreshSurfacesForApp(
   return refreshed;
 }
 
+/**
+ * Strip a leading "Connect "/"Connected " verb from an OAuth provider label so
+ * a supplied displayName like "Connect Gmail" doesn't double the verb when
+ * prefixed (e.g. avoids "Connected Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
+}
+
 export function buildCompletionSummary(
   surfaceType: string | undefined,
   actionId: string,
@@ -2026,20 +2035,24 @@ export function buildCompletionSummary(
           : typeof data?.providerKey === "string"
             ? data.providerKey
             : "OAuth";
+    // Strip the verb once so every branch (connected/cancelled/failed/
+    // fallback) is normalized — a displayName like "Connect Gmail" must not
+    // produce "Cancelled Connect Gmail connection".
+    const label = stripConnectVerb(providerLabel);
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
       return accountLabel
-        ? `Connected ${providerLabel}: ${accountLabel}`
-        : `Connected ${providerLabel}`;
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
-      return `Cancelled ${providerLabel} connection`;
+      return `Cancelled ${label} connection`;
     }
     if (data?.status === "error") {
-      return `${providerLabel} connection failed`;
+      return `${label} connection failed`;
     }
-    return `${providerLabel} connection ${actionId}`;
+    return `${label} connection ${actionId}`;
   }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
@@ -2120,18 +2133,21 @@ function buildUserFacingLabel(
           : typeof data?.providerKey === "string"
             ? data.providerKey
             : "OAuth";
+    // Strip the verb once so every branch is normalized (e.g. a displayName
+    // like "Connect Gmail" must not produce "Connect Gmail connection failed").
+    const label = stripConnectVerb(providerLabel);
     const accountLabel =
       typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
     if (actionId === "connect" || data?.status === "connected") {
       return accountLabel
-        ? `Connected ${providerLabel}: ${accountLabel}`
-        : `Connected ${providerLabel}`;
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
     }
     if (actionId === "cancel" || data?.status === "cancelled") {
       return "Cancelled";
     }
     if (data?.status === "error") {
-      return `${providerLabel} connection failed`;
+      return `${label} connection failed`;
     }
     return `Selected: ${actionId}`;
   }

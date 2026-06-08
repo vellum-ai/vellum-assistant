@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { client } from "@/generated/api/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getBrowserTimezone } from "@/utils/browser-timezone";
@@ -42,7 +42,7 @@ export function TimezoneSync(): null {
   // changes, re-running the effect below. The detected value is re-read
   // imperatively inside `trySync` from `getBrowserTimezone()`.
   const effectiveTz = useEffectiveTimezone();
-  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const { mutateAsync: patchTimezone } = useMutation({
     mutationFn: async (vars: { assistantId: string; detectedTimezone: string }) => {

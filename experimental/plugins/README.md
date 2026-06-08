@@ -16,6 +16,7 @@ canonical reference implementation and exercises every wired surface.
 - [Public API surface](#public-api-surface--vellumaiplugin-api)
 - [Hooks](#hooks)
 - [Tools](#tools)
+- [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
 ---
@@ -51,8 +52,10 @@ my-plugin/
 │   ├── init.ts                # Bootstrap
 │   ├── shutdown.ts            # Teardown
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
+│   ├── pre-model-call.ts      # Per-call request edit / output-defer
 │   ├── post-tool-use.ts       # Per-tool-result transform
 │   ├── stop.ts                # Per-run stop-boundary decision
+│   ├── assistant-message.ts   # Per-message reply transform
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -210,6 +213,35 @@ The hook fires **exactly once per user turn**, at the primary
 sites further down in the conversation agent loop deliberately do
 **not** refire: they're not new user submissions.
 
+### `pre-model-call`
+
+Fires **immediately before each provider call** — once per model call within a
+turn, including the follow-up calls after tool results. Because it runs for every
+provider call (background, subagent, and compaction work can share a
+conversation), a hook **must self-gate** on `ctx.callSite` / `ctx.conversationId`
+before acting.
+
+```ts
+// hooks/pre-model-call.ts
+import type { PreModelCallContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function preModelCall(
+  ctx: PreModelCallContext,
+): Promise<void> {
+  // ctx.conversationId       — ID of the conversation the call belongs to
+  // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
+  // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
+  // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
+  //                            (an `assistant-message` hook then emits the text)
+  // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+Multiple plugins' hooks chain in registration order — each sees the previous
+hook's edits. Throwing is contained by the loop: the provider call proceeds with
+the original request.
+
 ### `post-tool-use`
 
 Fires once per tool result, **after** the tool returns and
@@ -281,6 +313,39 @@ with a nudge when a turn comes back empty after tool use, or with a
 refusal nudge on a first-call refusal; because defaults register first,
 it runs ahead of user hooks.
 
+### `assistant-message`
+
+Fires for **each finalized assistant message** — once per model call, at the
+message-complete boundary, before the message is persisted and (if deferred)
+streamed-final. Unlike `stop`'s read-only `responseContent`, `ctx.content` is
+**mutable**: the loop adopts the hook's result as the persisted and streamed
+message. Fires on tool-bearing turns too (a reply can carry both text and
+`tool_use`), so transform only the blocks you own and leave others — notably
+`tool_use` — intact. Runs for every finalized message; **self-gate** on
+`ctx.callSite` / `ctx.conversationId`.
+
+```ts
+// hooks/assistant-message.ts
+import type { AssistantMessageContext } from "@vellumai/plugin-api";
+
+// In-place mutation style (return void):
+export default async function assistantMessage(
+  ctx: AssistantMessageContext,
+): Promise<void> {
+  // ctx.conversationId — ID of the conversation the message belongs to
+  // ctx.callSite       — call site ("mainAgent" for the user-facing reply)
+  // ctx.content        — finalized message content; transform text blocks and
+  //                      leave tool_use (and other non-text blocks) intact
+  // ctx.stopReason     — provider stop reason, when reported
+  // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+A `pre-model-call` hook can set `deferAssistantOutput` to suppress the live
+stream; the loop then emits this hook's finalized text once. Multiple plugins'
+hooks chain in registration order — each sees the previous hook's mutations.
+Throwing is contained by the loop: the original content is kept.
+
 ### Forward-compatible hooks
 
 You can author `hooks/<future-name>.ts` today. The loader will
@@ -348,6 +413,69 @@ defaults when an author omits a field:
 `export default {}` is therefore a valid (if useless) tool — broken
 individual tools never block plugin load; misconfigurations surface at
 call time.
+
+---
+
+## Marketplace — whitelisting external plugins
+
+The catalog shown by `assistant plugins search` (and the web plugins tab) is
+computed live from two sources:
+
+1. **First-party plugins** — the directories in this folder.
+2. **Whitelisted external plugins** — entries in
+   [`marketplace.json`](./marketplace.json).
+
+The manifest lets us surface plugins that live in other repos without copying
+their code here. Its shape is a subset of the
+[Claude Code marketplace schema](https://code.claude.com/docs/en/plugin-marketplaces):
+a `name`, an optional `owner`, and a `plugins` array.
+
+```json
+{
+  "name": "vellum-assistant",
+  "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
+  "plugins": [
+    {
+      "name": "example-plugin",
+      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "v1.0.0" },
+      "description": "Short summary shown in the catalog.",
+      "category": "productivity",
+      "homepage": "https://github.com/example-org/example-plugin",
+      "license": "MIT"
+    }
+  ]
+}
+```
+
+Per-entry fields:
+
+- **`name`** _(required)_ — the install name. `assistant plugins install <name>`
+  resolves to this entry, and the name must be a single kebab-case segment.
+- **`source`** _(required)_ — only `github` sources are resolved today:
+  - **`repo`** _(required)_ — `owner/repo` of the external repository.
+  - **`path`** — directory within the repo holding the plugin root. Omit for
+    the repository root. Must not escape the repo (`..` segments are rejected).
+  - **`ref`** _(required)_ — the git ref (tag, SHA, or branch) to fetch from.
+    **Every external entry must pin a ref** so the fetched code is
+    version-locked rather than tracking a floating branch. Prefer a release
+    tag or commit SHA.
+- **`description`**, **`category`**, **`homepage`**, **`license`** —
+  informational; surfaced in the catalog where present.
+
+Resolution rules:
+
+- **Curation is the whitelist.** Only repos listed here appear in the catalog;
+  there is no open registry.
+- **First-party wins name collisions.** If a directory in this folder and a
+  marketplace entry share a name, the in-repo plugin takes precedence.
+- **The manifest is supplementary.** A missing or malformed `marketplace.json`
+  degrades to the first-party listing — it never blocks core plugin discovery
+  or installation.
+
+Whitelisting makes an external plugin **appear in the catalog and install by
+name**. It does not guarantee the plugin's hooks/tools match this loader's
+conventions — a plugin authored for another ecosystem may install yet
+contribute nothing on boot until a compatibility adapter exists.
 
 ---
 

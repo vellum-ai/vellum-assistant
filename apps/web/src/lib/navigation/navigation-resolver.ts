@@ -13,10 +13,8 @@ export interface NavigationState {
   sessionSettled: boolean;
   isAuthenticated: boolean;
   platformSession: PlatformSessionStatus;
-  onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsent: boolean;
-  isReplay: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,6 +49,7 @@ const ONBOARDING_PREFIX = `${routes.assistant}/onboarding`;
 
 const LOCAL_ONLY_ONBOARDING_PATHS: Set<string> = new Set([
   routes.onboarding.welcome,
+  routes.onboarding.selectAssistant,
   routes.onboarding.hosting,
   routes.onboarding.apiKey,
 ]);
@@ -61,11 +60,6 @@ function isOnboardingPath(pathname: string): boolean {
 
 function onboardingEntrypoint(isLocalMode: boolean): string {
   return isLocalMode ? routes.onboarding.welcome : routes.onboarding.privacy;
-}
-
-function effectiveOnboardingCompleted(state: NavigationState): boolean {
-  if (state.isLocalMode && !state.hasAssistants) return false;
-  return state.onboardingCompleted;
 }
 
 function extractPathname(destination: string): string {
@@ -124,9 +118,17 @@ function resolveRouteGuard(
 
   // 3. Unauthenticated
   if (!state.isAuthenticated) {
-    if (state.isLocalMode && isOnboardingPath(path)) return { action: "allow" };
-    if (state.isLocalMode && !state.hasAssistants && !effectiveOnboardingCompleted(state)) {
+    if (state.isLocalMode && isOnboardingPath(path)) {
+      if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
+        return { action: "redirect", to: routes.onboarding.hosting };
+      }
+      return { action: "allow" };
+    }
+    if (state.isLocalMode && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.welcome };
+    }
+    if (state.isLocalMode) {
+      return { action: "redirect", to: routes.onboarding.selectAssistant };
     }
     return {
       action: "redirect",
@@ -136,11 +138,11 @@ function resolveRouteGuard(
 
   // 4. Authenticated, on an onboarding route
   if (isOnboardingPath(path)) {
-    if (effectiveOnboardingCompleted(state) && !state.isReplay) {
-      return { action: "redirect", to: routes.assistant };
-    }
     if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
+    }
+    if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
+      return { action: "redirect", to: routes.onboarding.hosting };
     }
     if (path === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
@@ -170,7 +172,7 @@ function resolveOnboardingIntercept(
   intendedDestination: string,
 ): NavigationDecision {
   if (state.isLocalMode && state.hasAssistants) return { action: "allow" };
-  if (effectiveOnboardingCompleted(state)) return { action: "allow" };
+  if (state.tosAccepted && state.aiDataConsent) return { action: "allow" };
 
   const path = extractPathname(intendedDestination);
   if (!path.startsWith(routes.assistant)) return { action: "allow" };
@@ -190,9 +192,6 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
   if (!state.sessionSettled) return { action: "wait" };
   if (!state.isAuthenticated && !state.isLocalMode) {
     return { action: "redirect", to: routes.account.login };
-  }
-  if (state.onboardingCompleted && !state.isReplay) {
-    return { action: "redirect", to: routes.assistant };
   }
   if (!(state.tosAccepted && state.aiDataConsent)) {
     return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };

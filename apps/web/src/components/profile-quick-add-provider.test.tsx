@@ -18,11 +18,11 @@ import { createElement, useEffect } from "react";
 
 const NEW_PROFILE_NAME = "fast-cheap";
 
-// --- selection store (active assistant id) -----------------------------------
-mock.module("@/assistant/selection-store", () => {
+// --- resolved assistants store (active assistant id) -------------------------
+mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = { activeAssistantId: () => "assistant-1" };
-  return { useAssistantSelectionStore: store };
+  return { useResolvedAssistantsStore: store };
 });
 
 // --- feature flag store ------------------------------------------------------

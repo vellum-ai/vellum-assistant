@@ -76,14 +76,12 @@ export interface AppCreateInput {
   name: string;
   description?: string;
   schema_json?: string;
-  /**
-   * Retired single-file shortcut. Kept in the type so legacy or stale callers
-   * get a clear tool error instead of silently creating a v2 app with stale
-   * scaffold content.
-   */
+  /** Retired single-file shortcut. Returns a guidance error. */
   html?: unknown;
-  /** Retired single-file multi-page shortcut. */
+  /** Retired single-file multi-page shortcut. Returns a guidance error. */
   pages?: unknown;
+  /** Lenient alias. Folded into preview.icon when preview.icon is absent. */
+  icon?: unknown;
   auto_open?: boolean;
   preview?: Record<string, unknown>;
   source_files?: Record<string, string>;
@@ -98,11 +96,14 @@ export async function executeAppCreate(
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
 
+  // Retired shortcut: a top-level `html` is no longer accepted. Reject with a
+  // helpful message (rather than a cryptic schema error) so the model writes a
+  // multi-file TSX app under src/ instead.
   if (Object.prototype.hasOwnProperty.call(input, "html")) {
     return {
       content: JSON.stringify({
         error:
-          "app_create no longer accepts html. Create the app scaffold, write src/index.html and src/main.tsx with file_write, then call app_refresh.",
+          "app_create no longer accepts html. Build a multi-file TSX app under src/ (src/index.html + src/main.tsx + src/App.tsx) instead.",
       }),
       isError: true,
     };
@@ -157,7 +158,11 @@ export async function executeAppCreate(
 
   // Extract icon from preview if provided - only persist emoji-like values,
   // not URLs which would render as raw strings in UI and bundle manifests.
-  const rawIcon = preview?.icon as string | undefined;
+  // Lenient alias: a top-level `icon` is folded in when preview.icon is absent.
+  const rawIcon = (preview?.icon ??
+    (typeof input.icon === "string" ? input.icon : undefined)) as
+    | string
+    | undefined;
   const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
 
   const app = store.createApp({

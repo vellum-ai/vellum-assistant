@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -80,6 +80,8 @@
     "react-router": "7.15.0",
     "recharts": "3.8.1",
     "rehype-katex": "7.0.1",
+    "rehype-raw": "7.0.0",
+    "rehype-sanitize": "6.0.0",
     "remark-gfm": "4.0.1",
     "remark-math": "6.0.0",
     "shiki": "4.1.0",

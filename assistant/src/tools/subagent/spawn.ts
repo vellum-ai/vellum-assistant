@@ -1,4 +1,4 @@
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
@@ -102,9 +102,7 @@ export async function executeSubagentSpawn(
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
-        ...(context.toolUseId
-          ? { parentToolUseId: context.toolUseId }
-          : {}),
+        ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,

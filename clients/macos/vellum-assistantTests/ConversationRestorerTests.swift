@@ -1058,7 +1058,7 @@ struct ConversationRestorerTests {
     }
 
     @Test @MainActor
-    func syncConversationListRouteTriggersFullRefetchNotSingleRow() async {
+    func syncConversationListRouteTriggersRecentRefetchNotSingleRow() async {
         let dc = GatewayConnectionManager()
         let listClient = RecordingConversationListClient()
         let detailClient = RecordingConversationDetailClient()
@@ -1076,11 +1076,61 @@ struct ConversationRestorerTests {
 
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        // A shape change refetches the full list (3 parallel streams: foreground,
-        // background, archived)...
+        // A shape change triggers a cheap page-1 refetch of the 3 streams
+        // (foreground, background, archived) — NOT a full paginated drain, and
+        // NOT the single-conversation endpoint (RecordingConversationListClient
+        // returns one empty page per stream, so exactly 3 requests).
         #expect(await listClient.fetchRequests.count == 3)
-        // ...and never falls back to the single-conversation endpoint.
+        #expect(await listClient.fetchRequests.allSatisfy { $0.offset == 0 })
         #expect(await detailClient.fetchedConversationIds.isEmpty)
+    }
+
+    @Test @MainActor
+    func invalidationRefetchFetchesRecentPageOnlyAndPreservesExistingRows() async {
+        let dc = GatewayConnectionManager()
+        // totalForeground 450 / background 700 means a full drain would paginate
+        // (3 + 4 pages); a page-1-only refetch must issue exactly one request
+        // per stream at offset 0.
+        let listClient = PagedConversationListClient(totalForeground: 450, totalBackground: 700)
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // Seed two already-loaded rows that the page-1 fetch will NOT return,
+        // plus sentinel pagination state that a recent refetch must not reset.
+        delegate.conversations = [
+            ConversationModel(title: "Old 1", conversationId: "old-1"),
+            ConversationModel(title: "Old 2", conversationId: "old-2"),
+        ]
+        delegate.serverOffset = 999
+        delegate.hasMoreConversations = true
+
+        restorer.scheduleInvalidationRefetch()
+        // 250ms debounce + the (fast, non-paginating) 3-stream page-1 fetch.
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        let requests = await listClient.fetchRequests
+        // Exactly one request per stream, all at offset 0 — no pagination loop.
+        #expect(requests.count == 3)
+        #expect(requests.allSatisfy { $0.offset == 0 })
+        #expect(requests.contains { $0.conversationType == nil && $0.archiveStatus == nil })
+        #expect(requests.contains { $0.conversationType == "background" })
+        #expect(requests.contains { $0.archiveStatus == "archived" })
+
+        // The out-of-window rows are preserved (merge, not replace)...
+        #expect(delegate.conversations.contains { $0.conversationId == "old-1" })
+        #expect(delegate.conversations.contains { $0.conversationId == "old-2" })
+        // ...and the recent page-1 rows were merged in.
+        #expect(delegate.conversations.contains { $0.conversationId == "fg-0" })
+
+        // Pagination state is untouched by the recent refetch.
+        #expect(delegate.serverOffset == 999)
+        #expect(delegate.hasMoreConversations == true)
     }
 
     @Test @MainActor
@@ -1096,10 +1146,12 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
-        restorer.scheduleInvalidationRefetch()
+        // Cold-start full drain — the path that paginates every stream to
+        // exhaustion. The invalidation path is now page-1-only, so exercise the
+        // drain directly via fetchConversationList().
+        restorer.fetchConversationList()
 
-        // scheduleInvalidationRefetch debounces 250ms before fetching; give the
-        // pagination loop enough time to drain both endpoints.
+        // Give the pagination loop enough time to drain both endpoints.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         // Foreground (archiveStatus == nil → daemon active default): 450 rows
@@ -1143,7 +1195,9 @@ struct ConversationRestorerTests {
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
 
-        restorer.scheduleInvalidationRefetch()
+        // Cold-start full drain — exercised directly (the invalidation path is
+        // page-1-only and would not paginate the archived stream).
+        restorer.fetchConversationList()
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         let requests = await listClient.fetchRequests

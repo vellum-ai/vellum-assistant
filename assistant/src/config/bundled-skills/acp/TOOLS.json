@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "acp_spawn",
-      "description": "Spawn an external coding agent (e.g. Claude Code, Codex) via ACP to work on a task. Default profiles ship for `claude` (`claude-agent-acp`) and `codex` (`codex-acp`); the assistant resolves the agent id to the right adapter binary. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If a binary is missing, the call returns an actionable install hint — do NOT alter `agents.<id>.command` to swap binaries. If ACP is disabled, follow the setup instructions in SKILL.md.",
+      "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini) via ACP to work on a task. Default profiles ship for `claude` (`claude-agent-acp`), `codex` (`codex-acp`), and `gemini` (`gemini --acp`); the assistant resolves the agent id to the right binary. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If a default agent's binary is missing, the assistant runs it via bun (fetching the package on first use, no global install) or falls back to an npm auto-install, proceeding in the same call; if neither works, an actionable install hint is returned - do NOT alter `agents.<id>.command` to swap binaries. If ACP is disabled, follow the setup instructions in SKILL.md.",
       "category": "orchestration",
       "risk": "high",
       "input_schema": {
@@ -11,7 +11,7 @@
         "properties": {
           "agent": {
             "type": "string",
-            "description": "Which agent to spawn (e.g. 'claude', 'codex'). Defaults to 'claude'."
+            "description": "Which agent to spawn (e.g. 'claude', 'codex', 'gemini'). Natural names like 'claude code' or 'gemini cli' also resolve. Defaults to 'claude'."
           },
           "task": {
             "type": "string",
@@ -65,7 +65,7 @@
     },
     {
       "name": "acp_steer",
-      "description": "**Interrupts** the in-flight prompt of a running ACP session and replaces it with `instruction`. Use to redirect the agent (e.g., 'stop, do X instead'). For follow-up work that should happen *after* the current task, do NOT use this — wait for `acp_session_completed` and `acp_spawn` again.",
+      "description": "Sends `instruction` to an ACP session. On a running session this **interrupts** the in-flight prompt and replaces it - use it to redirect the agent (e.g., 'stop, do X instead'). A completed or assistant-restarted session is transparently resumed from persisted history via ACP session loading when the agent supports it, so follow-up work on an existing session id CAN go through this tool instead of spawning a new session. If resume is not possible (legacy session without a recorded working directory, or the agent lacks the capability), the error explains why; fall back to `acp_spawn`.",
       "category": "orchestration",
       "risk": "high",
       "input_schema": {
@@ -87,7 +87,7 @@
     },
     {
       "name": "acp_list_agents",
-      "description": "Lists ACP coding agents available to spawn. Each entry includes whether ACP is enabled, whether the agent's binary is on PATH, and an install command if not. Use this to decide between 'claude' and 'codex' or to surface setup steps to the user.",
+      "description": "Lists ACP coding agents available to spawn. Each entry includes whether ACP is enabled, whether the agent is runnable (its binary is on PATH, or the assistant can run it via bun), and an install command if not. Use this to decide between 'claude', 'codex', and 'gemini' or to surface setup steps to the user.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

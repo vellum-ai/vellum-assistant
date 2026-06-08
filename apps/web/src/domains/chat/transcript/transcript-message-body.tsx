@@ -44,7 +44,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
@@ -55,17 +55,14 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  riskScopeOptions: RiskScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
 }
 
 /**
- * Renders a single chat message bubble — a careful copy of the per-message
- * branch of the `messages.map(...)` loop in `AssistantPageClient.tsx`. The
- * grouping rules for tool calls / text / inline surfaces are duplicated
- * verbatim so the virtualized transcript produces byte-identical markup to
- * the legacy rendering path. Do NOT change the grouping rules in this file
- * without updating the legacy path in lockstep.
+ * Renders a single chat message bubble. Groups contiguous tool calls,
+ * text chunks, and inline surfaces into distinct visual sections so each
+ * message row contains the correct mix of activity cards, markdown, and
+ * embedded surface views.
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
@@ -100,15 +97,13 @@ export interface TranscriptMessageBodyProps {
    *  nudge. Optional — when undefined no nudge ever shows. */
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
-  /** Whether the confirmation action is currently being submitted. */
-  isSubmittingConfirmation?: boolean;
   /** Callback when the user clicks Allow or Deny on an inline confirmation. */
-  onConfirmationSubmit?: (decision: ConfirmationDecision) => void;
+  onConfirmationSubmit?: (
+    decision: ConfirmationDecision,
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: () => void;
-  /** The tool call id that currently has the active pending confirmation.
-   *  Only the matching chip renders the inline confirmation UI. */
-  pendingConfirmationToolCallId?: string;
+  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -330,10 +325,8 @@ export function TranscriptMessageBody({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isSubmittingConfirmation,
   onConfirmationSubmit,
   onAllowAndCreateRule,
-  pendingConfirmationToolCallId,
   onOpenApp,
   onOpenDocument,
   assistantId,
@@ -716,10 +709,8 @@ export function TranscriptMessageBody({
                   toolCalls: renderableToolCalls,
                 })}
                 onOpenRuleEditor={onOpenRuleEditor}
-                isSubmittingConfirmation={isSubmittingConfirmation}
                 onConfirmationSubmit={onConfirmationSubmit}
                 onAllowAndCreateRule={onAllowAndCreateRule}
-                pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                 unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                 onDismissUnknownNudge={onDismissUnknownNudge}
               />
@@ -916,10 +907,8 @@ export function TranscriptMessageBody({
                     toolCalls: legacyToolCalls,
                   })}
                   onOpenRuleEditor={onOpenRuleEditor}
-                  isSubmittingConfirmation={isSubmittingConfirmation}
                   onConfirmationSubmit={onConfirmationSubmit}
                   onAllowAndCreateRule={onAllowAndCreateRule}
-                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                   unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                   onDismissUnknownNudge={onDismissUnknownNudge}
                 />

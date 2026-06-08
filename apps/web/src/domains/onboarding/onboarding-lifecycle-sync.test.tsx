@@ -49,7 +49,6 @@ const getAssistantMock = mock(async () => ({
 
 const fetchCharacterTraitsMock = mock(async () => null);
 const saveCharacterTraitsMock = mock(async () => undefined);
-const setOnboardingCompletedMock = mock(() => {});
 const writeSelectedVersionMock = mock(() => {});
 
 type TestOnboardingRecipe = {
@@ -62,8 +61,7 @@ type TestOnboardingRecipe = {
   skipPrechat: boolean;
 };
 
-let onboardingCompleted = false;
-let prechatOnboardingCondensedFlow = true;
+let preChatOnboardingExperiment = "variant-a";
 let activationFlowExperiment = false;
 let selfIntroGreeting = true;
 let isIOSWeb = false;
@@ -153,16 +151,11 @@ mock.module("@sentry/react", () => ({
 
 mock.module("@/domains/onboarding/prefs", () => ({
   readAiDataConsent: () => true,
-  readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
   readShareAnalytics: () => true,
   readTosAccepted: () => true,
-  clearOnboardingCompleted: mock(() => {}),
-  useOnboardingCompleted: () =>
-    [onboardingCompleted, setOnboardingCompletedMock] as const,
   writeSelectedVersion: writeSelectedVersionMock,
 }));
-
 
 mock.module("@/domains/onboarding/recipe-client.js", () => ({
   fetchOnboardingRecipe: fetchOnboardingRecipeMock,
@@ -180,10 +173,8 @@ mock.module("@/lib/navigation/build-state", () => ({
     sessionSettled: true,
     isAuthenticated: true,
     platformSession: platformSessionValue,
-    onboardingCompleted: onboardingCompleted,
     tosAccepted: true,
     aiDataConsent: true,
-    isReplay: false,
     ...overrides,
   }),
 }));
@@ -195,8 +186,10 @@ mock.module("@/runtime/native-auth", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => isLocalModeValue,
+  isLocalAssistant: () => false,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
+  getPlatformRuntimeUrl: () => "https://platform.vellum.ai",
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
@@ -212,7 +205,9 @@ mock.module("@/runtime/local-mode-host", () => ({
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
-      prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
+      stringFlags: () => ({
+        preChatOnboardingExperiment20260606: preChatOnboardingExperiment,
+      }),
       experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
@@ -360,8 +355,7 @@ const { PreChatFlow } = await import(
 beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
-  onboardingCompleted = false;
-  prechatOnboardingCondensedFlow = true;
+  preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = false;
   selfIntroGreeting = true;
   isIOSWeb = false;
@@ -380,7 +374,6 @@ beforeEach(() => {
   getAssistantMock.mockClear();
   fetchCharacterTraitsMock.mockClear();
   saveCharacterTraitsMock.mockClear();
-  setOnboardingCompletedMock.mockClear();
   writeSelectedVersionMock.mockClear();
   fetchOnboardingRecipeMock.mockClear();
 });
@@ -411,23 +404,6 @@ describe("onboarding lifecycle sync", () => {
       expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat, {
         replace: true,
       }),
-    );
-  });
-
-  test("hatching replay preserves the replay flag when onboarding is already completed", async () => {
-    searchParams = new URLSearchParams("replay=1");
-    onboardingCompleted = true;
-
-    render(<HatchingScreen />);
-
-    await waitFor(() => expect(getAssistantMock).toHaveBeenCalled());
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
-
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith(
-        `${routes.onboarding.prechat}?replay=1`,
-        { replace: true },
-      ),
     );
   });
 
@@ -509,7 +485,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
 
     render(<PreChatFlow />);
 
@@ -520,7 +496,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat control flow skips the macOS app step on macOS web", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isMacOSWeb = true;
     macOsAppDownloaded = false;
 
@@ -590,7 +566,6 @@ describe("onboarding lifecycle sync", () => {
       ),
     );
 
-    expect(setOnboardingCompletedMock).toHaveBeenCalledWith(true);
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
       tools: [],
       tasks: recipe.tasks,
@@ -604,26 +579,6 @@ describe("onboarding lifecycle sync", () => {
     });
   });
 
-  test("pre-chat replay ignores recipe skip so the standard screens are visible", async () => {
-    searchParams = new URLSearchParams("replay=1");
-    onboardingCompleted = true;
-    fetchOnboardingRecipeImpl = async () => ({
-      cohort: "content-automation",
-      tasks: ["writing", "research"],
-      tone: "grounded",
-      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
-      initialMessage: "I want to write articles that rank better in GEO",
-      skills: ["content-automation"],
-      skipPrechat: true,
-    });
-
-    render(<PreChatFlow />);
-
-    await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
-    expect(await screen.findByTestId("name-continue")).toBeTruthy();
-    expect(checkAssistantMock).not.toHaveBeenCalled();
-  });
-
   test("local mode never fetches the platform-only onboarding recipe", async () => {
     isLocalModeValue = true;
 
@@ -634,7 +589,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode without a platform session gates the prior-assistants step", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "absent";
 
@@ -655,7 +610,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode with a platform session shows the prior-assistants step", async () => {
-    prechatOnboardingCondensedFlow = false;
+    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "present";
 

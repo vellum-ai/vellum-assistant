@@ -12,6 +12,9 @@
 
 import { create } from "zustand";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
 import { isActiveStatus } from "@/utils/subagent-status";
@@ -181,6 +184,13 @@ export interface SubagentActions {
    * Clears the marker on failure or empty events so callers can retry.
    */
   fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
+
+  /**
+   * Best-effort abort of a running subagent. Reads `assistantId` and
+   * `activeConversationId` from their respective stores via `.getState()`
+   * so callers don't need to pass or close over those values.
+   */
+  abortSubagent: (subagentId: string) => Promise<void>;
 
   reset: () => void;
 }
@@ -601,6 +611,21 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       totalCost: detail.usage?.estimatedCost,
       events,
     });
+  },
+
+  abortSubagent: async (subagentId) => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    const activeConversationId = useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) return;
+    try {
+      await subagentsByIdAbortPost({
+        path: { assistant_id: assistantId, id: subagentId },
+        body: { conversationId: activeConversationId },
+        throwOnError: true,
+      });
+    } catch {
+      // Best-effort — the daemon may have already completed
+    }
   },
 
   reset: () =>

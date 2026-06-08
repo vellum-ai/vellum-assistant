@@ -240,6 +240,38 @@ describe("OAuthConnectSurface", () => {
     });
   });
 
+  test("does not double the verb when displayName already includes 'Connect'", () => {
+    const oauthClient: ManagedOAuthConnectClient = {
+      fetchProvider: mock(async () => null),
+      connect: mock(async () => ({ status: "cancelled" as const })),
+    };
+
+    const { getByText, queryByText } = render(
+      <OAuthConnectSurface
+        surface={makeSurface({
+          surfaceType: "oauth_connect",
+          data: {
+            providerKey: "google",
+            displayName: "Connect Gmail",
+          },
+        })}
+        assistantId="assistant-1"
+        oauthClient={oauthClient}
+        onAction={mock(() => {})}
+      />,
+    );
+
+    expect(getByText("Connect Gmail")).toBeTruthy();
+    expect(queryByText("Connect Connect Gmail")).toBeNull();
+    // The description fallback resolves through the same normalized label,
+    // so it must not double the verb either.
+    expect(
+      getByText("Connect Gmail so I can use it for this task.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+  });
+
   test("lets the user cancel without opening OAuth", () => {
     const onAction = mock(() => {});
     const oauthClient: ManagedOAuthConnectClient = {

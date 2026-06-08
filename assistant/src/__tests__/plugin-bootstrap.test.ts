@@ -38,13 +38,11 @@ import { RiskLevel } from "../permissions/types.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
   closeRegistration,
-  getMiddlewaresFor,
   getRegisteredPlugins,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import {
-  type PipelineMiddlewareMap,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -485,33 +483,24 @@ describe("plugin bootstrap", () => {
     expect(initFired).toBe(false);
   });
 
-  test("requiresFlag disabled: plugin middleware is dropped from the registry", async () => {
-    // Regression: prior to the unregisterPlugin() call on the flag-gated skip
-    // path, `getMiddlewaresFor()` iterated over every entry in
-    // `registeredPlugins` — so a gated-off plugin's middleware still ran on
-    // every pipeline invocation even though `init()` had never fired to set up
-    // the state it depended on.
-    setOverridesForTesting({ "plugin-middleware-disabled": false });
+  test("requiresFlag disabled: the skipped plugin is removed from the registry", async () => {
+    // Regression: a flag-gated skip must call `unregisterPlugin()` so the
+    // gated-off plugin does not linger in `registeredPlugins` with its
+    // `init()` never having fired to set up the state it depends on.
+    setOverridesForTesting({ "plugin-registry-disabled": false });
 
-    const gatedMiddleware: PipelineMiddlewareMap["compaction"] = async (
-      args,
-      next,
-    ) => next(args);
     const plugin = buildPlugin(
-      "gated-middleware",
-      {
-        middleware: { compaction: gatedMiddleware },
-      },
-      { requiresFlag: ["plugin-middleware-disabled"] },
+      "gated-registry",
+      {},
+      { requiresFlag: ["plugin-registry-disabled"] },
     );
     registerPlugin(plugin);
 
     await bootstrapPlugins();
 
-    // The middleware slot must not expose the flag-gated plugin's contribution.
-    // The default plugins also contribute compaction middleware, so we key on
-    // identity rather than asserting an empty list.
-    expect(getMiddlewaresFor("compaction")).not.toContain(gatedMiddleware);
+    // The gated-off plugin must not survive in the registry snapshot.
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("gated-registry");
   });
 
   test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {

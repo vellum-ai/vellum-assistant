@@ -13,16 +13,10 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  type CompactionArgs,
-  type CompactionResult,
-  type Middleware,
-  type OverflowReduceArgs,
-  type OverflowReduceResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
   type PluginManifest,
-  PluginTimeoutError,
   type TurnContext,
 } from "../plugins/types.js";
 import type { Tool } from "../tools/types.js";
@@ -36,7 +30,6 @@ const sampleTurnContext: TurnContext = {
   requestId: "req-abc",
   conversationId: "conv-xyz",
   turnIndex: 0,
-  pluginName: "sample-plugin",
   trust: sampleTrust,
 };
 
@@ -49,35 +42,6 @@ describe("plugin core types", () => {
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
-
-    // `overflowReduce` has a concrete arg/result shape (PR 23). Uses a
-    // dedicated passthrough that returns a structurally-correct result so
-    // `satisfies Plugin` keeps verifying the signature.
-    const overflowReducePassthrough: Middleware<
-      OverflowReduceArgs,
-      OverflowReduceResult
-    > = async (args, _next, _ctx) => ({
-      messages: args.messages,
-      runMessages: args.runMessages,
-      injectionMode: "full",
-      reducerState: {
-        appliedTiers: [],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      reducerCompacted: false,
-      attempts: 0,
-    });
-
-    // Slot-specific passthrough for the `compaction` pipeline — PR 25
-    // narrowed its args/result away from the generic `{ input: unknown }`
-    // placeholder, so the generic `passthrough` no longer satisfies its
-    // middleware signature. This dedicated middleware keeps the shape-only
-    // assertion for the slot without forcing every other slot to narrow.
-    const compactionPassthrough: Middleware<
-      CompactionArgs,
-      CompactionResult
-    > = async (args, next, _ctx) => next(args);
 
     const sampleTool: Tool = {
       name: "sample-tool",
@@ -122,33 +86,10 @@ describe("plugin core types", () => {
           body: "## Sample\n\nPlugin-provided skill body.",
         },
       ],
-      middleware: {
-        compaction: compactionPassthrough,
-        overflowReduce: overflowReducePassthrough,
-      },
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
-    expect(plugin.middleware.compaction).toBe(compactionPassthrough);
-  });
-
-  test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {
-    const err = new PluginTimeoutError("compaction", "sample-plugin", 30000);
-    expect(err).toBeInstanceOf(Error);
-    expect(err.name).toBe("PluginTimeoutError");
-    expect(err.pipeline).toBe("compaction");
-    expect(err.pluginName).toBe("sample-plugin");
-    expect(err.elapsedMs).toBe(30000);
-    expect(err.message).toContain("compaction");
-    expect(err.message).toContain("30000");
-    expect(err.message).toContain("sample-plugin");
-  });
-
-  test("PluginTimeoutError omits plugin suffix when unknown", () => {
-    const err = new PluginTimeoutError("overflowReduce", undefined, 1234);
-    expect(err.pluginName).toBeUndefined();
-    expect(err.message).not.toContain("offending plugin");
   });
 
   test("PluginExecutionError carries the plugin name and message", () => {

@@ -39,6 +39,8 @@ import {
   conversationEntries,
   deleteConversation,
   getConversationMap,
+} from "./conversation-registry.js";
+import {
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
   setCesClientPromise,

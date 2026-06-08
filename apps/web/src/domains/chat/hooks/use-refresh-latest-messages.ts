@@ -11,7 +11,7 @@ import {
 } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
-import { recordSnapshotSeq } from "@/lib/streaming/snapshot-seq";
+import { recordServerSeq } from "@/lib/streaming/server-seq";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
@@ -157,7 +157,7 @@ export function useRefreshLatestMessages({
     // Record the accepted snapshot's seq as the conversation baseline only
     // after the stale-response guard, so a slower out-of-order refresh can't
     // regress the baseline past a newer one that already committed.
-    recordSnapshotSeq(conversationId, fetched.seq);
+    recordServerSeq(conversationId, fetched.seq);
 
     const filteredMessages = filterDismissedSurfaces(
       fetched.messages,

@@ -8,7 +8,7 @@
  * means plugin-api ships as part of the assistant binary's regular code
  * graph; in JIT/Docker, it loads from source.
  *
- * The loaded namespace is then installed on `globalThis` under a versioned
+ * The loaded namespace is then installed on `globalThis` under a well-known
  * symbol. The boot-time shim writer (`ensurePluginApiShim`) enumerates
  * {@link PLUGIN_API_EXPORTS} and generates a tiny ESM module at
  * `<workspaceDir>/node_modules/@vellumai/plugin-api/index.js` that
@@ -26,7 +26,7 @@
 import * as pluginApi from "../plugin-api/index.js";
 
 /** Symbol key under which the plugin-api namespace is published on globalThis. */
-export const PLUGIN_API_REGISTRY_KEY = Symbol.for("vellum.plugin-api.v1");
+export const PLUGIN_API_REGISTRY_KEY = Symbol.for("vellum.plugin-api");
 
 // Install on globalThis once at module-load time. The shim writer reads
 // `PLUGIN_API_EXPORTS` to know which bindings to re-export; the shim's

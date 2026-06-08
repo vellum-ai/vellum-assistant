@@ -105,6 +105,17 @@ export const routeTree = [
     // Vite's SPA fallback in dev (which is scoped to the `base`).
     { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
 
+    // Bundle confirmation — standalone page rendered inside the Electron
+    // bundle-confirmation BrowserWindow. No auth required so bundles can
+    // be opened before the user logs in. Same sibling pattern as About.
+    { path: "/assistant/bundle/confirm", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage) } },
+
+    // Quick Input — lightweight input panel rendered inside the Electron
+    // quick input BrowserWindow (a frameless, always-on-top panel invoked
+    // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
@@ -141,6 +152,10 @@ export const routeTree = [
                 {
                   path: "onboarding/welcome",
                   lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
+                },
+                {
+                  path: "onboarding/select-assistant",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
                 },
                 {
                   path: "onboarding/hosting",
@@ -182,6 +197,7 @@ export const routeTree = [
             { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
             { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
             { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
+            { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
             { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
             { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
             { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
@@ -251,6 +267,7 @@ export const routeTree = [
                   children: [
                     { path: "identity", lazy: { Component: () => import("@/identity-page-route").then((m) => m.IdentityPageRoute) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
+                    { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },

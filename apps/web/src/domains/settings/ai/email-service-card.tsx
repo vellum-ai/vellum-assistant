@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
     assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -31,18 +31,14 @@ import {
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
 
 export function EmailServiceCard() {
+  const assistantId = useActiveAssistantId();
+
+  // assistantHandle is platform-only; used to pre-fill the email subdomain.
   const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
   const assistantHandle = assistantList?.results?.[0]?.handle;
 
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const platformGate = usePlatformGate();
-  const activeAssistantId = useAssistantSelectionStore.use.activeAssistantId();
-
-  // Use the platform assistant ID when available, falling back to the
-  // lifecycle-backed selection store for self-hosted mode where the platform
-  // assistant list may be empty.
-  const byoAssistantId = assistantId ?? activeAssistantId;
 
   const [mode, setMode] = useState<ServiceMode>(
     () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
@@ -53,16 +49,16 @@ export function EmailServiceCard() {
 
   // -- BYO credential check (your-own mode) ----------------------------------
   const byoCredentialQuery = useQuery({
-    queryKey: ["byoEmailCredential", byoAssistantId, byoProviderId],
+    queryKey: ["byoEmailCredential", assistantId, byoProviderId],
     queryFn: async () => {
       const { data } = await credentialsInspectPost({
-        path: { assistant_id: byoAssistantId! },
+        path: { assistant_id: assistantId },
         body: { service: byoProviderId, field: "api_key" },
         throwOnError: true,
       });
       return data;
     },
-    enabled: !!byoAssistantId && (mode === "your-own" || platformGate === "gated"),
+    enabled: mode === "your-own" || platformGate === "gated",
     staleTime: 60_000,
     retry: shouldRetryDaemonError,
     meta: { errorContext: "byo_email_credential_check" },
@@ -195,10 +191,6 @@ export function EmailServiceCard() {
             <Notice tone="info">
               Log in to the Vellum platform to manage email settings.
             </Notice>
-          ) : !assistantId ? (
-            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              No assistant found yet.
-            </p>
           ) : (
             <EmailManagedContent
               assistantId={assistantId}

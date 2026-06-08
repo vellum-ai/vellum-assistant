@@ -346,7 +346,6 @@ export function toolCallToRuleContext(
     input: tc.input ?? {},
     allowlistOptions: tc.riskAllowlistOptions ?? [],
     scopeOptions: tc.scopeOptions ?? [],
-    riskScopeOptions: tc.riskScopeOptions ?? [],
     directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
     matchedTrustRuleId: tc.matchedTrustRuleId,
   };

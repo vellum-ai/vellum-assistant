@@ -33,7 +33,7 @@ export function DebugControlsPanel() {
   const handleReplayOnboarding = useCallback(() => {
     clearOnboardingFlags();
     toast.success("Onboarding flags cleared.");
-    navigate(`${routes.onboarding.privacy}?replay=1`);
+    navigate(routes.onboarding.privacy);
   }, [navigate]);
 
   const fetchAssistant = useCallback(async (force?: boolean) => {

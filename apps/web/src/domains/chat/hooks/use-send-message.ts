@@ -25,13 +25,13 @@ import {
   type DisplayMessage,
 } from "@/domains/chat/utils/reconcile";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
-import { recordAppliedSeq } from "@/lib/streaming/applied-seq";
+import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -221,7 +221,7 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+          currentAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
@@ -269,7 +269,7 @@ export function useSendMessage({
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+            activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
             activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
@@ -312,7 +312,7 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+          activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
           activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
@@ -354,7 +354,7 @@ export function useSendMessage({
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
-              activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
+              activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
               activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;
@@ -385,25 +385,28 @@ export function useSendMessage({
             return;
           }
           let serverMessages: ConversationMessage[] = [];
-          let snapshotSeq: number | null = null;
+          let serverSeq: number | null = null;
           try {
             const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
             );
             serverMessages = snapshot?.messages ?? [];
-            snapshotSeq = snapshot?.seq ?? null;
+            serverSeq = snapshot?.seq ?? null;
           } catch {
             // Reconciliation is best-effort
           }
           if (!isCurrentSendScope(effectiveConversationId)) return;
-          recordAppliedSeq(effectiveConversationId, snapshotSeq);
+          // Capture the local seq `L` before advancing it so the merge
+          // can tell whether this snapshot moved the frontier (`S > L`).
+          const localSeq = getLocalSeq(effectiveConversationId);
+          recordLocalSeq(effectiveConversationId, serverSeq);
           setMessages((prev) => {
             if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
               return reconcileSnapshot(prev, serverMessages, {
-                conversationId: effectiveConversationId,
-                snapshotSeq,
+                serverSeq,
+                localSeq,
               });
             }
             const mapped = mapRuntimeToDisplayMessage(reply);
@@ -516,7 +519,7 @@ export function useSendMessage({
         useTurnStore.getState().dismissSurface();
       }
 
-      const willQueue = isSending(useTurnStore.getState());
+      const willQueue = isSending(useTurnStore.getState().phase);
       const optimisticUserId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: optimisticUserId,

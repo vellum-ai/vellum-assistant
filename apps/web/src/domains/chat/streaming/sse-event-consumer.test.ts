@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  __resetAppliedSeqForTesting,
-  getAppliedSeq,
-} from "@/lib/streaming/applied-seq";
+  __resetLocalSeqForTesting,
+  getLocalSeq,
+} from "@/lib/streaming/local-seq";
 import type { AssistantEvent } from "@/types/event-types";
 
 let mockStreamEpoch = 7;
@@ -31,6 +31,9 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   // Unconditional — used for generation resets and gap resolves.
   replaceReconnectCursor: (seq: number) => {
     globalCursor = seq;
+  },
+  resetReconnectCursor: () => {
+    globalCursor = null;
   },
 }));
 
@@ -80,7 +83,7 @@ beforeEach(() => {
   seqGapEnabled = true;
   mockStreamEpoch = 7;
   globalCursor = null;
-  __resetAppliedSeqForTesting();
+  __resetLocalSeqForTesting();
   recordDiagnosticMock.mockClear();
 });
 
@@ -615,7 +618,7 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
 
     // THEN it dispatches and the frontier advances to its seq
     expect(handleStreamEvent).toHaveBeenCalledTimes(1);
-    expect(getAppliedSeq("conv-1")).toBe(5);
+    expect(getLocalSeq("conv-1")).toBe(5);
   });
 
   test("re-delivering the frontier event is skipped as a replay", () => {
@@ -653,7 +656,7 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
       "sse_event_seq_replayed",
       expect.objectContaining({ conversationId: "conv-1", eventSeq: 5 }),
     );
-    expect(getAppliedSeq("conv-1")).toBe(5);
+    expect(getLocalSeq("conv-1")).toBe(5);
   });
 
   test("with seqGapEnabled=false the frontier is still tracked but replays re-dispatch", () => {
@@ -688,6 +691,6 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
 
     // THEN both are dispatched (no replay skip) and the frontier is recorded
     expect(handleStreamEvent).toHaveBeenCalledTimes(2);
-    expect(getAppliedSeq("conv-1")).toBe(5);
+    expect(getLocalSeq("conv-1")).toBe(5);
   });
 });

@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import { openAboutWindow } from "./about";
 import {
+  acceleratorOption,
   dispatchToFocused,
-  resolveAccelerator,
   type VellumCommand,
 } from "./commands";
 import { handle } from "./ipc";
@@ -27,7 +27,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
     command: VellumCommand,
   ): MenuItemConstructorOptions => ({
     label,
-    accelerator: resolveAccelerator(command.kind),
+    ...acceleratorOption(command.kind),
     click: () => dispatchToFocused(command),
   });
 
@@ -44,7 +44,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         {
           label: "Settings\u2026",
-          accelerator: resolveAccelerator("openSettings"),
+          ...acceleratorOption("openSettings"),
           enabled: !readOnboardingActive(),
           click: () => dispatchToFocused({ kind: "openSettings" }),
         },
@@ -89,7 +89,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         {
           label: "Find\u2026",
-          accelerator: resolveAccelerator("find"),
+          ...acceleratorOption("find"),
           click: () => dispatchToFocused({ kind: "find" }),
         },
       ],

@@ -1,20 +1,22 @@
 /**
- * Local-assistant lockfile cache.
+ * Local-assistant lockfile cache — **internal to `lib/local-mode.ts`**.
  *
- * Single source of truth for the on-disk lockfile the host exposes
- * (assistants + active selection). The lockfile is host state, not
- * server state, so it lives in Zustand rather than TanStack Query —
- * `lib/local-mode.ts` owns the read/write transport and pushes every
- * load and mutation here; React consumers read via the atomic
- * selector (`useLockfileStore.use.lockfile()`) so each subscriber
- * re-renders only when the lockfile actually changes, and imperative
- * callers read `getState().lockfile` without subscribing.
+ * This is the raw in-memory mirror of the on-disk lockfile the Electron
+ * host (or dev-server) exposes. It holds transport-level fields needed
+ * by the local-mode read/write layer: `gatewayPort`, `runtimeUrl`,
+ * `cloud`, `activeAssistant`, etc.
+ *
+ * **UI components should NOT read from this store.** Use
+ * `useResolvedAssistantsStore` instead — it exposes a normalized
+ * `ResolvedAssistant[]` list that works in both local and platform mode.
+ * This store exists only so `lib/local-mode.ts` can cache and mutate the
+ * lockfile without a host round-trip on every read.
  *
  * `null` means "not yet loaded from the host" — distinct from a
- * loaded-but-empty lockfile — so the first read can hydrate from
- * persisted storage before falling back to empty.
+ * loaded-but-empty lockfile.
  *
- * @see {@link https://zustand.docs.pmnd.rs/guides/auto-generating-selectors}
+ * @see resolved-assistants-store.ts — the UI-facing assistant list
+ * @see lib/local-mode.ts — the sole writer of this store
  */
 
 import { create } from "zustand";

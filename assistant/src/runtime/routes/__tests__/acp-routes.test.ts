@@ -1,13 +1,23 @@
 /**
- * Tests for `GET /v1/acp/sessions`.
+ * Tests for ACP route handlers.
  *
- * The handler merges in-memory `AcpSessionManager.getStatus()` output with
- * persisted `acp_session_history` rows, deduping by id (in-memory wins),
- * filtering by `?conversationId`, sorting newest-first, and truncating to
- * `?limit` (default 50, max 500).
+ * `GET /v1/acp/sessions`: the handler merges in-memory
+ * `AcpSessionManager.getStatus()` output with persisted
+ * `acp_session_history` rows, deduping by id (in-memory wins), filtering by
+ * `?conversationId`, sorting newest-first, and truncating to `?limit`
+ * (default 50, max 500).
+ *
+ * `POST /v1/acp/spawn`: when the adapter binary is missing, the handler
+ * silently auto-installs allowlisted adapter packages before failing with
+ * the install hint. `execFile` is stubbed via the shared
+ * `installExecFileStub` helper so tests can script `npm i -g` outcomes.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { installAcpConfigStub } from "../../../acp/__tests__/helpers/acp-config-stub.js";
+import { installExecFileStub } from "../../../acp/__tests__/helpers/exec-file-stub.js";
+import { installWhichStub } from "../../../acp/__tests__/helpers/which-stub.js";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -15,6 +25,12 @@ mock.module("../../../util/logger.js", () => ({
       get: () => () => {},
     }),
 }));
+
+const {
+  execScripts,
+  execFileMock,
+  reset: resetExecFileStub,
+} = installExecFileStub();
 
 // ---------------------------------------------------------------------------
 // Stub the ACP session manager so tests control the in-memory side without
@@ -37,64 +53,61 @@ interface FakeSessionState {
 
 let fakeInMemorySessions: FakeSessionState[] = [];
 
+const spawnMock = mock(async () => ({
+  acpSessionId: "acp-route-session",
+  protocolSessionId: "proto-route-session",
+}));
+
+const defaultSteerOrResumeImpl = async (
+  _id: string,
+  _instruction: string,
+): Promise<{ resumed: boolean }> => ({ resumed: false });
+let steerOrResumeImpl: (
+  id: string,
+  instruction: string,
+) => Promise<{ resumed: boolean }> = defaultSteerOrResumeImpl;
+const steerOrResumeMock = mock(
+  (id: string, instruction: string, _send: unknown) =>
+    steerOrResumeImpl(id, instruction),
+);
+
 mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
+    spawn: spawnMock,
+    steerOrResume: steerOrResumeMock,
   }),
 }));
 
-import { getSqlite } from "../../../memory/db-connection.js";
+// Identity env-prep: the credential-broker plumbing it wraps is exercised in
+// its own suite; spawn tests here only care about the resolve/install flow.
+mock.module("../../../acp/prepare-agent-env.js", () => ({
+  prepareAgentEnv: async (agentConfig: unknown) => agentConfig,
+}));
+
+const config = await installAcpConfigStub();
+const which = installWhichStub();
+
+import {
+  clearHistory,
+  insertHistoryRow,
+} from "../../../acp/__tests__/helpers/acp-history-db.js";
+import {
+  AcpResumeError,
+  AcpSessionNotFoundError,
+} from "../../../acp/session-manager.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { ROUTES } from "../acp-routes.js";
+import { FailedDependencyError, NotFoundError } from "../errors.js";
+
+const { ROUTES } = await import("../acp-routes.js");
+const { _resetAdapterInstallCacheForTests } =
+  await import("../../../acp/auto-install.js");
 
 initializeDb();
 
-function clearHistory(): void {
-  getSqlite().run("DELETE FROM acp_session_history");
-}
-
-function insertHistoryRow(row: {
-  id: string;
-  agentId: string;
-  acpSessionId: string;
-  parentConversationId: string;
-  startedAt: number;
-  completedAt?: number | null;
-  status: string;
-  stopReason?: string | null;
-  error?: string | null;
-  eventLogJson?: string;
-}): void {
-  getSqlite()
-    .query(
-      /*sql*/ `
-      INSERT INTO acp_session_history (
-        id,
-        agent_id,
-        acp_session_id,
-        parent_conversation_id,
-        started_at,
-        completed_at,
-        status,
-        stop_reason,
-        error,
-        event_log_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-    )
-    .run(
-      row.id,
-      row.agentId,
-      row.acpSessionId,
-      row.parentConversationId,
-      row.startedAt,
-      row.completedAt ?? null,
-      row.status,
-      row.stopReason ?? null,
-      row.error ?? null,
-      row.eventLogJson ?? "[]",
-    );
-}
+afterAll(() => {
+  which.restore();
+});
 
 function getSessionsHandler() {
   const route = ROUTES.find(
@@ -122,6 +135,13 @@ interface ResponseShape {
 beforeEach(() => {
   fakeInMemorySessions = [];
   clearHistory();
+  resetExecFileStub();
+  spawnMock.mockClear();
+  steerOrResumeMock.mockClear();
+  steerOrResumeImpl = defaultSteerOrResumeImpl;
+  _resetAdapterInstallCacheForTests();
+  config.setConfig({});
+  which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -306,7 +326,9 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler({ queryParams: { limit: "2" } })) as ResponseShape;
+    const body = (await handler({
+      queryParams: { limit: "2" },
+    })) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     expect(body.sessions.map((s) => s.id)).toEqual(["live-newest", "hist-mid"]);
   });
@@ -390,5 +412,211 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
       queryParams: { limit: "9999" },
     })) as ResponseShape;
     expect(body.sessions).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/spawn: auto-install on missing adapter binary
+// ---------------------------------------------------------------------------
+
+function getSpawnHandler() {
+  const route = ROUTES.find(
+    (r) => r.endpoint === "acp/spawn" && r.method === "POST",
+  );
+  if (!route) throw new Error("acp/spawn POST route not found");
+  return route.handler;
+}
+
+const SPAWN_BODY = {
+  agent: "claude",
+  task: "do something",
+  conversationId: "conv-1",
+};
+
+describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
+  test("binary missing + bun present: spawn proceeds via bunx without npm", async () => {
+    which.setWhich({ bun: "/usr/local/bin/bun" });
+
+    const handler = getSpawnHandler();
+    const body = (await handler({ body: SPAWN_BODY })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const agentConfigArg = (spawnMock.mock.calls[0] as unknown[])[1] as {
+      command: string;
+      args: string[];
+      adapterCommand?: string;
+    };
+    expect(agentConfigArg.command).toBe("bun");
+    expect(agentConfigArg.args).toEqual([
+      "x",
+      "--bun",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+    expect(agentConfigArg.adapterCommand).toBe("claude-agent-acp");
+  });
+
+  test("known command: installs the mapped package and spawn proceeds", async () => {
+    // Binary appears on PATH only after `npm i -g` runs, simulating a
+    // successful global install.
+    let binaryOnPath = false;
+    which.setWhich((cmd) => (binaryOnPath ? `/usr/local/bin/${cmd}` : null));
+    execScripts.set("npm i", {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
+
+    const handler = getSpawnHandler();
+    const body = (await handler({ body: SPAWN_BODY })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "i",
+      "-g",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+  });
+
+  test("npm failure: FailedDependencyError carries hint and failure reason", async () => {
+    which.setWhich({});
+    execScripts.set("npm i", {
+      error: new Error("EACCES: permission denied"),
+    });
+
+    const handler = getSpawnHandler();
+    const promise = handler({ body: SPAWN_BODY });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(
+      /claude-agent-acp is not on PATH.*npm i -g @agentclientprotocol\/claude-agent-acp.*auto-install failed.*EACCES/,
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("unknown command: plain hint maps to FailedDependencyError", async () => {
+    // The allowlist itself (no npm invocation for unmapped commands) is
+    // pinned in auto-install.test.ts and spawn.test.ts; this asserts only
+    // the route's transport mapping of the plain-hint failure.
+    config.setConfig({
+      agents: { custom: { command: "custom-bin", args: [] } },
+    });
+    which.setWhich({});
+
+    const handler = getSpawnHandler();
+    const promise = handler({ body: { ...SPAWN_BODY, agent: "custom" } });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(
+      "custom-bin is not on PATH. Install 'custom-bin' and ensure it is on PATH.",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/:id/steer: transparent resume of sessions not in memory
+// ---------------------------------------------------------------------------
+
+function getSteerHandler() {
+  const route = ROUTES.find(
+    (r) => r.endpoint === "acp/:id/steer" && r.method === "POST",
+  );
+  if (!route) throw new Error("acp/:id/steer POST route not found");
+  return route.handler;
+}
+
+describe("POST /v1/acp/:id/steer: resume fallback", () => {
+  test("in-memory session steers without a resume", async () => {
+    const handler = getSteerHandler();
+    const body = await handler({
+      pathParams: { id: "live-1" },
+      body: { instruction: "redirect" },
+    });
+
+    expect(body).toEqual({ acpSessionId: "live-1", steered: true });
+    expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+    expect(steerOrResumeMock.mock.calls[0][0]).toBe("live-1");
+    expect(steerOrResumeMock.mock.calls[0][1]).toBe("redirect");
+    expect(typeof steerOrResumeMock.mock.calls[0][2]).toBe("function");
+  });
+
+  test("resumed session reports the resumed flag", async () => {
+    steerOrResumeImpl = async () => ({ resumed: true });
+
+    const handler = getSteerHandler();
+    const body = await handler({
+      pathParams: { id: "gone-1" },
+      body: { instruction: "keep going" },
+    });
+
+    expect(body).toEqual({
+      acpSessionId: "gone-1",
+      steered: true,
+      resumed: true,
+    });
+  });
+
+  test("typed not-found (no session, no history row) maps to NotFoundError", async () => {
+    steerOrResumeImpl = async (id) => {
+      throw new AcpSessionNotFoundError(id);
+    };
+
+    const handler = getSteerHandler();
+    const promise = handler({
+      pathParams: { id: "missing-1" },
+      body: { instruction: "go" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("resume failure surfaces as FailedDependencyError with the actionable hint", async () => {
+    steerOrResumeImpl = async (id) => {
+      throw new AcpResumeError(
+        new Error(
+          `ACP session "${id}" was recorded before resume support ` +
+            `(no working directory persisted) and cannot be resumed. ` +
+            `Spawn a new session instead.`,
+        ),
+      );
+    };
+
+    const handler = getSteerHandler();
+    const promise = handler({
+      pathParams: { id: "legacy-1" },
+      body: { instruction: "go" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(/recorded before resume support/);
+  });
+
+  test("plain steer errors map to NotFoundError", async () => {
+    steerOrResumeImpl = async (id) => {
+      throw new Error(
+        `ACP session "${id}" is not running (status: initializing)`,
+      );
+    };
+
+    const handler = getSteerHandler();
+    const promise = handler({
+      pathParams: { id: "init-1" },
+      body: { instruction: "go" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(NotFoundError);
   });
 });
