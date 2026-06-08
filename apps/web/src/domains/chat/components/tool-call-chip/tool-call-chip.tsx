@@ -260,9 +260,12 @@ export function ToolCallChip({
   const expanded = useChatSessionStore(
     (s) => s.expandedToolCallIds.has(toolCall.id),
   );
-  const toggleExpanded = (next: boolean) => {
-    useChatSessionStore.getState().toggleExpandedToolCallId(toolCall.id, next);
-  };
+  const toggleExpanded = useCallback(
+    (next: boolean) => {
+      useChatSessionStore.getState().setExpandedToolCallId(toolCall.id, next);
+    },
+    [toolCall.id],
+  );
   // Per-chip submission state. Each tool call that is awaiting a confirmation
   // renders its own inline card and tracks its own in-flight Allow/Deny, so a
   // second confirmation outstanding in the same turn stays independently
@@ -291,13 +294,19 @@ export function ToolCallChip({
     hasPendingConfirmation ||
     (!isRunning && (toolCall.result !== undefined || Object.keys(toolCall.input).length > 0));
 
-  // Auto-expand whenever this chip has a pending confirmation so its inline
-  // approve/deny card is immediately visible.
+  // Auto-expand on the false→true transition of pendingConfirmation so the
+  // inline approve/deny card is immediately visible. Initialized to `false`
+  // so a chip that mounts with a pending confirmation expands immediately.
+  // Tracks the previous value to fire only on the transition — this lets the
+  // user manually collapse without the effect re-expanding it every render.
+  const prevPendingRef = useRef(false);
   useEffect(() => {
-    if (toolCall.pendingConfirmation && !expanded) {
+    const wasPending = prevPendingRef.current;
+    prevPendingRef.current = !!toolCall.pendingConfirmation;
+    if (toolCall.pendingConfirmation && !wasPending) {
       toggleExpanded(true);
     }
-  }, [toolCall.pendingConfirmation]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [toolCall.pendingConfirmation, toggleExpanded]);
 
   const handleConfirmationSubmit = useCallback(
     async (decision: ConfirmationDecision) => {

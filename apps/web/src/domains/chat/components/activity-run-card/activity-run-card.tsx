@@ -1,5 +1,5 @@
 import { Brain, X } from "lucide-react";
-import { Fragment, useMemo } from "react";
+import { Fragment, useCallback, useMemo } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
@@ -560,11 +560,14 @@ function useCardExpanded(
   );
   const value = persisted ?? autoExpand;
 
-  const onChange = (next: boolean) => {
-    if (cardId != null) {
-      useChatSessionStore.getState().toggleExpandedCardId(cardId, next);
-    }
-  };
+  const onChange = useCallback(
+    (next: boolean) => {
+      if (cardId != null) {
+        useChatSessionStore.getState().setExpandedCardId(cardId, next);
+      }
+    },
+    [cardId],
+  );
 
   return { value, onChange };
 }

@@ -80,7 +80,7 @@ export interface ChatSessionState {
    * the thinking block's expansion key.
    */
   expandedCardIds: Map<string, boolean>;
-  expandedThinkingKeys: Map<string, boolean>;
+  expandedThinkingKeys: Set<string>;
 
   // --- Cross-conversation cache ---
   contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
@@ -160,9 +160,9 @@ export interface ChatSessionActions {
   consumePendingLocalDeletion: (messageId: string) => boolean;
 
   // --- Expansion state (tool calls, progress cards, thinking blocks) ---
-  toggleExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
-  toggleExpandedCardId: (cardId: string, expanded: boolean) => void;
-  toggleExpandedThinkingKey: (key: string, expanded: boolean) => void;
+  setExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
+  setExpandedCardId: (cardId: string, expanded: boolean) => void;
+  setExpandedThinkingKey: (key: string, expanded: boolean) => void;
 
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
@@ -205,7 +205,7 @@ function initialState(): ChatSessionState {
     confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
     expandedCardIds: new Map(),
-    expandedThinkingKeys: new Map(),
+    expandedThinkingKeys: new Set(),
     contextWindowUsageByConversation: new Map(),
     previousConversationId: null,
     previousAssistantId: null,
@@ -332,7 +332,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
       expandedCardIds: new Map(),
-      expandedThinkingKeys: new Map(),
+      expandedThinkingKeys: new Set(),
       contextWindowUsageByConversation: usageByConversation,
       previousConversationId: activeConversationId,
       previousAssistantId: assistantId,
@@ -436,7 +436,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   },
 
   // --- Expansion state (tool calls, progress cards, thinking blocks) ---
-  toggleExpandedToolCallId: (toolCallId, expanded) =>
+  setExpandedToolCallId: (toolCallId, expanded) =>
     set((s) => {
       const next = new Set(s.expandedToolCallIds);
       if (expanded) next.add(toolCallId);
@@ -444,17 +444,18 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return { expandedToolCallIds: next };
     }),
 
-  toggleExpandedCardId: (cardId, expanded) =>
+  setExpandedCardId: (cardId, expanded) =>
     set((s) => {
       const next = new Map(s.expandedCardIds);
       next.set(cardId, expanded);
       return { expandedCardIds: next };
     }),
 
-  toggleExpandedThinkingKey: (key, expanded) =>
+  setExpandedThinkingKey: (key, expanded) =>
     set((s) => {
-      const next = new Map(s.expandedThinkingKeys);
-      next.set(key, expanded);
+      const next = new Set(s.expandedThinkingKeys);
+      if (expanded) next.add(key);
+      else next.delete(key);
       return { expandedThinkingKeys: next };
     }),
 

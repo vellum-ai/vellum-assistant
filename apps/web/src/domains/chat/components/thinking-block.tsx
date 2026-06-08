@@ -5,9 +5,9 @@
  * "Thought process" once complete.
  *
  * Expansion state lives in `useChatSessionStore.expandedThinkingKeys` — a
- * Zustand-managed Map keyed by a stable `expansionKey`. The store action
- * produces a new Map instance on toggle, so this component re-renders
- * reactively via its selector without needing a local useState mirror.
+ * Zustand-managed Set of expanded keys. The store action produces a new Set
+ * instance on change, so this component re-renders reactively via its
+ * selector without needing a local useState mirror.
  * Markdown is rendered only while expanded (Radix unmounts collapsed
  * content), so the parse cost is paid lazily on demand.
  */
@@ -36,12 +36,12 @@ export function ThinkingBlock({
   expansionKey,
 }: ThinkingBlockProps) {
   const isExpanded = useChatSessionStore(
-    (s) => s.expandedThinkingKeys.get(expansionKey) ?? false,
+    (s) => s.expandedThinkingKeys.has(expansionKey),
   );
 
   const handleValueChange = (value: string) => {
     const next = value === expansionKey;
-    useChatSessionStore.getState().toggleExpandedThinkingKey(expansionKey, next);
+    useChatSessionStore.getState().setExpandedThinkingKey(expansionKey, next);
   };
 
   return (
