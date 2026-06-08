@@ -87,30 +87,36 @@ The base BOOTSTRAP task_preferences fallback is not on this rail. Your opener is
 
 The activation funnel is measured passively — there is no separate tool to call.
 When you render the `ui_show` surface for a rail move that IS a funnel moment,
-add the optional `activation_moment` parameter to that same `ui_show` call. The
-daemon records the milestone automatically when the user COMMITS the surface
-(clicks an action / submits / selects). It's a tag on a surface you're already
-showing, not extra work.
+add the optional `activation_moment` parameter to that same `ui_show` call. It's
+a tag on a surface you're already showing, not extra work.
+
+Most moments record when the user COMMITS the tagged surface (clicks an action /
+submits / selects). The one exception is `first_wow_executed`, which records the
+moment the surface RENDERS — because the wow has already happened by the time you
+show its result, and a result card is often display-only with nothing to commit.
 
 Which surface to tag with which moment:
 
-- `moment_1` — the Port-summary card, OR the no-port intake `choice` surface
-  (background + top-of-mind captured, or the user explicitly skipped).
+- `moment_1` — the no-port intake `choice` surface, OR the Port-summary card
+  (background + top-of-mind captured, or the user explicitly skipped). Records on
+  commit (when the intake resolves).
 - `moment_2` — the Propose offer surface (the `ui_show` offer card/choice where
-  the user picks an outcome).
+  the user picks an outcome). Records on commit.
 - `moment_3` — the task-selection surface (the specific thing you're about to
-  run is chosen).
+  run is chosen). Records on commit.
 - `first_wow_executed` — the Run result surface (e.g. `work_result` / the result
-  the user sees after the wow ran against real data).
-- `first_wow_interacted` — handled automatically: tag the result surface above
-  and the milestone records when the user clicks an action button on it. (Tag
-  the result surface with `first_wow_executed`; if you render a distinct
-  follow-up surface for the interaction, tag that one `first_wow_interacted`.)
+  the user sees after the wow ran against real data). Records on RENDER — you do
+  not need the user to click anything; just tag the result surface.
+- `first_wow_interacted` — the user's first engagement AFTER the wow. Tag the
+  surface they act on (a result-card action button, or the follow-through
+  `choice` you render next). Records on commit. Don't put this on the same
+  surface as `first_wow_executed` — one tag per surface, and that surface already
+  records "executed" on render.
 
-The milestone records automatically when the user commits the tagged surface; it
-no-ops outside an activation session, and a missing or mistimed tag is non-fatal
-— but accurate, move-bound tags are what make the funnel meaningful. Omit
-`activation_moment` on every non-funnel surface.
+A surface carries at most one `activation_moment`. The milestone no-ops outside
+an activation session, and a missing or mistimed tag is non-fatal — but accurate,
+move-bound tags are what make the funnel meaningful. Omit `activation_moment` on
+every non-funnel surface.
 
 ## Wrap
 

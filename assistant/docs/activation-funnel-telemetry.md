@@ -32,16 +32,22 @@ Flow, end to end:
 1. **Daemon records** an activation event into the SQLite `onboarding_events`
    table via `recordActivationEvent()` in
    `assistant/src/memory/onboarding-events-store.ts`:
-   - emission is **deterministic, tied to the real user commit of a `ui_show`
-     surface** — there is no model-facing tool. The model tags the surface it is
-     already rendering for a rail move with an optional `activation_moment`
-     parameter on `ui_show`; the daemon captures that tag on the surface's
-     server-side state and, when the user **commits** that surface (clicks an
-     action / submits / selects), `handleSurfaceAction()` in
-     `assistant/src/daemon/conversation-surfaces.ts` records the corresponding
-     milestone (gated on `isActivationSession`). The token→step-name map lives in
-     `assistant/src/telemetry/activation-funnel.ts`
-     (`activationStepNameForMomentParam`);
+   - emission is **deterministic, tied to a `ui_show` surface** — there is no
+     model-facing tool. The model tags the surface it is already rendering for a
+     rail move with an optional `activation_moment` parameter on `ui_show`; the
+     daemon captures that tag on the surface's server-side state and records the
+     milestone (gated on `isActivationSession`). **Timing is per-moment**
+     (`ACTIVATION_MOMENT_EMIT_AT` in `activation-funnel.ts`): most moments record
+     when the user **commits** the surface (clicks an action / submits /
+     selects) via `handleSurfaceAction()`; the one exception is
+     `first_wow_executed`, which records at **render time** in
+     `surfaceProxyResolver` — the Run result/`work_result` surface is often
+     display-only and may never be committed, so a commit-time emit would never
+     fire (and deferring it to a later click would conflate "executed" with
+     "interacted"). Show-timing tags are recorded immediately and not stored, so
+     the commit path never double-emits. The token→step-name map and the
+     show/commit timing both live in
+     `assistant/src/telemetry/activation-funnel.ts`;
    - emission is best-effort (wrapped in try/catch) and never blocks or alters
      the surface-action flow;
    - `recordActivationEvent` respects the `getConfig().collectUsageData` opt-out

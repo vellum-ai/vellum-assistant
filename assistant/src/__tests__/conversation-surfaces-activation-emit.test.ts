@@ -135,6 +135,47 @@ describe("activation moment emission from ui_show surface commits", () => {
     expect(rows[0]!.sessionId).toBe("conv-marked");
   });
 
+  test("first_wow_executed records at SHOW time (no commit) and never double-emits", async () => {
+    markActivationSession("conv-wow");
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext("conv-wow", sent);
+
+    // A display-only result surface tagged with the execution moment.
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Inbox cleaned",
+      data: { text: "Archived 1,240 emails" },
+      activation_moment: "first_wow_executed",
+    });
+
+    // Recorded immediately on render — no handleSurfaceAction commit needed.
+    let rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stepName).toBe("activation_first_wow_executed");
+    expect(rows[0]!.stepIndex).toBe(4);
+
+    // If the card later receives a commit (e.g. it carried an action), it must
+    // NOT double-emit — a show-timing tag is never stored for the commit path.
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    await handleSurfaceAction(ctx, showMessage.surfaceId, "expand", {});
+    rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("first_wow_executed in an UNMARKED session writes no row at show time", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext("conv-wow-unmarked", sent);
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Result",
+      data: { text: "x" },
+      activation_moment: "first_wow_executed",
+    });
+    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+  });
+
   test("does not forward the daemon-only tag to the client", async () => {
     markActivationSession("conv-marked-2");
     const sent: ServerMessage[] = [];

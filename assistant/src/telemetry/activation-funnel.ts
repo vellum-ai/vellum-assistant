@@ -112,6 +112,32 @@ export function activationStepNameForMomentParam(
   return STEP_NAME_BY_MOMENT_PARAM[param];
 }
 
+/**
+ * When each tagged moment is emitted relative to its `ui_show` surface:
+ * - `"show"` — at surface render time. `first_wow_executed` is an *execution*
+ *   signal: the rail's result/`work_result` surface is display-only and may
+ *   receive no user commit, so a commit-time emit would never fire (and if the
+ *   card has an action, deferring to the click would conflate "executed" with
+ *   "interacted" and corrupt funnel timing).
+ * - `"commit"` — on user commit/interaction. The other four moments represent
+ *   resolving an intake, picking an offer/task, or clicking a result action —
+ *   all genuine commit events.
+ */
+export const ACTIVATION_MOMENT_EMIT_AT = {
+  moment_1: "commit",
+  moment_2: "commit",
+  moment_3: "commit",
+  first_wow_executed: "show",
+  first_wow_interacted: "commit",
+} as const satisfies Record<ActivationMomentParam, "show" | "commit">;
+
+/** True when the moment records at surface-render time rather than on commit. */
+export function activationMomentEmitsAtShow(
+  param: ActivationMomentParam,
+): boolean {
+  return ACTIVATION_MOMENT_EMIT_AT[param] === "show";
+}
+
 /** Look up the 1-based funnel index for a step name. */
 export function activationStepIndex(stepName: ActivationStepName): number {
   // Non-null: ActivationStepName is derived from ACTIVATION_STEPS, so the map

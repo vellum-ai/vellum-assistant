@@ -30,6 +30,7 @@ import type {
   InteractiveUiResult,
 } from "../runtime/interactive-ui-types.js";
 import {
+  activationMomentEmitsAtShow,
   type ActivationMomentParam,
   activationStepNameForMomentParam,
   isActivationMomentParam,
@@ -1266,15 +1267,41 @@ function getRequestedSurfaceCompletionSummary(
 }
 
 /**
+ * Best-effort recorder for a single activation-funnel moment. Gated on the
+ * conversation being a marked activation-rail session. Fire-and-forget: never
+ * throws, never blocks or alters the surface-action flow (a failure is logged
+ * and swallowed). Shared by the show-time path (`first_wow_executed`, recorded
+ * when the surface renders) and the commit-time path (the other moments,
+ * recorded when the user commits the surface).
+ */
+function recordActivationMoment(
+  ctx: SurfaceConversationContext,
+  moment: ActivationMomentParam,
+): void {
+  try {
+    if (!isActivationSession(ctx.conversationId)) return;
+    recordActivationEvent({
+      stepName: activationStepNameForMomentParam(moment),
+      sessionId: ctx.conversationId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId: ctx.conversationId, moment },
+      "Failed to record activation moment",
+    );
+  }
+}
+
+/**
  * Best-effort activation-funnel emission on a user surface commit.
  *
- * When the committed surface carries an `activationMoment` tag AND the
- * conversation is a marked activation-rail session, record the corresponding
- * funnel milestone. Fire-and-forget: never throws, never blocks or alters the
- * surface-action flow (a failure is logged and swallowed). Emits at most once
- * per surface — the tag is cleared after the first record so re-entrant or
- * repeated commits on the same surface do not double-emit (and the deterministic
- * `daemon_event_id` collapses any cross-surface duplicate downstream anyway).
+ * When the committed surface carries a commit-timing `activationMoment` tag,
+ * record the corresponding funnel milestone. Show-timing moments
+ * (`first_wow_executed`) are recorded at render time in `surfaceProxyResolver`
+ * and are NOT stored on `surfaceState`, so they never reach this path. The tag
+ * is cleared after the first record so re-entrant or repeated commits on the
+ * same surface do not double-emit (and the deterministic `daemon_event_id`
+ * collapses any cross-surface duplicate downstream anyway).
  *
  * Must be called only from terminal-commit paths (user clicked an action /
  * submitted / selected-and-committed), NOT from intermediate non-terminal
@@ -1284,24 +1311,13 @@ function maybeEmitActivationMoment(
   ctx: SurfaceConversationContext,
   surfaceId: string,
 ): void {
-  try {
-    const stored = ctx.surfaceState.get(surfaceId);
-    const moment = stored?.activationMoment;
-    if (!moment) return;
-    if (!isActivationSession(ctx.conversationId)) return;
-    // Clear the tag first so this can fire at most once per surface even if the
-    // commit path is re-entered.
-    stored.activationMoment = undefined;
-    recordActivationEvent({
-      stepName: activationStepNameForMomentParam(moment),
-      sessionId: ctx.conversationId,
-    });
-  } catch (err) {
-    log.warn(
-      { err, surfaceId, conversationId: ctx.conversationId },
-      "Failed to record activation moment on surface commit",
-    );
-  }
+  const stored = ctx.surfaceState.get(surfaceId);
+  const moment = stored?.activationMoment;
+  if (!moment) return;
+  // Clear the tag first so this can fire at most once per surface even if the
+  // commit path is re-entered.
+  stored.activationMoment = undefined;
+  recordActivationMoment(ctx, moment);
 }
 
 function completeSurfaceFromAction(
@@ -2576,15 +2592,23 @@ export async function surfaceProxyResolver(
       ...(a.data ? { data: a.data } : {}),
     }));
 
-    // Optional activation-rail telemetry tag. Daemon-only metadata: captured
-    // here so the funnel milestone can be recorded deterministically when the
-    // user commits this surface (see `handleSurfaceAction`). Validated and
-    // ignored if invalid; never forwarded to the client.
+    // Optional activation-rail telemetry tag. Daemon-only metadata: validated
+    // and ignored if invalid; never forwarded to the client.
     const activationMoment =
       typeof input.activation_moment === "string" &&
       isActivationMomentParam(input.activation_moment)
         ? input.activation_moment
         : undefined;
+
+    // Show-timing moments (`first_wow_executed`) record the instant the surface
+    // renders — a display-only result/`work_result` card may never be committed,
+    // so a commit-time emit would never fire. We record now and do NOT store the
+    // tag, so the commit path won't double-emit. Commit-timing moments are
+    // stored and recorded when the user commits the surface (see
+    // `handleSurfaceAction` → `maybeEmitActivationMoment`).
+    const storeTagForCommit =
+      activationMoment !== undefined &&
+      !activationMomentEmitsAtShow(activationMoment);
 
     // Track surface state for ui_update merging (includes actions so we can
     // look up per-action data payloads when the client sends an action back).
@@ -2593,8 +2617,12 @@ export async function surfaceProxyResolver(
       data,
       title,
       actions: mappedActions,
-      ...(activationMoment ? { activationMoment } : {}),
+      ...(storeTagForCommit ? { activationMoment } : {}),
     });
+
+    if (activationMoment !== undefined && !storeTagForCommit) {
+      recordActivationMoment(ctx, activationMoment);
+    }
 
     log.info(
       {
