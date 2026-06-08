@@ -155,7 +155,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           confirmedAssistantFlagValues[key] = value;
         }
 
-        set({ [key]: value });
+        set({ [key]: envOverrides.bool[key] ?? value });
       },
 
       markHydrated: () => set({ hasHydrated: true }),
@@ -218,7 +218,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         }
 
         setStr((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: value },
+          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
         }));
       },
     }) as AssistantFeatureFlagStore;

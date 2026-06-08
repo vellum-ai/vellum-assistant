@@ -94,7 +94,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        set({ [key]: value });
+        set({ [key]: envOverrides.bool[key] ?? value });
       },
 
       clearOverride: (key: string) => {
@@ -103,7 +103,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        const defaultValue = CLIENT_FLAG_DEFAULTS[key];
+        const defaultValue = envOverrides.bool[key] ?? CLIENT_FLAG_DEFAULTS[key];
         if (defaultValue !== undefined) {
           set({ [key]: defaultValue });
         }
@@ -127,7 +127,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           // localStorage unavailable
         }
         setStr((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: value },
+          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
         }));
       },
 
@@ -137,7 +137,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        const defaultValue = CLIENT_STRING_FLAG_DEFAULTS[key];
+        const defaultValue = envOverrides.str[key] ?? CLIENT_STRING_FLAG_DEFAULTS[key];
         setStr((prev) => ({
           stringFlags: {
             ...prev.stringFlags,
