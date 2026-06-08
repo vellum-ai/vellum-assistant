@@ -579,10 +579,10 @@ async function applyAdapterStub(
  * `package.json`'s `scripts.postinstall`, or `null` when there is no stub
  * package.json / postinstall script.
  *
- * Curated adapters declare a single `node <script>` invocation; the runtime is
- * substituted at execution time (see {@link defaultPostinstallRunner}), so the
- * `node` token is required only to mark the convention, not to pick the binary.
- * Anything else — extra args, a shell pipeline, a non-JS script — is rejected
+ * Curated adapters declare a single `bun <script>` invocation; bun is resolved
+ * via {@link ensureBun} at execution time (see {@link defaultPostinstallRunner})
+ * so the `bun` token marks the convention without hard-coding the binary path.
+ * Anything else — extra args, a shell pipeline, a non-script file — is rejected
  * rather than executed, and the script path is constrained to a file inside the
  * staging dir so a stub can never escape it.
  */
@@ -610,21 +610,22 @@ function resolvePostinstallScript(
       : undefined;
   if (typeof command !== "string" || command.trim() === "") return null;
 
-  const match = /^node\s+(\S+)$/.exec(command.trim());
+  const match = /^bun\s+(\S+)$/.exec(command.trim());
   if (!match) {
     throw new PluginPostinstallError(
       name,
       `unsupported postinstall command ${JSON.stringify(command)} — ` +
-        "curated adapters must be a single `node <script>` invocation",
+        "curated adapters must be a single `bun <script>` invocation",
     );
   }
 
   let rel = match[1]!;
   if (rel.startsWith("./")) rel = rel.slice(2);
-  if (!/\.(?:mjs|cjs|js)$/.test(rel)) {
+  if (!/\.(?:ts|mts|cts|mjs|cjs|js)$/.test(rel)) {
     throw new PluginPostinstallError(
       name,
-      `postinstall script ${JSON.stringify(rel)} must be a .mjs/.cjs/.js file`,
+      `postinstall script ${JSON.stringify(rel)} must be a ` +
+        ".ts/.mts/.cts/.mjs/.cjs/.js file",
     );
   }
   for (const segment of rel.split("/")) {

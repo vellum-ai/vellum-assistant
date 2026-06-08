@@ -5,6 +5,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node ./vellum-adapt.mjs"
+    "postinstall": "bun ./postinstall.ts"
   }
 }

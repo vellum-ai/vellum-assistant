@@ -496,33 +496,39 @@ adapter is a small, curated transform we commit *here* to translate such a
 clone into Vellum's shape.
 
 To adapt an external plugin, add a directory next to this README named for the
-marketplace entry, holding two files:
+marketplace entry. It supplies a `package.json` (with the correct `name` and a
+`postinstall` adapter command), the adapter script, and any templates the
+adapter renders:
 
 ```
 experimental/plugins/<name>/
-├── package.json        # { "scripts": { "postinstall": "node ./vellum-adapt.mjs" } }
-└── vellum-adapt.mjs    # the adapter — runs with the staged clone as its cwd
+├── package.json        # { "name": "<name>", "scripts": { "postinstall": "bun ./postinstall.ts" } }
+├── postinstall.ts      # the adapter — runs with the staged clone as its cwd
+└── templates/          # hook/source templates the adapter interpolates
 ```
 
 Install flow for an entry that has a stub:
 
 1. The marketplace entry's pinned repo is shallow-cloned at its commit.
 2. This stub's files are **overlaid** onto the clone (its `package.json`
-   deliberately overwrites the upstream one).
-3. The stub's `scripts.postinstall` is run against the staged tree to rewrite
-   it into a valid Vellum plugin (correct `package.json` `name` + peer dep,
-   synthesized `hooks/<name>.ts`). A failure aborts and rolls back the install.
+   deliberately overwrites the upstream one, so the directory now carries the
+   correct `name`).
+3. The stub's `scripts.postinstall` is run against the staged tree to finish
+   shaping it into a valid Vellum plugin (augment `package.json` with the
+   `@vellumai/plugin-api` peer dependency, synthesize `hooks/<name>.ts`). A
+   failure aborts and rolls back the install.
 
-See [`caveman/`](./caveman/) for a worked example: it reads the upstream
-`.claude-plugin/plugin.json` and `skills/caveman/SKILL.md`, writes a Vellum
-`package.json`, and synthesizes a `hooks/pre-model-call.ts` that injects the
-plugin's ruleset on the user-facing model call.
+See [`caveman/`](./caveman/) for a worked example: it adds the peer dependency
+to the overlaid `package.json`, reads the terse-mode ruleset from the upstream
+`skills/caveman/SKILL.md`, and renders `templates/pre-model-call.ts.tmpl` into a
+`hooks/pre-model-call.ts` that injects that ruleset on the user-facing model
+call.
 
 Trust boundary: only `scripts.postinstall` from a **curated stub in this repo**
 ever runs — it is reviewed Vellum code, version-pinned to the marketplace ref.
 The upstream repo's own lifecycle scripts are never executed. The adapter is
-restricted to a single `node <script>` invocation pointing at a `.mjs`/`.cjs`/
-`.js` file inside the stub, run under a stripped environment and a timeout.
+restricted to a single `bun <script>` invocation pointing at a `.ts`/`.js` file
+inside the stub, run under a stripped environment and a timeout.
 
 ---
 

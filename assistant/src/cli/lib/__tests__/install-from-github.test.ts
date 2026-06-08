@@ -199,18 +199,28 @@ const unusedGitRunner: GitRunner = async (args) => {
 /**
  * Read the real, committed caveman adapter stub from the repo so the
  * integration test exercises the adapter that ships rather than a fixture
- * copy that could drift from it. Resolves `experimental/plugins/caveman/`
- * relative to this test file.
+ * copy that could drift from it. Returns every stub file keyed by its
+ * Contents-API path (`experimental/plugins/caveman/<rel>`) so the fetch fake
+ * serves the whole stub — package.json, the adapter, and its templates — to
+ * the real postinstall runner. Resolves the stub relative to this test file.
  */
-function readRealCavemanStub(): { packageJson: string; adapter: string } {
-  const stubDir = join(
-    import.meta.dir,
-    "../../../../../experimental/plugins/caveman",
-  );
-  return {
-    packageJson: readFileSync(join(stubDir, "package.json"), "utf-8"),
-    adapter: readFileSync(join(stubDir, "vellum-adapt.mjs"), "utf-8"),
+function readRealCavemanStub(): Record<string, string> {
+  const repoRel = "experimental/plugins/caveman";
+  const stubDir = join(import.meta.dir, "../../../../../", repoRel);
+  const tree: Record<string, string> = {};
+  const walk = (relDir: string): void => {
+    const absDir = relDir ? join(stubDir, relDir) : stubDir;
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(rel);
+        continue;
+      }
+      tree[`${repoRel}/${rel}`] = readFileSync(join(stubDir, rel), "utf-8");
+    }
   };
+  walk("");
+  return tree;
 }
 
 describe("installPlugin — first-party", () => {
@@ -676,14 +686,10 @@ describe("installPlugin — marketplace resolution", () => {
   test("overlays a curated adapter stub and runs its postinstall transform", async () => {
     // GIVEN caveman is whitelisted externally
     // AND we curate an adapter stub for it at experimental/plugins/caveman —
-    // the real, committed stub (package.json + vellum-adapt.mjs), so this test
-    // exercises the adapter that ships, not a fixture copy of it
-    const stub = readRealCavemanStub();
+    // the real, committed stub (package.json + postinstall.ts + templates), so
+    // this test exercises the adapter that ships, not a fixture copy of it
     const fetch = makeContentsFetch({
-      tree: {
-        "experimental/plugins/caveman/package.json": stub.packageJson,
-        "experimental/plugins/caveman/vellum-adapt.mjs": stub.adapter,
-      },
+      tree: readRealCavemanStub(),
       manifest: CAVEMAN_MANIFEST,
     });
     // AND the upstream clone is a Claude Code plugin: a name-mismatched
@@ -763,9 +769,9 @@ describe("installPlugin — marketplace resolution", () => {
       tree: {
         "experimental/plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
-          scripts: { postinstall: "node ./vellum-adapt.mjs" },
+          scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/vellum-adapt.mjs": "// adapter",
+        "experimental/plugins/caveman/postinstall.ts": "// adapter",
       },
       manifest: CAVEMAN_MANIFEST,
     });
@@ -790,9 +796,9 @@ describe("installPlugin — marketplace resolution", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("rejects a stub whose postinstall is not a single node invocation", async () => {
+  test("rejects a stub whose postinstall is not a single bun invocation", async () => {
     // GIVEN a curated stub whose postinstall is an arbitrary shell command
-    // rather than the supported `node <script>` adapter convention
+    // rather than the supported `bun <script>` adapter convention
     const fetch = makeContentsFetch({
       tree: {
         "experimental/plugins/caveman/package.json": JSON.stringify({
@@ -828,9 +834,9 @@ describe("installPlugin — marketplace resolution", () => {
       tree: {
         "experimental/plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
-          scripts: { postinstall: "node ./vellum-adapt.mjs" },
+          scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/vellum-adapt.mjs": "// adapter",
+        "experimental/plugins/caveman/postinstall.ts": "// adapter",
       },
       manifestStatus: 500,
     });
