@@ -22,6 +22,30 @@ USE THIS SKILL WHEN:
 - An MCP tool returns an auth error → run `assistant mcp auth <name>`
 - User wants to disconnect an integration
 
+## Prefer Native OAuth Integration (check this first)
+
+Many services have built-in OAuth integrations that are simpler and more reliable than MCP. Before using MCP, check if the service has a native OAuth option.
+
+**Native OAuth integrations available:** GitHub, Google, Linear, Notion, Discord, Twitter, Asana, Todoist, HubSpot, Outlook/Microsoft.
+
+If the service is in that list, use the native OAuth command instead:
+
+```
+assistant oauth connect <service>
+```
+
+Examples:
+```
+assistant oauth connect linear
+assistant oauth connect notion
+assistant oauth connect github
+```
+
+**Only use MCP when:**
+- The service has no native OAuth integration (e.g., Figma, Slack, Jira, Sentry, Stripe, Context7, Vercel, Cloudflare, Brave Search)
+- The user explicitly asks to use MCP for a specific service
+- The native OAuth integration fails or lacks features the user needs
+
 ## Step 1 — Detect your environment
 
 **Before doing anything else**, determine which environment you are in.
