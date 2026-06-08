@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   ASSISTANT_INTERNAL_PORT,
   AVATAR_DEVICE_ENV_VAR,
+  collectWatchTargets,
   dockerResourceNames,
   resolveAvatarDevicePath,
   resolveDockerHatchMode,
@@ -275,5 +279,94 @@ describe("resolveDockerHatchMode", () => {
         fullSourceTreeAvailable: false,
       }),
     ).toEqual({ build: false, watcher: false, fellBackToPull: true });
+  });
+});
+
+describe("collectWatchTargets", () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "vellum-watch-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  function scaffold(relDir: string, { src = true, pkg = true } = {}): void {
+    if (src) mkdirSync(join(repoRoot, relDir, "src"), { recursive: true });
+    if (pkg) {
+      mkdirSync(join(repoRoot, relDir), { recursive: true });
+      writeFileSync(join(repoRoot, relDir, "package.json"), "{}");
+    }
+  }
+
+  test("scopes watch targets to each service's src/ tree and package.json", () => {
+    // GIVEN the three services plus a couple of shared packages, each with a
+    // src/ directory and a package.json manifest
+    scaffold("assistant");
+    scaffold("credential-executor");
+    scaffold("gateway");
+    scaffold("packages/service-contracts");
+    scaffold("packages/local-mode");
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN only the src/ directories are watched recursively
+    expect(dirs.sort()).toEqual(
+      [
+        join(repoRoot, "assistant", "src"),
+        join(repoRoot, "credential-executor", "src"),
+        join(repoRoot, "gateway", "src"),
+        join(repoRoot, "packages", "local-mode", "src"),
+        join(repoRoot, "packages", "service-contracts", "src"),
+      ].sort(),
+    );
+
+    // AND only the package.json manifests are watched as files
+    expect(files.sort()).toEqual(
+      [
+        join(repoRoot, "assistant", "package.json"),
+        join(repoRoot, "credential-executor", "package.json"),
+        join(repoRoot, "gateway", "package.json"),
+        join(repoRoot, "packages", "local-mode", "package.json"),
+        join(repoRoot, "packages", "service-contracts", "package.json"),
+      ].sort(),
+    );
+  });
+
+  test("never watches .claude/ command symlinks that crash the watcher", () => {
+    // GIVEN an assistant service whose .claude/commands holds a dangling
+    // symlink (as it does in a fresh checkout)
+    scaffold("assistant");
+    mkdirSync(join(repoRoot, "assistant", ".claude", "commands"), {
+      recursive: true,
+    });
+    symlinkSync(
+      join(repoRoot, "does-not-exist", "do.md"),
+      join(repoRoot, "assistant", ".claude", "commands", "do.md"),
+    );
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN no watched path reaches into the .claude/ tree
+    const all = [...dirs, ...files];
+    expect(all.some((p) => p.includes(".claude"))).toBe(false);
+    expect(dirs).toContain(join(repoRoot, "assistant", "src"));
+  });
+
+  test("skips roots missing a src/ directory or package.json", () => {
+    // GIVEN a service with only a manifest and a package with only a src/ dir
+    scaffold("gateway", { src: false, pkg: true });
+    scaffold("packages/contracts-only", { src: true, pkg: false });
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN absent paths are not emitted
+    expect(dirs).toEqual([join(repoRoot, "packages", "contracts-only", "src")]);
+    expect(files).toEqual([join(repoRoot, "gateway", "package.json")]);
   });
 });

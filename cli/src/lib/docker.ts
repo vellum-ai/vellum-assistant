@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   watch as fsWatch,
 } from "fs";
 import { arch, platform } from "os";
@@ -789,6 +790,51 @@ export async function captureImageRefs(
 }
 
 /**
+ * Build the set of paths the hot-reload watcher should observe, scoped to
+ * each service's `src/` tree and `package.json` manifest.
+ *
+ * We deliberately avoid recursively watching whole service directories.
+ * Those contain `.claude/` command symlinks — which dangle in a fresh
+ * checkout because they point at the separately-cloned `claude-skills`
+ * repo — as well as `node_modules`. `fs.watch(dir, { recursive: true })`
+ * traverses those entries and emits an unhandled `error` event on a broken
+ * symlink, which crashes the CLI process. Source code only ever lives under
+ * `src/` (plus the manifest), so watching those paths preserves hot-reload
+ * without walking into symlinked or generated trees.
+ *
+ * Returning a plain record keeps this trivially unit-testable — see
+ * `__tests__/docker.test.ts`.
+ */
+export function collectWatchTargets(repoRoot: string): {
+  dirs: string[];
+  files: string[];
+} {
+  const packagesDir = join(repoRoot, "packages");
+  const packageRoots = existsSync(packagesDir)
+    ? readdirSync(packagesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(packagesDir, entry.name))
+    : [];
+
+  const serviceRoots = [
+    join(repoRoot, "assistant"),
+    join(repoRoot, "credential-executor"),
+    join(repoRoot, "gateway"),
+    ...packageRoots,
+  ];
+
+  const dirs: string[] = [];
+  const files: string[] = [];
+  for (const root of serviceRoots) {
+    const srcDir = join(root, "src");
+    if (existsSync(srcDir)) dirs.push(srcDir);
+    const manifest = join(root, "package.json");
+    if (existsSync(manifest)) files.push(manifest);
+  }
+  return { dirs, files };
+}
+
+/**
  * Determine which services are affected by a changed file path relative
  * to the repository root.
  */
@@ -821,9 +867,10 @@ function affectedServices(
 }
 
 /**
- * Watch for file changes in the assistant, gateway, credential-executor,
- * and packages directories. When changes are detected, rebuild the affected
- * images and restart their containers.
+ * Watch for source changes across the assistant, gateway, credential-executor,
+ * and packages services — scoped to each service's `src/` tree and
+ * `package.json` (see `collectWatchTargets`). When changes are detected,
+ * rebuild the affected images and restart their containers.
  */
 function startFileWatcher(opts: {
   signingKey?: string;
@@ -837,12 +884,7 @@ function startFileWatcher(opts: {
 }): () => void {
   const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
 
-  const watchDirs = [
-    join(repoRoot, "assistant"),
-    join(repoRoot, "credential-executor"),
-    join(repoRoot, "gateway"),
-    join(repoRoot, "packages"),
-  ];
+  const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingServices = new Set<ServiceName>();
@@ -919,37 +961,53 @@ function startFileWatcher(opts: {
 
   const watchers: ReturnType<typeof fsWatch>[] = [];
 
+  function onChange(fullPath: string): void {
+    const services = affectedServices(fullPath, repoRoot);
+    if (services.size === 0) return;
+
+    for (const s of services) {
+      pendingServices.add(s);
+    }
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      rebuildAndRestart();
+    }, 500);
+  }
+
   for (const dir of watchDirs) {
-    if (!existsSync(dir)) continue;
     const watcher = fsWatch(dir, { recursive: true }, (_event, filename) => {
       if (!filename) return;
-      if (
-        filename.includes("node_modules") ||
-        filename.includes(".env") ||
-        filename.startsWith(".")
-      ) {
+      if (filename.includes("node_modules") || filename.includes(".env")) {
         return;
       }
+      onChange(join(dir, filename));
+    });
+    // fs.watch surfaces transient errors (e.g. an unreadable entry) as an
+    // `error` event, which would otherwise crash the process. Log and keep
+    // the remaining watchers running.
+    watcher.on("error", (err) => {
+      console.error(
+        `⚠️  File watcher error for ${dir}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+    watchers.push(watcher);
+  }
 
-      const fullPath = join(dir, filename);
-      const services = affectedServices(fullPath, repoRoot);
-      if (services.size === 0) return;
-
-      for (const s of services) {
-        pendingServices.add(s);
-      }
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        rebuildAndRestart();
-      }, 500);
+  for (const file of watchFiles) {
+    const watcher = fsWatch(file, () => onChange(file));
+    watcher.on("error", (err) => {
+      console.error(
+        `⚠️  File watcher error for ${file}: ${err instanceof Error ? err.message : err}`,
+      );
     });
     watchers.push(watcher);
   }
 
   console.log("👀 Watching for file changes in:");
-  console.log("   assistant/, gateway/, credential-executor/, packages/");
+  console.log("   <service>/src and <service>/package.json for");
+  console.log("   assistant/, gateway/, credential-executor/, packages/*");
   console.log("");
 
   return () => {
