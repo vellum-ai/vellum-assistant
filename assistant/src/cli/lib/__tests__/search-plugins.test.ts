@@ -279,7 +279,7 @@ describe("searchPlugins", () => {
           source: {
             source: "github",
             repo: "JuliusBrussee/caveman",
-            ref: "v1.8.2",
+            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
           },
           description: "Ultra-compressed communication mode.",
         },
@@ -311,12 +311,12 @@ describe("searchPlugins", () => {
     expect(result.matches).toEqual([
       {
         name: "caveman",
-        path: "github:JuliusBrussee/caveman@v1.8.2",
+        path: "github:JuliusBrussee/caveman@63a91ecadbf4c4719a4602a5abb00883f9966034",
         description: "Ultra-compressed communication mode.",
         source: {
           kind: "github",
           repo: "JuliusBrussee/caveman",
-          ref: "v1.8.2",
+          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
         },
       },
       {
@@ -337,7 +337,7 @@ describe("searchPlugins", () => {
           source: {
             source: "github",
             repo: "JuliusBrussee/caveman",
-            ref: "v1.8.2",
+            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
           },
         },
       ],
@@ -367,7 +367,7 @@ describe("searchPlugins", () => {
           source: {
             source: "github",
             repo: "JuliusBrussee/caveman",
-            ref: "v1.8.2",
+            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
           },
         },
       ],

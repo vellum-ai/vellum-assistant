@@ -116,7 +116,7 @@ describe("getPluginDetails", () => {
             source: {
               source: "github",
               repo: "example-org/caveman",
-              ref: "v1",
+              ref: "1111111111111111111111111111111111111111",
             },
             description: "manifest description",
             homepage: "https://example.com/caveman",
@@ -152,7 +152,7 @@ describe("getPluginDetails", () => {
     expect(details.source).toEqual({
       kind: "github",
       repo: "example-org/caveman",
-      ref: "v1",
+      ref: "1111111111111111111111111111111111111111",
     });
     expect(details.installed).toBe(false);
     expect(details.readme).toContain("Grug brain plugin");
@@ -176,7 +176,7 @@ describe("getPluginDetails", () => {
           source: {
             source: "github",
             repo: "example-org/caveman",
-            ref: "v1.8.2",
+            ref: "2222222222222222222222222222222222222222",
           },
         },
       ],
@@ -215,7 +215,9 @@ describe("getPluginDetails", () => {
     );
 
     // THEN the external repo is read at the plugin's pinned ref, not `main`
-    expect(contentsRefs.get("external")).toBe("v1.8.2");
+    expect(contentsRefs.get("external")).toBe(
+      "2222222222222222222222222222222222222222",
+    );
     // AND the first-party collision probe still uses the catalog ref
     expect(contentsRefs.get("first-party")).toBe("main");
     // AND the README from the pinned ref is surfaced
@@ -234,7 +236,7 @@ describe("getPluginDetails", () => {
             source: {
               source: "github",
               repo: "example-org/simple-memory",
-              ref: "v9",
+              ref: "9999999999999999999999999999999999999999",
             },
           },
         ],
@@ -278,7 +280,7 @@ describe("getPluginDetails", () => {
             source: {
               source: "github",
               repo: "example-org/caveman",
-              ref: "v1",
+              ref: "1111111111111111111111111111111111111111",
             },
             description: "manifest description",
           },
@@ -330,7 +332,7 @@ describe("getPluginDetails", () => {
             source: {
               source: "github",
               repo: "example-org/caveman",
-              ref: "v1",
+              ref: "1111111111111111111111111111111111111111",
             },
             description: "manifest description",
             license: "MIT",
@@ -353,7 +355,7 @@ describe("getPluginDetails", () => {
     expect(details.source).toEqual({
       kind: "github",
       repo: "example-org/caveman",
-      ref: "v1",
+      ref: "1111111111111111111111111111111111111111",
     });
   });
 

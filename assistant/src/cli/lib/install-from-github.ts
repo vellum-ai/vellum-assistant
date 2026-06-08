@@ -462,6 +462,18 @@ async function copyExternalViaGit(
       commit = null;
     }
 
+    // Defense in depth: external marketplace refs are full commit SHAs (the
+    // manifest schema rejects mutable tags/branches), so the checked-out
+    // commit must equal the requested ref. If it ever diverges, refuse the
+    // install rather than materialize and `import()` unexpected code.
+    if (commit && commit.toLowerCase() !== source.ref.toLowerCase()) {
+      throw new PluginSourceUnavailableError(
+        `git checkout of ${sourceLabel(source)} resolved to ${commit}, ` +
+          `which does not match the pinned commit ${source.ref}`,
+        502,
+      );
+    }
+
     const srcRoot = source.rootPath
       ? join(cloneDir, source.rootPath)
       : cloneDir;

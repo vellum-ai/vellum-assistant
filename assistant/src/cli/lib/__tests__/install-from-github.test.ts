@@ -495,7 +495,7 @@ describe("installPlugin — marketplace resolution", () => {
         source: {
           source: "github",
           repo: "JuliusBrussee/caveman",
-          ref: "v1.8.2",
+          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
         },
         description: "Ultra-compressed communication mode.",
       },
@@ -503,7 +503,7 @@ describe("installPlugin — marketplace resolution", () => {
   };
 
   test("installs a whitelisted plugin by shallow-cloning its pinned repo + ref", async () => {
-    // GIVEN a marketplace whitelisting caveman at its repo root, pinned to a tag
+    // GIVEN a marketplace whitelisting caveman at its repo root, pinned to a commit SHA
     const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
     const calls: string[][] = [];
     const runGit = fakeGitRunner({
@@ -513,7 +513,7 @@ describe("installPlugin — marketplace resolution", () => {
         ".claude-plugin": null,
         ".claude-plugin/plugin.json": "{}",
       },
-      commit: "1111111222222233333334444444555555666666",
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
       calls,
     });
 
@@ -528,8 +528,8 @@ describe("installPlugin — marketplace resolution", () => {
     // result reports the pinned ref and resolved commit, and `.git` is dropped
     const target = join(pluginsDir, "caveman");
     expect(result.target).toBe(target);
-    expect(result.ref).toBe("v1.8.2");
-    expect(result.commit).toBe("1111111222222233333334444444555555666666");
+    expect(result.ref).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(result.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
     expect(result.fileCount).toBe(3);
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"caveman"}',
@@ -541,7 +541,7 @@ describe("installPlugin — marketplace resolution", () => {
 
     // AND the clone fetched the pinned ref from the pinned repo URL.
     const fetchCall = calls.find((c) => c[0] === "fetch");
-    expect(fetchCall).toContain("v1.8.2");
+    expect(fetchCall).toContain("63a91ecadbf4c4719a4602a5abb00883f9966034");
     const remoteCall = calls.find((c) => c[0] === "remote");
     expect(remoteCall?.at(-1)).toBe(
       "https://github.com/JuliusBrussee/caveman.git",
@@ -553,8 +553,31 @@ describe("installPlugin — marketplace resolution", () => {
     );
     expect(manifest.source.kind).toBe("external");
     expect(manifest.source.owner).toBe("JuliusBrussee");
-    expect(manifest.source.ref).toBe("v1.8.2");
-    expect(manifest.commit).toBe("1111111222222233333334444444555555666666");
+    expect(manifest.source.ref).toBe(
+      "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    );
+    expect(manifest.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+  });
+
+  test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {
+    // GIVEN a clone whose resolved HEAD does not match the manifest's pinned
+    // commit SHA — i.e. the upstream object served something unexpected
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}' },
+      commit: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    });
+
+    // WHEN we install
+    // THEN the integrity check fails closed rather than materializing and
+    // later `import()`-ing code from an unexpected revision, and nothing lands
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
   test("a missing remote ref surfaces a clean not-found", async () => {
@@ -563,7 +586,8 @@ describe("installPlugin — marketplace resolution", () => {
     const runGit = fakeGitRunner({
       tree: {},
       fetchError: Object.assign(new Error("git fetch failed"), {
-        stderr: "fatal: couldn't find remote ref v1.8.2",
+        stderr:
+          "fatal: couldn't find remote ref 63a91ecadbf4c4719a4602a5abb00883f9966034",
       }),
     });
 
