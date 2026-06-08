@@ -47,7 +47,8 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { restoreConsentForUser } from "@/utils/onboarding-cleanup";
+import { fetchMe } from "@/domains/account/profile";
+import { restoreConsentForUser, persistConsentForUser, resolveServerConsent } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
@@ -163,7 +164,24 @@ function broadcastAuthChange(): void {
   broadcastChannel?.postMessage("auth-changed");
 }
 
-function syncUserScopedState(nextUserId: string | null): void {
+async function syncUserScopedState(nextUserId: string | null): Promise<void> {
+  if (nextUserId) {
+    try {
+      const me = await fetchMe();
+      const resolved = resolveServerConsent(me.consent);
+      const store = useOnboardingStore.getState();
+      store.setTosAccepted(resolved.tos);
+      store.setAiDataConsent(resolved.ai);
+      if (resolved.shareAnalytics !== null) store.setShareAnalytics(resolved.shareAnalytics);
+      if (resolved.shareDiagnostics !== null) store.setShareDiagnostics(resolved.shareDiagnostics);
+      persistConsentForUser(nextUserId, resolved.tos, resolved.ai);
+      syncOrganizationState(nextUserId);
+      return;
+    } catch {
+      // Server fetch failed — fall through to device keys
+    }
+  }
+
   const consent = restoreConsentForUser(nextUserId);
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
@@ -342,6 +360,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           const result = await getSession();
           if (result.ok && result.data.user) {
             const user = toAuthUser(result.data.user);
+            await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
             try {
               const apiAssistants = await listAssistants();
@@ -378,7 +397,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncUserScopedState(user?.id ?? null);
+        await syncUserScopedState(user?.id ?? null);
         try {
           const apiAssistants = await listAssistants();
           if (apiAssistants.ok) {
@@ -403,7 +422,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           const retryResult = await getSession();
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
-            syncUserScopedState(user?.id ?? null);
+            await syncUserScopedState(user?.id ?? null);
             try {
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
@@ -419,7 +438,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       }
     }
 
-    syncUserScopedState(null);
+    await syncUserScopedState(null);
     set(sessionEnded());
   },
 
@@ -451,7 +470,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       throw new Error("Platform authentication required");
     }
     const user = toAuthUser(result.data.user);
-    syncUserScopedState(user?.id ?? null);
+    await syncUserScopedState(user?.id ?? null);
     set(authenticatedPlatformUser(user));
   },
 
@@ -472,7 +491,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncUserScopedState(user?.id ?? null);
+        await syncUserScopedState(user?.id ?? null);
         // Reconcile the lockfile mirror on refresh too — not just cold
         // `initSession`. App resume, profile save, and the provider callback
         // all route through here; without this the macOS tray and CLI keep a
@@ -495,7 +514,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
-    syncUserScopedState(null);
+    await syncUserScopedState(null);
     set(sessionEnded());
     return false;
   },

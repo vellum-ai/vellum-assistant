@@ -1,4 +1,3 @@
-import { captureError } from "@/lib/sentry/capture-error";
 import { EyeOff } from "lucide-react";
 import { useCallback, useEffect, useId, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -20,9 +19,9 @@ import {
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { persistConsentForUser } from "@/utils/onboarding-cleanup";
+import { saveConsent } from "@/utils/onboarding-cleanup";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -82,6 +81,7 @@ export function PrivacyScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
+  const hasPlatformSession = useHasPlatformSession();
 
   useEffect(() => {
     if (!isNative) {
@@ -90,13 +90,7 @@ export function PrivacyScreen() {
   }, [isNative]);
 
   const onStart = useCallback(() => {
-    try {
-      setShareAnalytics(shareAnalytics);
-      setShareDiagnostics(shareDiagnostics);
-    } catch (err) {
-      captureError(err, { context: "onboarding_persist_share_prefs" });
-    }
-    persistConsentForUser(userId, tosAccepted, aiDataConsent);
+    saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -122,12 +116,11 @@ export function PrivacyScreen() {
     void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     aiDataConsent,
+    hasPlatformSession,
     isNative,
     navigate,
     preferredFunnelVariant,
     searchParams,
-    setShareAnalytics,
-    setShareDiagnostics,
     shareAnalytics,
     shareDiagnostics,
     tosAccepted,
