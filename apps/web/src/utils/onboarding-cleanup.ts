@@ -1,67 +1,82 @@
 /**
  * Cross-domain onboarding cleanup utilities.
  *
- * These functions are consumed by the auth store (logout), settings
- * (retire assistant, debug controls), and are extracted here so domain
- * code doesn't reach into `domains/onboarding/` directly.
+ * Consent flags (TOS + AI data sharing) are stored in two tiers:
  *
- * Clears localStorage keys directly rather than going through the Zustand
- * store — all callers (logout, retire) navigate away immediately, so the
- * in-memory store state is irrelevant and reinitializes from localStorage
- * on the next page load.
+ * 1. **Active keys** (`vellum:onboarding:tosAccepted`, `…:aiDataConsent`) —
+ *    read by the onboarding store and route guards. Cleared on logout by
+ *    `clearUserScopedStorage()` along with all other `vellum:` keys.
+ *
+ * 2. **Durable per-user device keys** (`device:consent:tos:<userId>`,
+ *    `device:consent:ai:<userId>`) — survive logout because they use the
+ *    `device:` prefix, and are inherently per-user because the user id is
+ *    embedded in the key.
+ *
+ * On login, `restoreConsentForUser(userId)` copies durable → active so the
+ * route guard sees the returning user's prior consent. On consent submit,
+ * `persistConsentForUser(userId)` copies active → durable so the values
+ * survive the next logout cycle.
  */
-import { removeLocalSetting } from "@/utils/local-settings";
-import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
+import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
 
-/** Source of truth for onboarding key constants. Also imported by
- * `onboarding-store.ts`, `prefs.ts`, and `storage-migration.ts`. */
 export const KEY_TOS_ACCEPTED = "vellum:onboarding:tosAccepted";
 export const KEY_AI_DATA_CONSENT = "vellum:onboarding:aiDataConsent";
 const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 
-/**
- * Remove per-user onboarding flags so a different account signing in on the
- * same browser isn't treated as already onboarded. Call this on logout.
- *
- * Intentionally leaves the `vellum_share_*` keys alone — those are framed as
- * device-level privacy preferences (shared with `/settings/privacy`) rather
- * than per-user state, and resetting them on every logout would clobber a
- * user's deliberate opt-out for the next user on a shared machine.
- *
- * Safe to call during SSR (no-op) and safe to call when keys are absent.
- */
-export function clearOnboardingFlags(): void {
-  removeLocalSetting(KEY_TOS_ACCEPTED);
-  removeLocalSetting(KEY_AI_DATA_CONSENT);
-  removeLocalSetting(KEY_SELECTED_VERSION);
+function durableTosKey(userId: string): string {
+  return `device:consent:tos:${userId}`;
+}
+
+function durableAiKey(userId: string): string {
+  return `device:consent:ai:${userId}`;
 }
 
 /**
- * Reconcile onboarding flags against the currently signed-in user.
- *
- * Clears stale `onboarding.*` flags whenever the active user id doesn't
- * match the one we last observed on this browser. That covers:
- *   - A different user signing in after session expiry / cookie clearing
- *     (the previous user never went through `logout()`, so the flags
- *     survived).
- *   - A different user signing in on the same browser after a fresh load
- *     (there was no previous in-memory user to compare against).
- *
- * When the new user id matches the stored one (same user signing back in),
- * this is a no-op so the user isn't forced through onboarding again.
- *
- * `userId === null` (signed-out) is also a no-op — we preserve the last
- * observed id across signed-out gaps so a same-user re-login is recognized.
+ * Restore a returning user's consent from durable device keys into the
+ * active `vellum:` keys. The onboarding store picks up the writes via its
+ * `watchSetting` listeners, so the in-memory state updates automatically.
  */
-export function syncOnboardingUser(userId: string | null): void {
-  if (typeof window === "undefined") return;
-  if (userId === null) return;
+export function restoreConsentForUser(userId: string | null): void {
+  if (typeof window === "undefined" || !userId) return;
   try {
-    const stored = getDeviceSetting("lastUserId", "");
-    if (stored === userId) return;
-    clearOnboardingFlags();
-    setDeviceSetting("lastUserId", userId);
+    const tos = getLocalBool(durableTosKey(userId), false);
+    const ai = getLocalBool(durableAiKey(userId), false);
+    if (tos) setLocalBool(KEY_TOS_ACCEPTED, tos);
+    if (ai) setLocalBool(KEY_AI_DATA_CONSENT, ai);
   } catch {
-    // Storage unavailable — nothing to reconcile.
+    // Storage unavailable.
+  }
+}
+
+/**
+ * Persist the current active consent flags into durable per-user device
+ * keys so they survive the next logout cycle.
+ */
+export function persistConsentForUser(userId: string | null): void {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    const tos = getLocalBool(KEY_TOS_ACCEPTED, false);
+    const ai = getLocalBool(KEY_AI_DATA_CONSENT, false);
+    setLocalBool(durableTosKey(userId), tos);
+    setLocalBool(durableAiKey(userId), ai);
+  } catch {
+    // Storage unavailable.
+  }
+}
+
+/**
+ * Clear consent for a specific user — both active keys and durable device
+ * keys. Also clears the dev-only selectedVersion pin.
+ */
+export function clearConsentForUser(userId: string | null): void {
+  removeLocalSetting(KEY_TOS_ACCEPTED);
+  removeLocalSetting(KEY_AI_DATA_CONSENT);
+  removeLocalSetting(KEY_SELECTED_VERSION);
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    removeLocalSetting(durableTosKey(userId));
+    removeLocalSetting(durableAiKey(userId));
+  } catch {
+    // Storage unavailable.
   }
 }

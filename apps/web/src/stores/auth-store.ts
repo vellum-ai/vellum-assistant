@@ -47,7 +47,7 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { syncOnboardingUser } from "@/utils/onboarding-cleanup";
+import { restoreConsentForUser } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
@@ -162,7 +162,7 @@ function broadcastAuthChange(): void {
 }
 
 function syncUserScopedState(nextUserId: string | null): void {
-  syncOnboardingUser(nextUserId);
+  restoreConsentForUser(nextUserId);
   syncOrganizationState(nextUserId);
 }
 
