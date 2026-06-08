@@ -17,6 +17,7 @@ import type {
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   AssistantMessageContext,
@@ -1115,15 +1116,10 @@ export class AgentLoop {
         );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
-        // Strip image contentBlocks from older tool results to prevent
-        // screenshots from accumulating in the context window. The LLM
-        // already saw each image on the turn it was captured; keeping
-        // base64 blobs in history rapidly exhausts the context budget.
-        // Also strip old AX tree snapshots to keep TTFT from growing
-        // linearly with step count in computer-use sessions.
-        const providerHistory = compactAxTreeHistory(
-          stripOldMediaBlocks(history),
-        );
+        // Sanitize the outbound history right before sending: drop accumulated
+        // media, collapse old AX-tree snapshots, and convert historical
+        // web-search results to text. See {@link preModelCallSanitize}.
+        const providerHistory = preModelCallSanitize(history);
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1935,4 +1931,33 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
       }),
     };
   });
+}
+
+/**
+ * Sanitize the outbound history immediately before a provider call, bundling
+ * the pre-send transforms the loop applies to every request:
+ * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
+ *   older tool results — the model saw the media on the turn it was captured.
+ * - {@link compactAxTreeHistory} collapses all but the most recent few
+ *   `<ax-tree>` snapshots so TTFT does not grow linearly with step count.
+ * - {@link stripHistoricalWebSearchResults} converts historical
+ *   `web_search_tool_result` blocks to text summaries; Anthropic's opaque
+ *   `encrypted_content` tokens expire / are route-scoped, and replaying a stale
+ *   one is rejected with `Invalid encrypted_content in search_result block`.
+ *
+ * Transforms the outbound copy only — the durable history keeps the rich
+ * originals and each send re-derives the sanitized projection (every transform
+ * is idempotent). Because it runs unconditionally before every provider call,
+ * it is the single place where oversized media and expired web-search tokens
+ * are guaranteed to be removed from a request.
+ *
+ * This is outbound-request preparation and should eventually move to a default
+ * `pre-model-call` plugin hook ({@link HOOKS.PRE_MODEL_CALL}) once that hook's
+ * context carries the outbound message list; for now it lives inline next to
+ * the provider call it guards.
+ */
+export function preModelCallSanitize(history: Message[]): Message[] {
+  const mediaStripped = stripOldMediaBlocks(history);
+  const axCompacted = compactAxTreeHistory(mediaStripped);
+  return stripHistoricalWebSearchResults(axCompacted).messages;
 }
