@@ -87,6 +87,20 @@ function imageBlock(data: string): ContentBlock {
   };
 }
 
+/**
+ * A tool_result carrying a nested image in its contentBlocks, mirroring what a
+ * browser screenshot produces. This is the JARVIS-1041 shape: the oversized
+ * image lives at tool_result.contentBlocks, never as a top-level block.
+ */
+function toolResultWithImage(data: string): ContentBlock {
+  return {
+    type: "tool_result",
+    tool_use_id: "toolu_123",
+    content: "Screenshot captured",
+    contentBlocks: [imageBlock(data)],
+  };
+}
+
 function storedContent(conversationId: string): ContentBlock[][] {
   return getMessages(conversationId).map(
     (row) => JSON.parse(row.content) as ContentBlock[],
@@ -192,6 +206,61 @@ describe("persistUnsendableImageDowngrades", () => {
     expect(rewritten).toBe(1);
     const [content] = storedContent(conv.id);
     expect(content.some((b) => b.type === "image")).toBe(false);
+  });
+
+  /** JARVIS-1041: the oversized image is nested inside a tool_result (e.g. a
+   *  browser screenshot), not a top-level block. The downgrade must descend
+   *  into tool_result.contentBlocks and swap the nested image for a note, while
+   *  keeping the tool_result itself intact so tool_use/tool_result pairing
+   *  survives. */
+  test("downgrades an oversized image nested in tool_result.contentBlocks", async () => {
+    // GIVEN an assistant turn whose tool_result holds an oversized screenshot
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([toolResultWithImage(makePngBase64(12000, 9000))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the message is rewritten with the nested image swapped for a note
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    const toolResult = content.find((b) => b.type === "tool_result");
+    expect(toolResult).toBeDefined();
+    // AND the tool_result is preserved (pairing intact) with no image left
+    const nested = (toolResult as { contentBlocks?: ContentBlock[] })
+      .contentBlocks;
+    expect(nested?.some((b) => b.type === "image")).toBe(false);
+    expect(nested?.some((b) => b.type === "text")).toBe(true);
+  });
+
+  /** A sendable nested screenshot is never disturbed. */
+  test("leaves a normally-sized tool_result image untouched", async () => {
+    // GIVEN a tool_result with an image well within provider limits
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([toolResultWithImage(makePngBase64(1024, 768))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN nothing is rewritten and the nested image remains
+    expect(rewritten).toBe(0);
+    const [content] = storedContent(conv.id);
+    const toolResult = content.find((b) => b.type === "tool_result") as {
+      contentBlocks?: ContentBlock[];
+    };
+    expect(toolResult.contentBlocks?.some((b) => b.type === "image")).toBe(
+      true,
+    );
   });
 
   /** Re-running after a rewrite is a safe no-op (no image blocks remain). */

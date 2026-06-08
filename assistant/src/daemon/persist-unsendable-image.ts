@@ -70,6 +70,18 @@ function isImagePermanentlyUnsendable(
 }
 
 /**
+ * Replacement note for a permanently unsendable image, or null when the image
+ * is fine and should be left untouched. Shared by the top-level and nested
+ * (tool_result.contentBlocks) downgrade paths.
+ */
+function unsendableImageNote(
+  block: Extract<ContentBlock, { type: "image" }>,
+): ContentBlock | null {
+  if (!isImagePermanentlyUnsendable(block)) return null;
+  return { type: "text", text: UNSENDABLE_IMAGE_NOTE };
+}
+
+/**
  * Rewrite every stored message in a conversation that holds a permanently
  * unsendable image, replacing those image blocks with {@link
  * UNSENDABLE_IMAGE_NOTE}. Reads stored content directly (not the in-memory,
@@ -99,10 +111,29 @@ export function persistUnsendableImageDowngrades(
 
     let changed = false;
     const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
-      if (block.type !== "image") return block;
-      if (!isImagePermanentlyUnsendable(block)) return block;
-      changed = true;
-      return { type: "text", text: UNSENDABLE_IMAGE_NOTE };
+      if (block.type === "image") {
+        const note = unsendableImageNote(block);
+        if (!note) return block;
+        changed = true;
+        return note;
+      }
+      // Images returned by a tool (e.g. browser_screenshot) live inside the
+      // tool_result's contentBlocks, not as top-level blocks. Downgrade them
+      // in place so the tool_use/tool_result pairing stays intact.
+      if (block.type === "tool_result" && block.contentBlocks?.length) {
+        let nestedChanged = false;
+        const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
+          if (cb.type !== "image") return cb;
+          const note = unsendableImageNote(cb);
+          if (!note) return cb;
+          nestedChanged = true;
+          return note;
+        });
+        if (!nestedChanged) return block;
+        changed = true;
+        return { ...block, contentBlocks };
+      }
+      return block;
     });
     if (!changed) continue;
 
