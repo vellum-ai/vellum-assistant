@@ -192,6 +192,46 @@ export async function deleteSectionsForArticle(
   });
 }
 
+/**
+ * Return every distinct `article` slug that currently has at least one section
+ * point in the collection. Scrolls the whole collection (payload only, no
+ * vectors) in bounded batches and collects the distinct `article` values.
+ *
+ * Used by the maintain job's prune stage to find articles whose points linger
+ * after the page was deleted from the index — the change-delta selector never
+ * names a slug that is gone, so a deleted page's stale points are only
+ * observable by reading the collection back. An empty/absent collection yields
+ * an empty list.
+ */
+export async function listSectionArticles(
+  config: AssistantConfig,
+): Promise<string[]> {
+  await ensureSectionCollection(config);
+
+  const client = getSectionDenseClient(config);
+  const articles = new Set<string>();
+  let offset: string | number | undefined = undefined;
+  const maxIterations = 10_000;
+  const batchSize = 256;
+  for (let i = 0; i < maxIterations; i++) {
+    const result = await client.scroll(SECTION_COLLECTION, {
+      limit: batchSize,
+      with_payload: true,
+      with_vector: false,
+      ...(offset !== undefined ? { offset } : {}),
+    });
+    for (const point of result.points) {
+      const article = (point.payload as { article?: unknown } | null)?.article;
+      if (typeof article === "string") articles.add(article);
+    }
+    const next = result.next_page_offset;
+    if (next == null) break;
+    offset = typeof next === "string" ? next : (next as number);
+  }
+
+  return [...articles];
+}
+
 /** @internal Test-only: reset module-level singletons. */
 export function _resetSectionDenseStoreForTests(): void {
   _client = null;

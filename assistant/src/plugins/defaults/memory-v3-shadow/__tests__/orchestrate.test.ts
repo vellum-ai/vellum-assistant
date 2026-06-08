@@ -311,6 +311,154 @@ describe("orchestrate — candidate pool composition", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Edge-only injection: a page surfaced ONLY by the edge lane (the query did not
+// lexically hit it) records NO matched section, so injection falls back to the
+// FULL page (the curated `links` description — not the often-empty lead the
+// query never hit — is what made the candidate relevant). The best-section text
+// is kept only as the select-pool descriptor fallback.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — edge-only injection", () => {
+  test("an edge-only page records NO sectionBySlug entry (→ full-page inject)", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle); topic-a links to topic-d (edge-only — the
+    // query never hits topic-d). Select topic-d so it is in the result.
+    denseHits = [];
+    providerStub = selectProvider(["topic-d"]);
+    const result = await orchestrate(makeTurn(1, "apple"), {
+      sectionIndex: lanes.sectionIndex,
+      needle: lanes.needle,
+      denseConfig: config,
+      edgeGraph: lanes.edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    // topic-d was selected and injected, but with NO matched section — so
+    // `renderV3SectionContent(slug, undefined)` falls back to the full page.
+    expect(result.finalInjection).toContain("topic-d");
+    expect(result.sectionBySlug.has("topic-d")).toBe(false);
+  });
+
+  test("an edge-only page still carries the curated links description as its descriptor", async () => {
+    const lanes = await buildLanes();
+    let descriptorLine = "";
+    providerStub = {
+      name: "stub",
+      sendMessage: async (messages) => {
+        for (const msg of messages) {
+          for (const block of msg.content) {
+            if (block.type !== "text") continue;
+            const m = /\[\d+\] topic-d — ([^\n]+)/.exec(block.text);
+            if (m) descriptorLine = m[1]!;
+          }
+        }
+        return toolUseResponse({ ids: [] });
+      },
+    };
+
+    await orchestrate(makeTurn(1, "apple"), {
+      sectionIndex: lanes.sectionIndex,
+      needle: lanes.needle,
+      denseConfig: config,
+      edgeGraph: lanes.edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    // The curated `links` description (not the lead text) is the descriptor.
+    expect(descriptorLine).toContain("the curated edge from a to d");
+  });
+
+  test("an edge-only page with no curated description falls back to bestSection text as the descriptor", async () => {
+    // A bare `links:` entry (no ` — `) carries NO description, so the edge
+    // candidate's descriptor falls back to the page's best section against the
+    // query. The query never hits dst-page, so bestSection returns its lead;
+    // that lead text becomes the descriptor (and the page is still injected in
+    // full, with no sectionBySlug entry).
+    const pages: Record<Slug, string> = {
+      "src-page": "lead for src\n## Body\nalpha bravo about src",
+      "dst-page": "lead content for dst page\n## Extra\nnothing relevant here",
+    };
+    const raw: Record<Slug, string> = {
+      // bare slug — no ` — ` separator → undefined curated description.
+      "src-page": `---\nlinks:\n  - "dst-page"\n---\n${pages["src-page"]}`,
+      "dst-page": `---\nedges: []\n---\n${pages["dst-page"]}`,
+    };
+    const slugs = Object.keys(pages);
+    const entries: PageIndexEntry[] = slugs.map((slug, i) => ({
+      id: i + 1,
+      slug,
+      summary: `summary of ${slug}`,
+      edges: [],
+      leaves: [],
+      modifiedAt: 0,
+    }));
+    const sectionIndex = await buildSectionIndex(slugs, async (s) => pages[s]!);
+    const needle = buildSectionNeedle(sectionIndex);
+    const edgeGraph = await buildEdgeGraph(entries, async (s) => raw[s]!);
+
+    let descriptorLine = "";
+    providerStub = {
+      name: "stub",
+      sendMessage: async (messages) => {
+        for (const msg of messages) {
+          for (const block of msg.content) {
+            if (block.type !== "text") continue;
+            const m = /\[\d+\] dst-page — ([^\n]+)/.exec(block.text);
+            if (m) descriptorLine = m[1]!;
+          }
+        }
+        return toolUseResponse({ ids: [] });
+      },
+    };
+
+    // "alpha" hits src-page (needle); src-page links to dst-page (edge-only, no
+    // curated description).
+    const result = await orchestrate(makeTurn(1, "alpha"), {
+      sectionIndex,
+      needle,
+      denseConfig: config,
+      edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    // Descriptor fell back to dst-page's lead text; still no matched section.
+    expect(descriptorLine).toContain("lead content for dst page");
+    expect(result.sectionBySlug.has("dst-page")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dense liveness: a dense hit whose article is no longer in the live section
+// index (its page was deleted; its Qdrant points linger) is dropped from the
+// pool, so a deleted page can never be surfaced via the dense lane.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — dense liveness filter", () => {
+  test("a dense hit absent from sectionIndex.byArticle is dropped from the pool", async () => {
+    const lanes = await buildLanes();
+    // Dense returns a live page (topic-b) AND a deleted page (gone-page) whose
+    // points still linger in Qdrant but which is absent from the section index.
+    denseHits = [
+      { article: "topic-b", section: 0 },
+      { article: "gone-page", section: 0 },
+    ];
+    providerStub = selectProvider([]); // selection irrelevant to pool membership
+    const result = await orchestrate(makeTurn(1, "apple"), {
+      sectionIndex: lanes.sectionIndex,
+      needle: lanes.needle,
+      denseConfig: config,
+      edgeGraph: lanes.edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    // The live dense hit is pooled; the deleted page is dropped entirely.
+    expect(lastPool).toContain("topic-b");
+    expect(lastPool).not.toContain("gone-page");
+    expect(result.laneBySlug.has("gone-page")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Lane provenance: each pooled slug records the candgen lane that FIRST
 // surfaced it (needle → dense → edge precedence), exposed via
 // `result.laneBySlug` so the selection telemetry can attribute true sources.
