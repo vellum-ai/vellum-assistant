@@ -52,6 +52,10 @@ export const DEFAULT_NEEDLE_K = 100;
 export const DEFAULT_DENSE_K = 100;
 /** Default number of top needle+dense seeds expanded by the edge lane. */
 export const DEFAULT_EDGE_SEEDS = 18;
+/** Default neighbours surfaced per expanded edge seed. */
+export const DEFAULT_EDGE_PER_SEED = 6;
+/** Default hard cap on the total number of articles the edge lane surfaces. */
+export const DEFAULT_EDGE_CAP = 45;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;
@@ -71,6 +75,12 @@ export interface OrchestrateDeps {
   /** Number of top needle+dense seeds expanded. Defaults to
    *  {@link DEFAULT_EDGE_SEEDS}. */
   edgeSeeds?: number;
+  /** Neighbours surfaced per expanded edge seed. Defaults to
+   *  {@link DEFAULT_EDGE_PER_SEED}. */
+  edgePerSeed?: number;
+  /** Hard cap on total edge-lane surfaced articles. Defaults to
+   *  {@link DEFAULT_EDGE_CAP}. */
+  edgeCap?: number;
 }
 
 export interface OrchestrateResult {
@@ -99,6 +109,8 @@ export async function orchestrate(
   const needleK = deps.needleK ?? DEFAULT_NEEDLE_K;
   const denseK = deps.denseK ?? DEFAULT_DENSE_K;
   const edgeSeeds = deps.edgeSeeds ?? DEFAULT_EDGE_SEEDS;
+  const edgePerSeed = deps.edgePerSeed ?? DEFAULT_EDGE_PER_SEED;
+  const edgeCap = deps.edgeCap ?? DEFAULT_EDGE_CAP;
   const { sections } = deps.sectionIndex;
 
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
@@ -158,6 +170,8 @@ export async function orchestrate(
   ]);
   const surfaced = edgeExpand(deps.edgeGraph, seeds, {
     seedCount: edgeSeeds,
+    perSeed: edgePerSeed,
+    cap: edgeCap,
     alive: (slug) => !poolBySlug.has(slug),
   });
   for (const neighbor of surfaced) {

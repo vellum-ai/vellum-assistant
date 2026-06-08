@@ -114,7 +114,12 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
 mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
-      v3: { workingSet: { maxPages: 150, evictWindow: 5 } },
+      v3: {
+        workingSet: { maxPages: 150, evictWindow: 5 },
+        needleK: 100,
+        denseK: 100,
+        edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
+      },
       qdrant: { vectorSize: 8, onDisk: false },
     },
   }),

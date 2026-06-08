@@ -122,7 +122,7 @@ afterAll(() => {
 
 describe("getMemoryV3SelectionForInspector", () => {
   test("returns null for a null/undefined turn", async () => {
-    seed("conv-x", 3, [{ slug: "domain-a/page-1", source: "l1+l2" }]);
+    seed("conv-x", 3, [{ slug: "domain-a/page-1", source: "needle" }]);
     expect(await getMemoryV3SelectionForInspector("conv-x", null)).toBeNull();
     expect(
       await getMemoryV3SelectionForInspector("conv-x", undefined),
@@ -130,8 +130,8 @@ describe("getMemoryV3SelectionForInspector", () => {
   });
 
   test("returns the selection for the exact turn", async () => {
-    seed("conv-2", 2, [{ slug: "domain-a/page-1", source: "l1+l2" }]);
-    seed("conv-2", 7, [{ slug: "domain-b/page-9", source: "l1+l2" }]);
+    seed("conv-2", 2, [{ slug: "domain-a/page-1", source: "needle" }]);
+    seed("conv-2", 7, [{ slug: "domain-b/page-9", source: "needle" }]);
 
     const log = await getMemoryV3SelectionForInspector("conv-2", 2);
     expect(log?.turn).toBe(2);
@@ -139,26 +139,26 @@ describe("getMemoryV3SelectionForInspector", () => {
   });
 
   test("returns null when the turn has no v3 rows", async () => {
-    seed("conv-1", 3, [{ slug: "domain-a/page-1", source: "l1+l2" }]);
+    seed("conv-1", 3, [{ slug: "domain-a/page-1", source: "needle" }]);
     expect(await getMemoryV3SelectionForInspector("conv-1", 4)).toBeNull();
   });
 
   test("does NOT fall back to another turn for an unmatched lookup", async () => {
     // Turn 5 has rows, but inspecting turn 3 (no rows) must return null —
     // never turn 5's selection, which would misattribute it to turn 3.
-    seed("conv-3", 5, [{ slug: "domain-a/page-1", source: "l1+l2" }]);
+    seed("conv-3", 5, [{ slug: "domain-a/page-1", source: "needle" }]);
     expect(await getMemoryV3SelectionForInspector("conv-3", 3)).toBeNull();
   });
 
   test("maps source/pinned and renders the <memory> block", async () => {
     seed("conv-4", 1, [
-      { slug: "domain-a/page-1", source: "core+l2", pinned: true },
+      { slug: "domain-a/page-1", source: "edge", pinned: true },
       { slug: "domain-b/page-2", source: "carry-forward", pinned: false },
     ]);
 
     const log = await getMemoryV3SelectionForInspector("conv-4", 1);
     expect(log?.selections).toEqual([
-      { slug: "domain-a/page-1", source: "core+l2", pinned: true },
+      { slug: "domain-a/page-1", source: "edge", pinned: true },
       { slug: "domain-b/page-2", source: "carry-forward", pinned: false },
     ]);
     expect(log?.injectedText).toContain("<memory>");
@@ -167,7 +167,7 @@ describe("getMemoryV3SelectionForInspector", () => {
   });
 
   test("live/shadow reflect the flag resolver", async () => {
-    seed("conv-5", 1, [{ slug: "domain-a/page-1", source: "l1+l2" }]);
+    seed("conv-5", 1, [{ slug: "domain-a/page-1", source: "needle" }]);
 
     const off = await getMemoryV3SelectionForInspector("conv-5", 1);
     expect(off?.live).toBe(false);
