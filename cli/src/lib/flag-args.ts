@@ -54,3 +54,21 @@ export function parseFeatureFlagArgs(args: string[]): {
 
   return { envVars, remaining };
 }
+
+const ENV_FLAG_PREFIX = "VELLUM_FLAG_";
+
+/**
+ * Scan `process.env` for ambient `VELLUM_FLAG_*` entries.
+ * Returns them as-is (same `Record<string, string>` shape as
+ * `parseFeatureFlagArgs().envVars`) so callers can merge both
+ * sources with `--flag` args winning over ambient env vars.
+ */
+export function readAmbientFlagEnvVars(): Record<string, string> {
+  const vars: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith(ENV_FLAG_PREFIX) && value !== undefined) {
+      vars[key] = value;
+    }
+  }
+  return vars;
+}

@@ -16,7 +16,7 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { buildNestedConfig } from "../lib/config-utils";
 import { hatchDocker } from "../lib/docker";
-import { parseFeatureFlagArgs } from "../lib/flag-args";
+import { parseFeatureFlagArgs, readAmbientFlagEnvVars } from "../lib/flag-args";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { hatchLocal } from "../lib/hatch-local";
 import {
@@ -184,9 +184,10 @@ interface HatchArgs {
 }
 
 function parseArgs(): HatchArgs {
-  const { envVars: flagEnvVars, remaining: args } = parseFeatureFlagArgs(
+  const { envVars: cliFlagVars, remaining: args } = parseFeatureFlagArgs(
     process.argv.slice(3),
   );
+  const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
   let keepAlive = false;

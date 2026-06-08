@@ -43,7 +43,7 @@ import {
   type CliInvocation,
 } from "@vellumai/local-mode";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
-import { parseFeatureFlagArgs } from "../lib/flag-args";
+import { parseFeatureFlagArgs, readAmbientFlagEnvVars } from "../lib/flag-args";
 import {
   fetchOrganizationId,
   fetchPlatformAssistants,
@@ -92,8 +92,9 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
 
 // Exported for unit testing the arg/auth resolution without launching the TUI.
 export function parseArgs(): ParsedArgs {
-  const { envVars: flagEnvVars, remaining: argsWithoutFlags } =
+  const { envVars: cliFlagVars, remaining: argsWithoutFlags } =
     parseFeatureFlagArgs(process.argv.slice(3));
+  const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
   const args = argsWithoutFlags;
 
   // Build parsedFlagOverrides from the extracted env vars:
