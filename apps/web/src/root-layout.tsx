@@ -41,6 +41,7 @@ import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { retireAssistant } from "@/assistant/retire-service";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -90,7 +91,8 @@ export function RootLayout() {
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing);
+  const hasOrganization = !!useOrganizationStore.use.currentOrganizationId();
+  useClientFeatureFlagSync(hasPlatformSession && !isSessionInitializing && hasOrganization);
   useAssistantLifecycle({
     sessionStatus,
     isRetired: false,

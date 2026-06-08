@@ -52,13 +52,19 @@ export function useAssistantLifecycle({
 }: UseAssistantLifecycleOptions): void {
   const queryClient = useQueryClient();
 
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
+
   // Whether to query the server-side status at all. Gateway-auth
   // mode and "local mode without platform session" short-circuit
   // to local states without ever calling /assistant/.
+  // Platform API calls require the Vellum-Organization-Id header;
+  // wait for the org store to resolve before firing them.
   const shouldQueryServer =
     isAuthenticated(sessionStatus) &&
     !isGatewayAuthMode() &&
-    (hasPlatformSession || !isLocalMode());
+    (hasPlatformSession || !isLocalMode()) &&
+    !!currentOrganizationId;
 
   // Which platform assistant the user has selected, gated by the
   // multi-platform-assistant flag. When the flag is off (or no
@@ -67,8 +73,6 @@ export function useAssistantLifecycle({
   // pre-multi-assistant behavior.
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
   const byOrg =
     useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
   const selectedPlatformAssistantId =
