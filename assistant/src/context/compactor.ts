@@ -22,6 +22,7 @@ import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
+import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
@@ -718,9 +719,17 @@ export async function runAssistantDrivenCompaction(
     manifestText,
   );
 
-  // Append instruction at the tail — prefix unchanged, so prefix cache
-  // stays warm.
-  const requestMessages = [...args.messages, instruction];
+  // Convert historical web_search_tool_result blocks to text for the summary
+  // request: Anthropic's opaque `encrypted_content` tokens expire / are
+  // route-scoped, so replaying a stale one is rejected with `Invalid
+  // encrypted_content in search_result block`. Only the outbound summary copy
+  // is sanitized — tail resolution and the persisted compaction result read
+  // the original `args.messages`, so durable history keeps the rich blocks.
+  // The instruction is appended at the tail so the prefix cache stays warm.
+  const requestMessages = [
+    ...stripHistoricalWebSearchResults(args.messages).messages,
+    instruction,
+  ];
 
   let response: ProviderResponse;
   try {
