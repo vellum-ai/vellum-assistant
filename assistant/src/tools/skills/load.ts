@@ -128,7 +128,7 @@ export const skillLoadTool = {
   name: "skill_load",
 
   description:
-    'Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills. Bundled/first-party skills (like `app-builder`) are ALWAYS installed and available — loading only brings their instructions into the current conversation, since skills unload between turns. Never tell a user a bundled skill is "not installed" or offer to install it; just load it. For app, website, dashboard, game, calculator, tracker, visualization, or interactive tool requests, load `app-builder` with `skill: "app-builder"`.',
+    'Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills. Bundled/first-party skills (like `app-builder`) are already installed — loading only activates their instructions for the current conversation, since skills unload between turns; treat "load" as activation, not installation, and don\'t tell users a bundled skill needs installing. Loading can still fail (e.g. a feature-gated skill returns "currently unavailable", or the load errors) — if it does, relay that specific error rather than claiming the skill is not installed or offering to install it. For app, website, dashboard, game, calculator, tracker, visualization, or interactive tool requests, load `app-builder` with `skill: "app-builder"`.',
 
   category: "skills",
 
