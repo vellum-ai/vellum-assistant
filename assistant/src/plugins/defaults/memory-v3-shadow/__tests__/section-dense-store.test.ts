@@ -183,13 +183,18 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     expect(params.vectors.size).toBe(1536);
   });
 
-  test("is a no-op when the collection already exists", async () => {
+  test("ensures the article payload index when the collection already exists", async () => {
     state.collectionExists = true;
 
     await ensureSectionCollection(CONFIG);
 
+    // No collection create, but the article payload index is ensured idempotently
+    // so a collection left without it (e.g. an earlier crash between create and
+    // index, under strict-mode Qdrant) self-heals on the next start.
     expect(state.createCollectionCalls).toBe(0);
-    expect(state.createIndexCalls).toEqual([]);
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "article", field_schema: "keyword" },
+    ]);
   });
 
   test("re-running ensure latches readiness (single existence probe)", async () => {
@@ -202,7 +207,7 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
     expect(state.createCollectionCalls).toBe(1);
   });
 
-  test("treats a 409-on-create as success", async () => {
+  test("treats a 409-on-create as success and still ensures the index", async () => {
     state.collectionExists = false;
     state.createCollectionThrows = Object.assign(new Error("Conflict"), {
       status: 409,
@@ -210,9 +215,12 @@ describe("memory v3 section-dense-store — collection lifecycle", () => {
 
     await ensureSectionCollection(CONFIG);
 
-    // No throw; index creation is skipped because the racing peer created it.
+    // No throw; after the racing-peer 409 we fall through and still ensure the
+    // article payload index (idempotent) rather than returning early.
     expect(state.createCollectionCalls).toBe(1);
-    expect(state.createIndexCalls).toEqual([]);
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "article", field_schema: "keyword" },
+    ]);
   });
 });
 

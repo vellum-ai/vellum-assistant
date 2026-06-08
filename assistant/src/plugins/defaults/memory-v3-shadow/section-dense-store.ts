@@ -86,48 +86,45 @@ export async function ensureSectionCollection(
   const onDisk = config.memory.qdrant.onDisk;
 
   const exists = await client.collectionExists(SECTION_COLLECTION);
-  if (exists.exists) {
-    _collectionReady = true;
-    return;
-  }
-
-  log.info(
-    { collection: SECTION_COLLECTION, vectorSize },
-    "Creating Qdrant collection for memory v3 sections",
-  );
-
-  try {
-    await client.createCollection(SECTION_COLLECTION, {
-      vectors: {
-        size: vectorSize,
-        distance: "Cosine",
-        on_disk: onDisk,
-      },
-      hnsw_config: {
-        on_disk: onDisk,
-        m: 16,
-        ef_construct: 100,
-      },
-      optimizers_config: {
-        default_segment_number: 2,
-      },
-      on_disk_payload: onDisk,
-    });
-  } catch (err) {
-    // 409 = a concurrent caller created the collection — that's fine.
-    if (
-      err instanceof Error &&
-      "status" in err &&
-      (err as { status: number }).status === 409
-    ) {
-      _collectionReady = true;
-      return;
+  if (!exists.exists) {
+    log.info(
+      { collection: SECTION_COLLECTION, vectorSize },
+      "Creating Qdrant collection for memory v3 sections",
+    );
+    try {
+      await client.createCollection(SECTION_COLLECTION, {
+        vectors: {
+          size: vectorSize,
+          distance: "Cosine",
+          on_disk: onDisk,
+        },
+        hnsw_config: {
+          on_disk: onDisk,
+          m: 16,
+          ef_construct: 100,
+        },
+        optimizers_config: {
+          default_segment_number: 2,
+        },
+        on_disk_payload: onDisk,
+      });
+    } catch (err) {
+      // 409 = a concurrent caller created the collection — fall through to
+      // ensure the payload index below rather than returning early.
+      const status =
+        err instanceof Error && "status" in err
+          ? (err as { status: number }).status
+          : undefined;
+      if (status !== 409) throw err;
     }
-    throw err;
   }
 
-  // Index the `article` payload so `deleteSectionsForArticle` can filter on it
-  // under strict-mode Qdrant (which rejects filters on unindexed fields).
+  // Always ensure the `article` payload index — on EVERY path (fresh create,
+  // concurrent 409, and a pre-existing collection whose index creation was
+  // interrupted by an earlier crash). `deleteSectionsForArticle`/pruning filter
+  // on `article`, and strict-mode Qdrant rejects filters on unindexed fields, so
+  // a missing index would make them fail until manual repair. createPayloadIndex
+  // is idempotent, so re-running it against an existing index is a no-op.
   await client.createPayloadIndex(SECTION_COLLECTION, {
     field_name: "article",
     field_schema: "keyword",
