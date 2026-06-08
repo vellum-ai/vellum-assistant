@@ -34,6 +34,30 @@ export interface LeafTree {
   byPage: Map<Slug, LeafPath[]>;
 }
 
+/**
+ * A single section of a page: the lead (text before the first `## heading`,
+ * ordinal 0) or a heading-delimited block. Over-long sections are split into
+ * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
+ * fits a typical embedding window. `text` is prefixed with a
+ * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
+ */
+export interface Section {
+  article: Slug;
+  title: string;
+  text: string;
+  ordinal: number;
+}
+
+/**
+ * A flat, deterministic index of every page's sections plus an article→section
+ * lookup. `byArticle` maps each article slug to the indices (into `sections`)
+ * of that article's sections, in order.
+ */
+export interface SectionIndex {
+  sections: Section[];
+  byArticle: Map<Slug, number[]>;
+}
+
 export interface WorkingSetEntry {
   slug: Slug;
   selectedAtTurn: number;
