@@ -437,7 +437,7 @@ a `name`, an optional `owner`, and a `plugins` array.
   "plugins": [
     {
       "name": "example-plugin",
-      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "v1.0.0" },
+      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290" },
       "description": "Short summary shown in the catalog.",
       "category": "productivity",
       "homepage": "https://github.com/example-org/example-plugin",
@@ -455,10 +455,13 @@ Per-entry fields:
   - **`repo`** _(required)_ — `owner/repo` of the external repository.
   - **`path`** — directory within the repo holding the plugin root. Omit for
     the repository root. Must not escape the repo (`..` segments are rejected).
-  - **`ref`** _(required)_ — the git ref (tag, SHA, or branch) to fetch from.
-    **Every external entry must pin a ref** so the fetched code is
-    version-locked rather than tracking a floating branch. Prefer a release
-    tag or commit SHA.
+  - **`ref`** _(required)_ — the **full commit SHA** (40 or 64 hex chars) to
+    fetch from. Tags and branches are rejected: they are mutable, so an
+    upstream owner could retag/repoint them at attacker code that the daemon
+    later dynamically `import()`s. A full SHA pins the install to an immutable
+    revision, so the reviewed manifest fully determines what executes. To pin a
+    release, resolve its tag to a commit first (e.g.
+    `git ls-remote https://github.com/owner/repo refs/tags/vX.Y.Z`).
 - **`description`**, **`category`**, **`homepage`**, **`license`** —
   informational; surfaced in the catalog where present.
 
