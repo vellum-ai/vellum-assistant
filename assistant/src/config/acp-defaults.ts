@@ -9,9 +9,9 @@ const FROZEN_EMPTY_ARGS = Object.freeze([] as string[]) as unknown as string[];
 /**
  * Default ACP agent profiles that ship with the assistant.
  *
- * When `acp.enabled: true` and the user has not provided a config entry for an
- * agent id, the resolver falls back to this map so common agents like `claude`
- * and `codex` Just Work without requiring per-user config.
+ * When the user has not provided a config entry for an agent id, the resolver
+ * falls back to this map so common agents like `claude` and `codex` Just Work
+ * without requiring per-user config.
  *
  * Keyed by agent id. Deeply frozen — the outer object, each profile, and the
  * `args` arrays — so mutation throws in strict mode rather than silently
