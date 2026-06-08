@@ -9,7 +9,7 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
-import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
+import { clearConsentForUser } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -31,10 +31,10 @@ export function DebugControlsPanel() {
   const fetchedRef = useRef(false);
 
   const handleReplayOnboarding = useCallback(() => {
-    clearOnboardingFlags();
+    clearConsentForUser(user?.id ?? null);
     toast.success("Onboarding flags cleared.");
     navigate(routes.onboarding.privacy);
-  }, [navigate]);
+  }, [navigate, user?.id]);
 
   const fetchAssistant = useCallback(async (force?: boolean) => {
     if (!force && fetchedRef.current) {

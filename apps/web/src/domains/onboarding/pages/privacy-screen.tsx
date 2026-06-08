@@ -21,6 +21,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { persistConsentForUser } from "@/utils/onboarding-cleanup";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -93,6 +94,7 @@ export function PrivacyScreen() {
     } catch (err) {
       captureError(err, { context: "onboarding_persist_share_prefs" });
     }
+    persistConsentForUser(userId, tosAccepted, aiDataConsent);
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -117,6 +119,7 @@ export function PrivacyScreen() {
     const qs = params.toString();
     void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
+    aiDataConsent,
     isNative,
     navigate,
     preferredFunnelVariant,
@@ -125,8 +128,11 @@ export function PrivacyScreen() {
     setShareDiagnostics,
     shareAnalytics,
     shareDiagnostics,
+    tosAccepted,
     userId,
   ]);
+
+  const isReturningUser = !!searchParams.get("returnTo");
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">
@@ -237,7 +243,7 @@ export function PrivacyScreen() {
             onClick={onStart}
             className="h-11 text-base"
           >
-            Start
+            {isReturningUser ? "Continue" : "Start"}
           </Button>
           <Button
             variant="outlined"

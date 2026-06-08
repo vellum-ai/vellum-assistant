@@ -9,7 +9,8 @@ import {
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
+import { clearConsentForUser } from "@/utils/onboarding-cleanup";
+import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -90,7 +91,7 @@ export async function retireAssistant(
     }
 
     useResolvedAssistantsStore.getState().remove(assistantId);
-    clearOnboardingFlags();
+    clearConsentForUser(useAuthStore.getState().user?.id ?? null);
     return { ok: true, nextRoute: getPostRetireRoute() };
   } catch {
     return { ok: false, error: "Failed to retire assistant." };

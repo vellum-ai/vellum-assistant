@@ -25,8 +25,7 @@ const primeLocalGatewayConnectionMock = mock(async () => {
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
-const syncOnboardingUserMock = mock((_userId: string | null) => {});
-const clearOnboardingFlagsMock = mock(() => {});
+const restoreConsentForUserMock = mock((_userId: string | null) => ({ tos: false, ai: false }));
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
 const deleteBiometricTokenMock = mock(async () => {});
@@ -101,8 +100,16 @@ mock.module("@/runtime/native-biometric", () => ({
 const clearUserScopedStorageMock = mock(() => {});
 
 mock.module("@/utils/onboarding-cleanup", () => ({
-  syncOnboardingUser: syncOnboardingUserMock,
-  clearOnboardingFlags: clearOnboardingFlagsMock,
+  restoreConsentForUser: restoreConsentForUserMock,
+}));
+
+mock.module("@/domains/onboarding/onboarding-store", () => ({
+  useOnboardingStore: {
+    getState: () => ({
+      setTosAccepted: () => {},
+      setAiDataConsent: () => {},
+    }),
+  },
 }));
 
 mock.module("@/lib/auth/session-cleanup", () => ({
@@ -160,8 +167,7 @@ beforeEach(() => {
   setSelectedAssistantIdMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
-  syncOnboardingUserMock.mockClear();
-  clearOnboardingFlagsMock.mockClear();
+  restoreConsentForUserMock.mockClear();
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
   logoutMock.mockClear();
@@ -176,21 +182,21 @@ beforeEach(() => {
 });
 
 describe("auth store onboarding flag reconciliation", () => {
-  test("initSession reconciles onboarding flags for the signed-in user", async () => {
+  test("initSession restores consent for the signed-in user", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
 
     await useAuthStore.getState().initSession();
 
-    expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-1");
+    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("refreshSession reconciles onboarding flags for a changed user", async () => {
+  test("refreshSession restores consent for a changed user", async () => {
     sessionUser = { id: "user-2", email: "user@example.com" };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
-    expect(syncOnboardingUserMock).toHaveBeenCalledWith("user-2");
+    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-2");
     expect(useAuthStore.getState().user?.id).toBe("user-2");
   });
 
@@ -230,11 +236,10 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
   });
 
-  test("logout clears onboarding flags directly", async () => {
+  test("logout does not clear consent flags (durable device keys survive)", async () => {
     await useAuthStore.getState().logout();
 
     expect(logoutMock).toHaveBeenCalled();
-    expect(clearOnboardingFlagsMock).toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
