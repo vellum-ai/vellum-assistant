@@ -22,20 +22,34 @@ USE THIS SKILL WHEN:
 - An MCP tool returns an auth error → run `assistant mcp auth <name>`
 - User wants to disconnect an integration
 
-## Step 1 — Verify desktop app is running
+## Step 1 — Verify you are on the desktop app (HARD GATE)
 
-**Before doing anything else**, run this via `host_bash`:
+⚠️ **This is a hard gate. Do not run any `assistant mcp` command until it passes.**
+
+MCP servers only work on the local desktop daemon. A cloud / platform-hosted
+session **has `bash`**, so `mcp add` and `mcp list` will appear to succeed — but
+the config is written to the cloud daemon, not the user's machine, and the
+`auth` step can never complete because there is no browser on the host. The
+result is a zombie config: half set up, impossible to authenticate. **`bash`
+succeeding proves nothing. Only `host_bash` confirms you are on the machine that
+can finish the flow.**
+
+**Before doing anything else**, run this via `host_bash` (not `bash`):
 
 ```
 echo "desktop ok"
 ```
 
-- If it succeeds → proceed.
-- If `host_bash` is unavailable or denied → stop and tell the user:
+- If it succeeds → you are on the desktop. Proceed.
+- If `host_bash` is unavailable, denied, or you only have `bash` → **STOP NOW.**
+  Do not run `mcp add`. Do not run `mcp list`. Tell the user:
 
-> This skill requires the **Vellum desktop app**. Please download and launch it from [vellum.ai](https://vellum.ai), then start a new conversation.
+> This skill needs the **Vellum desktop app** — MCP setup can't run from a
+> cloud session because the OAuth step needs a browser on your machine. Please
+> open the desktop app from [vellum.ai](https://vellum.ai) and ask me there.
 
-Do not attempt any `assistant mcp` commands without `host_bash` access — they will silently fail or error.
+Writing an MCP config from a cloud session creates a broken server the user
+cannot authenticate. Refuse to start rather than leave a half-configured mess.
 
 ## Step 2 — Check the recipe table
 
@@ -45,6 +59,7 @@ Do not attempt any `assistant mcp` commands without `host_bash` access — they 
 |---------|---------|--------|
 | Context7 (docs) | `assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low` | Done — no auth needed |
 | Linear | `assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp` | Run `assistant mcp auth linear` |
+| Figma | `assistant mcp add figma -t streamable-http -u https://mcp.figma.com/mcp` | Run `assistant mcp auth figma` |
 
 If the service is not in this table, go to Step 3.
 
