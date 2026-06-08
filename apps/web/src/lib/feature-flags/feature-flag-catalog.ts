@@ -133,10 +133,17 @@ function computeEnvFlagOverrides(): Record<string, boolean | string> {
   return overrides;
 }
 
-const cachedOverrides = computeEnvFlagOverrides();
+let cachedOverrides: Record<string, boolean | string> | null = null;
 
 export function readEnvFlagOverrides(): Record<string, boolean | string> {
+  if (cachedOverrides === null) {
+    cachedOverrides = computeEnvFlagOverrides();
+  }
   return cachedOverrides;
+}
+
+export function resetEnvOverridesCache(): void {
+  cachedOverrides = null;
 }
 
 const FLAG_KEY_TO_DEF = new Map<string, FlagDefinition>();

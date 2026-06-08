@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ASSISTANT_FLAG_DEFAULTS,
@@ -6,8 +6,14 @@ import {
   CLIENT_STRING_FLAG_DEFAULTS,
   getEnvFlagOverridesForScope,
   readEnvFlagOverrides,
+  resetEnvOverridesCache,
   scopeIncludes,
 } from "@/lib/feature-flags/feature-flag-catalog";
+
+afterEach(() => {
+  resetEnvOverridesCache();
+  delete (globalThis as Record<string, unknown>).window;
+});
 
 describe("feature flag catalog", () => {
   test("exposes self-intro greeting to client and assistant flag stores", () => {
@@ -39,28 +45,20 @@ describe("readEnvFlagOverrides", () => {
     expect(overrides).toEqual({});
   });
 
-  test("reads from window.__VELLUM_FLAG_OVERRIDES__ when set before module load", async () => {
-    // Set up the global before importing a fresh module instance
+  test("reads from window.__VELLUM_FLAG_OVERRIDES__ when set", () => {
     (globalThis as Record<string, unknown>).window = {
       __VELLUM_FLAG_OVERRIDES__: {
         "self-intro-greeting": true,
         "home-tab": "variant-a",
       },
     };
+    resetEnvOverridesCache();
 
-    try {
-      // Bust the module cache by appending a query parameter
-      const mod = await import(
-        "@/lib/feature-flags/feature-flag-catalog?t=window-test"
-      );
-      const overrides = mod.readEnvFlagOverrides();
-      expect(overrides).toEqual({
-        "self-intro-greeting": true,
-        "home-tab": "variant-a",
-      });
-    } finally {
-      delete (globalThis as Record<string, unknown>).window;
-    }
+    const overrides = readEnvFlagOverrides();
+    expect(overrides).toEqual({
+      "self-intro-greeting": true,
+      "home-tab": "variant-a",
+    });
   });
 });
 
@@ -70,7 +68,7 @@ describe("getEnvFlagOverridesForScope", () => {
     expect(result).toEqual({ bool: {}, str: {} });
   });
 
-  test("filters client-scoped flags and separates bool/str", async () => {
+  test("filters client-scoped flags and separates bool/str", () => {
     (globalThis as Record<string, unknown>).window = {
       __VELLUM_FLAG_OVERRIDES__: {
         // client-only flag (boolean)
@@ -81,42 +79,29 @@ describe("getEnvFlagOverridesForScope", () => {
         "pre-chat-onboarding-experiment-2026-06-06": "variant-a",
       },
     };
+    resetEnvOverridesCache();
 
-    try {
-      const mod = await import(
-        "@/lib/feature-flags/feature-flag-catalog?t=scope-client"
-      );
-      const result = mod.getEnvFlagOverridesForScope("client");
-      expect(result.bool).toEqual({ homeTab: true });
-      expect(result.str).toEqual({
-        preChatOnboardingExperiment20260606: "variant-a",
-      });
-      // assistant-only flag should not appear
-      expect(result.bool).not.toHaveProperty("autoAnalyze");
-    } finally {
-      delete (globalThis as Record<string, unknown>).window;
-    }
+    const result = getEnvFlagOverridesForScope("client");
+    expect(result.bool).toEqual({ homeTab: true });
+    expect(result.str).toEqual({
+      preChatOnboardingExperiment20260606: "variant-a",
+    });
+    expect(result.bool).not.toHaveProperty("autoAnalyze");
   });
 
-  test("flags with scope 'both' appear for both client and assistant scopes", async () => {
+  test("flags with scope 'both' appear for both client and assistant scopes", () => {
     (globalThis as Record<string, unknown>).window = {
       __VELLUM_FLAG_OVERRIDES__: {
         "self-intro-greeting": true,
       },
     };
+    resetEnvOverridesCache();
 
-    try {
-      const mod = await import(
-        "@/lib/feature-flags/feature-flag-catalog?t=scope-both"
-      );
-      const clientResult = mod.getEnvFlagOverridesForScope("client");
-      const assistantResult = mod.getEnvFlagOverridesForScope("assistant");
+    const clientResult = getEnvFlagOverridesForScope("client");
+    const assistantResult = getEnvFlagOverridesForScope("assistant");
 
-      expect(clientResult.bool).toEqual({ selfIntroGreeting: true });
-      expect(assistantResult.bool).toEqual({ selfIntroGreeting: true });
-    } finally {
-      delete (globalThis as Record<string, unknown>).window;
-    }
+    expect(clientResult.bool).toEqual({ selfIntroGreeting: true });
+    expect(assistantResult.bool).toEqual({ selfIntroGreeting: true });
   });
 });
 
