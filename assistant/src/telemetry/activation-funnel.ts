@@ -45,7 +45,6 @@ export const ACTIVATION_STEPS = {
     stepName: "activation_first_wow_interacted",
     stepIndex: 5,
   },
-  msg5Sent: { stepName: "activation_msg_5_sent", stepIndex: 6 },
 } as const;
 
 /** Union of valid activation step names. */

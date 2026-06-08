@@ -36,7 +36,6 @@ import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
   buildSlackMetaForPersistence,
-  maybeEmitActivationMsg5,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import {
@@ -343,7 +342,6 @@ export async function processMessage(
       { metadata: userMetaWithSlack },
     );
     conversation.getMessages().push(llmMsg);
-    maybeEmitActivationMsg5(conversationId);
 
     if (serverTurnCtx) {
       try {
@@ -437,7 +435,6 @@ export async function processMessage(
       { metadata: compactUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
-    maybeEmitActivationMsg5(conversationId);
 
     conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact();
@@ -493,7 +490,6 @@ export async function processMessage(
       { metadata: cleanUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
-    maybeEmitActivationMsg5(conversationId);
 
     const result = await conversation.forceClean();
     const responseText = formatCleanResult(result);

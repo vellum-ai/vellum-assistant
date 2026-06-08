@@ -55,7 +55,7 @@ describe("onboarding-events-store: recordActivationEvent", () => {
 
   test("honors an explicit abVariant override", () => {
     recordActivationEvent({
-      stepName: "activation_msg_5_sent",
+      stepName: "activation_moment_2_complete",
       sessionId: "conv-2",
       abVariant: "variant-b",
     });
@@ -63,7 +63,7 @@ describe("onboarding-events-store: recordActivationEvent", () => {
     const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.abVariant).toBe("variant-b");
-    expect(rows[0]!.stepIndex).toBe(6);
+    expect(rows[0]!.stepIndex).toBe(2);
   });
 
   test("returns null and writes no row when collectUsageData is disabled", () => {

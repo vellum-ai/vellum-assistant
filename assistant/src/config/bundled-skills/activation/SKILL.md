@@ -27,6 +27,4 @@ conditions bound to the rail's moves.
 ## Boundaries
 
 - The tool never errors a turn. An expected rejection (unknown step, wrong
-  session, the daemon-owned step) returns a terse non-error result.
-- `activation_msg_5_sent` is emitted **automatically by the daemon**. The model
-  must NEVER pass it here — it is rejected as `daemon_owned`.
+  session) returns a terse non-error result.

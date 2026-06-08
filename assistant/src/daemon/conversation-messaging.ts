@@ -17,7 +17,6 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   attachInlineAttachmentToMessage,
   attachmentExists,
@@ -38,18 +37,12 @@ import {
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
 import {
-  hasActivationEvent,
-  recordActivationEvent,
-} from "../memory/onboarding-events-store.js";
-import { countRealUserTurns } from "../memory/turn-events-store.js";
-import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
-import { ACTIVATION_STEPS } from "../telemetry/activation-funnel.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -384,48 +377,6 @@ export interface PersistMessageOptions {
   clientMessageId?: string;
 }
 
-// ── activation north-star (msg_5) ────────────────────────────────────
-
-/**
- * Emit the activation north-star event (`activation_msg_5_sent`) once the
- * conversation reaches its 5th real user turn in an activation-rail
- * conversation.
- *
- * Idempotent and threshold-based: emits when there are `>= 5` real user turns
- * AND no `activation_msg_5_sent` row exists yet for this session. This is
- * resilient to ANY real-user persist path crossing the threshold — including
- * slash-command paths that bypass {@link persistQueuedMessageBody} — where an
- * exact `=== 5` check could be skipped if the 5th turn was persisted by a path
- * that never called the hook, and the next turn already saw count 6. The
- * exists-check also prevents duplicate rows on turns 6, 7, ….
- *
- * The {@link isActivationSession} short-circuit runs FIRST so non-activation
- * traffic does no extra queries.
- *
- * Best-effort and fire-and-forget: wrapped in try/catch so it can never throw
- * into or block turn persistence.
- *
- * Must be called AFTER the user turn is persisted so {@link countRealUserTurns}
- * counts this turn as the conversation's Nth real user message.
- */
-export function maybeEmitActivationMsg5(conversationId: string): void {
-  const msg5Step = ACTIVATION_STEPS.msg5Sent.stepName;
-  try {
-    if (!isActivationSession(conversationId)) return;
-    if (countRealUserTurns(conversationId) < 5) return;
-    if (hasActivationEvent(conversationId, msg5Step)) return;
-    recordActivationEvent({
-      stepName: msg5Step,
-      sessionId: conversationId,
-    });
-  } catch (err) {
-    log.warn(
-      { err, conversationId },
-      "Failed to emit activation_msg_5_sent event",
-    );
-  }
-}
-
 // ── persistUserMessage ───────────────────────────────────────────────
 
 export async function persistUserMessage(
@@ -657,8 +608,6 @@ export async function persistQueuedMessageBody(
         conv.createdAt,
       );
     }
-
-    maybeEmitActivationMsg5(ctx.conversationId);
 
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {

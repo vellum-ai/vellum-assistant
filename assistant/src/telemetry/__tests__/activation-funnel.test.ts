@@ -10,9 +10,9 @@ import {
 const ALL_STEP_NAMES = Object.values(ACTIVATION_STEPS).map((s) => s.stepName);
 
 describe("activation funnel vocabulary", () => {
-  test("step indices are 1-6 and unique", () => {
+  test("step indices are 1-5 and unique", () => {
     const indices = Object.values(ACTIVATION_STEPS).map((s) => s.stepIndex);
-    expect([...indices].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect([...indices].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
     expect(new Set(indices).size).toBe(indices.length);
   });
 
@@ -22,8 +22,8 @@ describe("activation funnel vocabulary", () => {
     }
   });
 
-  test("isActivationStepName accepts all six step names", () => {
-    expect(ALL_STEP_NAMES).toHaveLength(6);
+  test("isActivationStepName accepts all five step names", () => {
+    expect(ALL_STEP_NAMES).toHaveLength(5);
     for (const stepName of ALL_STEP_NAMES) {
       expect(isActivationStepName(stepName)).toBe(true);
     }
@@ -35,7 +35,7 @@ describe("activation funnel vocabulary", () => {
 
   test("buildActivationDaemonEventId is deterministic", () => {
     expect(
-      buildActivationDaemonEventId("conv-abc", "activation_msg_5_sent"),
-    ).toBe("activation_v1_2026_06:conv-abc:activation_msg_5_sent");
+      buildActivationDaemonEventId("conv-abc", "activation_moment_1_complete"),
+    ).toBe("activation_v1_2026_06:conv-abc:activation_moment_1_complete");
   });
 });

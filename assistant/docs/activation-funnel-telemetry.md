@@ -17,27 +17,28 @@ another engineer without reading the implementation.
 
 The activation funnel measures how far a new user gets on their first run of the
 **activation rail** (the onboarding experience driven by
-`BOOTSTRAP-ACTIVATION-RAIL.md`). It emits six milestone ("funnel") events per
+`BOOTSTRAP-ACTIVATION-RAIL.md`). It emits five milestone ("funnel") events per
 session into the **existing onboarding telemetry substrate** — no new event type,
 no new ingest endpoint, no new BigQuery table.
+
+The north-star "≥5 user messages within 24h per LD variant" metric is **not** a
+materialized activation event. It is computed downstream by joining the existing
+per-user-message `turn` telemetry events (`turn_index` per conversation) to the
+platform's `flag_assignment_raw` cohort-assignment table — so a dedicated event
+and a custom daemon turn-counting hook are not needed.
 
 Flow, end to end:
 
 1. **Daemon records** an activation event into the SQLite `onboarding_events`
-   table. There are three record paths, all converging on
-   `recordActivationEvent()` in
+   table via `recordActivationEvent()` in
    `assistant/src/memory/onboarding-events-store.ts`:
    - the model calls the **`emit_activation_event`** bundled-skill tool
      (`assistant/src/config/bundled-skills/activation/`), which goes through the
      pure handler `emitActivationMoment()`
      (`assistant/src/telemetry/activation-emit.ts`) for moments 1/2/3 and the two
      first-wow steps;
-   - the **daemon turn hook** `maybeEmitActivationMsg5()`
-     (`assistant/src/daemon/conversation-messaging.ts`) emits the north-star
-     `activation_msg_5_sent` at the 5th real user turn;
-   - both reuse `recordActivationEvent`, which respects the
-     `getConfig().collectUsageData` opt-out gate (returns `null` / no row when
-     disabled).
+   - `recordActivationEvent` respects the `getConfig().collectUsageData` opt-out
+     gate (returns `null` / no row when disabled).
 2. **Reporter flushes** every ~5 min: `usage-telemetry-reporter.ts`
    (`REPORT_INTERVAL_MS = 5 * 60 * 1000`, with a one-time
    `INITIAL_FLUSH_DELAY_MS = 30_000` after startup) POSTs unreported onboarding
@@ -69,10 +70,10 @@ The single source of truth is `assistant/src/telemetry/activation-funnel.ts`
 | 3          | `activation_moment_3_complete`    | model — `emit_activation_event` tool (first task selected)                                      |
 | 4          | `activation_first_wow_executed`   | model — `emit_activation_event` tool (execution surface rendered / wow ran)                     |
 | 5          | `activation_first_wow_interacted` | model — `emit_activation_event` tool (user clicked an action / sent a follow-up on the wow)     |
-| 6          | `activation_msg_5_sent`           | **daemon turn hook** (5th real user turn) — the north star                                      |
 
-The model emits 1–5 via the tool. The daemon emits 6; the model is **forbidden**
-from emitting `activation_msg_5_sent` — the handler rejects it as `daemon_owned`.
+The model emits all five steps via the tool. The north star (≥5 user messages)
+is derived downstream from the existing `turn` telemetry, not a materialized
+activation event (see §1).
 
 On the wire, each onboarding event also sets `screen = step_name` (to satisfy the
 SQLite `screen TEXT NOT NULL` column and the platform's legacy-path validation),
@@ -125,12 +126,6 @@ sessions**:
   `emitActivationMoment()` returns `{ ok: false, reason: "not_activation_session"
 }` for any conversation that was never marked — so a stray tool call in a normal
   chat never pollutes the funnel.
-- `activation_msg_5_sent` fires **once**, at the 5th real user turn, via the
-  daemon turn hook. It is idempotent: the hook short-circuits on
-  `isActivationSession` first, then checks `countRealUserTurns(...) >= 5`, then
-  `hasActivationEvent(sessionId, "activation_msg_5_sent")` so it writes exactly
-  one row regardless of which persist path (including slash-command paths) crossed
-  the threshold.
 
 The activation **session id is the daemon `conversation_id`** of the rail
 conversation. That same value is `session_id` on every activation event.
@@ -139,7 +134,7 @@ conversation. That same value is `session_id` on every activation event.
 
 ## 5. Local smoke-test runbook
 
-Goal: drive one dev session through the activation cohort, emit all six events,
+Goal: drive one dev session through the activation cohort, emit all five events,
 flush, and verify rows in BigQuery. Executable by another engineer.
 
 ### 5.1 Put the dev user in the activation cohort
@@ -195,13 +190,7 @@ Work the conversation through the rail moves so the model emits each milestone v
 4. Let the wow execute / the execution surface render → `activation_first_wow_executed`.
 5. Click an action button / send a follow-up on the wow → `activation_first_wow_interacted`.
 
-### 5.5 Trigger the north-star event
-
-Send real user messages until the conversation has **5 real user turns**. The
-daemon turn hook fires `activation_msg_5_sent` exactly once at the 5th real user
-turn. (Tool-only / system turns don't count — only real user messages.)
-
-### 5.6 Force / await a telemetry flush
+### 5.5 Force / await a telemetry flush
 
 The reporter flushes on a schedule: a first flush ~30s after startup
 (`INITIAL_FLUSH_DELAY_MS`) and then every ~5 min (`REPORT_INTERVAL_MS`). Either:
@@ -214,7 +203,7 @@ The reporter flushes on a schedule: a first flush ~30s after startup
 A successful flush POSTs the unreported onboarding rows to
 `/v1/telemetry/ingest/` as `type: "onboarding"` events.
 
-### 5.7 Verify in BigQuery
+### 5.6 Verify in BigQuery
 
 Wait for the platform → GCS NDJSON → BigQuery pipeline to land the events, then
 run the query in §6.
@@ -232,8 +221,8 @@ GROUP BY 1, 2
 ORDER BY 2;
 ```
 
-**Expected:** all six `activation_*` step names for the one session, step_index
-1–6, each with `n = 1`:
+**Expected:** all five `activation_*` step names for the one session, step_index
+1–5, each with `n = 1`:
 
 ```
 activation_moment_1_complete      | 1 | 1
@@ -241,7 +230,6 @@ activation_moment_2_complete      | 2 | 1
 activation_moment_3_complete      | 3 | 1
 activation_first_wow_executed     | 4 | 1
 activation_first_wow_interacted   | 5 | 1
-activation_msg_5_sent             | 6 | 1
 ```
 
 A missing row means that milestone never emitted (re-drive that rail move); an
@@ -253,7 +241,7 @@ collapses it earliest-wins).
 ## 7. Canonical handoff blurb (paste-ready for the final JARVIS-1102 PR description)
 
 > **Activation funnel telemetry — handoff for JARVIS-1093.** The activation rail
-> now emits six milestone funnel events into the existing onboarding telemetry
+> now emits five milestone funnel events into the existing onboarding telemetry
 > substrate (`type: "onboarding"` → `/v1/telemetry/ingest/` → GCS NDJSON →
 > `vellum-ai-prod.telemetry.onboarding_raw`), so no new event type, ingest
 > endpoint, or BigQuery table is involved. Cohort is gated by the LaunchDarkly
@@ -263,14 +251,17 @@ collapses it earliest-wins).
 > treatment (`"control"` is the no-rail arm, measured for now from generic `turn`
 > events). The event vocabulary (step_name → step_index): `activation_moment_1_complete`
 > (1), `activation_moment_2_complete` (2), `activation_moment_3_complete` (3),
-> `activation_first_wow_executed` (4), `activation_first_wow_interacted` (5),
-> `activation_msg_5_sent` (6, the north star). `session_id` is the rail
-> conversation's id. **Dedup contract:** each row's `daemon_event_id` is
-> deterministic, `${funnel_version}:${session_id}:${step_name}`, keyed on the
-> row's stored `funnel_version`; the existing dbt earliest-wins dedup on
-> `daemon_event_id` collapses any repeated moment to a single row. Build funnel
-> conversion as a step_index 1→6 progression per `session_id`, filtered to
-> `funnel_version = 'activation_v1_2026_06'`.
+> `activation_first_wow_executed` (4), `activation_first_wow_interacted` (5).
+> `session_id` is the rail conversation's id. The **north star** ("≥5 user
+> messages within 24h per LD variant") is **not** a funnel event — compute it
+> downstream by joining the existing `turn` telemetry events (`turn_index` per
+> conversation) to the platform's `flag_assignment_raw` cohort-assignment table.
+> **Dedup contract:** each row's `daemon_event_id` is deterministic,
+> `${funnel_version}:${session_id}:${step_name}`, keyed on the row's stored
+> `funnel_version`; the existing dbt earliest-wins dedup on `daemon_event_id`
+> collapses any repeated moment to a single row. Build funnel conversion as a
+> step_index 1→5 progression per `session_id`, filtered to `funnel_version =
+'activation_v1_2026_06'`.
 
 ---
 
@@ -279,8 +270,8 @@ collapses it earliest-wins).
 - **JARVIS-1102 "naming check" (resolved).** Events fire from the **scoped tool
   calls that do the rail work, not every text turn**. The model emits a milestone
   via `emit_activation_event` only at the firing conditions bound to the rail's
-  moves (documented in `BOOTSTRAP-ACTIVATION-RAIL.md`); `activation_msg_5_sent` is
-  daemon-owned. This resolves the naming-check open interpretation.
+  moves (documented in `BOOTSTRAP-ACTIVATION-RAIL.md`). This resolves the
+  naming-check open interpretation.
 - **Stream B (multivariate cohort flag conversion) is NOT in this work.** It is
   gated on the platform team's in-flight string-flag serving — until the platform
   can serve string/multivariate flags, flipping

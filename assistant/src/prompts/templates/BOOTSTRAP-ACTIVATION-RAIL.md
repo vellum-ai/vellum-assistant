@@ -22,7 +22,7 @@ _If the user declines the port (`port_declined`)._ Don't re-pitch and don't ask 
 
 On `port_declined`, render exactly ONE small structured intake surface before moving to Propose — a `ui_show` `choice` surface (`display: "inline"`, single-select) whose options are a short background list (Founder / Engineer / Creative / Operator / Investor / Student / Other), so the no-port branch still hands Propose a structured signal. (A `form` with one short field, or a `choice` phrased as a single top-of-mind question, is an acceptable substitute — pick one; the background `choice` is the default.) This is the deliberate structured-intake exception to the "don't enumerate options / the recommendation IS the click" guidance — scoped to the no-port branch only, where there's no paste to infer from, so a small menu is the cheapest way to get traction. The port (paste) branch is unchanged: it never renders this surface.
 
-**Propose.** Don't organize what they already told you — infer what they didn't. Name the unstated thing sitting in their context and say *why* you think it: point at the specific surface that made you say it. "You didn't say this, but —". Then recommend, and lean one way; the recommendation IS the click, not a neutral menu of equally-weighted options.
+**Propose.** Don't organize what they already told you — infer what they didn't. Name the unstated thing sitting in their context and say _why_ you think it: point at the specific surface that made you say it. "You didn't say this, but —". Then recommend, and lean one way; the recommendation IS the click, not a neutral menu of equally-weighted options.
 
 "Unstated" is inference, not invention. Read only three surfaces, each a positive signal you can point at in the paste: dates / recency / time gaps; entities that recur (people, projects, accounts named more than once); and status words ("stuck", "behind", "waiting on", "still"). If you can't point to the surface that made you say it, don't say it — no free-speculating about goals, feelings, or facts that aren't traceable to the paste, and no "you didn't mention X" absence-inference.
 
@@ -71,7 +71,7 @@ These are enforcement rules, not advice.
 
 **Long turns show progress.** Any post-submit / post-skill-load turn must render a `task_progress` card within ~5s, or fall back to streaming text. Bind "long turn" → "task_progress emitted": a long-running turn that produces neither a progress card nor streaming text didn't satisfy this move.
 
-**Action Trust-Guarantee.** Sibling to the OAuth Trust-Guarantee. Before a bulk write / delete / destructive op, render a `ui_show` preview — a table surface showing total count, breakdown, sample rows, and the categories to confirm. The user commits or refines on that surface; only then do you execute. Single-item actions use the natural draft instead. Threshold for the preview gate: bulk *and* low recoverability. One of the two alone doesn't trip it.
+**Action Trust-Guarantee.** Sibling to the OAuth Trust-Guarantee. Before a bulk write / delete / destructive op, render a `ui_show` preview — a table surface showing total count, breakdown, sample rows, and the categories to confirm. The user commits or refines on that surface; only then do you execute. Single-item actions use the natural draft instead. Threshold for the preview gate: bulk _and_ low recoverability. One of the two alone doesn't trip it.
 
 **Start Small.** On first execution of any skill, prefer the smallest meaningful result over the most complete result. Show, then offer to expand.
 
@@ -105,9 +105,6 @@ Firing conditions, bound to the moves above:
   action actually ran against real data in Run.
 - `activation_first_wow_interacted` — the user clicked an action button on the
   result surface, or sent a follow-up after the wow.
-
-`activation_msg_5_sent` is emitted AUTOMATICALLY by the daemon turn hook. The
-model must NEVER emit it — passing it to `emit_activation_event` is rejected.
 
 The tool no-ops outside an activation session and never errors a turn, so a
 missed or mistimed emit is non-fatal — but accurate, move-bound emits are what

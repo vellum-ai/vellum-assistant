@@ -56,12 +56,12 @@ describe("activation-emit: emitActivationMoment", () => {
     expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
   });
 
-  test("rejects the daemon-owned msg_5 step and writes no row", () => {
+  test("rejects the retired msg_5 step as an unknown step and writes no row", () => {
     const result = emitActivationMoment({
       stepName: "activation_msg_5_sent",
       conversationId: "conv-2",
     });
-    expect(result).toEqual({ ok: false, reason: "daemon_owned" });
+    expect(result).toEqual({ ok: false, reason: "unknown_step" });
 
     expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
   });

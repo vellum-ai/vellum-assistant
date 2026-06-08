@@ -65,7 +65,7 @@ describe("emit_activation_event tool", () => {
     expect(rows[0]!.sessionId).toBe("conv-1");
   });
 
-  test("rejects the daemon-owned msg_5 step: non-error result, no row", async () => {
+  test("rejects the retired msg_5 step as unknown: non-error result, no row", async () => {
     markActivationSession("conv-2");
     const result = await run(
       { step_name: "activation_msg_5_sent" },
