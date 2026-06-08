@@ -39,6 +39,7 @@ import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
 import { installLockfileWatcher } from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
+import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,
