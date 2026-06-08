@@ -1,5 +1,5 @@
 import { Cloud, Laptop, Package } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -73,10 +73,16 @@ export function HostingScreen() {
   const fromSelectAssistant = searchParams.get("from") === "select-assistant";
   const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
-  const cloudEnabled = !options.find((o) => o.mode === "vellum-cloud")?.disabled;
+  const cloudDisabled = options.find((o) => o.mode === "vellum-cloud")?.disabled;
   const [selected, setSelected] = useState<HostingMode>(
-    hasPlatformSession && cloudEnabled ? "vellum-cloud" : "local",
+    hasPlatformSession && !cloudDisabled ? "vellum-cloud" : "local",
   );
+
+  useEffect(() => {
+    if (cloudDisabled && selected === "vellum-cloud") {
+      setSelected("local");
+    }
+  }, [cloudDisabled, selected]);
 
   const {
     loading: loginLoading,
