@@ -1048,114 +1048,128 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   );
 
   // ── Test 5 ────────────────────────────────────────────────────────
-  // BUG: When all 4 reducer tiers have been applied, then the agent
-  // makes progress and context_too_large fires again, no emergency
-  // compaction is attempted. The `else if` at line 1163 just surfaces
-  // the error.
-  //
-  // Expected behavior (PR 2 fix): Even after all tiers are exhausted,
-  // if progress was made, attempt emergency compaction with
-  // `minKeepRecentUserTurns: 0` as a last resort.
-  test.todo(
-    "exhausted reducer tiers with progress still attempts emergency compaction",
-    async () => {
-      const events: ServerMessage[] = [];
-      let emergencyCompactCalled = false;
+  // Once the middle reducer tiers are exhausted, the ladder must still
+  // reach the terminal auto-compress rung as a last resort when the
+  // overflow policy permits it, rather than surfacing the error
+  // directly. The orchestrator signals permission by threading
+  // `allowAutoCompressLatestTurn` into the reducer config; the reducer
+  // owns running the terminal rung. Here that rung recovers below budget
+  // and the rerun completes cleanly with no conversation_error.
+  test("exhausted middle tiers escalate to the terminal auto-compress rung", async () => {
+    const events: ServerMessage[] = [];
+    let sawAllowAutoCompress = false;
 
-      // Start with reducer already exhausted
-      mockReducerStepFn = (msgs: Message[]) => {
-        return {
-          messages: msgs,
-          tier: "injection_downgrade",
-          state: {
-            appliedTiers: [
-              "forced_compaction",
-              "tool_result_truncation",
-              "media_stubbing",
-              "injection_downgrade",
-            ],
-            injectionMode: "minimal",
-            exhausted: true,
-          },
-          estimatedTokens: 195_000,
-        };
+    // Every estimate is above the mid-loop threshold (190_000 × 0.85 =
+    // 161_500), so the first-call gate compacts and the checkpoint after the
+    // first tool round yields "budget", escalating to the convergence driver.
+    mockEstimateTokens = 170_000;
+
+    // The reducer reports the terminal auto-compress rung as the last
+    // applied tier and recovers below budget.
+    mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
+      sawAllowAutoCompress =
+        (cfg as { allowAutoCompressLatestTurn?: boolean })
+          .allowAutoCompressLatestTurn === true;
+      return {
+        messages: msgs,
+        tier: "auto_compress_latest_turn",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+            "auto_compress_latest_turn",
+          ],
+          injectionMode: "minimal" as const,
+          exhausted: true,
+        },
+        estimatedTokens: 50_000,
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with context_too_large; after emergency compaction the rerun
-      // recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
-        new Error("context_length_exceeded"),
-        textResponse("recovered"),
-      ]);
+    // The overflow policy permits the terminal auto-compress rung.
+    mockOverflowAction = "auto_compress_latest_turn";
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    // The primary run makes progress (a tool turn) and trips the mid-loop
+    // budget gate; the convergence rerun recovers with plain text.
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
+      textResponse("recovered"),
+    ]);
+
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts\nfile3.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async (
-            _msgs: Message[],
-            _signal: AbortSignal,
-            opts?: Record<string, unknown>,
-          ) => {
-            if (opts?.force && opts?.minKeepRecentUserTurns === 0) {
-              emergencyCompactCalled = true;
-              return {
-                compacted: true,
-                messages: [
-                  {
-                    role: "user",
-                    content: [{ type: "text", text: "Hello" }],
-                  },
-                ] as Message[],
-                compactedPersistedMessages: 50,
-                summaryText: "Emergency summary",
-                previousEstimatedInputTokens: 195_000,
-                estimatedInputTokens: 50_000,
-                maxInputTokens: 200_000,
-                thresholdTokens: 160_000,
-                compactedMessages: 50,
-                summaryCalls: 1,
-                summaryInputTokens: 1000,
-                summaryOutputTokens: 300,
-                summaryModel: "mock-model",
-              };
-            }
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts\nfile3.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal,
+          opts?: { force?: boolean },
+        ) => {
+          // The mid-loop budget gate forces compaction and surfaces
+          // `exhausted: true`, escalating the turn to the convergence
+          // driver where the reducer runs the terminal rung.
+          if (!opts?.force) {
             return { compacted: false };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
+          }
+          return {
+            compacted: true,
+            exhausted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Compaction summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 165_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently when progress was made + all tiers exhausted,
-      // emergency compaction is NOT attempted. The error is surfaced directly.
-      // After PR 2 fix, emergency compaction should be attempted.
-      expect(emergencyCompactCalled).toBe(true);
+    // The orchestrator threaded the policy gate so the reducer could run
+    // the terminal rung as a last resort.
+    expect(sawAllowAutoCompress).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    // The recovered rerun completes the turn — no error is surfaced.
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+    const complete = events.find((e) => e.type === "message_complete");
+    expect(complete).toBeDefined();
+
+    // 1 primary tool turn (yields budget) + 1 convergence rerun (recovers).
+    expect(calls.length).toBe(2);
+  });
 
   // ── Test 6 ────────────────────────────────────────────────────────
   // Tests mid-loop budget check via onCheckpoint.
@@ -1721,18 +1735,20 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return 170_000;
     };
 
-    // Convergence reducer becomes exhausted on the second tier so the
-    // loop escalates from convergence to the action-resolution block.
+    // The reducer runs the terminal auto-compress rung on its second step and
+    // exhausts the ladder there. Because the last applied rung is
+    // `auto_compress_latest_turn`, the post-rerun yield is classified as
+    // `budget_yield_unrecovered` rather than `context_too_large`.
     let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
       const exhausted = reducerCallCount >= 2;
       return {
         messages: msgs,
-        tier: exhausted ? "tool_result_truncation" : "forced_compaction",
+        tier: exhausted ? "auto_compress_latest_turn" : "forced_compaction",
         state: {
           appliedTiers: exhausted
-            ? ["forced_compaction", "tool_result_truncation"]
+            ? ["forced_compaction", "auto_compress_latest_turn"]
             : ["forced_compaction"],
           injectionMode: "full" as const,
           exhausted,
@@ -1741,8 +1757,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
     };
 
-    // The overflow policy directs us into auto_compress_latest_turn so the
-    // emergency compaction + final agentLoop.run path executes.
+    // The overflow policy permits the terminal auto-compress rung, which the
+    // reducer owns and runs as its final step.
     mockOverflowAction = "auto_compress_latest_turn";
 
     // Every provider call returns a tool_use, so each loop run does a tool
@@ -1752,8 +1768,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       toolUseResponse("tu-1", "bash", { command: "ls" }),
     ]);
 
-    // Every forced `maybeCompact` is invoked through three distinct call
-    // sites, all owned by the loop's pre-call budget gate / recovery ladder:
+    // Forced `maybeCompact` is invoked through the loop's pre-call budget
+    // gate at two call sites here (the reducer's rungs are mocked, so the
+    // terminal auto-compress rung's compaction does not flow through this
+    // mock):
     //   1. First-call (turn-start) gate (`force: true`) — the loop now owns
     //      the turn-start compaction. It succeeds, but the mocked estimate
     //      stays above the mid-loop threshold, so the turn proceeds and the
@@ -1761,10 +1779,6 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     //   2. Mid-loop after the first tool turn (`force: true`) — must signal
     //      `exhausted: true` so the daemon escalates to the convergence
     //      reducer instead of looping forever.
-    //   3. auto_compress_latest_turn emergency compaction (`force: true`,
-    //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
-    //      threshold; the subsequent rerun yields again and is classified
-    //      as BUDGET_YIELD_UNRECOVERED.
     let forcedMaybeCompactCallCount = 0;
     const ctx = makeCtx({
       loopProvider: provider,
@@ -1843,7 +1857,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               exhausted: true,
             };
           }
-          // Emergency compaction call from auto_compress_latest_turn.
+          // Defensive default for any further forced compaction; the mocked
+          // reducer owns the terminal rung, so this is not exercised here.
           return {
             compacted: true,
             messages: [

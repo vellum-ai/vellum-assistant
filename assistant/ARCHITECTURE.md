@@ -1051,20 +1051,22 @@ The session loop implements a deterministic overflow convergence pipeline that r
 
 ### Tiered Reduction
 
-The reducer (`context-overflow-reducer.ts`) applies four monotonically more aggressive tiers, each idempotent:
+The reducer (`context-overflow-reducer.ts`) owns the full reduction ladder: a pre-tier emergency rung, four monotonically more aggressive middle tiers, and a terminal auto-compress rung. Each rung is idempotent, and the reducer runs one rung per step so the driver can re-estimate and re-run between rungs.
 
-| Tier                      | Reduction                                                                  | Effect                                                                                                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                                                                                                          |
-| 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                                                                                              |
-| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs; media in the latest user message is retained based on available token budget rather than a fixed count |
-| 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set                                                                               |
+| Rung                      | Reduction                                                             | Effect                                                                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Emergency compaction   | Summarize-around-last-tool-pair via the threaded `emergencyCompactFn` | Cheapest first pass; on failure the same step falls through to forced compaction                                                                                           |
+| 1. Forced compaction      | `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0`      | Summarizes older history more aggressively than normal compaction                                                                                                          |
+| 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result        | Shrinks verbose tool outputs (shell, file reads) across all retained messages                                                                                              |
+| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                        | Replaces image and file content blocks with lightweight text stubs; media in the latest user message is retained based on available token budget rather than a fixed count |
+| 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                   | Signals the driver to drop runtime injections (workspace listing, temporal context, memory recall) to the minimal set                                                      |
+| Terminal. Auto-compress   | `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0`      | Last resort that force-compresses the latest turn; only runs when the overflow policy permits it                                                                           |
 
-After each tier, the reducer re-estimates tokens. If the estimate is within budget, the loop breaks and the provider call proceeds. The loop is bounded by `maxAttempts` (default 3).
+The middle tiers (1–4) are counted against `maxMiddleTierAttempts` (default 3); the emergency and terminal rungs are uncounted. After each rung the driver re-estimates tokens and re-runs the provider; if the estimate is within budget the convergence loop ends.
 
 ### Overflow Policy and Latest-Turn Compression
 
-When all four reducer tiers are exhausted and the provider still rejects, the overflow policy resolver (`context-overflow-policy.ts`) determines the next action based on config and session interactivity:
+Before the convergence loop runs, the orchestrator resolves the overflow action via the policy resolver (`context-overflow-policy.ts`) based on config and session interactivity, and threads the result into the reducer as `allowAutoCompressLatestTurn`. This gates whether the reducer's terminal auto-compress rung may run once the middle tiers are exhausted:
 
 | Session Type    | Config Policy           | Action                                                                                                      |
 | --------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -1072,7 +1074,7 @@ When all four reducer tiers are exhausted and the provider still rejects, the ov
 | Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                       |
 | Any             | `"drop"`                | `fail_gracefully` — fall through to the final context-overflow fallback, which emits a `conversation_error` |
 
-When standard compaction has been exhausted and the provider still reports a context overflow, the recovery pipeline forces an emergency compaction of the latest turn with aggressive settings (`force: true`, `minKeepRecentUserTurns: 0`). The user is not prompted — compaction is always automatic. Users who want to opt out entirely can set `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"`, which short-circuits to a graceful failure instead.
+When the middle tiers have been exhausted and the provider still reports a context overflow, the reducer runs its terminal auto-compress rung, force-compressing the latest turn with aggressive settings (`force: true`, `minKeepRecentUserTurns: 0`). The user is not prompted — compaction is always automatic. Users who want to opt out entirely can set `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"`, which resolves to `fail_gracefully`: the policy disallows the terminal rung, so the ladder ends once the middle tiers are spent and a `conversation_error` surfaces.
 
 ### Config
 
@@ -1088,12 +1090,12 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 
 ### Key Source Files
 
-| File                                                          | Purpose                                                                       |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `src/plugins/defaults/compaction/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
-| `src/daemon/context-overflow-policy.ts`                       | Overflow policy resolver: maps config + interactivity to concrete action      |
-| `src/daemon/conversation-agent-loop.ts`                       | Integration: preflight budget check, convergence loop, emergency compaction   |
-| `src/config/core-schema.ts`                                   | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
+| File                                                          | Purpose                                                                                                              |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/plugins/defaults/compaction/context-overflow-reducer.ts` | Reduction ladder: emergency, four middle tiers, and terminal auto-compress as idempotent steps with cumulative state |
+| `src/daemon/context-overflow-policy.ts`                       | Overflow policy resolver: maps config + interactivity to concrete action                                             |
+| `src/daemon/conversation-agent-loop.ts`                       | Thin convergence driver: computes the corrected target, then loops reduce-step → re-inject → re-run                  |
+| `src/config/core-schema.ts`                                   | `ContextOverflowRecoveryConfigSchema` with defaults and validation                                                   |
 
 ---
 

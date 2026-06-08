@@ -7,12 +7,38 @@ import type {
 } from "../context/window-manager.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import {
+  type CompactFn,
   createInitialReducerState,
+  type EmergencyCompactFn,
   reduceContextOverflow,
   type ReducerConfig,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import type { Message } from "../providers/types.js";
+
+/**
+ * Drive a single reduction step. Defaults the emergency-compaction callback
+ * to a no-op (returns `null`) so the ladder falls straight through to the
+ * forced-compaction rung — the tiers most tests exercise. Tests that cover the
+ * emergency rung pass an explicit `emergencyCompactFn`.
+ */
+function reduceStep(
+  messages: Message[],
+  config: ReducerConfig,
+  state: ReducerState | undefined,
+  compactFn: CompactFn,
+  emergencyCompactFn: EmergencyCompactFn = async () => null,
+  signal?: AbortSignal,
+) {
+  return reduceContextOverflow(
+    messages,
+    config,
+    state,
+    compactFn,
+    emergencyCompactFn,
+    signal,
+  );
+}
 
 function msg(role: "user" | "assistant", text: string): Message {
   return { role, content: [{ type: "text", text }] };
@@ -69,6 +95,8 @@ function makeConfig(overrides?: Partial<ReducerConfig>): ReducerConfig {
       },
     },
     targetTokens: 1000,
+    maxMiddleTierAttempts: 4,
+    allowAutoCompressLatestTurn: false,
     ...overrides,
   };
 }
@@ -145,6 +173,43 @@ function makeNoOpCompactFn(): (
   };
 }
 
+/**
+ * Create an emergency-compaction callback that summarizes around the last
+ * tool pair and reports a successful reduction.
+ */
+function makeEmergencyCompactFn(
+  summaryText = "## Emergency\n- summarized around last tool pair",
+): EmergencyCompactFn {
+  return async (messages, _signal) => {
+    const summaryMsg = createContextSummaryMessage(summaryText);
+    const compactedMessages = [summaryMsg];
+    const estimatedInputTokens = estimatePromptTokens(
+      compactedMessages,
+      SYSTEM_PROMPT,
+      { providerName: "mock" },
+    );
+    return {
+      messages: compactedMessages,
+      compacted: true,
+      previousEstimatedInputTokens: estimatePromptTokens(
+        messages,
+        SYSTEM_PROMPT,
+        { providerName: "mock" },
+      ),
+      estimatedInputTokens,
+      maxInputTokens: 2000,
+      thresholdTokens: 1200,
+      compactedMessages: messages.length,
+      compactedPersistedMessages: messages.length,
+      summaryCalls: 1,
+      summaryInputTokens: 100,
+      summaryOutputTokens: 50,
+      summaryModel: "mock-model",
+      summaryText,
+    };
+  };
+}
+
 describe("context-overflow-reducer", () => {
   describe("monotonic token reduction", () => {
     test("each tier reduces estimated tokens or advances state without loops", async () => {
@@ -173,7 +238,7 @@ describe("context-overflow-reducer", () => {
 
       // Iterate through all tiers
       for (let i = 0; i < 5; i++) {
-        const result = await reduceContextOverflow(
+        const result = await reduceStep(
           currentMessages,
           config,
           state,
@@ -217,7 +282,7 @@ describe("context-overflow-reducer", () => {
       const tokenHistory: number[] = [];
 
       while (!state?.exhausted) {
-        const result = await reduceContextOverflow(
+        const result = await reduceStep(
           currentMessages,
           config,
           state,
@@ -249,7 +314,7 @@ describe("context-overflow-reducer", () => {
       let currentMessages = messages;
       let state: ReducerState | undefined;
       while (!state?.exhausted) {
-        const result = await reduceContextOverflow(
+        const result = await reduceStep(
           currentMessages,
           config,
           state,
@@ -260,7 +325,7 @@ describe("context-overflow-reducer", () => {
       }
 
       // Run once more on exhausted state
-      const finalResult = await reduceContextOverflow(
+      const finalResult = await reduceStep(
         currentMessages,
         config,
         state,
@@ -285,12 +350,7 @@ describe("context-overflow-reducer", () => {
       const config = makeConfig();
       const noOpCompact = makeNoOpCompactFn();
 
-      const result = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        noOpCompact,
-      );
+      const result = await reduceStep(messages, config, undefined, noOpCompact);
 
       expect(result.tier).toBe("forced_compaction");
       expect(result.state.appliedTiers).toContain("forced_compaction");
@@ -314,13 +374,8 @@ describe("context-overflow-reducer", () => {
       const compactFn = makeNoOpCompactFn();
 
       // Skip compaction, apply tool-result truncation
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
-      const step2 = await reduceContextOverflow(
+      const step1 = await reduceStep(messages, config, undefined, compactFn);
+      const step2 = await reduceStep(
         step1.messages,
         config,
         step1.state,
@@ -357,7 +412,7 @@ describe("context-overflow-reducer", () => {
       let currentMessages = messages;
       let state: ReducerState | undefined;
       while (!state?.exhausted) {
-        const result = await reduceContextOverflow(
+        const result = await reduceStep(
           currentMessages,
           config,
           state,
@@ -407,7 +462,7 @@ describe("context-overflow-reducer", () => {
       let state1: ReducerState | undefined;
       let msgs1 = messages;
       while (!state1?.exhausted) {
-        const r = await reduceContextOverflow(msgs1, config, state1, compactFn);
+        const r = await reduceStep(msgs1, config, state1, compactFn);
         run1Tiers.push(r.tier);
         run1Tokens.push(r.estimatedTokens);
         msgs1 = r.messages;
@@ -420,7 +475,7 @@ describe("context-overflow-reducer", () => {
       let state2: ReducerState | undefined;
       let msgs2 = messages;
       while (!state2?.exhausted) {
-        const r = await reduceContextOverflow(msgs2, config, state2, compactFn);
+        const r = await reduceStep(msgs2, config, state2, compactFn);
         run2Tiers.push(r.tier);
         run2Tokens.push(r.estimatedTokens);
         msgs2 = r.messages;
@@ -447,7 +502,7 @@ describe("context-overflow-reducer", () => {
       const injectionModes: string[] = [];
 
       while (!state?.exhausted) {
-        const result = await reduceContextOverflow(
+        const result = await reduceStep(
           currentMessages,
           config,
           state,
@@ -515,15 +570,10 @@ describe("context-overflow-reducer", () => {
       const compactFn = makeNoOpCompactFn();
 
       // Run through forced_compaction and tool_result_truncation first
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const step1 = await reduceStep(messages, config, undefined, compactFn);
       expect(step1.tier).toBe("forced_compaction");
 
-      const step2 = await reduceContextOverflow(
+      const step2 = await reduceStep(
         step1.messages,
         config,
         step1.state,
@@ -532,7 +582,7 @@ describe("context-overflow-reducer", () => {
       expect(step2.tier).toBe("tool_result_truncation");
 
       // Now apply media stubbing
-      const step3 = await reduceContextOverflow(
+      const step3 = await reduceStep(
         step2.messages,
         config,
         step2.state,
@@ -572,12 +622,7 @@ describe("context-overflow-reducer", () => {
       const config = makeConfig();
       const compactFn = makeCompactFn();
 
-      const result = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const result = await reduceStep(messages, config, undefined, compactFn);
 
       expect(result.tier).toBe("forced_compaction");
       expect(result.compactionResult).toBeDefined();
@@ -597,13 +642,8 @@ describe("context-overflow-reducer", () => {
       const compactFn = makeCompactFn();
 
       // Skip past compaction tier
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
-      const step2 = await reduceContextOverflow(
+      const step1 = await reduceStep(messages, config, undefined, compactFn);
+      const step2 = await reduceStep(
         step1.messages,
         config,
         step1.state,
@@ -612,6 +652,146 @@ describe("context-overflow-reducer", () => {
 
       expect(step2.tier).toBe("tool_result_truncation");
       expect(step2.compactionResult).toBeUndefined();
+    });
+  });
+
+  describe("emergency compaction rung", () => {
+    test("emergency rung runs first and forwards its compaction result", async () => {
+      const messages: Message[] = [
+        msg("user", "do something"),
+        toolUseMsg("tu_1", "bash"),
+        toolResultMsg("tu_1", "x".repeat(8000)),
+      ];
+
+      const config = makeConfig();
+      const compactFn = makeCompactFn();
+      const emergencyCompactFn = makeEmergencyCompactFn();
+
+      const result = await reduceContextOverflow(
+        messages,
+        config,
+        undefined,
+        compactFn,
+        emergencyCompactFn,
+      );
+
+      expect(result.tier).toBe("emergency_compaction");
+      expect(result.state.appliedTiers).toEqual(["emergency_compaction"]);
+      expect(result.compactionResult?.compacted).toBe(true);
+      expect(result.state.exhausted).toBe(false);
+    });
+
+    test("when emergency cannot reduce, the same step falls through to forced compaction", async () => {
+      const messages: Message[] = [
+        msg("user", "Hello"),
+        msg("assistant", "World"),
+      ];
+
+      const config = makeConfig();
+      const compactFn = makeCompactFn();
+
+      // Default reduceStep emergency callback returns null (no tool pair).
+      const result = await reduceStep(messages, config, undefined, compactFn);
+
+      expect(result.tier).toBe("forced_compaction");
+      expect(result.state.appliedTiers).toEqual([
+        "emergency_compaction",
+        "forced_compaction",
+      ]);
+    });
+  });
+
+  describe("terminal auto-compress rung", () => {
+    test("auto-compress runs as the final rung when the policy permits it", async () => {
+      const messages: Message[] = [
+        msg("user", "Hello"),
+        msg("assistant", "World"),
+      ];
+
+      const config = makeConfig({ allowAutoCompressLatestTurn: true });
+      const compactFn = makeCompactFn();
+
+      let state: ReducerState | undefined;
+      let currentMessages = messages;
+      const tiers: string[] = [];
+      while (!state?.exhausted) {
+        const result = await reduceStep(
+          currentMessages,
+          config,
+          state,
+          compactFn,
+        );
+        tiers.push(result.tier);
+        currentMessages = result.messages;
+        state = result.state;
+      }
+
+      expect(tiers[tiers.length - 1]).toBe("auto_compress_latest_turn");
+      expect(state!.appliedTiers).toContain("auto_compress_latest_turn");
+    });
+
+    test("auto-compress is skipped when the policy disallows it", async () => {
+      const messages: Message[] = [
+        msg("user", "Hello"),
+        msg("assistant", "World"),
+      ];
+
+      const config = makeConfig({ allowAutoCompressLatestTurn: false });
+      const compactFn = makeCompactFn();
+
+      let state: ReducerState | undefined;
+      let currentMessages = messages;
+      const tiers: string[] = [];
+      while (!state?.exhausted) {
+        const result = await reduceStep(
+          currentMessages,
+          config,
+          state,
+          compactFn,
+        );
+        tiers.push(result.tier);
+        currentMessages = result.messages;
+        state = result.state;
+      }
+
+      expect(tiers).not.toContain("auto_compress_latest_turn");
+      expect(tiers[tiers.length - 1]).toBe("injection_downgrade");
+    });
+  });
+
+  describe("middle-tier attempt budget", () => {
+    test("the ladder escalates once maxMiddleTierAttempts middle rungs run", async () => {
+      const messages: Message[] = [
+        msg("user", "Hello"),
+        msg("assistant", "World"),
+      ];
+
+      const config = makeConfig({
+        maxMiddleTierAttempts: 2,
+        allowAutoCompressLatestTurn: false,
+      });
+      const compactFn = makeCompactFn();
+
+      let state: ReducerState | undefined;
+      let currentMessages = messages;
+      const tiers: string[] = [];
+      while (!state?.exhausted) {
+        const result = await reduceStep(
+          currentMessages,
+          config,
+          state,
+          compactFn,
+        );
+        tiers.push(result.tier);
+        currentMessages = result.messages;
+        state = result.state;
+      }
+
+      // Only two middle tiers run before the ladder is exhausted; media
+      // stubbing and injection downgrade are never reached.
+      expect(tiers).toEqual(["forced_compaction", "tool_result_truncation"]);
+      expect(tiers).not.toContain("media_stubbing");
+      expect(tiers).not.toContain("injection_downgrade");
     });
   });
 });

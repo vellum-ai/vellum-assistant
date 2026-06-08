@@ -9,11 +9,20 @@
  * messages is a no-op. Tiers are ordered so that less destructive
  * transformations are tried first.
  *
- * Tier progression:
- *   1. Forced compaction (emergency keep-boundary options)
+ * Rung progression:
+ *   0. Emergency summarize-around-last-tool-pair (preserves the most recent
+ *      tool call/result while aggressively compressing earlier history)
+ *   1. Forced full-history compaction (emergency keep-boundary options)
  *   2. Aggressive tool-result text truncation across retained history
  *   3. Media/file payload stubbing (replace images/files with text stubs)
  *   4. Runtime injection downgrade to minimal mode
+ *   terminal. Auto-compress the latest turn (policy-gated by the caller)
+ *
+ * Rungs 1–4 are the "middle tiers" and are bounded by `maxMiddleTierAttempts`.
+ * The emergency rung always runs first; the auto-compress rung runs last and
+ * only when the caller permits it. The caller invokes the reducer repeatedly,
+ * re-running the agent loop after each rung, until either the context fits or
+ * `state.exhausted` is true.
  */
 
 import type { ContextWindowConfig } from "../../../config/types.js";
@@ -38,10 +47,24 @@ import type { Message } from "../../../providers/types.js";
  * Identifies which reduction tier was applied in a given step.
  */
 export type ReducerTier =
+  | "emergency_compaction"
   | "forced_compaction"
   | "tool_result_truncation"
   | "media_stubbing"
-  | "injection_downgrade";
+  | "injection_downgrade"
+  | "auto_compress_latest_turn";
+
+/**
+ * The "middle tiers" — the rungs bounded by `maxMiddleTierAttempts`. The
+ * emergency and auto-compress rungs are intentionally excluded so they remain
+ * reachable regardless of how small the middle-tier budget is.
+ */
+const MIDDLE_TIERS: readonly ReducerTier[] = [
+  "forced_compaction",
+  "tool_result_truncation",
+  "media_stubbing",
+  "injection_downgrade",
+];
 
 /**
  * Tracks the cumulative state of the reducer across successive calls.
@@ -94,6 +117,19 @@ export interface ReducerConfig {
   targetTokens: number;
   /** Pre-computed tool token budget to include in estimations. */
   toolTokenBudget?: number;
+  /**
+   * Maximum number of middle-tier reductions (forced compaction, tool-result
+   * truncation, media stubbing, injection downgrade) to apply before
+   * escalating to the terminal auto-compress rung. The emergency and
+   * auto-compress rungs are not counted against this budget.
+   */
+  maxMiddleTierAttempts: number;
+  /**
+   * Whether the terminal auto-compress-latest-turn rung is permitted. The
+   * caller resolves this from the overflow policy; when false, the ladder ends
+   * once the middle tiers are exhausted.
+   */
+  allowAutoCompressLatestTurn: boolean;
 }
 
 /**
@@ -105,6 +141,17 @@ export type CompactFn = (
   signal: AbortSignal | undefined,
   options: ContextWindowCompactOptions,
 ) => Promise<ContextWindowResult>;
+
+/**
+ * Emergency-compaction callback — summarizes everything before the last
+ * tool_use/tool_result pair and returns the compacted history. Returns `null`
+ * when the caller could not run emergency compaction (e.g. the provider call
+ * threw), in which case the reducer falls through to forced compaction.
+ */
+export type EmergencyCompactFn = (
+  messages: Message[],
+  signal: AbortSignal | undefined,
+) => Promise<ContextWindowResult | null>;
 
 // Aggressive truncation cap for tool results during overflow recovery.
 // Much tighter than the normal per-result budget.
@@ -122,45 +169,169 @@ export async function reduceContextOverflow(
   config: ReducerConfig,
   state: ReducerState | undefined,
   compactFn: CompactFn,
+  emergencyCompactFn: EmergencyCompactFn,
   signal?: AbortSignal,
 ): Promise<ReducerStepResult> {
   const applied = state?.appliedTiers ?? [];
+  const step = await selectNextRung(
+    messages,
+    config,
+    state,
+    applied,
+    compactFn,
+    emergencyCompactFn,
+    signal,
+  );
 
-  // Tier 1: forced compaction
-  if (!applied.includes("forced_compaction")) {
-    return applyForcedCompaction(messages, config, applied, compactFn, signal);
+  // Exhaustion is decided centrally from the rungs applied so far so the last
+  // rung that actually runs sets `exhausted`, avoiding a wasted no-op rerun.
+  step.state.exhausted = isLadderExhausted(step.state.appliedTiers, config);
+  return step;
+}
+
+async function selectNextRung(
+  messages: Message[],
+  config: ReducerConfig,
+  state: ReducerState | undefined,
+  applied: ReducerTier[],
+  compactFn: CompactFn,
+  emergencyCompactFn: EmergencyCompactFn,
+  signal?: AbortSignal,
+): Promise<ReducerStepResult> {
+  // Rung 0: emergency summarize-around-last-tool-pair (uncounted, runs first).
+  if (!applied.includes("emergency_compaction")) {
+    return applyEmergencyCompaction(
+      messages,
+      config,
+      applied,
+      compactFn,
+      emergencyCompactFn,
+      signal,
+    );
   }
 
-  // Tier 2: aggressive tool-result truncation
-  if (!applied.includes("tool_result_truncation")) {
-    return applyToolResultTruncation(messages, config, applied, state);
-  }
-
-  // Tier 3: media/file payload stubbing
-  if (!applied.includes("media_stubbing")) {
-    return applyMediaStubbing(messages, config, applied, state);
-  }
-
-  // Tier 4: injection downgrade
-  if (!applied.includes("injection_downgrade")) {
+  // Middle tiers (rungs 1–4), bounded by the configured attempt budget.
+  const middleApplied = applied.filter((t) => MIDDLE_TIERS.includes(t)).length;
+  if (
+    middleApplied < config.maxMiddleTierAttempts &&
+    hasUnappliedMiddleTier(applied)
+  ) {
+    if (!applied.includes("forced_compaction")) {
+      return applyForcedCompaction(
+        messages,
+        config,
+        applied,
+        compactFn,
+        signal,
+      );
+    }
+    if (!applied.includes("tool_result_truncation")) {
+      return applyToolResultTruncation(messages, config, applied, state);
+    }
+    if (!applied.includes("media_stubbing")) {
+      return applyMediaStubbing(messages, config, applied, state);
+    }
     return applyInjectionDowngrade(messages, config, applied, state);
   }
 
-  // All tiers exhausted
+  // Terminal rung: auto-compress the latest turn (uncounted, policy-gated).
+  if (
+    config.allowAutoCompressLatestTurn &&
+    !applied.includes("auto_compress_latest_turn")
+  ) {
+    return applyAutoCompressLatestTurn(
+      messages,
+      config,
+      applied,
+      compactFn,
+      state,
+      signal,
+    );
+  }
+
+  // No rung left to apply — return a no-op step. `reduceContextOverflow`
+  // marks it exhausted via `isLadderExhausted`.
   const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
     providerName: config.providerName,
     toolTokenBudget: config.toolTokenBudget,
   });
   return {
     messages,
-    tier: "injection_downgrade",
+    tier: applied[applied.length - 1] ?? "forced_compaction",
     state: {
       appliedTiers: [...applied],
       injectionMode: state?.injectionMode ?? "minimal",
+      toolResultMaxChars: state?.toolResultMaxChars,
+      compactionOptions: state?.compactionOptions,
       exhausted: true,
     },
     estimatedTokens,
   };
+}
+
+/** Whether any middle tier remains unapplied. */
+function hasUnappliedMiddleTier(applied: ReducerTier[]): boolean {
+  return MIDDLE_TIERS.some((tier) => !applied.includes(tier));
+}
+
+/**
+ * Decide whether the ladder has nothing more to try after the given rungs.
+ * The terminal auto-compress rung is the last; before it, the middle tiers
+ * are exhausted once the attempt budget is spent or every middle tier ran.
+ */
+function isLadderExhausted(
+  applied: ReducerTier[],
+  config: ReducerConfig,
+): boolean {
+  if (applied.includes("auto_compress_latest_turn")) {
+    return true;
+  }
+  const middleApplied = applied.filter((t) => MIDDLE_TIERS.includes(t)).length;
+  const middleExhausted =
+    middleApplied >= config.maxMiddleTierAttempts ||
+    !hasUnappliedMiddleTier(applied);
+  if (!middleExhausted) {
+    return false;
+  }
+  // Middle tiers are done — the ladder continues only if the terminal
+  // auto-compress rung is permitted and has not run yet.
+  return !config.allowAutoCompressLatestTurn;
+}
+
+async function applyEmergencyCompaction(
+  messages: Message[],
+  config: ReducerConfig,
+  applied: ReducerTier[],
+  compactFn: CompactFn,
+  emergencyCompactFn: EmergencyCompactFn,
+  signal?: AbortSignal,
+): Promise<ReducerStepResult> {
+  const result = await emergencyCompactFn(messages, signal);
+  if (result?.compacted) {
+    return {
+      messages: result.messages,
+      tier: "emergency_compaction",
+      state: {
+        appliedTiers: [...applied, "emergency_compaction"],
+        injectionMode: "full",
+        exhausted: false,
+      },
+      estimatedTokens: result.estimatedInputTokens,
+      compactionResult: result,
+    };
+  }
+
+  // Emergency compaction produced no reduction (no tool pair to split on, an
+  // unparseable summary, or a provider error). Fall straight through to forced
+  // compaction in the same step so the caller does not waste a provider rerun
+  // on unchanged messages.
+  return applyForcedCompaction(
+    messages,
+    config,
+    [...applied, "emergency_compaction"],
+    compactFn,
+    signal,
+  );
 }
 
 async function applyForcedCompaction(
@@ -339,9 +510,49 @@ function applyInjectionDowngrade(
       injectionMode: "minimal",
       toolResultMaxChars: prevState?.toolResultMaxChars,
       compactionOptions: prevState?.compactionOptions,
-      exhausted: true,
+      exhausted: false,
     },
     estimatedTokens,
+  };
+}
+
+async function applyAutoCompressLatestTurn(
+  messages: Message[],
+  config: ReducerConfig,
+  applied: ReducerTier[],
+  compactFn: CompactFn,
+  prevState: ReducerState | undefined,
+  signal?: AbortSignal,
+): Promise<ReducerStepResult> {
+  // Force-compress the latest turn as a last resort. Shares the forced
+  // compaction options, but runs after the middle tiers have been spent.
+  const compactionOptions: ContextWindowCompactOptions = {
+    force: true,
+    minKeepRecentUserTurns: 0,
+  };
+
+  const result = await compactFn(messages, signal, compactionOptions);
+  const nextMessages = result.compacted ? result.messages : messages;
+  const estimatedTokens = result.compacted
+    ? result.estimatedInputTokens
+    : estimatePromptTokens(nextMessages, config.systemPrompt, {
+        providerName: config.providerName,
+        toolTokenBudget: config.toolTokenBudget,
+      });
+
+  const nextApplied: ReducerTier[] = [...applied, "auto_compress_latest_turn"];
+  return {
+    messages: nextMessages,
+    tier: "auto_compress_latest_turn",
+    state: {
+      appliedTiers: nextApplied,
+      injectionMode: prevState?.injectionMode ?? "full",
+      toolResultMaxChars: prevState?.toolResultMaxChars,
+      compactionOptions,
+      exhausted: false,
+    },
+    estimatedTokens,
+    compactionResult: result,
   };
 }
 

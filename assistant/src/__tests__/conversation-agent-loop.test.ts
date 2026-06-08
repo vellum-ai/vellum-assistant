@@ -1710,27 +1710,31 @@ describe("session-agent-loop", () => {
     test("non-interactive auto-compress continues without approval prompt", async () => {
       const events: ServerMessage[] = [];
 
-      // Reducer exhausts all tiers
-      mockReducerStepFn = (msgs: Message[]) => ({
-        messages: msgs,
-        tier: "injection_downgrade",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "minimal",
-          exhausted: true,
-        },
-        estimatedTokens: 120000,
-      });
+      // The reducer applies a middle tier first, then escalates to its
+      // terminal auto-compress rung (which the plugin now owns) and recovers.
+      let reducerStep = 0;
+      mockReducerStepFn = (msgs: Message[]) => {
+        reducerStep++;
+        const exhausted = reducerStep >= 2;
+        return {
+          messages: msgs,
+          tier: exhausted ? "auto_compress_latest_turn" : "forced_compaction",
+          state: {
+            appliedTiers: exhausted
+              ? ["forced_compaction", "auto_compress_latest_turn"]
+              : ["forced_compaction"],
+            injectionMode: "minimal" as const,
+            exhausted,
+          },
+          estimatedTokens: exhausted ? 30_000 : 120_000,
+        };
+      };
 
+      // The overflow policy permits the reducer's terminal auto-compress rung.
       mockOverflowAction = "auto_compress_latest_turn";
 
       // The provider rejects the first two calls with context-too-large errors,
-      // then succeeds after the emergency auto-compress runs.
+      // then succeeds after the terminal auto-compress rung runs.
       const ctx = makeCtx({
         providerResponses: [
           new Error("context_length_exceeded"),
@@ -1774,10 +1778,9 @@ describe("session-agent-loop", () => {
 
     test("emits budget_yield_unrecovered when auto_compress rerun yields at mid-loop budget", async () => {
       // Regression test for the silent-stall failure mode:
-      // when every recovery layer has been applied (tier reducer
-      // exhausted + auto_compress_latest_turn emergency compaction)
-      // and the final `agentLoop.run` STILL yields at the mid-loop
-      // budget checkpoint, the orchestrator used to fall through to
+      // when the reduction ladder is exhausted through its terminal
+      // auto-compress rung and the final `agentLoop.run` STILL yields at
+      // the mid-loop budget checkpoint, the orchestrator used to fall through to
       // post-turn cleanup with NO `agent_loop_exit_reason` emitted —
       // the turn just stopped mid-action and `llm_request_logs` showed
       // a NULL exit reason on the final row. We now emit
@@ -1785,25 +1788,30 @@ describe("session-agent-loop", () => {
       // attribute the silent stall.
       const events: ServerMessage[] = [];
 
-      // Reducer exhausts all 4 tiers on first call so the convergence
-      // loop runs exactly one iteration before falling through to
-      // the auto_compress_latest_turn branch.
-      mockReducerStepFn = (msgs: Message[]) => ({
-        messages: msgs,
-        tier: "injection_downgrade",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "minimal",
-          exhausted: true,
-        },
-        estimatedTokens: 120_000,
-      });
+      // The reducer applies a middle tier first, then runs its terminal
+      // auto-compress rung and exhausts the ladder there. Because the last
+      // applied rung is `auto_compress_latest_turn`, a subsequent budget yield
+      // on the rerun is classified as `budget_yield_unrecovered` rather than
+      // `context_too_large`.
+      let reducerStep = 0;
+      mockReducerStepFn = (msgs: Message[]) => {
+        reducerStep++;
+        const exhausted = reducerStep >= 2;
+        return {
+          messages: msgs,
+          tier: exhausted ? "auto_compress_latest_turn" : "forced_compaction",
+          state: {
+            appliedTiers: exhausted
+              ? ["forced_compaction", "auto_compress_latest_turn"]
+              : ["forced_compaction"],
+            injectionMode: "minimal" as const,
+            exhausted,
+          },
+          estimatedTokens: 120_000,
+        };
+      };
 
+      // The overflow policy permits the reducer's terminal auto-compress rung.
       mockOverflowAction = "auto_compress_latest_turn";
 
       // Sits between the preflight budget (preflightBudget =
@@ -1934,8 +1942,12 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // maxAttempts is 3 — reducer should be called at most 3 times
-      expect(reducerCalls).toBeLessThanOrEqual(3);
+      // The orchestrator's safety backstop bounds the ladder even when the
+      // reducer never reports exhaustion. The ladder spans the emergency rung,
+      // the middle-tier attempt budget (maxAttempts = 3), and the terminal
+      // auto-compress rung, so the backstop allows at most maxAttempts + 2
+      // reducer calls.
+      expect(reducerCalls).toBeLessThanOrEqual(5);
     });
   });
 
