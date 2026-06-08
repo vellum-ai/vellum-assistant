@@ -97,6 +97,17 @@ export interface PowerEvent {
   kind: PowerEventKind;
 }
 
+export type HotkeyEventState = "down" | "up";
+
+export interface HotkeyEvent {
+  kind: "fnPushToTalk";
+  state: HotkeyEventState;
+}
+
+export type FnPushToTalkResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
 /**
  * Mirror of `AssistantStatus` in `apps/macos/src/main/status.ts`. Inlined for
  * the same reason as the other bridge types: preload + main + renderer each
@@ -244,6 +255,18 @@ export interface VellumBridge {
   };
   helper: {
     ping(): Promise<"pong">;
+    hotkey: {
+      /**
+       * Enable or disable the native Fn push-to-talk registration.
+       * The native helper emits `hotkey-event` notifications while enabled.
+       */
+      fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+      /**
+       * Subscribe to native hotkey down/up events streamed from the helper.
+       * Returns an unsubscribe function.
+       */
+      onEvent(callback: (event: HotkeyEvent) => void): () => void;
+    };
   };
   commands: {
     /**
@@ -543,6 +566,22 @@ const bridge: VellumBridge = {
   },
   helper: {
     ping: notImplemented("helper.ping"),
+    hotkey: {
+      fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
+        ipcRenderer.invoke(
+          "vellum:helper:hotkey:fnPushToTalk",
+          enable,
+        ) as Promise<FnPushToTalkResult>,
+      onEvent: (callback) => {
+        const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
+          callback(payload);
+        };
+        ipcRenderer.on("vellum:helper:hotkey:event", handler);
+        return () => {
+          ipcRenderer.off("vellum:helper:hotkey:event", handler);
+        };
+      },
+    },
   },
   commands: {
     on: (callback) => {

@@ -26,6 +26,7 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
+    { from: "resources/hotkey-helper", to: "hotkey-helper" },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
@@ -54,6 +55,19 @@ module.exports = {
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
       NSUserNotificationAlertStyle: "alert",
+      // Register the .vellum UTI so Quick Look extensions can provide
+      // thumbnails and previews for .vellum bundle files in Finder.
+      UTExportedTypeDeclarations: [
+        {
+          UTTypeIdentifier: "com.vellum.app-bundle",
+          UTTypeConformsTo: ["public.data", "public.content"],
+          UTTypeDescription: "Vellum App Bundle",
+          UTTypeTagSpecification: {
+            "public.filename-extension": ["vellum"],
+            "public.mime-type": "application/x-vellum",
+          },
+        },
+      ],
     },
     target: [
       {

@@ -222,6 +222,8 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
+    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId)
+      break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
       resolveVerificationSessionIntent(candidate.content).kind ===
@@ -422,6 +424,9 @@ async function drainSingleMessage(
     conversation.applyClientTimezoneFromTransport(next.transport);
   }
 
+  conversation.currentTurnAuthContext = next.authContext;
+  conversation.currentTurnSourceActorPrincipalId = next.sourceActorPrincipalId;
+
   // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // The dequeue path reset `preactivatedSkillIds` above; without these
   // re-adds the relevant skill tools won't be projected to the LLM for
@@ -433,8 +438,7 @@ async function drainSingleMessage(
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    const sourceActorPrincipalId =
-      conversation.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId = next.sourceActorPrincipalId;
     conversation.ensureHostProxiesForTurn(
       sourceInterface,
       sourceActorPrincipalId,
@@ -979,14 +983,16 @@ async function drainBatch(
     conversation.applyClientTimezoneFromTransport(head.transport);
   }
 
+  conversation.currentTurnAuthContext = head.authContext;
+  conversation.currentTurnSourceActorPrincipalId = head.sourceActorPrincipalId;
+
   // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    const sourceActorPrincipalId =
-      conversation.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId = head.sourceActorPrincipalId;
     conversation.ensureHostProxiesForTurn(
       sourceInterface,
       sourceActorPrincipalId,
@@ -1380,6 +1386,9 @@ export async function processMessage(
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
+  conversation.currentTurnAuthContext = conversation.authContext;
+  conversation.currentTurnSourceActorPrincipalId =
+    conversation.authContext?.actorPrincipalId;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;

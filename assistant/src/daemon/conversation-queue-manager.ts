@@ -9,6 +9,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type {
   ServerMessage,
@@ -30,6 +31,10 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
+  /** Requester identity captured from the verified auth context at enqueue time. */
+  sourceActorPrincipalId?: string;
+  /** Full auth snapshot captured at enqueue time for turn-scoped authorization decisions. */
+  authContext?: AuthContext;
   /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
   transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
@@ -203,6 +208,9 @@ function estimateItemBytes(item: QueuedMessage): number {
   // payloads (e.g. hostHomeDir, hostUsername) count against the budget.
   if (item.transport) {
     bytes += JSON.stringify(item.transport).length * 2;
+  }
+  if (item.sourceActorPrincipalId) {
+    bytes += item.sourceActorPrincipalId.length * 2;
   }
   // Small fixed overhead for metadata, pointers, etc. (not worth
   // measuring precisely — the content/attachment data dominates).

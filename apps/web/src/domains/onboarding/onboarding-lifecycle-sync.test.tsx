@@ -1,20 +1,20 @@
 import {
-    cleanup,
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
-    DEFAULT_PRECHAT_INITIAL_MESSAGE,
-    STORAGE_KEY,
+  DEFAULT_PRECHAT_INITIAL_MESSAGE,
+  STORAGE_KEY,
 } from "@/domains/onboarding/prechat";
 import {
-    ACTIVATION_FLOW_COHORT,
-    ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
+  ACTIVATION_FLOW_COHORT,
+  ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
 } from "@/domains/onboarding/prechat-context";
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { routes } from "@/utils/routes";
@@ -62,7 +62,7 @@ type TestOnboardingRecipe = {
 };
 
 let preChatOnboardingExperiment = "variant-a";
-let activationFlowExperiment = false;
+let activationFlowExperiment = "control";
 let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
@@ -208,8 +208,8 @@ mock.module("@/stores/client-feature-flag-store", () => ({
     use: {
       stringFlags: () => ({
         preChatOnboardingExperiment20260606: preChatOnboardingExperiment,
+        experimentActivationFlow20260603: activationFlowExperiment,
       }),
-      experimentActivationFlow20260603: () => activationFlowExperiment,
       selfIntroGreeting: () => selfIntroGreeting,
     },
   },
@@ -326,17 +326,20 @@ mock.module("@/domains/onboarding/screens/tool-selection-screen", () => ({
   ),
 }));
 
-mock.module("@/domains/onboarding/screens/prior-assistant-selection-screen", () => ({
-  PriorAssistantSelectionScreen: ({
-    onContinue,
-  }: {
-    onContinue: () => void;
-  }) => (
-    <button type="button" data-testid="prior-continue" onClick={onContinue}>
-      prior assistants
-    </button>
-  ),
-}));
+mock.module(
+  "@/domains/onboarding/screens/prior-assistant-selection-screen",
+  () => ({
+    PriorAssistantSelectionScreen: ({
+      onContinue,
+    }: {
+      onContinue: () => void;
+    }) => (
+      <button type="button" data-testid="prior-continue" onClick={onContinue}>
+        prior assistants
+      </button>
+    ),
+  }),
+);
 
 mock.module("@/domains/onboarding/screens/get-ios-app-screen", () => ({
   GetIOSAppScreen: ({ onComplete }: { onComplete: () => void }) => (
@@ -346,18 +349,16 @@ mock.module("@/domains/onboarding/screens/get-ios-app-screen", () => ({
   ),
 }));
 
-const { HatchingScreen } = await import(
-  "@/domains/onboarding/pages/hatching-screen"
-);
-const { PreChatFlow } = await import(
-  "@/domains/onboarding/pages/pre-chat-flow"
-);
+const { HatchingScreen } =
+  await import("@/domains/onboarding/pages/hatching-screen");
+const { PreChatFlow } =
+  await import("@/domains/onboarding/pages/pre-chat-flow");
 
 beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   preChatOnboardingExperiment = "variant-a";
-  activationFlowExperiment = false;
+  activationFlowExperiment = "control";
   selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
@@ -465,7 +466,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("activation flow flag selects the activation bootstrap after pre-chat", async () => {
-    activationFlowExperiment = true;
+    activationFlowExperiment = "variant-a";
 
     render(<PreChatFlow />);
 

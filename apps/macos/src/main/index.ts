@@ -32,6 +32,7 @@ import { installDock } from "./dock";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
+import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
@@ -334,6 +335,7 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    installHotkeyHelper();
     installAbout();
     installFeedbackIpc();
     installApplicationMenu();

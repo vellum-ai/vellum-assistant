@@ -195,7 +195,7 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
-  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
+  const sourceActorPrincipalId = conversation.authContext?.actorPrincipalId;
   // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (
     shouldAttachHostProxyForCapability(
