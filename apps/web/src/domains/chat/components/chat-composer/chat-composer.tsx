@@ -385,6 +385,7 @@ export function ChatComposer({
                   }
                   if (files.length > 0) {
                     e.preventDefault();
+                    if (!modelSupportsVision) return;
                     onAddAttachmentFiles(files);
                   }
                 }}

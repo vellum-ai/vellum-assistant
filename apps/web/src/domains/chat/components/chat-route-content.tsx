@@ -439,7 +439,7 @@ export function ChatMainPanel({
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
     onFiles: addChatAttachmentFiles,
-    disabled: typingDisabled || !assistantId,
+    disabled: typingDisabled || !assistantId || !activeModelSupportsVision,
   });
 
   // -------------------------------------------------------------------------
