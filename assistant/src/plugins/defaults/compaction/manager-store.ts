@@ -36,6 +36,19 @@ export function createContextWindowManager(
 }
 
 /**
+ * Resolve the manager registered for a conversation, or `undefined` when none
+ * is registered (the conversation was never constructed or has been torn
+ * down). The store is the single owner of the instance; the conversation, its
+ * agent loop, and the compaction surface all read through this lookup rather
+ * than holding their own handle.
+ */
+export function getContextWindowManager(
+  conversationId: string,
+): ContextWindowManager | undefined {
+  return managersByConversation.get(conversationId);
+}
+
+/**
  * Release the manager registered for a conversation. Called from conversation
  * teardown so the store releases the instance once the conversation is gone.
  */

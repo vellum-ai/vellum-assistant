@@ -39,6 +39,20 @@ const conversationRuntimeAssemblyRealSnapshot = {
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
+// The real AgentLoop resolves the per-conversation ContextWindowManager from
+// the compaction store keyed by conversationId. These overflow tests build
+// fake conversations whose manager is a canned stub, so register each stub in a
+// map the mocked store reads from.
+const fakeContextWindowManagers = new Map<string, unknown>();
+mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
+  createContextWindowManager: () => undefined,
+  getContextWindowManager: (conversationId: string) =>
+    fakeContextWindowManagers.get(conversationId),
+  disposeContextWindowManager: (conversationId: string) => {
+    fakeContextWindowManagers.delete(conversationId);
+  },
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -471,7 +485,7 @@ function makeCtx(
     toolExecutor,
   });
 
-  return {
+  const ctx = {
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -582,6 +596,8 @@ function makeCtx(
 
     ...ctxOverrides,
   } as unknown as Conversation;
+  fakeContextWindowManagers.set(conversationId, ctx.contextWindowManager);
+  return ctx;
 }
 
 /**
