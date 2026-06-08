@@ -123,12 +123,12 @@ describe("maybeRefreshAuthHeaders", () => {
     expect(refresh.hit()).toBe(false); // no refresh POST anywhere
   });
 
-  test("sends the refresh to the persisted runtimeUrl, not the caller-supplied baseUrl", async () => {
-    // localUrl is a second trusted persisted URL; refreshing against it is
-    // allowed, but the refresh POST must still go to the persisted runtimeUrl
-    // (defense in depth — credentials only ever reach the trusted origin).
+  test("refreshes against the matched persisted URL, keeping the session's interface", async () => {
+    // When an entry persists both a loopback localUrl and a different
+    // runtimeUrl, a session on the loopback URL must refresh against THAT URL,
+    // not the external runtimeUrl (which may be unreachable / public-facing).
     const localUrl = "http://127.0.0.1:7830";
-    seedEntry("paired", localUrl);
+    seedEntry("paired", localUrl); // runtimeUrl = RUNTIME (10.0.0.9), localUrl = loopback
     seedToken("old-acc", "ref");
     const refresh = stubRefresh(true);
     const auth = { Authorization: "Bearer old-acc" };
@@ -137,7 +137,8 @@ describe("maybeRefreshAuthHeaders", () => {
 
     expect(ok).toBe(true);
     expect(refresh.hit()).toBe(true);
-    expect(refresh.url()).toContain(RUNTIME);
+    expect(refresh.url()).toContain("127.0.0.1");
+    expect(refresh.url()).not.toContain("10.0.0.9");
   });
 
   test("does NOT refresh a local assistant (scoped to paired only)", async () => {

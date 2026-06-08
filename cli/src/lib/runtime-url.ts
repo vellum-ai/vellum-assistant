@@ -115,18 +115,28 @@ export function normalizeRuntimeUrl(url: string): string {
  * `candidateUrl` normalizes to one of the entry's persisted URLs (`localUrl`,
  * which the CLI prefers when present, or `runtimeUrl`).
  *
- * Returns the persisted `runtimeUrl` to send the refresh to — never the
- * caller-supplied `candidateUrl` — so credentials only ever reach the trusted
- * origin even if a caller forgets to use this return value. Returns `null` when
- * the candidate is untrusted (caller must skip the refresh).
+ * Returns the persisted URL that the candidate matched — never the
+ * caller-supplied `candidateUrl` verbatim — so credentials only ever reach a
+ * trusted origin even if a caller forgets to use this return value. The matched
+ * URL is preferred over always returning `runtimeUrl` so the refresh stays on
+ * the same interface the session is using: e.g. a local entry may persist both a
+ * loopback `localUrl` (which `vellum client` defaults to) and an externally
+ * discovered `runtimeUrl`, and refreshing the loopback session against the
+ * external address could be unreachable or needlessly cross the public
+ * interface. Returns `null` when the candidate is untrusted (caller must skip
+ * the refresh).
  */
 export function trustedRefreshUrl(
   entry: Pick<AssistantEntry, "runtimeUrl" | "localUrl">,
   candidateUrl: string,
 ): string | null {
-  const trusted = [entry.localUrl, entry.runtimeUrl]
-    .filter((u): u is string => !!u)
-    .map(normalizeRuntimeUrl);
-  if (!trusted.includes(normalizeRuntimeUrl(candidateUrl))) return null;
-  return entry.runtimeUrl;
+  const candidate = normalizeRuntimeUrl(candidateUrl);
+  // localUrl first: it's what the CLI prefers when present, so the candidate is
+  // most likely to match it, and we want to keep the refresh on that interface.
+  for (const persisted of [entry.localUrl, entry.runtimeUrl]) {
+    if (persisted && normalizeRuntimeUrl(persisted) === candidate) {
+      return persisted;
+    }
+  }
+  return null;
 }
