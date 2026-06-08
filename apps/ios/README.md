@@ -453,10 +453,12 @@ confirmed on the `macos-15` GitHub Actions runner image
 ### Workflow file conventions
 
 Files are named `.yaml` (not `.yml`) to match the majority convention
-in this repo. The iOS release is a reusable `workflow_call` workflow
-called from the release pipelines — there's no separate CI gate.
-Signing steps are not extracted into their own reusable workflow
-because it's the only iOS workflow.
+in this repo. The iOS release is a reusable `workflow_call`-only
+workflow called from the release pipelines — it intentionally has no
+`workflow_dispatch` trigger, so all iOS builds flow through the gated
+`release.yml` or `dev-release.yaml` chains. Signing steps are not
+extracted into their own reusable workflow because it's the only iOS
+workflow.
 
 ### Secrets (GitHub Actions)
 
