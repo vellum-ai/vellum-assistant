@@ -1,7 +1,7 @@
 ---
 name: mcp-setup
 description: Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service to the assistant. Works with Figma, Linear, GitHub, Notion, Slack, Jira, Sentry, Stripe, Postgres, Google Drive, Vercel, GitLab, Cloudflare, Brave Search, and any other service that publishes an MCP endpoint
-compatibility: "Requires the Vellum desktop app (local daemon). Does not work with platform-hosted assistants."
+compatibility: "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment."
 metadata:
   emoji: "🔌"
   vellum:
@@ -22,17 +22,7 @@ USE THIS SKILL WHEN:
 - An MCP tool returns an auth error → run `assistant mcp auth <name>`
 - User wants to disconnect an integration
 
-## Step 1 — Verify you are on the desktop app (HARD GATE)
-
-⚠️ **This is a hard gate. Do not run any `assistant mcp` command until it passes.**
-
-MCP servers only work on the local desktop daemon. A cloud / platform-hosted
-session **has `bash`**, so `mcp add` and `mcp list` will appear to succeed — but
-the config is written to the cloud daemon, not the user's machine, and the
-`auth` step can never complete because there is no browser on the host. The
-result is a zombie config: half set up, impossible to authenticate. **`bash`
-succeeding proves nothing. Only `host_bash` confirms you are on the machine that
-can finish the flow.**
+## Step 1 — Detect your environment
 
 **Before doing anything else**, run this via `host_bash` (not `bash`):
 
@@ -40,16 +30,10 @@ can finish the flow.**
 echo "desktop ok"
 ```
 
-- If it succeeds → you are on the desktop. Proceed.
-- If `host_bash` is unavailable, denied, or you only have `bash` → **STOP NOW.**
-  Do not run `mcp add`. Do not run `mcp list`. Tell the user:
+- If it succeeds → you are on the **desktop app**. `mcp auth` must run via `host_bash` because it opens a local browser.
+- If `host_bash` is unavailable or denied → you are on the **web app** (or a cloud-hosted session). `mcp auth` still works — the platform handles the browser redirect. Use `bash` for all commands, including `auth`.
 
-> This skill needs the **Vellum desktop app** — MCP setup can't run from a
-> cloud session because the OAuth step needs a browser on your machine. Please
-> open the desktop app from [vellum.ai](https://vellum.ai) and ask me there.
-
-Writing an MCP config from a cloud session creates a broken server the user
-cannot authenticate. Refuse to start rather than leave a half-configured mess.
+Both environments fully support MCP. The only difference is which tool runs the `auth` command.
 
 ## Step 2 — Check the recipe table
 
@@ -71,13 +55,16 @@ Find the MCP endpoint URL in the service's documentation, then run:
 assistant mcp add <name> -t streamable-http -u <url>
 ```
 
-Then run `assistant mcp list`. If it shows `! Needs authentication`, run `assistant mcp auth <name>` via `host_bash`.
+Then run `assistant mcp list`. If it shows `! Needs authentication`, run `assistant mcp auth <name>`.
+
+- On **desktop** → run via `host_bash` (opens the local browser).
+- On **web app** → run via `bash` (the platform handles the browser redirect).
 
 ---
 
 ## Reference: All Commands
 
-Run `list`, `add`, `remove`, and `reload` via the `bash` tool. Run `auth` via `host_bash` (it opens a browser).
+Run `list`, `add`, `remove`, and `reload` via `bash` on both environments. Run `auth` via `host_bash` on desktop, or via `bash` on the web app.
 
 ### List servers
 
@@ -117,7 +104,10 @@ assistant mcp add local-db -t stdio -c npx -a -y @my/mcp-server
 assistant mcp auth <name>
 ```
 
-Run via `host_bash`. Opens the user's browser for OAuth login. Tokens are saved automatically. Use when:
+- On **desktop** → run via `host_bash` (opens the user's local browser for OAuth login).
+- On **web app** → run via `bash` (the platform handles the browser redirect and saves tokens).
+
+Tokens are saved automatically. Use when:
 - `assistant mcp list` shows `! Needs authentication`
 - An MCP tool call fails with an auth/token error
 - Setting up a new OAuth-protected server for the first time
