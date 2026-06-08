@@ -23,10 +23,21 @@ function consentKey(field: string, userId: string): string {
 export function restoreConsentForUser(userId: string | null): { tos: boolean; ai: boolean } {
   if (typeof window === "undefined" || !userId) return { tos: false, ai: false };
   try {
-    return {
-      tos: getLocalBool(consentKey("tos", userId), false),
-      ai: getLocalBool(consentKey("ai", userId), false),
-    };
+    const tos = getLocalBool(consentKey("tos", userId), false);
+    const ai = getLocalBool(consentKey("ai", userId), false);
+    if (tos || ai) return { tos, ai };
+
+    // One-time migration: users who accepted before the per-user device
+    // key change still have consent in the legacy vellum: active keys.
+    // Promote to the new keys so they aren't re-prompted.
+    const legacyTos = getLocalBool("vellum:onboarding:tosAccepted", false);
+    const legacyAi = getLocalBool("vellum:onboarding:aiDataConsent", false);
+    if (legacyTos || legacyAi) {
+      persistConsentForUser(userId, legacyTos, legacyAi);
+      return { tos: legacyTos, ai: legacyAi };
+    }
+
+    return { tos: false, ai: false };
   } catch {
     return { tos: false, ai: false };
   }
