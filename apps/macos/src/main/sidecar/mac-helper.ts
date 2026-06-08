@@ -271,6 +271,7 @@ export class MacHelperClient {
   }
 
   retry(): MacHelperState {
+    this.clearPending(new Error(`${this.name} restarted`));
     return this.supervisor.retry();
   }
 

@@ -200,6 +200,27 @@ describe("installHotkeyHelper", () => {
     );
   });
 
+  test("user-initiated restart replaces an already-running helper", async () => {
+    installHotkeyHelper();
+
+    const pending = invokePing();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+    );
+    expect(await pending).toBe("pong");
+
+    const original = lastChild;
+    expect(invokeRestart()).toEqual({
+      ok: true,
+      state: { status: "running" },
+    });
+
+    expect(original?.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(spawnCalls).toHaveLength(2);
+    expect(lastChild).not.toBe(original);
+  });
+
   test("sends hotkey.fnPushToTalk to the helper process", async () => {
     installHotkeyHelper();
     const pending = invokeFnPushToTalk(true);
@@ -388,5 +409,24 @@ describe("installHotkeyHelper", () => {
 
     expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
     expect(lastChild?.stdin.ended).toBe(true);
+  });
+
+  test("does not respawn the helper after deliberate shutdown", async () => {
+    installHotkeyHelper();
+    const pending = invokePing();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+    );
+    await pending;
+
+    const shuttingDown = lastChild;
+    appListeners.get("before-quit")?.();
+    shuttingDown?.emit("close", 0, null);
+
+    await expect(invokePing()).rejects.toThrow(
+      "hotkey helper is not available",
+    );
+    expect(spawnCalls).toHaveLength(1);
   });
 });

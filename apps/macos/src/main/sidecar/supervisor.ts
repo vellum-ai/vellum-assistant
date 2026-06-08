@@ -89,7 +89,9 @@ export class SidecarSupervisor {
   }
 
   ensureRunning(): ChildProcessWithoutNullStreams | null {
+    if (this.stopping) return null;
     if (this.child) return this.child;
+    if (this.state.status === "stopped") return null;
     if (this.state.status === "circuit-open") return null;
     if (this.restartTimer) return null;
     return this.startNow();
@@ -101,14 +103,32 @@ export class SidecarSupervisor {
     this.attempt = 0;
     this.stopping = false;
     if (this.child) {
-      this.setState({
-        status: "running",
-        ...(this.child.pid === undefined ? {} : { pid: this.child.pid }),
-      });
-      return this.state;
+      this.replaceChild();
     }
     this.startNow();
     return this.state;
+  }
+
+  private replaceChild(): void {
+    const child = this.child;
+    if (!child) return;
+
+    this.child = null;
+    this.clearStableTimer();
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // The child may already have exited.
+    }
+
+    const killTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The child may already have exited.
+      }
+    }, DEFAULT_SHUTDOWN_GRACE_MS);
+    killTimer.unref?.();
   }
 
   stop(options?: { graceMs?: number; reason?: string }): void {
