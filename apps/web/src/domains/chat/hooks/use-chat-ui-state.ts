@@ -26,6 +26,7 @@ import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -46,6 +47,12 @@ export interface ChatUIState {
   thinkingLabel: string | null;
   liveAssistantMessageId: string | null;
   activeConversationIsProcessing: boolean;
+  /** Resolved active assistant ID (from resolved-assistants-store). */
+  assistantId: string | null;
+  /** Active conversation ID (from conversation-store). */
+  activeConversationId: string | null;
+  /** Active conversation data (TanStack Query — deduped). */
+  activeConversation: Conversation | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,5 +145,8 @@ export function useChatUIState(): ChatUIState {
     thinkingLabel,
     liveAssistantMessageId,
     activeConversationIsProcessing,
+    assistantId,
+    activeConversationId,
+    activeConversation,
   };
 }

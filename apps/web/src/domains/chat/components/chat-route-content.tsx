@@ -64,9 +64,8 @@ import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
-import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
@@ -154,6 +153,27 @@ export function ChatMainPanel({
   const navigate = useNavigate();
 
   // -------------------------------------------------------------------------
+  // Derived UI state (provides assistantId, activeConversationId,
+  // activeConversation alongside turn/interaction flags — single subscription
+  // point for these fundamental identity values)
+  // -------------------------------------------------------------------------
+  const {
+    uiContext,
+    isIdle,
+    showThinking,
+    isAssistantStreaming,
+    canStopGenerating,
+    isSendDisabledFromTurn,
+    thinkingLabel,
+    liveAssistantMessageId,
+    activeConversationIsProcessing,
+    assistantId,
+    activeConversationId,
+    activeConversation,
+  } = useChatUIState();
+  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // -------------------------------------------------------------------------
   // Store reads — composer
   // -------------------------------------------------------------------------
   const input = useComposerStore.use.input();
@@ -169,7 +189,6 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — identity, lifecycle, feature flags
   // -------------------------------------------------------------------------
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const addChatAttachmentFiles = useCallback(
     (files: FileList | File[]) => useComposerStore.getState().addFiles(files, assistantId),
     [assistantId],
@@ -190,15 +209,10 @@ export function ChatMainPanel({
   const transcriptPagination = useChatSessionStore.use.transcriptPagination();
 
   // -------------------------------------------------------------------------
-  // Store reads — conversation, viewer
+  // Store reads — viewer
   // -------------------------------------------------------------------------
-  const activeConversationId = useConversationStore.use.activeConversationId();
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
-
-  // Active conversation (TanStack Query — deduped with ActiveChatView's call)
-  const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
-  const isChannelReadonly = isChannelConversation(activeConversation);
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -266,21 +280,6 @@ export function ChatMainPanel({
   // Feature flags
   // -------------------------------------------------------------------------
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
-
-  // -------------------------------------------------------------------------
-  // Derived UI state + transcript data (extracted hooks)
-  // -------------------------------------------------------------------------
-  const {
-    uiContext,
-    isIdle,
-    showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
-    isSendDisabledFromTurn,
-    thinkingLabel,
-    liveAssistantMessageId,
-    activeConversationIsProcessing,
-  } = useChatUIState();
 
   // -------------------------------------------------------------------------
   // Onboarding choice card
