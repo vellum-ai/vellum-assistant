@@ -565,7 +565,8 @@ const bridge: VellumBridge = {
     },
   },
   helper: {
-    ping: notImplemented("helper.ping"),
+    ping: () =>
+      ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,
     hotkey: {
       fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
         ipcRenderer.invoke(

@@ -19,7 +19,8 @@ export type FnPushToTalkResult =
   | { ok: false; reason: string };
 
 type PendingCall = {
-  resolve: (result: FnPushToTalkResult) => void;
+  resolve: (result: unknown) => void;
+  reject: (err: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
 
@@ -31,21 +32,32 @@ const HOTKEY_EVENT_SCHEMA = z.object({
   state: z.enum(["down", "up"]),
 });
 
+const HOTKEY_RESULT_SCHEMA = z.object({
+  enabled: z.boolean(),
+});
+
+const JSON_RPC_ID_SCHEMA = z.union([z.string(), z.number(), z.null()]);
+
 const HELPER_ENVELOPE_SCHEMA = z.union([
   z.object({
-    event: z.literal("hotkey-event"),
-    payload: HOTKEY_EVENT_SCHEMA,
-  }),
+    jsonrpc: z.literal("2.0"),
+    method: z.literal("hotkey.event"),
+    params: HOTKEY_EVENT_SCHEMA,
+  }).strict(),
   z.object({
-    id: z.number(),
-    ok: z.literal(true),
-    result: z.object({ enabled: z.boolean().optional() }).optional(),
-  }),
+    jsonrpc: z.literal("2.0"),
+    id: JSON_RPC_ID_SCHEMA,
+    error: z.object({
+      code: z.number(),
+      message: z.string(),
+      data: z.unknown().optional(),
+    }),
+  }).strict(),
   z.object({
-    id: z.number(),
-    ok: z.literal(false),
-    error: z.string().optional(),
-  }),
+    jsonrpc: z.literal("2.0"),
+    id: JSON_RPC_ID_SCHEMA,
+    result: z.unknown().optional(),
+  }).strict(),
 ]);
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -60,11 +72,23 @@ export const getHotkeyHelperPath = (): string => {
   return path.join(app.getAppPath(), "resources", "hotkey-helper");
 };
 
+class JsonRpcHelperError extends Error {
+  readonly code: number;
+  readonly data?: unknown;
+
+  constructor(error: { code: number; message: string; data?: unknown }) {
+    super(error.message);
+    this.name = "JsonRpcHelperError";
+    this.code = error.code;
+    if (error.data !== undefined) this.data = error.data;
+  }
+}
+
 class HotkeyHelperClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
   private stdoutBuffer = "";
-  private readonly pending = new Map<number, PendingCall>();
+  private readonly pending = new Map<string, PendingCall>();
   private readonly listeners = new Set<(event: HotkeyEvent) => void>();
   private readonly exitListeners = new Set<() => void>();
   private pttIsDown = false;
@@ -91,25 +115,43 @@ class HotkeyHelperClient {
       };
     }
 
-    const child = this.ensureChild();
-    if (!child) {
-      return { ok: false, reason: "hotkey helper is not available" };
+    try {
+      const result = await this.call("hotkey.fnPushToTalk", { enable });
+      const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+      if (!parsed.success) {
+        return { ok: false, reason: "hotkey helper returned invalid result" };
+      }
+      return { ok: true, enabled: parsed.data.enabled };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  async ping(): Promise<"pong"> {
+    if (getPlatform() !== "darwin") {
+      throw new Error("helper.ping is only available on macOS");
     }
 
-    return this.call(child, "hotkey.fnPushToTalk", { enable });
+    const result = await this.call("ping");
+    if (result !== "pong") {
+      throw new Error("hotkey helper returned invalid ping result");
+    }
+    return "pong";
   }
 
   shutdown(): void {
     if (!this.child) return;
 
     try {
-      this.child.stdin.write(
-        `${JSON.stringify({
-          id: this.nextId++,
-          method: "hotkey.fnPushToTalk",
-          params: { enable: false },
-        })}\n`,
-      );
+      this.writeFrame(this.child, {
+        jsonrpc: "2.0",
+        id: this.nextId++,
+        method: "hotkey.fnPushToTalk",
+        params: { enable: false },
+      });
       this.child.stdin.end();
     } catch {
       // The process may already be gone. The exit handler resolves cleanup.
@@ -134,7 +176,7 @@ class HotkeyHelperClient {
     this.exitListeners.clear();
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timeout);
-      pending.resolve({ ok: false, reason: `hotkey helper reset (${id})` });
+      pending.reject(new Error(`hotkey helper reset (${id})`));
     }
     this.pending.clear();
   }
@@ -170,28 +212,59 @@ class HotkeyHelperClient {
   }
 
   private call(
-    child: ChildProcessWithoutNullStreams,
     method: string,
-    params: Record<string, unknown>,
-  ): Promise<FnPushToTalkResult> {
+    params?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const child = this.ensureChild();
+    if (!child) {
+      throw new Error("hotkey helper is not available");
+    }
+
     const id = this.nextId++;
-    return new Promise<FnPushToTalkResult>((resolve) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        resolve({ ok: false, reason: "hotkey helper did not respond" });
+        this.pending.delete(String(id));
+        reject(new Error("hotkey helper did not respond"));
       }, RESPONSE_TIMEOUT_MS);
       timeout.unref?.();
 
-      this.pending.set(id, { resolve, timeout });
-      const payload = `${JSON.stringify({ id, method, params })}\n`;
-      child.stdin.write(payload, (err) => {
-        if (!err) return;
-        this.resolvePending(id, {
-          ok: false,
-          reason: `hotkey helper write failed: ${err.message}`,
-        });
-      });
+      this.pending.set(String(id), { resolve, reject, timeout });
+      try {
+        this.writeFrame(
+          child,
+          {
+            jsonrpc: "2.0",
+            id,
+            method,
+            ...(params === undefined ? {} : { params }),
+          },
+          (err) => {
+            if (!err) return;
+            this.rejectPending(
+              id,
+              new Error(`hotkey helper write failed: ${err.message}`),
+            );
+          },
+        );
+      } catch (err) {
+        this.rejectPending(
+          id,
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
     });
+  }
+
+  private writeFrame(
+    child: ChildProcessWithoutNullStreams,
+    frame: Record<string, unknown>,
+    callback?: (err?: Error) => void,
+  ): void {
+    const line = JSON.stringify(frame);
+    if (line.includes("\n") || line.includes("\r")) {
+      throw new Error("hotkey helper frame contained raw newline");
+    }
+    child.stdin.write(`${line}\n`, callback);
   }
 
   private handleStdout(chunk: Buffer): void {
@@ -221,30 +294,34 @@ class HotkeyHelperClient {
     }
 
     const message = envelope.data;
-    if ("event" in message) {
-      this.emitEvent(message.payload);
+    if ("method" in message) {
+      this.emitEvent(message.params);
       return;
     }
 
-    if (message.ok) {
-      this.resolvePending(message.id, {
-        ok: true,
-        enabled: message.result?.enabled ?? false,
-      });
+    if ("error" in message) {
+      this.rejectPending(message.id, new JsonRpcHelperError(message.error));
     } else {
-      this.resolvePending(message.id, {
-        ok: false,
-        reason: message.error ?? "hotkey helper returned an error",
-      });
+      this.resolvePending(message.id, message.result);
     }
   }
 
-  private resolvePending(id: number, result: FnPushToTalkResult): void {
-    const pending = this.pending.get(id);
+  private resolvePending(id: string | number | null, result: unknown): void {
+    if (id === null) return;
+    const pending = this.pending.get(String(id));
     if (!pending) return;
     clearTimeout(pending.timeout);
-    this.pending.delete(id);
+    this.pending.delete(String(id));
     pending.resolve(result);
+  }
+
+  private rejectPending(id: string | number | null, error: Error): void {
+    if (id === null) return;
+    const pending = this.pending.get(String(id));
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    this.pending.delete(String(id));
+    pending.reject(error);
   }
 
   private emitEvent(event: HotkeyEvent): void {
@@ -259,10 +336,7 @@ class HotkeyHelperClient {
 
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timeout);
-      pending.resolve({
-        ok: false,
-        reason: `hotkey helper exited before response ${id}`,
-      });
+      pending.reject(new Error(`hotkey helper exited before response ${id}`));
     }
     this.pending.clear();
 
@@ -398,6 +472,8 @@ export const installHotkeyHelper = (): void => {
   client.onExit(() => {
     helperRegistered = false;
   });
+
+  handle("vellum:helper:ping", z.tuple([]), () => client.ping());
 
   handle(
     "vellum:helper:hotkey:fnPushToTalk",

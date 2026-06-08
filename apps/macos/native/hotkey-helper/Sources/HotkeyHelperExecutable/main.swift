@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import Darwin
 import Foundation
+import HotkeyHelperCore
 
 private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
 private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
@@ -52,12 +53,35 @@ private func isFnHotkeyEvent(_ event: EventRef) -> Bool {
         hotkeyId.id == fnHotkeyId.id
 }
 
-final class HotkeyHelper {
+final class HotkeyHelper: @unchecked Sendable {
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
     private let outputLock = NSLock()
 
+    private lazy var router: JsonRpcRouter = {
+        let router = JsonRpcRouter()
+        router.register("ping") { _ in
+            "pong"
+        }
+        router.register("hotkey.fnPushToTalk") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.fnPushToTalk requires enable"
+                )
+            }
+            return try self.setFnPushToTalk(enable: enable)
+        }
+        return router
+    }()
+
+    @MainActor
     func run() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.readCommands()
@@ -75,13 +99,13 @@ final class HotkeyHelper {
             isFnDown = false
         }
 
-        write([
-            "event": "hotkey-event",
-            "payload": [
+        writeNotification(
+            method: "hotkey.event",
+            params: [
                 "kind": "fnPushToTalk",
                 "state": state,
-            ],
-        ])
+            ]
+        )
     }
 
     func handleRawKeyModifiersChanged(_ event: EventRef) {
@@ -110,7 +134,9 @@ final class HotkeyHelper {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
             }
-            handleCommand(line)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleCommand(line)
+            }
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -120,61 +146,16 @@ final class HotkeyHelper {
     }
 
     private func handleCommand(_ line: String) {
-        guard let data = line.data(using: .utf8) else {
-            writeError(id: nil, message: "Command is not valid UTF-8")
-            return
-        }
-
-        let raw: Any
-        do {
-            raw = try JSONSerialization.jsonObject(with: data)
-        } catch {
-            writeError(id: nil, message: "Command is not valid JSON")
-            return
-        }
-
-        guard let object = raw as? [String: Any] else {
-            writeError(id: nil, message: "Command must be a JSON object")
-            return
-        }
-
-        let id = object["id"] as? Int
-        guard let method = object["method"] as? String else {
-            writeError(id: id, message: "Command is missing method")
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch method {
-            case "hotkey.fnPushToTalk":
-                let params = object["params"] as? [String: Any]
-                guard let enable = params?["enable"] as? Bool else {
-                    self.writeError(
-                        id: id,
-                        message: "hotkey.fnPushToTalk requires enable"
-                    )
-                    return
-                }
-                self.setFnPushToTalk(enable: enable, id: id)
-
-            default:
-                self.writeError(id: id, message: "Unknown method \(method)")
-            }
-        }
+        writeLine(router.handle(line: line))
     }
 
-    private func setFnPushToTalk(enable: Bool, id: Int?) {
+    private func setFnPushToTalk(enable: Bool) throws -> [String: Any] {
         if enable {
-            do {
-                try registerFnHotkey()
-                writeResult(id: id, result: ["enabled": true])
-            } catch {
-                writeError(id: id, message: error.localizedDescription)
-            }
+            try registerFnHotkey()
+            return ["enabled": true]
         } else {
             unregisterFnHotkey()
-            writeResult(id: id, result: ["enabled": false])
+            return ["enabled": false]
         }
     }
 
@@ -289,35 +270,21 @@ final class HotkeyHelper {
         unregisterFnHotkey()
     }
 
-    private func writeResult(id: Int?, result: [String: Any]) {
-        var object: [String: Any] = ["ok": true, "result": result]
-        if let id {
-            object["id"] = id
+    private func writeNotification(method: String, params: Any? = nil) {
+        do {
+            let object = JsonRpcCodec.notification(method: method, params: params)
+            writeLine(try JsonRpcCodec.encodeLine(object))
+        } catch {
+            log("Failed to encode notification: \(error.localizedDescription)")
         }
-        write(object)
     }
 
-    private func writeError(id: Int?, message: String) {
-        var object: [String: Any] = ["ok": false, "error": message]
-        if let id {
-            object["id"] = id
-        }
-        write(object)
-    }
-
-    private func write(_ object: [String: Any]) {
+    private func writeLine(_ line: String) {
         outputLock.lock()
         defer { outputLock.unlock() }
 
-        do {
-            let data = try JSONSerialization.data(withJSONObject: object)
-            FileHandle.standardOutput.write(data)
-            FileHandle.standardOutput.write(Data([0x0A]))
-        } catch {
-            let fallback = #"{"ok":false,"error":"Failed to encode response"}"#
-            FileHandle.standardOutput.write(Data(fallback.utf8))
-            FileHandle.standardOutput.write(Data([0x0A]))
-        }
+        FileHandle.standardOutput.write(Data(line.utf8))
+        FileHandle.standardOutput.write(Data([0x0A]))
     }
 
     private func log(_ message: String) {
@@ -337,4 +304,6 @@ private enum HelperError: LocalizedError {
 }
 
 let helper = HotkeyHelper()
-helper.run()
+MainActor.assumeIsolated {
+    helper.run()
+}

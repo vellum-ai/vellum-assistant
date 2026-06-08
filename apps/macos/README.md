@@ -191,8 +191,15 @@ The preload script exposes a typed `window.vellum` API to the renderer:
 - `helper.hotkey.fnPushToTalk(enable)` — starts or stops the native helper
   that captures the Fn key globally for Push to Talk, with
   `helper.hotkey.onEvent(callback)` streaming `down` / `up` notifications.
-- `auth.*` and `helper.ping()` — typed stubs that reject with "not implemented
-  yet" until the corresponding feature tickets land.
+- `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
+- `auth.*` — typed stubs that reject with "not implemented yet" until the
+  corresponding feature tickets land.
+
+The native helper lives in `native/hotkey-helper/` as a small Swift package.
+`HotkeyHelperCore` owns JSON-RPC 2.0 NDJSON framing, standard error codes, and
+method routing so protocol behavior is unit-testable without spawning a
+process. The `hotkey-helper` executable is the thin AppKit/Carbon entrypoint;
+it logs to stderr and keeps stdout reserved for RPC frames and notifications.
 
 Verify the bridge from the renderer:
 

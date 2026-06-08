@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT_DIR/native/hotkey-helper/main.swift"
+PACKAGE_DIR="$ROOT_DIR/native/hotkey-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
 OUTPUT="$OUTPUT_DIR/hotkey-helper"
 
@@ -17,5 +17,6 @@ if ! command -v xcrun >/dev/null 2>&1; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-xcrun swiftc "$SOURCE" -framework AppKit -framework Carbon -o "$OUTPUT"
+xcrun swift build --package-path "$PACKAGE_DIR" -c release
+cp "$PACKAGE_DIR/.build/release/hotkey-helper" "$OUTPUT"
 chmod 755 "$OUTPUT"
