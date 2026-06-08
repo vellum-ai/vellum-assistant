@@ -363,10 +363,20 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
       durationSeconds,
     };
   } catch (err) {
-    log.error({ err, filePath }, "File transcription failed");
-    throw new BadGatewayError(
-      err instanceof Error ? err.message : "Transcription failed",
-    );
+    const sttErr = normalizeSttError(err);
+    // Auth/rate-limit/timeout/invalid-audio are user-config or transient
+    // conditions, not daemon defects, so log them at warn to keep them out of
+    // error telemetry. Reserve error level (with the raw err for a Sentry
+    // stack) for genuine provider/unexpected failures (e.g. ffmpeg, network).
+    if (sttErr.category === "provider-error") {
+      log.error({ err, filePath }, "File transcription failed");
+    } else {
+      log.warn(
+        { category: sttErr.category, message: sttErr.message, filePath },
+        "File transcription failed",
+      );
+    }
+    throw STT_ERROR_MAP[sttErr.category]();
   } finally {
     if (wavPath) {
       await unlink(wavPath).catch(() => {});
