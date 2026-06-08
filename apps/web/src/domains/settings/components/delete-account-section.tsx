@@ -10,6 +10,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
+import { clearConsentForUser } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -33,6 +34,7 @@ export function DeleteAccountSection() {
   // (`retired`, `error`) should NOT block account deletion, since the
   // user's platform account exists independently of any assistant.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+  const userId = useAuthStore.use.user()?.id ?? null;
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -42,6 +44,7 @@ export function DeleteAccountSection() {
       toast.success(
         "Account deletion requested. You will be logged out shortly.",
       );
+      clearConsentForUser(userId);
       await logout();
       hardNavigate(routes.account.login);
     },

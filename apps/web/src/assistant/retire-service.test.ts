@@ -65,17 +65,6 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-const clearConsentForUserMock = mock((_userId: string | null) => {});
-mock.module("@/utils/onboarding-cleanup", () => ({
-  clearConsentForUser: clearConsentForUserMock,
-}));
-
-mock.module("@/stores/auth-store", () => ({
-  useAuthStore: {
-    getState: () => ({ user: { id: "test-user" } }),
-  },
-}));
-
 mock.module("@/utils/routes", () => ({
   routes: {
     assistant: "/assistant",
@@ -101,7 +90,6 @@ beforeEach(() => {
   listAssistantsMock.mockClear();
   retireLocalAssistantMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
-  clearConsentForUserMock.mockClear();
   removeMock.mockClear();
 });
 
@@ -125,7 +113,6 @@ describe("retireAssistant", () => {
     if (outcome.ok) {
       expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");
     }
-    expect(clearConsentForUserMock).toHaveBeenCalledWith("test-user");
   });
 
   test("local assistant in local mode routes through the local retire", async () => {
@@ -167,7 +154,6 @@ describe("retireAssistant", () => {
     const outcome = await retireAssistant("p1");
 
     expect(outcome.ok).toBe(true);
-    expect(clearConsentForUserMock).toHaveBeenCalledWith("test-user");
   });
 
   test("a non-404 platform failure surfaces the error detail", async () => {
@@ -181,7 +167,6 @@ describe("retireAssistant", () => {
     if (!outcome.ok) {
       expect(outcome.error).toBe("boom");
     }
-    expect(clearConsentForUserMock).not.toHaveBeenCalled();
   });
 
   test("post-retire redirects to select-assistant when other assistants remain", async () => {
