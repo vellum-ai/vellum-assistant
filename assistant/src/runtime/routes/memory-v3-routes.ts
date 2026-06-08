@@ -20,12 +20,15 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import { getConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
 import { getPageIndex } from "../../memory/v2/page-index.js";
 import { loadCore } from "../../plugins/defaults/memory-v3-shadow/core.js";
 import {
   computeV3Health,
   renderV3Health,
 } from "../../plugins/defaults/memory-v3-shadow/health.js";
+import { backfillAllSections } from "../../plugins/defaults/memory-v3-shadow/maintain-job.js";
 import {
   type LeafRef,
   reconcileTree,
@@ -296,6 +299,40 @@ export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndex
 }
 
 // ---------------------------------------------------------------------------
+// backfill-sections
+// ---------------------------------------------------------------------------
+
+const MemoryV3BackfillSectionsResultSchema = z.object({
+  /** Pages whose sections were embedded this pass. */
+  articles: z.number(),
+  /** Total section points upserted across all articles. */
+  sections: z.number(),
+  /** Pages whose embed threw (and was contained). */
+  failures: z.number(),
+});
+export type MemoryV3BackfillSectionsResult = z.infer<
+  typeof MemoryV3BackfillSectionsResultSchema
+>;
+
+/**
+ * One-time full backfill of the section dense store: embed EVERY page in the
+ * index — including synthetic skill/CLI rows the incremental maintain pass
+ * skips — into the `memory_v3_sections` collection, then advance the maintain
+ * high-water mark so the next incremental run deltas from here. Runs in-daemon
+ * so it uses the live config and so the maintain checkpoint it advances is the
+ * one the daemon's incremental pass reads.
+ *
+ * `config` is injectable for tests; production resolves the live config.
+ */
+export async function handleMemoryV3BackfillSections(
+  config: AssistantConfig = getConfig(),
+): Promise<MemoryV3BackfillSectionsResult> {
+  const outcome = await backfillAllSections(config);
+  log.info(outcome, "memory-v3 section backfill complete (route)");
+  return outcome;
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions (RouteHandlerArgs adapters over the handlers above)
 // ---------------------------------------------------------------------------
 
@@ -368,5 +405,16 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Invalidate the v3 lanes so the next turn rebuilds",
     tags: ["memory"],
     responseBody: MemoryV3RebuildIndexResultSchema,
+  },
+  {
+    operationId: "memory_v3_backfill_sections",
+    method: "POST",
+    policy: WRITE_POLICY,
+    endpoint: "memory/v3/backfill-sections",
+    handler: () => handleMemoryV3BackfillSections(),
+    summary:
+      "One-time: embed every page's sections (incl synthetic skill/CLI rows) into the dense store",
+    tags: ["memory"],
+    responseBody: MemoryV3BackfillSectionsResultSchema,
   },
 ];

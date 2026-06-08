@@ -20,6 +20,10 @@
  *     leaf exists, previews the resulting always-on page count, and writes only
  *     on `--yes`.
  *   - `rebuild-index` — invalidate the v3 lanes so the next turn rebuilds.
+ *   - `backfill-sections` — one-time: embed every page's sections (including
+ *     synthetic skill/CLI rows) into the dense store, then advance the maintain
+ *     checkpoint. For the transition before A/B/cutover, since the collection
+ *     starts empty and the incremental maintain pass only re-embeds deltas.
  *
  * Deferred to follow-ups: thin `add-leaf` / `rename-leaf` / `delete-leaf`
  * wrappers (edit the leaf file[s] then reconcile).
@@ -29,6 +33,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
+  MemoryV3BackfillSectionsResult,
   MemoryV3HealthResult,
   MemoryV3RebuildIndexResult,
   MemoryV3ReconcileResult,
@@ -70,7 +75,8 @@ Examples:
   $ assistant memory v3 set-core --add domain-a/topic-x
   $ assistant memory v3 set-core --remove domain-a/topic-y --yes
   $ assistant memory v3 reconcile
-  $ assistant memory v3 rebuild-index`,
+  $ assistant memory v3 rebuild-index
+  $ assistant memory v3 backfill-sections`,
       );
 
       // ── health ────────────────────────────────────────────────────────────
@@ -275,6 +281,54 @@ Examples:
             return;
           }
           log.info("v3 lanes invalidated; next turn will rebuild.");
+        });
+
+      // ── backfill-sections ─────────────────────────────────────────────────
+
+      v3.command("backfill-sections")
+        .description(
+          "One-time: embed every page's sections into the dense store (incl skills/CLI)",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted summary")
+        .addHelpText(
+          "after",
+          `
+Embeds EVERY concept page's sections — including synthetic skill and CLI
+capability rows — into the section dense store in one pass, then advances
+the maintain checkpoint so the next incremental pass only re-embeds future
+edits. Use this once on an existing install before the section-lane A/B and
+cutover: the dense collection starts empty, and the periodic maintenance
+pass only re-embeds pages edited since its last run (and never the synthetic
+rows), so most of the corpus would otherwise never be embedded.
+
+Idempotent and safe to re-run. Runs inside the assistant so it uses the live
+configuration and advances the checkpoint the assistant reads.
+
+Examples:
+  $ assistant memory v3 backfill-sections
+  $ assistant memory v3 backfill-sections --json | jq '.sections'`,
+        )
+        .action(async (opts: { json?: boolean }) => {
+          const result = await cliIpcCall<MemoryV3BackfillSectionsResult>(
+            "memory_v3_backfill_sections",
+            { body: {} },
+          );
+          if (!result.ok) {
+            log.error(result.error ?? "Failed to backfill section embeddings");
+            process.exitCode = 1;
+            return;
+          }
+          const payload = result.result!;
+          if (opts.json === true) {
+            log.info(JSON.stringify(payload, null, 2));
+            return;
+          }
+          log.info(
+            `Embedded ${payload.sections} sections across ${payload.articles} pages` +
+              (payload.failures > 0
+                ? ` (${payload.failures} page(s) failed — see assistant logs).`
+                : "."),
+          );
         });
     },
   });

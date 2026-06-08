@@ -3,12 +3,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { setOverridesForTesting } from "../../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { MemoryJob } from "../../../../memory/jobs-store.js";
+import { renderCapabilityContent } from "../capabilities.js";
 import {
+  backfillAllSections,
+  type BackfillJobDeps,
   type ChangedPageCandidate,
   computeChangedPages,
   maintainJob,
   type MaintainJobDeps,
 } from "../maintain-job.js";
+import { buildSectionIndex } from "../sections.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 const FLAG_SHADOW = "memory-v3-shadow";
@@ -241,5 +245,125 @@ describe("computeChangedPages", () => {
       null,
     );
     expect(changed).toEqual(["real"]);
+  });
+});
+
+describe("backfillAllSections", () => {
+  afterEach(() => {
+    setOverridesForTesting({});
+  });
+
+  function deps(overrides: Partial<BackfillJobDeps> = {}): {
+    deps: BackfillJobDeps;
+    calls: {
+      ensured: number;
+      built: Slug[][];
+      deleted: string[];
+      upserted: Section[][];
+      committed: number[];
+    };
+  } {
+    const calls = {
+      ensured: 0,
+      built: [] as Slug[][],
+      deleted: [] as string[],
+      upserted: [] as Section[][],
+      committed: [] as number[],
+    };
+    const base: BackfillJobDeps = {
+      config: CONFIG,
+      selectAllPages: async () => [],
+      ensureSectionCollection: async () => {
+        calls.ensured += 1;
+      },
+      // Real builder + chunker so the synthetic capability content is genuinely
+      // turned into section points (not a hand-rolled stub).
+      buildSectionIndex: async (slugs, pageBody) => {
+        calls.built.push(slugs);
+        return buildSectionIndex(slugs, pageBody);
+      },
+      readPageBody: async (slug) => `body for ${slug}`,
+      deleteSectionsForArticle: async (_config, article) => {
+        calls.deleted.push(article);
+      },
+      upsertSections: async (_config, sections) => {
+        calls.upserted.push(sections);
+      },
+      commitEmbedHighWater: (ms) => {
+        calls.committed.push(ms);
+      },
+      nowMs: () => 4242,
+    };
+    return { deps: { ...base, ...overrides }, calls };
+  }
+
+  test("embeds EVERY page incl a synthetic capability slug, with its capability content", async () => {
+    // A capability-aware reader, exactly as the production default deps wire it:
+    // the real renderer resolves the synthetic skill row's content (injected
+    // resolvers keep it deterministic, mirroring `capabilities.test.ts`).
+    const resolvers = {
+      skill: (slug: Slug) =>
+        slug === "skills/example"
+          ? { id: "example", content: "example capability body" }
+          : null,
+      cli: () => null,
+    };
+    const readPageBody = async (slug: Slug): Promise<string> =>
+      renderCapabilityContent(slug, resolvers) ?? `body for ${slug}`;
+
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a", "skills/example"],
+      readPageBody,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // Both the real page AND the synthetic capability row were embedded.
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(0);
+    expect(calls.ensured).toBe(1);
+    expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    expect(calls.deleted).toEqual(["page-a", "skills/example"]);
+
+    // The synthetic slug's upsert carries its rendered capability content, not a
+    // blank/on-disk read.
+    const syntheticSections = calls.upserted
+      .flat()
+      .filter((s) => s.article === "skills/example");
+    expect(syntheticSections.length).toBeGreaterThan(0);
+    expect(syntheticSections.map((s) => s.text).join("\n")).toContain(
+      "example capability body",
+    );
+    expect(outcome.sections).toBe(calls.upserted.flat().length);
+  });
+
+  test("advances the high-water checkpoint to the injected now", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a"],
+      nowMs: () => 99999,
+    });
+    await backfillAllSections(CONFIG, d);
+    expect(calls.committed).toEqual([99999]);
+  });
+
+  test("contains a single failing page; others still embed and checkpoint advances", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-ok", "page-bad", "page-ok-2"],
+      upsertSections: async (_config, sections) => {
+        if (sections.some((s) => s.article === "page-bad")) {
+          throw new Error("embed boom");
+        }
+        calls.upserted.push(sections);
+      },
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(1);
+    expect(calls.upserted.flat().map((s) => s.article)).toEqual([
+      "page-ok",
+      "page-ok-2",
+    ]);
+    // A contained per-article failure does not block the checkpoint advance.
+    expect(calls.committed).toEqual([4242]);
   });
 });
