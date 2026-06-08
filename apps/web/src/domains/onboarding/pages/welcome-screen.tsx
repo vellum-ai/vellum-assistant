@@ -1,53 +1,17 @@
-import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { isPlatformLocal } from "@/lib/auth/loopback-auth";
-import { hasAssistants, isLocalMode } from "@/lib/local-mode";
-import { isElectron } from "@/runtime/is-electron";
-import { startAuthFlow } from "@/runtime/native-auth";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
+import { hasAssistants } from "@/lib/local-mode";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function WelcomeScreen() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const flowIdRef = useRef(0);
-
-  const handleLogin = async () => {
-    const returnTo = hasAssistants()
-      ? routes.onboarding.selectAssistant
-      : routes.onboarding.hosting;
-
-    if (isLocalMode() && isPlatformLocal()) {
-      void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
-      return;
-    }
-    const flowId = ++flowIdRef.current;
-    setError(null);
-    setLoading(true);
-    try {
-      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
-      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
-    } catch {
-      if (flowId !== flowIdRef.current) return;
-      setError("Something went wrong. Please try again.");
-      setLoading(false);
-    }
-  };
-
-  const handleCancel = () => {
-    flowIdRef.current++;
-    setLoading(false);
-    setError(null);
-    if (isElectron()) {
-      void window.vellum?.auth?.cancelOAuth();
-    }
-  };
+  const { loading, error, login, cancel } = useOnboardingLogin();
 
   const handleContinueWithoutAccount = () => {
-    if (loading) handleCancel();
+    if (loading) cancel();
     if (hasAssistants()) {
       void navigate(routes.onboarding.selectAssistant);
     } else {
@@ -87,7 +51,7 @@ export function WelcomeScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={loading ? handleCancel : () => void handleLogin()}
+              onClick={loading ? cancel : () => void login()}
             >
               {loading ? "Cancel" : "Log In"}
             </Button>

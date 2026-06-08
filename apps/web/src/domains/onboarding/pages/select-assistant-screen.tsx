@@ -1,12 +1,10 @@
 import { Cloud, Laptop } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { isPlatformLocal } from "@/lib/auth/loopback-auth";
-import { isLocalMode } from "@/lib/local-mode";
-import { startAuthFlow } from "@/runtime/native-auth";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
   useResolvedAssistantsStore,
@@ -30,6 +28,12 @@ export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
+  const {
+    loading: loginLoading,
+    error: loginError,
+    login,
+    cancel: cancelLogin,
+  } = useOnboardingLogin();
 
   const isAccessible = (a: ResolvedAssistant): boolean =>
     a.isLocal || hasPlatformSession;
@@ -42,9 +46,7 @@ export function SelectAssistantScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [autoSkipping, setAutoSkipping] = useState(false);
-  const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const loginFlowIdRef = useRef(0);
 
   // Default selection to first accessible assistant
   useEffect(() => {
@@ -89,28 +91,10 @@ export function SelectAssistantScreen() {
     void navigate(routes.onboarding.welcome);
   };
 
-  const handleLogin = async () => {
-    const returnTo = routes.onboarding.selectAssistant;
-
-    if (isLocalMode() && isPlatformLocal()) {
-      void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
-      return;
-    }
-    const flowId = ++loginFlowIdRef.current;
-    setError(null);
-    setLoginLoading(true);
-    try {
-      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
-      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
-    } catch {
-      if (flowId !== loginFlowIdRef.current) return;
-      setError("Something went wrong. Please try again.");
-      setLoginLoading(false);
-    }
-  };
+  const displayError = loginError ?? error;
 
   // Loading state during auto-skip
-  if (autoSkipping && !error) {
+  if (autoSkipping && !displayError) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
@@ -138,9 +122,9 @@ export function SelectAssistantScreen() {
           Select which assistant you&rsquo;d like to use.
         </p>
 
-        {error && (
+        {displayError && (
           <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
-            {error}
+            {displayError}
           </p>
         )}
 
@@ -181,16 +165,30 @@ export function SelectAssistantScreen() {
               {connecting ? "Connecting…" : "Continue"}
             </Button>
           )}
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            className="h-11 text-base"
+            onClick={() =>
+              void navigate(
+                `${routes.onboarding.hosting}?from=select-assistant`,
+              )
+            }
+            disabled={connecting || loginLoading}
+          >
+            Create New Assistant
+          </Button>
           {showLogin && (
             <Button
               variant="outlined"
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={() => void handleLogin()}
-              disabled={connecting || loginLoading}
+              onClick={loginLoading ? cancelLogin : () => void login()}
+              disabled={connecting}
             >
-              {loginLoading ? "Logging in…" : "Log In"}
+              {loginLoading ? "Cancel" : "Log In"}
             </Button>
           )}
           <Button

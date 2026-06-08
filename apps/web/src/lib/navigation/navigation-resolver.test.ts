@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 
 import {
   resolveNavigation,
+  resolveLoginReturnTo,
   type NavigationState,
   type NavigationDecision,
 } from "./navigation-resolver";
@@ -434,6 +435,32 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant",
       });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // resolveLoginReturnTo
+  // -----------------------------------------------------------------------
+  describe("resolveLoginReturnTo", () => {
+    test("returns select-assistant from welcome when assistants exist", () => {
+      expect(
+        resolveLoginReturnTo(s({ hasAssistants: true }), "/assistant/onboarding/welcome"),
+      ).toBe("/assistant/onboarding/select-assistant");
+    });
+
+    test("returns hosting from welcome when no assistants", () => {
+      expect(
+        resolveLoginReturnTo(s({ hasAssistants: false }), "/assistant/onboarding/hosting"),
+      ).toBe("/assistant/onboarding/hosting");
+    });
+
+    test("returns the same path for non-welcome pages", () => {
+      expect(
+        resolveLoginReturnTo(s({}), "/assistant/onboarding/select-assistant"),
+      ).toBe("/assistant/onboarding/select-assistant");
+      expect(
+        resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
+      ).toBe("/assistant/onboarding/hosting");
     });
   });
 });

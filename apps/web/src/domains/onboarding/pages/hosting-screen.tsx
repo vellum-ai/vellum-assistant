@@ -1,9 +1,10 @@
 import { Cloud, Laptop, Package } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useHasPlatformSession } from "@/stores/auth-store";
@@ -56,11 +57,24 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromSelectAssistant = searchParams.get("from") === "select-assistant";
   const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession ? "vellum-cloud" : "local",
   );
+
+  const {
+    loading: loginLoading,
+    error: loginError,
+    login,
+    cancel: cancelLogin,
+  } = useOnboardingLogin(
+    `${routes.onboarding.hosting}?from=select-assistant`,
+  );
+
+  const showLogin = fromSelectAssistant && !hasPlatformSession;
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {
@@ -76,7 +90,11 @@ export function HostingScreen() {
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.welcome);
+    void navigate(
+      fromSelectAssistant
+        ? routes.onboarding.selectAssistant
+        : routes.onboarding.welcome,
+    );
   };
 
   return (
@@ -94,6 +112,12 @@ export function HostingScreen() {
         >
           Where do you want your assistant to live?
         </p>
+
+        {loginError && (
+          <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
+            {loginError}
+          </p>
+        )}
 
         <div
           className="mt-10 grid w-full auto-rows-fr gap-3"
@@ -124,12 +148,24 @@ export function HostingScreen() {
           >
             Continue
           </Button>
+          {showLogin && (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              className="h-11 text-base"
+              onClick={loginLoading ? cancelLogin : () => void login()}
+            >
+              {loginLoading ? "Cancel" : "Log In"}
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="regular"
             fullWidth
             className="h-11 text-base"
             onClick={onBack}
+            disabled={loginLoading}
           >
             Back
           </Button>
