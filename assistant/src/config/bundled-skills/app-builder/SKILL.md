@@ -203,7 +203,7 @@ render(<App />, document.getElementById("app")!);
 
 #### `app_create` accepts EXACTLY these 7 keys — nothing else
 
-`name` (optional — defaults to "Untitled app"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
+`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
 
 Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 

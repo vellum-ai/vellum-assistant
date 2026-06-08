@@ -11,7 +11,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Optional name of the app. Defaults to \"Untitled app\" when omitted; rename later via app_update."
+            "description": "Optional name of the app. When omitted, defaults to the preview card title (or \"New App\" if there is none); rename later via app_update."
           },
           "description": {
             "type": "string",

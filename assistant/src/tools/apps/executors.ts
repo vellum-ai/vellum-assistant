@@ -99,6 +99,24 @@ function validateSourceFiles(sourceFiles: unknown): ExecutorResult | null {
 }
 
 /**
+ * Resolve an app name when the model omits it. The preview card's title is
+ * "always include" guidance and almost always present, so it's the best
+ * fallback — a real, meaningful name — before a generic placeholder.
+ */
+function resolveAppName(input: AppCreateInput): string {
+  const previewTitle =
+    input.preview && typeof input.preview.title === "string"
+      ? input.preview.title
+      : undefined;
+  for (const candidate of [input.name, previewTitle]) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return candidate.trim();
+    }
+  }
+  return "New App";
+}
+
+/**
  * Compile-result fields shared by the app_refresh and app_update responses.
  * On failure the errors/warnings are surfaced so the agent can fix them.
  */
@@ -141,12 +159,9 @@ export async function executeAppCreate(
   store: AppStore,
   proxyToolResolver?: ProxyResolver,
 ): Promise<ExecutorResult> {
-  // The model sometimes omits a name; default rather than erroring out so the
-  // build still succeeds. Users can rename later via app_update.
-  const name =
-    typeof input.name === "string" && input.name.trim() !== ""
-      ? input.name.trim()
-      : "Untitled app";
+  // The model sometimes omits a name; resolve a sensible one rather than
+  // erroring out so the build still succeeds. Users can rename via app_update.
+  const name = resolveAppName(input);
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
 

@@ -90,9 +90,9 @@ function mockStore(
 // ---------------------------------------------------------------------------
 
 describe("executeAppCreate", () => {
-  test("defaults the name to 'Untitled app' when omitted or blank", async () => {
+  test("falls back to the preview title when the name is omitted or blank", async () => {
     let createdParams: Record<string, unknown> | undefined;
-    const app = makeMultifileApp({ name: "Untitled app" });
+    const app = makeMultifileApp({ name: "Coffee Tracker" });
     const store: AppStore = {
       ...mockStore(app, {}),
       createApp: (params) => {
@@ -101,10 +101,33 @@ describe("executeAppCreate", () => {
       },
     };
 
-    const result = await executeAppCreate({ name: "   " }, store);
+    const result = await executeAppCreate(
+      { name: "   ", preview: { title: "Coffee Tracker" } },
+      store,
+    );
 
     expect(result.isError).toBe(false);
-    expect(createdParams?.name).toBe("Untitled app");
+    expect(createdParams?.name).toBe("Coffee Tracker");
+  });
+
+  test("defaults the name to 'New App' when neither name nor preview title is given", async () => {
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {} as unknown as Parameters<typeof executeAppCreate>[0],
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(createdParams?.name).toBe("New App");
   });
 
   test("creates multifile app with src/ scaffold", async () => {
