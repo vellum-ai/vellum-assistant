@@ -60,7 +60,6 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
@@ -1296,12 +1295,6 @@ export async function runDaemon(): Promise<void> {
       },
       "Heartbeat service configured",
     );
-
-    try {
-      backfillGuardIfNeeded();
-    } catch (err) {
-      log.warn({ err }, "Proactive artifact backfill failed");
-    }
 
     // Filing yields to the memory v2 consolidation job when v2 is enabled —
     // both serve the same role (periodic background memory processing) and

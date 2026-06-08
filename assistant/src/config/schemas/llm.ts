@@ -77,8 +77,6 @@ export const LLMCallSiteEnum = z.enum([
   "meetChatOpportunity",
   "inference",
   "trustRuleSuggestion",
-  "proactiveArtifactDecision",
-  "proactiveArtifactBuild",
   "homeGreeting",
   "homeSuggestedPrompts",
 ]);

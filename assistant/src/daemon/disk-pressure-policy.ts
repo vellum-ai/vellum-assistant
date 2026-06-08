@@ -51,7 +51,6 @@ const BACKGROUND_SOURCES = new Set([
   "heartbeat",
   "memory",
   "notification",
-  "proactive-artifact",
   "reminder",
   "schedule",
   "task",

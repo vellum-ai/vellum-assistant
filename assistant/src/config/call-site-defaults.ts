@@ -17,7 +17,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },
   callAgent: { profile: "balanced" },
-  proactiveArtifactBuild: { profile: "balanced" },
   memoryConsolidation: { profile: "balanced" },
   identityIntro: { profile: "balanced" },
   emptyStateGreeting: { profile: "balanced" },
@@ -42,7 +41,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
 
   filingAgent: { profile: "cost-optimized" },
-  proactiveArtifactDecision: { profile: "cost-optimized" },
   memoryExtraction: { profile: "cost-optimized" },
   memoryRetrieval: { profile: "cost-optimized" },
   memoryRetrospective: { profile: "cost-optimized" },
