@@ -293,20 +293,22 @@ describe("collectWatchTargets", () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  function scaffold(relDir: string, { src = true, pkg = true } = {}): void {
+  function scaffold(
+    relDir: string,
+    { src = true, pkg = true, dockerfile = false } = {},
+  ): void {
+    mkdirSync(join(repoRoot, relDir), { recursive: true });
     if (src) mkdirSync(join(repoRoot, relDir, "src"), { recursive: true });
-    if (pkg) {
-      mkdirSync(join(repoRoot, relDir), { recursive: true });
-      writeFileSync(join(repoRoot, relDir, "package.json"), "{}");
-    }
+    if (pkg) writeFileSync(join(repoRoot, relDir, "package.json"), "{}");
+    if (dockerfile) writeFileSync(join(repoRoot, relDir, "Dockerfile"), "");
   }
 
-  test("scopes watch targets to each service's src/ tree and package.json", () => {
-    // GIVEN the three services plus a couple of shared packages, each with a
-    // src/ directory and a package.json manifest
-    scaffold("assistant");
-    scaffold("credential-executor");
-    scaffold("gateway");
+  test("scopes watch targets to src/, package.json, and the Dockerfile", () => {
+    // GIVEN the three services (each with a Dockerfile) plus a couple of
+    // shared packages (libraries, no Dockerfile)
+    scaffold("assistant", { dockerfile: true });
+    scaffold("credential-executor", { dockerfile: true });
+    scaffold("gateway", { dockerfile: true });
     scaffold("packages/service-contracts");
     scaffold("packages/local-mode");
 
@@ -324,12 +326,16 @@ describe("collectWatchTargets", () => {
       ].sort(),
     );
 
-    // AND only the package.json manifests are watched as files
+    // AND the package.json manifests and service Dockerfiles are watched as
+    // individual files (packages have no Dockerfile, so none is emitted)
     expect(files.sort()).toEqual(
       [
         join(repoRoot, "assistant", "package.json"),
+        join(repoRoot, "assistant", "Dockerfile"),
         join(repoRoot, "credential-executor", "package.json"),
+        join(repoRoot, "credential-executor", "Dockerfile"),
         join(repoRoot, "gateway", "package.json"),
+        join(repoRoot, "gateway", "Dockerfile"),
         join(repoRoot, "packages", "local-mode", "package.json"),
         join(repoRoot, "packages", "service-contracts", "package.json"),
       ].sort(),
