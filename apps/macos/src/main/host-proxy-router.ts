@@ -18,10 +18,11 @@ import type { Lockfile } from "@vellumai/local-mode/contract";
 import { HostProxySseClient, type HostProxySseMessage } from "./host-proxy-sse";
 import { HostProxyPoster } from "./host-proxy-poster";
 import { onLockfileChange } from "./lockfile-watcher";
+import { HostBrowserExecutor } from "./executors/host-browser-executor";
 import log from "./logger";
 
 // ---------------------------------------------------------------------------
-// Executor interface — PRs 5-8 plug in via setExecutor()
+// Executor interface
 // ---------------------------------------------------------------------------
 
 export interface HostProxyExecutor {
@@ -240,12 +241,18 @@ export function installHostProxyBridge(
   resolveCliInvocation = cliResolver;
   unsubscribe = onLockfileChange(handleLockfileChange);
 
+  // Register built-in executors
+  const browserExecutor = new HostBrowserExecutor();
+  setExecutor("host_browser", browserExecutor);
+
   return () => {
     unsubscribe?.();
     unsubscribe = null;
     for (const assistantId of [...connections.keys()]) {
       disconnectAssistant(assistantId);
     }
+    browserExecutor.destroy();
+    removeExecutor("host_browser");
     resolveCliInvocation = null;
   };
 }
