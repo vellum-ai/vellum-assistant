@@ -10,9 +10,10 @@
  *
  *   orchestrate (needle ∪ dense ∪ edge → selectPool over a shared WorkingSet
  *     → carry-forward)
- *       → attribute selections to lane sources (the shadow plugin's coarse
- *         mapping, replicated here)
- *       → write to `memory_v3_selections`
+ *       → attribute selections to lane sources (the shadow plugin's REAL
+ *         `attributeSelections`, reading `result.laneBySlug`)
+ *       → write to `memory_v3_selections` (the shadow plugin's REAL
+ *         `writeSelections`)
  *       → summarizeSelections (the offline A/B readout)
  *
  * This is exactly the side-effect contract shadow mode observes each turn: the
@@ -45,12 +46,7 @@ import { buildEdgeGraph } from "../edge.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type {
-  MemoryRoutingTurn,
-  SectionIndex,
-  SelectionSource,
-  Slug,
-} from "../types.js";
+import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Module stubs installed BEFORE the orchestrator / store imports so they
@@ -122,6 +118,12 @@ mock.module("../../../../memory/db-connection.js", () => ({
 const { orchestrate } = await import("../orchestrate.js");
 const { WorkingSet } = await import("../working-set.js");
 const { summarizeSelections } = await import("../selection-log-store.js");
+// The REAL attribution + writer from the shadow plugin, imported AFTER the
+// db-connection mock so `writeSelections` binds to the in-memory test DB. Using
+// the production code (rather than a local copy) means this test exercises the
+// real `result.laneBySlug` attribution — the only thing that can emit "dense".
+const { attributeSelections, writeSelections } =
+  await import("../shadow-plugin.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures: a tiny corpus. `page-a` carries a curated link to `topic-x` so the
@@ -251,51 +253,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
 }
 
 // ---------------------------------------------------------------------------
-// Selection attribution + write. Mirrors the shadow plugin's coarse lane
-// mapping (`attributeSelections` / `writeSelections` in shadow-plugin.ts):
-// a current selection with a matched section → `needle`, else `edge`; a
-// carry-forward-only slug → `carry-forward`. Replicated here (rather than
-// imported) so the test stays self-contained and does not pull in the shadow
-// plugin's heavy module graph (page-index / page-store / dense store).
+// Selection read-back. Attribution (`attributeSelections`) and the write
+// (`writeSelections`) are the shadow plugin's REAL functions, imported above —
+// so this test exercises the production `result.laneBySlug` attribution rather
+// than a local copy. The db-connection mock routes `writeSelections` at the
+// in-memory test DB.
 // ---------------------------------------------------------------------------
-
-interface SelectionRow {
-  slug: Slug;
-  source: SelectionSource;
-  pinned: number;
-}
-
-function attributeSelections(result: OrchestrateResult): SelectionRow[] {
-  const rows: SelectionRow[] = [];
-  const seen = new Set<Slug>();
-  for (const sel of result.currentSelections) {
-    seen.add(sel.slug);
-    rows.push({
-      slug: sel.slug,
-      source: result.sectionBySlug.has(sel.slug) ? "needle" : "edge",
-      pinned: sel.pinned ? 1 : 0,
-    });
-  }
-  for (const slug of result.finalInjection) {
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    rows.push({ slug, source: "carry-forward", pinned: 0 });
-  }
-  return rows;
-}
-
-function writeSelections(turn: number, rows: SelectionRow[]): void {
-  if (rows.length === 0) return;
-  const stmt = testSqlite.query(
-    `INSERT OR REPLACE INTO memory_v3_selections
-       (conversation_id, turn, slug, source, pinned, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  const now = Date.now();
-  for (const row of rows) {
-    stmt.run(CONV, turn, row.slug, row.source, row.pinned, now);
-  }
-}
 
 /** Read back every logged selection source for a turn, in row order. */
 function loggedSources(turn: number): Array<{ slug: Slug; source: string }> {
@@ -326,7 +289,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     workingSet: deps.workingSet,
   });
-  writeSelections(turnNumber, attributeSelections(result));
+  writeSelections(CONV, turnNumber, attributeSelections(result));
   return result;
 }
 

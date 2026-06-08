@@ -69,3 +69,23 @@ export function renderCapabilityContent(
   }
   return null;
 }
+
+/**
+ * Resolve a slug's frontmatter-stripped body for the section index: synthetic
+ * skill/CLI capability slugs have no on-disk page, so they contribute their
+ * rendered capability content (exactly what `page-content.ts` injects for them),
+ * while real pages fall through to `readDiskBody`. Shared by `initLanes`'
+ * `pageBody` and the full-backfill body reader so the capability-or-disk dispatch
+ * lives in one place.
+ *
+ * `readDiskBody` is injected (rather than imported) so this helper does not pull
+ * the page store into `capabilities.ts` — each caller supplies its own cached or
+ * direct disk reader.
+ */
+export async function capabilityOrDiskBody(
+  slug: Slug,
+  readDiskBody: (slug: Slug) => Promise<string>,
+): Promise<string> {
+  if (isCapabilitySlug(slug)) return renderCapabilityContent(slug) ?? "";
+  return readDiskBody(slug);
+}

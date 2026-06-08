@@ -45,7 +45,7 @@ import {
   getWorkspacePromptPath,
 } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
-import { isCapabilitySlug, renderCapabilityContent } from "./capabilities.js";
+import { capabilityOrDiskBody } from "./capabilities.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { OrchestrateResult } from "./orchestrate.js";
@@ -139,11 +139,10 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // exactly the content `page-content.ts` injects for them. This puts them in
   // the section index, so the needle lane (and, once a backfill embeds them, the
   // dense lane) ranks them by relevance like any other page, instead of being
-  // blindly added to the select pool every turn.
-  const pageBody = async (slug: Slug): Promise<string> => {
-    if (isCapabilitySlug(slug)) return renderCapabilityContent(slug) ?? "";
-    return (await loadPage(slug))?.body ?? "";
-  };
+  // blindly added to the select pool every turn. Real pages read their body
+  // through the cached `loadPage`.
+  const pageBody = async (slug: Slug): Promise<string> =>
+    capabilityOrDiskBody(slug, async (s) => (await loadPage(s))?.body ?? "");
   const pageRaw = async (slug: Slug): Promise<string> => {
     const loaded = await loadPage(slug);
     if (!loaded) throw new Error(`page not found: ${slug}`);
@@ -270,7 +269,7 @@ interface SelectionRow {
  *   pooled candidate is recorded there.)
  * - A slug in `finalInjection` but NOT re-selected this turn → `"carry-forward"`.
  */
-function attributeSelections(result: OrchestrateResult): SelectionRow[] {
+export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const rows: SelectionRow[] = [];
   const seen = new Set<Slug>();
   for (const sel of result.currentSelections) {
@@ -290,7 +289,7 @@ function attributeSelections(result: OrchestrateResult): SelectionRow[] {
 }
 
 /** Write the attributed selection rows to `memory_v3_selections`. */
-function writeSelections(
+export function writeSelections(
   conversationId: string,
   turn: number,
   rows: SelectionRow[],
