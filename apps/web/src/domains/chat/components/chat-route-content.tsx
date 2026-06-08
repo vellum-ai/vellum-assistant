@@ -434,12 +434,22 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Attachment drop zone
   // -------------------------------------------------------------------------
+  const handleDroppedFiles = useCallback(
+    (files: FileList | File[]) => {
+      const arr = Array.from(files);
+      const allowed = activeModelSupportsVision
+        ? arr
+        : arr.filter((f) => !f.type.startsWith("image/"));
+      if (allowed.length > 0) addChatAttachmentFiles(allowed);
+    },
+    [addChatAttachmentFiles, activeModelSupportsVision],
+  );
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
-    onFiles: addChatAttachmentFiles,
-    disabled: typingDisabled || !assistantId || !activeModelSupportsVision,
+    onFiles: handleDroppedFiles,
+    disabled: typingDisabled || !assistantId,
   });
 
   // -------------------------------------------------------------------------

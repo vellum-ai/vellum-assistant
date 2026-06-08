@@ -385,8 +385,10 @@ export function ChatComposer({
                   }
                   if (files.length > 0) {
                     e.preventDefault();
-                    if (!modelSupportsVision) return;
-                    onAddAttachmentFiles(files);
+                    const allowed = modelSupportsVision
+                      ? files
+                      : files.filter((f) => !f.type.startsWith("image/"));
+                    if (allowed.length > 0) onAddAttachmentFiles(allowed);
                   }
                 }}
                 onKeyDown={(e) => {
