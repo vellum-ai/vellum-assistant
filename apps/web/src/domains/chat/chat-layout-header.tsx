@@ -105,7 +105,12 @@ export function ChatLayoutHeader({
                   ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
                   : {}),
               }
-            : undefined
+            : // On Electron the traffic lights stay inline even when the window
+              // narrows below `md` (mobile layout), so the mobile menu row needs
+              // the same left clearance or it would overlap the controls.
+              electron
+              ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+              : undefined
         }
       >
         {isMobile ? (
