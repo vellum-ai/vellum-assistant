@@ -14,9 +14,7 @@ import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { HOOKS } from "../plugin-api/constants.js";
-import type { ConversationDisposeContext } from "../plugin-api/types.js";
-import { runHook } from "../plugins/pipeline.js";
+import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -244,17 +242,14 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.accumulatedSurfaceState.clear();
   ctx.lastSurfaceAction.clear();
   ctx.workspaceTopLevelContext = null;
-
-  // Let plugins release any per-conversation state they hold (the compaction
-  // plugin drops the conversation's ContextWindowManager). Teardown is
-  // synchronous, so the hook chain runs fire-and-forget; failures are logged
-  // rather than allowed to block disposal.
-  void runHook<ConversationDisposeContext>(HOOKS.CONVERSATION_DISPOSE, {
-    conversationId: ctx.conversationId,
-  }).catch((error) => {
-    log.warn(
-      { error, conversationId: ctx.conversationId },
-      "conversation-dispose hook chain failed",
-    );
-  });
+  // The compaction module owns the per-conversation ContextWindowManager, so
+  // teardown releases it directly. Moving this behind a compaction-plugin hook
+  // would let the module own disposal end-to-end, but there is no
+  // conversation-teardown hook today: `init`/`shutdown` are process-level and
+  // every other hook (including `stop`) is per-turn. Routing disposal through
+  // the per-turn `stop` hook would first require relocating the manager's only
+  // cross-turn state — `nonPersistedPrefixCount` — off the manager so a
+  // per-turn dispose/rebuild stays correct; otherwise a dedicated
+  // teardown-scoped hook is needed.
+  disposeContextWindowManager(ctx.conversationId);
 }

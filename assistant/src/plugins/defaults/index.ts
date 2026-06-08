@@ -26,7 +26,6 @@
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import compactionConversationDispose from "./compaction/hooks/conversation-dispose.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
@@ -45,18 +44,15 @@ import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { t
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
- * `defaultCompact`, which the agent loop calls directly. The plugin owns the
- * per-conversation {@link ContextWindowManager} store (`compaction/manager-store.ts`)
- * and disposes each conversation's manager via its `conversation-dispose` hook,
- * so manager lifetime stays inside the compaction module.
+ * `defaultCompact`, which the agent loop calls directly. The plugin stays
+ * registered as a placeholder so it keeps a presence in the defaults list
+ * while we decide how plugins should surface compaction; it contributes no
+ * hooks today.
  */
 export const defaultCompactionPlugin: Plugin = {
   manifest: {
     name: compactionPkg.name,
     version: compactionPkg.version,
-  },
-  hooks: {
-    "conversation-dispose": compactionConversationDispose,
   },
 };
 
