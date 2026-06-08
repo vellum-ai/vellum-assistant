@@ -25,6 +25,7 @@ import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
+import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
 // ── app-control ────────────────────────────────────────────────────────────────
 import * as appControlClick from "./bundled-skills/app-control/tools/app-control-click.js";
 import * as appControlCombo from "./bundled-skills/app-control/tools/app-control-combo.js";
@@ -140,6 +141,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // app-builder
   ["app-builder:tools/app-create.ts", appCreate],
+  ["app-builder:tools/app-update.ts", appUpdate],
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],

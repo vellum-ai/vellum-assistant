@@ -68,6 +68,55 @@ export type ProxyResolver = (
   input: Record<string, unknown>,
 ) => Promise<ExecutorResult>;
 
+/**
+ * Validate a `source_files` map (LLM input is not type-checked at runtime).
+ * Returns an error ExecutorResult when invalid, or null when absent/valid.
+ */
+function validateSourceFiles(sourceFiles: unknown): ExecutorResult | null {
+  if (sourceFiles == null) {
+    return null;
+  }
+  if (typeof sourceFiles !== "object" || Array.isArray(sourceFiles)) {
+    return {
+      content: JSON.stringify({
+        error:
+          "source_files must be an object mapping relative file paths to string contents",
+      }),
+      isError: true,
+    };
+  }
+  for (const [key, val] of Object.entries(sourceFiles)) {
+    if (typeof val !== "string") {
+      return {
+        content: JSON.stringify({
+          error: `source_files["${key}"] must be a string, got ${typeof val}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Compile-result fields shared by the app_refresh and app_update responses.
+ * On failure the errors/warnings are surfaced so the agent can fix them.
+ */
+function compileResultPayload(
+  compileResult: Awaited<ReturnType<typeof compileApp>>,
+): Record<string, unknown> {
+  return {
+    compiled: compileResult.ok,
+    ...(compileResult.ok
+      ? { compile_duration_ms: compileResult.durationMs }
+      : {
+          compile_errors: compileResult.errors,
+          compile_warnings: compileResult.warnings,
+          compile_duration_ms: compileResult.durationMs,
+        }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // app_create
 // ---------------------------------------------------------------------------
@@ -92,7 +141,12 @@ export async function executeAppCreate(
   store: AppStore,
   proxyToolResolver?: ProxyResolver,
 ): Promise<ExecutorResult> {
-  const name = input.name;
+  // The model sometimes omits a name; default rather than erroring out so the
+  // build still succeeds. Users can rename later via app_update.
+  const name =
+    typeof input.name === "string" && input.name.trim() !== ""
+      ? input.name.trim()
+      : "Untitled app";
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
 
@@ -121,39 +175,9 @@ export async function executeAppCreate(
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
 
-  // Validate required fields - LLM input is not type-checked at runtime
-  if (typeof name !== "string" || name.trim() === "") {
-    return {
-      content: JSON.stringify({
-        error: "name is required and must be a non-empty string",
-      }),
-      isError: true,
-    };
-  }
-
-  if (input.source_files != null) {
-    if (
-      typeof input.source_files !== "object" ||
-      Array.isArray(input.source_files)
-    ) {
-      return {
-        content: JSON.stringify({
-          error:
-            "source_files must be an object mapping relative file paths to string contents",
-        }),
-        isError: true,
-      };
-    }
-    for (const [key, val] of Object.entries(input.source_files)) {
-      if (typeof val !== "string") {
-        return {
-          content: JSON.stringify({
-            error: `source_files["${key}"] must be a string, got ${typeof val}`,
-          }),
-          isError: true,
-        };
-      }
-    }
+  const sourceFilesError = validateSourceFiles(input.source_files);
+  if (sourceFilesError) {
+    return sourceFilesError;
   }
 
   // Extract icon from preview if provided - only persist emoji-like values,
@@ -356,14 +380,7 @@ export async function executeAppRefresh(
         refreshed: true,
         appId: updated.id,
         name: updated.name,
-        compiled: compileResult.ok,
-        ...(compileResult.ok
-          ? { compile_duration_ms: compileResult.durationMs }
-          : {
-              compile_errors: compileResult.errors,
-              compile_warnings: compileResult.warnings,
-              compile_duration_ms: compileResult.durationMs,
-            }),
+        ...compileResultPayload(compileResult),
       }),
       isError: false,
     };
@@ -374,6 +391,85 @@ export async function executeAppRefresh(
       refreshed: true,
       appId: updated.id,
       name: updated.name,
+    }),
+    isError: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// app_update
+// ---------------------------------------------------------------------------
+
+export interface AppUpdateInput {
+  app_id: string;
+  name?: string;
+  description?: string;
+  schema_json?: string;
+  source_files?: Record<string, string>;
+}
+
+export async function executeAppUpdate(
+  input: AppUpdateInput,
+  store: AppStore,
+): Promise<ExecutorResult> {
+  const app = store.getApp(input.app_id);
+  if (!app) {
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
+  }
+
+  const sourceFilesError = validateSourceFiles(input.source_files);
+  if (sourceFilesError) {
+    return sourceFilesError;
+  }
+
+  if (input.source_files) {
+    for (const [filePath, content] of Object.entries(input.source_files)) {
+      store.writeAppFile(input.app_id, filePath, content);
+    }
+  }
+
+  const updates: Partial<
+    Pick<AppDefinition, "name" | "description" | "schemaJson">
+  > = {};
+  if (typeof input.name === "string" && input.name.trim() !== "") {
+    updates.name = input.name.trim();
+  }
+  if (typeof input.description === "string") {
+    updates.description = input.description;
+  }
+  if (typeof input.schema_json === "string") {
+    updates.schemaJson = input.schema_json;
+  }
+
+  // An empty update still bumps updatedAt, triggering a client surface refresh.
+  const updated = store.updateApp(input.app_id, updates);
+
+  // Multifile apps recompile so the agent sees any errors from the edited
+  // source instead of serving a stale dist (mirrors app_refresh).
+  if (app.formatVersion === 2) {
+    const appDir = getAppDirPath(input.app_id);
+    const compileResult = await compileApp(appDir);
+    return {
+      content: JSON.stringify({
+        updated: true,
+        appId: updated.id,
+        name: updated.name,
+        description: updated.description,
+        ...compileResultPayload(compileResult),
+      }),
+      isError: false,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      updated: true,
+      appId: updated.id,
+      name: updated.name,
+      description: updated.description,
     }),
     isError: false,
   };

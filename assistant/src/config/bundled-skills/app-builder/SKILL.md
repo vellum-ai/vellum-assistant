@@ -203,7 +203,7 @@ render(<App />, document.getElementById("app")!);
 
 #### `app_create` accepts EXACTLY these 7 keys — nothing else
 
-`name` (required), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
+`name` (optional — defaults to "Untitled app"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
 
 Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 
@@ -251,10 +251,10 @@ Editing an existing app means reusing its `app_id` — never `app_create`. Resol
 
 - **`file_edit`** — targeted changes (styles, fixes, small features), full path `/workspace/data/apps/<slug>/src/...`
 - **`file_write`** — new files or full rewrites
-- **Rename / metadata** — edit `/workspace/data/apps/<slug>.json` directly. Not a new app.
+- **`app_update`** — rename or change description/schema, and/or rewrite files via `source_files`, in one call. It recompiles for you, so no separate `app_refresh` is needed. Use this instead of editing `<slug>.json` by hand.
 - **Full rebrand** — still iteration, edit the existing files.
 
-Then `app_refresh(app_id)` ONCE. If the change is substantial, `app_open(app_id, open_mode: "preview")` for a fresh card; for small tweaks the existing card stays valid.
+Then `app_refresh(app_id)` ONCE (unless you used `app_update`, which already recompiled). If the change is substantial, `app_open(app_id, open_mode: "preview")` for a fresh card; for small tweaks the existing card stays valid.
 
 > ⚠️ **`skill_load("app-builder")` is required before every `app_*` call** (including the first `app_create`). The skill can auto-unload between turns; without the reload, `app_refresh` / `app_open` error with "not currently active." It's idempotent — call it every time.
 
