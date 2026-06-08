@@ -1155,7 +1155,6 @@ export async function runAgentLoopImpl(
           onCheckpoint,
           callSite: turnCallSite,
           trust: loopTrust,
-          contextWindowManager: ctx.contextWindowManager,
           overrideProfile: turnOverrideProfile,
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,

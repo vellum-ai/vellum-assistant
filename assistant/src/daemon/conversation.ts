@@ -63,7 +63,10 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
-import { createContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
+import {
+  createContextWindowManager,
+  getContextWindowManager,
+} from "../plugins/defaults/compaction/manager-store.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -205,7 +208,6 @@ export class Conversation {
     estimatedCost: 0,
   };
   /** @internal */ readonly systemPrompt: string;
-  /** @internal */ contextWindowManager: ContextWindowManager;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ contextSummary: string | null = null;
@@ -610,7 +612,7 @@ export class Conversation {
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
     });
-    this.contextWindowManager = createContextWindowManager({
+    createContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
@@ -620,6 +622,24 @@ export class Conversation {
         ? () => resolveTools(this.messages)
         : undefined,
     });
+  }
+
+  /**
+   * The conversation's {@link ContextWindowManager}, owned by the compaction
+   * module's per-conversation store. The constructor registers it there; this
+   * accessor resolves it on demand so the conversation holds no separate
+   * handle. Present for the conversation's whole in-memory lifetime (registered
+   * at construction, released on teardown), so a live conversation always
+   * resolves an instance.
+   */
+  /** @internal */ get contextWindowManager(): ContextWindowManager {
+    const manager = getContextWindowManager(this.conversationId);
+    if (manager == null) {
+      throw new Error(
+        `ContextWindowManager missing for conversation ${this.conversationId} — the compaction store entry was released while the conversation is still live`,
+      );
+    }
+    return manager;
   }
 
   // ── Onboarding context ───────────────────────────────────────────

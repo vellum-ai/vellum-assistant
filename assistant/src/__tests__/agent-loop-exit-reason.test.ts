@@ -13,16 +13,21 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
-  AgentLoopRunOptions,
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  createContextWindowManager,
+  disposeContextWindowManager,
+  getContextWindowManager,
+} from "../plugins/defaults/compaction/manager-store.js";
 import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import type {
   Message,
@@ -118,20 +123,26 @@ const userMessage: Message = {
   content: [{ type: "text", text: "Hello" }],
 };
 
-// A trust snapshot plus a context-window manager whose `maybeCompact` returns a
-// canned result, so the loop's compaction call runs without the real
-// orchestrator machinery. Both are supplied to the loop as dedicated run
-// options.
-function fakeCompaction(result: { compacted: boolean; exhausted: boolean }): {
-  trust: TrustContext;
-  contextWindowManager: AgentLoopRunOptions["contextWindowManager"];
-} {
-  return {
-    trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    contextWindowManager: {
-      maybeCompact: async () => result,
-    } as unknown as AgentLoopRunOptions["contextWindowManager"],
-  };
+// Register a context-window manager whose `maybeCompact` returns a canned
+// result in the compaction store the loop resolves from, so the loop's
+// compaction call runs without the real orchestrator machinery. Returns the
+// trust snapshot the loop also needs as a run option.
+function fakeCompaction(
+  conversationId: string,
+  result: { compacted: boolean; exhausted: boolean },
+): { trust: TrustContext } {
+  createContextWindowManager({
+    provider: { name: "mock-provider" } as unknown as Provider,
+    systemPrompt: "system",
+    config: {} as unknown as ContextWindowConfig,
+    conversationId,
+  });
+  const manager = getContextWindowManager(conversationId);
+  if (manager) {
+    manager.maybeCompact = (async () =>
+      result) as unknown as typeof manager.maybeCompact;
+  }
+  return { trust: { sourceChannel: "vellum", trustClass: "unknown" } };
 }
 
 function lastExitEvent(
@@ -152,6 +163,10 @@ function countExitEvents(events: AgentEvent[]): number {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop exit-reason instrumentation", () => {
+  afterEach(() => {
+    disposeContextWindowManager("test-conversation");
+  });
+
   test("recognizes provider output-token stop reasons", () => {
     expect(isMaxTokensStopReason("max_tokens")).toBe(true);
     expect(isMaxTokensStopReason("MAX_TOKENS")).toBe(true);
@@ -457,7 +472,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
       }),
       compactInPlace: true,
-      ...fakeCompaction({
+      ...fakeCompaction("test-conversation", {
         compacted: true,
         exhausted: false,
       }),
@@ -502,7 +517,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
       }),
       compactInPlace: true,
-      ...fakeCompaction({
+      ...fakeCompaction("test-conversation", {
         compacted: false,
         exhausted: true,
       }),

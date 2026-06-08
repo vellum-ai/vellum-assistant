@@ -10,10 +10,7 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type {
-  ContextWindowManager,
-  ContextWindowResult,
-} from "../context/window-manager.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -28,6 +25,7 @@ import {
   DEFAULT_COMPACTION_PLUGIN_NAME,
   defaultCompact,
 } from "../plugins/defaults/compaction/compact.js";
+import { getContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
 import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
@@ -468,15 +466,6 @@ export interface AgentLoopRunOptions {
    */
   trust: TrustContext;
   /**
-   * The conversation's {@link ContextWindowManager}, supplied by the
-   * orchestrator so mid-loop in-place compaction can run against the real
-   * per-conversation manager. Absent for callers without a compaction path
-   * (agent wakes, standalone unit tests); the loop only reads it when the
-   * mid-loop budget gate trips with {@link AgentLoopRunOptions.compactInPlace}
-   * enabled.
-   */
-  contextWindowManager?: ContextWindowManager;
-  /**
    * Ad-hoc inference-profile override applied to every LLM call the loop
    * issues. When set, each `SendMessageOptions.config` carries
    * `overrideProfile = <name>` so the provider's resolver layers
@@ -726,7 +715,6 @@ export class AgentLoop {
     history: Message[],
     requestId: string | undefined,
     trust: TrustContext,
-    manager: ContextWindowManager | undefined,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
@@ -741,9 +729,14 @@ export class AgentLoop {
     // Record the history-stripped marker right after stripping, before the
     // pipeline runs.
     await onEvent({ type: "history_stripped" });
+    // The compaction module owns the per-conversation manager; resolve it from
+    // the store rather than holding a handle on the loop. Absent for callers
+    // without a compaction path (agent wakes, standalone unit tests), which
+    // never reach this gate.
+    const manager = getContextWindowManager(this.conversationId);
     if (manager == null) {
       throw new PluginExecutionError(
-        "default-compaction: contextWindowManager run option is missing — orchestrator must supply it before invoking compaction",
+        `default-compaction: no ContextWindowManager registered for conversation ${this.conversationId} — the compaction store must construct one before compaction runs`,
         DEFAULT_COMPACTION_PLUGIN_NAME,
       );
     }
@@ -814,7 +807,6 @@ export class AgentLoop {
       resolveOverrideProfile,
       resolveContextWindow,
       compactInPlace = false,
-      contextWindowManager,
       isNonInteractive = false,
       modelProfile = null,
       actorContext = null,
@@ -940,7 +932,6 @@ export class AgentLoop {
                   history,
                   requestId,
                   trust,
-                  contextWindowManager,
                   signal,
                   onEvent,
                   resolveEffectiveOverrideProfile() ?? null,
