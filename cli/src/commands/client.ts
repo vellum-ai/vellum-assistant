@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { hostname } from "node:os";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -74,6 +74,8 @@ interface ParsedArgs {
   bearerToken?: string;
   /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
   interfaceId: SupportedInterface;
+  /** Run the web interface through a local nginx edge instead of the built-in web server. */
+  nginx: boolean;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -188,19 +190,17 @@ export function parseArgs(): ParsedArgs {
       : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
 
   let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
+  let nginx = false;
 
-  for (let i = 0; i < flagArgs.length; i++) {
-    const flag = flagArgs[i];
-    if ((flag === "--url" || flag === "-u") && flagArgs[i + 1]) {
-      runtimeUrl = flagArgs[++i];
-    } else if (
-      (flag === "--assistant-id" || flag === "-a") &&
-      flagArgs[i + 1]
-    ) {
-      assistantId = flagArgs[++i];
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if ((flag === "--url" || flag === "-u") && args[i + 1]) {
+      runtimeUrl = args[++i] ?? runtimeUrl;
+    } else if ((flag === "--assistant-id" || flag === "-a") && args[i + 1]) {
+      assistantId = args[++i] ?? assistantId;
       assistantName = undefined;
-    } else if ((flag === "--interface" || flag === "-i") && flagArgs[i + 1]) {
-      const value = flagArgs[++i];
+    } else if ((flag === "--interface" || flag === "-i") && args[i + 1]) {
+      const value = args[++i] ?? "";
       if (!(SUPPORTED_INTERFACES as readonly string[]).includes(value)) {
         console.error(
           `Unknown interface '${value}'. Supported: ${SUPPORTED_INTERFACES.join(", ")}.`,
@@ -208,6 +208,8 @@ export function parseArgs(): ParsedArgs {
         process.exit(1);
       }
       interfaceId = value as SupportedInterface;
+    } else if (flag === "--nginx") {
+      nginx = true;
     }
   }
 
@@ -220,6 +222,7 @@ export function parseArgs(): ParsedArgs {
     platformToken,
     bearerToken,
     interfaceId,
+    nginx,
   };
 }
 
@@ -278,6 +281,7 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
                               not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
+        --nginx                With --interface web, serve the SPA through nginx on 127.0.0.1:3000
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -287,6 +291,7 @@ ${ANSI.bold}DEFAULTS:${ANSI.reset}
 ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client
     vellum client vellum-assistant-foo
+    vellum client --interface web --nginx
     vellum client --url http://34.56.78.90:${GATEWAY_PORT}
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
 
@@ -330,6 +335,10 @@ async function maybeHydratePlatformAssistantName(
 }
 
 const SPA_BASE = "/assistant/";
+const DEFAULT_NGINX_PORT = 3000;
+const NGINX_CACHE_NO_STORE = "no-store";
+const NGINX_CACHE_HASHED_ASSETS = "public, max-age=31536000, immutable";
+const NGINX_CACHE_PUBLIC_FILES = "public, max-age=3600";
 
 /**
  * Locate the pre-built @vellumai/web dist directory.
@@ -360,6 +369,234 @@ function findWebDistDir(): string | null {
     dir = parent;
   }
   return null;
+}
+
+function parsePortEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error(`${name} must be a valid TCP port`);
+  }
+  return value;
+}
+
+function nginxQuote(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function normalizeGatewayUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid gateway URL: ${raw}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `Gateway URL must use http or https, got ${parsed.protocol}`,
+    );
+  }
+
+  // The self-hosted nginx edge proxies route namespaces to the gateway root.
+  // Runtime URLs are expected to be gateway origins, so discard path/query/hash
+  // here rather than creating surprising nginx proxy_pass URI rewriting.
+  return parsed.origin;
+}
+
+function buildNginxConfig(opts: {
+  distDir: string;
+  gatewayUrl: string;
+  listenPort: number;
+}): string {
+  const distDir = opts.distDir.replace(/\/+$/, "");
+  const distRoot = nginxQuote(distDir);
+  const gateway = normalizeGatewayUrl(opts.gatewayUrl);
+
+  return `
+worker_processes 1;
+error_log stderr;
+pid nginx.pid;
+
+events {}
+
+http {
+  access_log off;
+  default_type application/octet-stream;
+
+  types {
+    text/html html htm;
+    text/css css;
+    application/javascript js mjs;
+    application/json json;
+    application/wasm wasm;
+    image/svg+xml svg svgz;
+    image/png png;
+    image/jpeg jpg jpeg;
+    image/gif gif;
+    image/x-icon ico;
+    font/woff woff;
+    font/woff2 woff2;
+    font/ttf ttf;
+    text/plain txt;
+  }
+
+  map $http_upgrade $connection_upgrade {
+    default upgrade;
+    "" close;
+  }
+
+  server {
+    listen 127.0.0.1:${opts.listenPort};
+    server_name localhost 127.0.0.1;
+    client_max_body_size 512m;
+    root ${distRoot};
+
+    location = / {
+      return 302 /assistant/;
+    }
+
+    location = /assistant {
+      return 301 /assistant/;
+    }
+
+    location = /healthz {
+      proxy_pass ${gateway};
+      proxy_http_version 1.1;
+      proxy_set_header Host $proxy_host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /v1/ {
+      proxy_pass ${gateway};
+      proxy_http_version 1.1;
+      proxy_request_buffering off;
+      proxy_buffering off;
+      proxy_read_timeout 1h;
+      proxy_set_header Host $proxy_host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+    }
+
+    location = /account {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location /account/ {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location = /logout {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location = /assistant/ {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location = /assistant/index.html {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location ^~ /assistant/assets/ {
+      rewrite ^/assistant/(.*)$ /$1 break;
+      add_header Cache-Control "${NGINX_CACHE_HASHED_ASSETS}" always;
+      try_files $uri =404;
+    }
+
+    location ^~ /assistant/ {
+      rewrite ^/assistant/?(.*)$ /$1 break;
+      add_header Cache-Control "${NGINX_CACHE_PUBLIC_FILES}" always;
+      try_files $uri $uri/ @assistant_spa;
+    }
+
+    location @assistant_spa {
+      add_header Cache-Control "${NGINX_CACHE_NO_STORE}" always;
+      try_files /index.html =404;
+    }
+
+    location / {
+      return 404;
+    }
+  }
+}
+`;
+}
+
+async function runNginxWebInterface(runtimeUrl: string): Promise<void> {
+  const distDir = findWebDistDir();
+  if (!distDir) {
+    console.error(
+      `${ANSI.bold}--interface web --nginx${ANSI.reset}: unable to locate ` +
+        `built @vellumai/web assets.\n\n` +
+        `  source checkout: cd apps/web && VITE_PLATFORM_MODE=false bun run build\n` +
+        `  npm/bunx install: install a package that includes @vellumai/web/dist`,
+    );
+    process.exit(1);
+  }
+
+  const listenPort = parsePortEnv("VELLUM_WEB_NGINX_PORT", DEFAULT_NGINX_PORT);
+  const nginxBin = process.env.NGINX_BIN || "nginx";
+
+  const prefix = mkdtempSync(path.join(tmpdir(), "vellum-web-nginx-"));
+  const confPath = path.join(prefix, "nginx.conf");
+  writeFileSync(
+    confPath,
+    buildNginxConfig({ distDir, gatewayUrl: runtimeUrl, listenPort }),
+  );
+
+  const child = spawn(
+    nginxBin,
+    ["-p", prefix, "-c", confPath, "-g", "daemon off;"],
+    { stdio: "inherit" },
+  );
+
+  let childStarted = false;
+
+  const shutdown = (): void => {
+    if (childStarted && child.exitCode === null) {
+      child.kill();
+    }
+    process.exit(0);
+  };
+
+  child.on("spawn", () => {
+    childStarted = true;
+    console.log(
+      `Vellum nginx web interface: http://127.0.0.1:${listenPort}${SPA_BASE}`,
+    );
+    console.log(`Gateway upstream: ${normalizeGatewayUrl(runtimeUrl)}`);
+  });
+
+  child.on("error", (err) => {
+    console.error(
+      `${ANSI.bold}--interface web --nginx${ANSI.reset}: failed to start ${nginxBin}: ${err.message}`,
+    );
+    process.exit(1);
+  });
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await new Promise<void>((resolve, reject) => {
+    child.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`nginx exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 /**
@@ -867,9 +1104,14 @@ export async function client(): Promise<void> {
     platformToken,
     bearerToken,
     interfaceId,
+    nginx,
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
+    if (nginx) {
+      await runNginxWebInterface(runtimeUrl);
+      return;
+    }
     await runWebInterface();
     return;
   }
