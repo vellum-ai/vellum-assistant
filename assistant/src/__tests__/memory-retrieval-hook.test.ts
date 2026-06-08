@@ -6,10 +6,11 @@
  * metadata, recall log, `memory_recalled` event), trust gating, the runtime
  * injection the hook applies for every actor (and the assembled-block persist),
  * error propagation, and abort-signal forwarding. Uses `mock.module` to stub
- * the persistence helpers and `applyRuntimeInjections` so the test doesn't touch
- * the developer's real `~/.vellum`, database, or live conversation state. The
- * memory graph handle is a hand-rolled fake passed on the hook context — the
- * hook only needs `prepareMemory`.
+ * the persistence helpers, `applyRuntimeInjections`, and the conversation
+ * registry / trust resolver so the test doesn't touch the developer's real
+ * `~/.vellum`, database, or live conversation state. The memory graph handle,
+ * abort signal, and trust class are self-resolved by the hook from a fake
+ * conversation installed in the registry mock.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -37,7 +38,25 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
 }));
 
+// The hook self-resolves the live conversation and its trust class; both are
+// driven from these refs so each test controls what the hook sees.
+let currentConversation: Conversation | undefined;
+let currentTrustClass: "guardian" | "unknown" = "guardian";
+const findConversationOrSubagentMock = mock(
+  (_conversationId?: string) => currentConversation,
+);
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: findConversationOrSubagentMock,
+}));
+mock.module("../daemon/trust-context.js", () => ({
+  resolveTrustClass: () => currentTrustClass,
+}));
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}) as AssistantConfig,
+}));
+
 import type { AssistantConfig } from "../config/schema.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
@@ -118,18 +137,13 @@ function makeFakeGraphMemory(overrides?: {
 function makeHookCtx(
   overrides: Partial<MemoryRetrievalHookContext> = {},
 ): MemoryRetrievalHookContext {
-  const { memory } = makeFakeGraphMemory();
   return {
-    graphMemory: memory,
-    config: {} as AssistantConfig,
     onEvent: () => {},
-    isTrustedActor: true,
     conversationId: "conv-test",
     userMessageId: "msg-test",
     logger: {
       warn: () => {},
     } as unknown as MemoryRetrievalHookContext["logger"],
-    signal: new AbortController().signal,
     latestMessages: [],
     requestId: "req-test",
     mode: "full",
@@ -140,10 +154,30 @@ function makeHookCtx(
   };
 }
 
+/**
+ * Install a fake live conversation for the hook to self-resolve by id: the
+ * graph handle, abort signal, and trust class all come from here rather than
+ * the hook context.
+ */
+function installConversation(
+  graphMemory: ConversationGraphMemory,
+  opts?: { trusted?: boolean; signal?: AbortSignal },
+): void {
+  currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
+  currentConversation = {
+    graphMemory,
+    trustContext: undefined,
+    abortController: { signal: opts?.signal ?? new AbortController().signal },
+  } as unknown as Conversation;
+}
+
 beforeEach(() => {
   updateMessageMetadataMock.mockReset();
   recordMemoryRecallLogMock.mockReset();
   applyRuntimeInjectionsMock.mockClear();
+  findConversationOrSubagentMock.mockClear();
+  currentConversation = undefined;
+  currentTrustClass = "guardian";
 });
 
 describe("user-prompt-submit-temp hook (memory retrieval)", () => {
@@ -154,7 +188,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory({
       messages: injected,
     });
-    const ctx = makeHookCtx({ graphMemory: memory, isTrustedActor: true });
+    installConversation(memory, { trusted: true });
+    const ctx = makeHookCtx();
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
@@ -176,7 +211,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       userQueryVector: userDense,
       userQuerySparseVector: userSparse,
     });
-    const userCtx = makeHookCtx({ graphMemory: withUserQuery.memory });
+    installConversation(withUserQuery.memory, { trusted: true });
+    const userCtx = makeHookCtx();
     await userPromptSubmitMemoryRetrieval(userCtx);
     // User-query pair wins — never crossed with the summary signal — and is
     // recorded back onto the graph handle for the PKB-reminder injector.
@@ -189,7 +225,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       queryVector: summaryDense,
       sparseVector: summarySparse,
     });
-    const summaryCtx = makeHookCtx({ graphMemory: summaryOnly.memory });
+    installConversation(summaryOnly.memory, { trusted: true });
+    const summaryCtx = makeHookCtx();
     await userPromptSubmitMemoryRetrieval(summaryCtx);
     expect(summaryOnly.recordPkbQueryVectorsMock).toHaveBeenCalledWith(
       summaryDense,
@@ -209,7 +246,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       messages: injected,
       blocks: { unifiedTurnContext: "tc-block" },
     }));
-    const ctx = makeHookCtx({ graphMemory: memory, userMessageId: "msg-77" });
+    installConversation(memory, { trusted: true });
+    const ctx = makeHookCtx({ userMessageId: "msg-77" });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
@@ -229,11 +267,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const seeded: Message[] = [
       { role: "user", content: [{ type: "text", text: "seeded" }] },
     ];
-    const ctx = makeHookCtx({
-      graphMemory: memory,
-      isTrustedActor: false,
-      latestMessages: seeded,
-    });
+    installConversation(memory, { trusted: false });
+    const ctx = makeHookCtx({ latestMessages: seeded });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
@@ -250,11 +285,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const seeded: Message[] = [
       { role: "user", content: [{ type: "text", text: "seeded" }] },
     ];
-    const ctx = makeHookCtx({
-      graphMemory: memory,
-      isTrustedActor: false,
-      latestMessages: seeded,
-    });
+    installConversation(memory, { trusted: false });
+    const ctx = makeHookCtx({ latestMessages: seeded });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
@@ -273,8 +305,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       injectedBlockText: "injected-block",
       metrics: makeMetrics(),
     });
+    installConversation(memory, { trusted: true });
     const ctx = makeHookCtx({
-      graphMemory: memory,
       onEvent: (msg) => received.push(msg),
       userMessageId: "msg-42",
       conversationId: "conv-42",
@@ -298,7 +330,8 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
 
   test("skips metadata persist when no block text is injected", async () => {
     const { memory } = makeFakeGraphMemory({ injectedBlockText: null });
-    const ctx = makeHookCtx({ graphMemory: memory });
+    installConversation(memory, { trusted: true });
+    const ctx = makeHookCtx();
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
@@ -321,16 +354,17 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     const graphMemory = {
       prepareMemory: failingPrepare,
     } as unknown as ConversationGraphMemory;
-    const ctx = makeHookCtx({ graphMemory, isTrustedActor: true });
+    installConversation(graphMemory, { trusted: true });
+    const ctx = makeHookCtx();
 
     await expect(userPromptSubmitMemoryRetrieval(ctx)).rejects.toThrow(
       "retrieval failed",
     );
   });
 
-  test("forwards the context abort signal into prepareMemory", async () => {
-    // The hook hands its `ctx.signal` straight to `prepareMemory` so an
-    // external cancel aborts the underlying retrieval.
+  test("forwards the conversation abort signal into prepareMemory", async () => {
+    // The hook hands the live conversation's abort signal straight to
+    // `prepareMemory` so an external cancel aborts the underlying retrieval.
     let capturedSignal: AbortSignal | undefined;
     const prepareMemoryMock = mock(
       async (
@@ -355,7 +389,11 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       recordPkbQueryVectors: mock(() => {}),
     } as unknown as ConversationGraphMemory;
     const controller = new AbortController();
-    const ctx = makeHookCtx({ graphMemory, signal: controller.signal });
+    installConversation(graphMemory, {
+      trusted: true,
+      signal: controller.signal,
+    });
+    const ctx = makeHookCtx();
 
     await userPromptSubmitMemoryRetrieval(ctx);
 

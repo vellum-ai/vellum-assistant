@@ -33,7 +33,8 @@
 import type { PluginHookFn } from "@vellumai/plugin-api";
 import type { Logger } from "pino";
 
-import type { AssistantConfig } from "../../../../config/schema.js";
+import { getConfig } from "../../../../config/loader.js";
+import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
   type InboundActorContext,
@@ -42,40 +43,29 @@ import {
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
+import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
-import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
 import type { Message } from "../../../../providers/types.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
 /**
- * Context threaded through the `user-prompt-submit-temp` hook. The readonly
- * fields carry the conversation-scoped state the retriever needs (graph
- * handle, event sink, abort signal); the output fields are populated by the
- * hook and read back by the agent loop. `latestMessages` straddles both: the
- * loop seeds it with the pre-injection array and the hook overwrites it with
- * the injected result.
+ * Context threaded through the `user-prompt-submit-temp` hook. The
+ * conversation-scoped retrieval state (graph handle, abort signal, trust
+ * class) is self-resolved from the live conversation by id; the readonly
+ * fields here carry the event sink and the turn-start injection snapshot,
+ * while `latestMessages` straddles input and output — the loop seeds it with
+ * the pre-injection array and the hook overwrites it with the injected result.
  */
 export interface MemoryRetrievalHookContext {
-  /** Per-conversation memory graph handle. */
-  readonly graphMemory: ConversationGraphMemory;
-  /** Assistant config snapshot. */
-  readonly config: AssistantConfig;
   /** Event sink used by the graph retriever and `memory_recalled` emission. */
   readonly onEvent: (msg: ServerMessage) => void;
-  /** True when the actor for this turn is trusted (guardian-class). */
-  readonly isTrustedActor: boolean;
   /** Conversation the turn belongs to — keys the recall-log row. */
   readonly conversationId: string;
   /** User message the injected memory block is persisted onto. */
   readonly userMessageId: string;
   /** Turn-scoped logger for non-fatal persistence warnings. */
   readonly logger: Logger;
-  /**
-   * Per-turn abort signal forwarded to `prepareMemory`. An external cancel
-   * aborts the underlying retrieval instead of letting it run to completion.
-   */
-  readonly signal: AbortSignal;
   /**
    * Working message list for the turn. Seeded by the loop with the
    * pre-injection messages and consumed as the retrieval input; the hook
@@ -268,11 +258,20 @@ function persistInjectionBlocks(
 const userPromptSubmitMemoryRetrieval: PluginHookFn<
   MemoryRetrievalHookContext
 > = async (ctx) => {
-  if (ctx.isTrustedActor) {
-    const graphResult = await ctx.graphMemory.prepareMemory(
+  // The conversation-scoped retrieval state — graph handle, abort signal, and
+  // trust class — is resolved from the live conversation by id rather than
+  // threaded in, mirroring how `applyRuntimeInjections` self-resolves its
+  // per-turn inputs.
+  const conversation = findConversationOrSubagent(ctx.conversationId);
+  const abortSignal = conversation?.abortController?.signal;
+  const isTrustedActor =
+    resolveTrustClass(conversation?.trustContext) === "guardian";
+
+  if (conversation && isTrustedActor && abortSignal) {
+    const graphResult = await conversation.graphMemory.prepareMemory(
       ctx.latestMessages,
-      ctx.config,
-      ctx.signal,
+      getConfig(),
+      abortSignal,
       ctx.onEvent,
     );
 
@@ -292,12 +291,12 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     // (looked up by conversation id) rather than receiving it threaded through
     // the agent loop.
     if (graphResult.userQueryVector) {
-      ctx.graphMemory.recordPkbQueryVectors(
+      conversation.graphMemory.recordPkbQueryVectors(
         graphResult.userQueryVector,
         graphResult.userQuerySparseVector,
       );
     } else {
-      ctx.graphMemory.recordPkbQueryVectors(
+      conversation.graphMemory.recordPkbQueryVectors(
         graphResult.queryVector,
         graphResult.sparseVector,
       );

@@ -880,16 +880,10 @@ export async function runAgentLoopImpl(
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
     const memoryCtx: MemoryRetrievalHookContext = {
-      graphMemory: ctx.graphMemory,
-      config: getConfig(),
       onEvent,
-      isTrustedActor,
       conversationId: ctx.conversationId,
       userMessageId,
       logger: rlog,
-      // An external cancel aborts `prepareMemory` instead of letting it run
-      // to completion after the turn has already been torn down.
-      signal: abortController.signal,
       latestMessages: ctx.messages,
       requestId: reqId,
       mode: currentInjectionMode,
