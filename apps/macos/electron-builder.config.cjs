@@ -27,6 +27,7 @@ module.exports = {
   extraResources: [
     { from: "resources/bun", to: "bun" },
     { from: "resources/web-dist", to: "web-dist" },
+    { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
   ],
   afterPack: "./scripts/afterPack.js",

@@ -32,8 +32,12 @@ let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
+const copyFileSyncCalls: Array<[string, string]> = [];
 
 mock.module("node:fs", () => ({
+  copyFileSync: (src: string, dst: string) => {
+    copyFileSyncCalls.push([src, dst]);
+  },
   existsSync: (p: string) =>
     p in existsSyncByPath ? existsSyncByPath[p] : existsSyncDefault,
   mkdirSync: (p: string, opts: object) => {
@@ -74,6 +78,9 @@ const {
   _resetInstallLock,
 } = await import("./cli-installer");
 
+const seedPkgPath = `${mockResourcesPath}/cli-lockfile/package.json`;
+const seedLockPath = `${mockResourcesPath}/cli-lockfile/bun.lock`;
+
 afterEach(() => {
   existsSyncDefault = false;
   for (const key of Object.keys(existsSyncByPath)) delete existsSyncByPath[key];
@@ -81,6 +88,7 @@ afterEach(() => {
   readdirSyncError = null;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
+  copyFileSyncCalls.length = 0;
   spawnCalls.length = 0;
   _resetInstallLock();
 });
@@ -132,19 +140,18 @@ describe("ensureCliInstalled", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("spawns bun add with correct args, cwd, and augmented env", async () => {
+  test("falls back to bun add --ignore-scripts when no seed lockfile exists", async () => {
     existsSyncDefault = false;
 
     const promise = ensureCliInstalled();
 
-    // Let the spawn resolve successfully.
     lastChild.emit("close", 0);
     await promise;
 
     expect(spawnCalls).toHaveLength(1);
     const [cmd, args, opts] = spawnCalls[0];
     expect(cmd).toBe(`${mockResourcesPath}/bun`);
-    expect(args).toEqual(["add", `vellum@${PINNED_CLI_VERSION}`]);
+    expect(args).toEqual(["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"]);
     expect((opts as { cwd: string }).cwd).toBe(
       `${userDataPath}/cli/${PINNED_CLI_VERSION}`,
     );
@@ -152,6 +159,26 @@ describe("ensureCliInstalled", () => {
     expect(env).toBeDefined();
     expect(env!.PATH).toContain("/opt/homebrew/bin");
     expect(env!.PATH).toContain("/usr/local/bin");
+  });
+
+  test("uses bun install --frozen-lockfile --ignore-scripts when seed lockfile exists", async () => {
+    existsSyncDefault = false;
+    existsSyncByPath[seedPkgPath] = true;
+    existsSyncByPath[seedLockPath] = true;
+
+    const promise = ensureCliInstalled();
+
+    lastChild.emit("close", 0);
+    await promise;
+
+    expect(copyFileSyncCalls).toHaveLength(2);
+    expect(copyFileSyncCalls[0][0]).toBe(seedPkgPath);
+    expect(copyFileSyncCalls[1][0]).toBe(seedLockPath);
+
+    expect(spawnCalls).toHaveLength(1);
+    const [cmd, args] = spawnCalls[0];
+    expect(cmd).toBe(`${mockResourcesPath}/bun`);
+    expect(args).toEqual(["install", "--frozen-lockfile", "--ignore-scripts"]);
   });
 
   test("creates the install directory before spawning", async () => {
