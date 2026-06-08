@@ -21,6 +21,7 @@ mock.module("electron", () => ({
     setActivationPolicy: () => undefined,
     getPath: () => "/tmp",
     hide: () => undefined,
+    isReady: () => false,
     quit: () => undefined,
     dock: undefined,
   },
@@ -77,6 +78,8 @@ mock.module("electron", () => ({
     defaultSession: {
       webRequest: { onHeadersReceived: () => undefined },
       setPermissionRequestHandler: () => undefined,
+      getPreloads: () => [],
+      setPreloads: () => undefined,
     },
   },
   net: {
