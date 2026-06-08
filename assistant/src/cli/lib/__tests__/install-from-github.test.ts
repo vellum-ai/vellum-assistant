@@ -56,6 +56,13 @@ const DOWNLOAD_HOST = "https://files.test/";
 function makeContentsFetch(opts: {
   tree: Record<string, Uint8Array | string | null>;
   manifest?: unknown;
+  /**
+   * HTTP status to answer the manifest fetch with. Defaults to 200 (when
+   * `manifest` is provided) or 404 (when omitted). Set to a transient status
+   * (e.g. 500) to simulate a marketplace lookup that fails rather than being
+   * absent — exercising the degrade-to-first-party path.
+   */
+  manifestStatus?: number;
 }): FetchLike {
   const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/experimental/plugins/marketplace.json`;
   const CONTENTS = `https://api.github.com/repos/${CANON_REPO}/contents/`;
@@ -92,6 +99,11 @@ function makeContentsFetch(opts: {
     const url = typeof input === "string" ? input : input.toString();
 
     if (url.startsWith(MANIFEST_URL)) {
+      if (opts.manifestStatus !== undefined && opts.manifestStatus !== 200) {
+        return new Response("manifest unavailable", {
+          status: opts.manifestStatus,
+        });
+      }
       if (opts.manifest === undefined) {
         return new Response("not found", { status: 404 });
       }
@@ -802,6 +814,36 @@ describe("installPlugin — marketplace resolution", () => {
       installPlugin(
         { name: "caveman", ref: "main" },
         { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginPostinstallError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("refuses to install an adapter stub as first-party when the marketplace lookup fails", async () => {
+    // GIVEN the marketplace lookup fails transiently (e.g. rate-limit / 5xx)
+    // rather than being absent, so resolution degrades to the first-party path
+    // AND the same-named in-repo directory is an adapter stub (a package.json
+    // with a postinstall + adapter script, but no hooks/tools of its own)
+    const fetch = makeContentsFetch({
+      tree: {
+        "experimental/plugins/caveman/package.json": JSON.stringify({
+          name: "caveman",
+          scripts: { postinstall: "node ./vellum-adapt.mjs" },
+        }),
+        "experimental/plugins/caveman/vellum-adapt.mjs": "// adapter",
+      },
+      manifestStatus: 500,
+    });
+
+    // WHEN we install the name (git never runs — there is no external source to
+    // clone because the marketplace that would have named it was unreadable)
+    // THEN it fails loudly with a PluginPostinstallError instead of
+    // materializing the bare stub as a non-functional standalone plugin, and
+    // nothing is left behind on disk
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
     ).rejects.toBeInstanceOf(PluginPostinstallError);
     expect(readdirSync(pluginsDir)).toEqual([]);

@@ -43,6 +43,7 @@ import {
 import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   fetchMarketplaceEntries,
@@ -389,6 +390,27 @@ export async function installPlugin(
         stagingDir,
         deps.fetch,
       );
+      // We only land in the first-party branch for this name when the
+      // marketplace lookup returned no claim. A *healthy* marketplace that
+      // claims the name routes to the external+adapter branch above; reaching
+      // here for a directory that is actually an adapter stub (declares a
+      // `scripts.postinstall`) therefore means the marketplace failed to load
+      // (rate-limit / 5xx / malformed) and we degraded past it. A stub has no
+      // hooks/tools of its own — it only transforms an external clone — so
+      // installing it alone would materialize a non-functional plugin. Fail
+      // loudly and retryably instead of silently shipping a broken plugin.
+      // Genuine first-party plugins (no postinstall) install normally.
+      if (
+        fileCount > 0 &&
+        resolvePostinstallScript(name, stagingDir) !== null
+      ) {
+        throw new PluginPostinstallError(
+          name,
+          "resolved to a first-party adapter stub, but its marketplace entry " +
+            "could not be read to locate the external source it adapts — the " +
+            "marketplace lookup likely failed transiently. Retry the install.",
+        );
+      }
     }
   } catch (err) {
     rmSync(stagingDir, { recursive: true, force: true });
@@ -629,30 +651,35 @@ function resolvePostinstallScript(
 }
 
 /**
- * Production postinstall runner: executes the adapter with the host runtime
- * (`process.execPath`, i.e. the daemon's own Bun/Node) rather than whatever a
- * bare `node` on `PATH` resolves to, under a stripped environment and a
- * timeout. The minimal env (runtime dir + standard bins, `HOME` only) keeps the
- * adapter from inheriting surprising config while still finding the runtime.
+ * Production postinstall runner: executes the adapter with a real `bun` binary
+ * resolved via {@link ensureBun}, under a stripped environment and a timeout.
+ *
+ * `process.execPath` is unusable here: inside a `bun build --compile` binary it
+ * is the compiled assistant app, not the bun CLI (see `util/bun-runtime.ts`),
+ * so passing the adapter script to it would launch the daemon rather than
+ * interpret the script. `ensureBun()` locates (or downloads) a standalone bun
+ * the same way every other subsystem that spawns bun does. The minimal env
+ * (bun's dir + standard bins, `HOME` only) keeps the adapter from inheriting
+ * surprising config while still finding the runtime.
  */
 export const defaultPostinstallRunner: PostinstallRunner = async ({
   cwd,
   script,
 }) => {
-  await execFileAsync(process.execPath, [script], {
+  const bun = await ensureBun();
+  await execFileAsync(bun, [script], {
     cwd,
     encoding: "utf8",
     timeout: POSTINSTALL_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
-    env: pluginPostinstallEnv(),
+    env: pluginPostinstallEnv(bun),
   });
 };
 
-function pluginPostinstallEnv(): NodeJS.ProcessEnv {
-  const runtimeDir = dirname(process.execPath);
+function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: [
-      runtimeDir,
+      dirname(bun),
       "/opt/homebrew/bin",
       "/usr/local/bin",
       "/usr/bin",
