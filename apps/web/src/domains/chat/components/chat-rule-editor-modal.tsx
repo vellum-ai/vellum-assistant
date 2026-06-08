@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
+import type { TrustRulePayload } from "@/domains/chat/hooks/use-interaction-actions";
 
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
@@ -86,18 +87,11 @@ const RISK_LEVELS = [
 // Props
 // ---------------------------------------------------------------------------
 
-interface SaveRulePayload {
-  toolName: string;
-  pattern: string;
-  riskLevel: string;
-  scope: string;
-}
-
 export interface ChatRuleEditorModalProps {
   context: RuleEditorContext;
   isSaving: boolean;
-  onSave: (rule: SaveRulePayload) => void;
-  onSaveAsNew?: (rule: SaveRulePayload) => void;
+  onSave: (rule: TrustRulePayload) => void;
+  onSaveAsNew?: (rule: TrustRulePayload) => void;
   onDismiss: () => void;
 }
 

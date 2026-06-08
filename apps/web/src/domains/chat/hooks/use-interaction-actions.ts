@@ -107,6 +107,14 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
 // Types
 // ---------------------------------------------------------------------------
 
+/** Payload shape shared by both save-rule callbacks. */
+export interface TrustRulePayload {
+  toolName: string;
+  pattern: string;
+  riskLevel: string;
+  scope: string;
+}
+
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
 export interface ToolCallRuleContext {
   toolName: string;
@@ -117,6 +125,88 @@ export interface ToolCallRuleContext {
   scopeOptions: ScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
   matchedTrustRuleId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Rule persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Unified save-rule logic. Strategy determines how the rule is persisted:
+ * - `update-or-create`: updates an existing rule if one is being edited,
+ *   otherwise creates a new one. If a pending confirmation exists (requestId),
+ *   resolves it via the confirmation API instead.
+ * - `always-create`: always creates a new rule regardless of existing context.
+ *
+ * Handles saving-flag bookkeeping, error reporting, and editor dismissal.
+ */
+async function executeSaveRule(
+  strategy: "update-or-create" | "always-create",
+  rule: TrustRulePayload,
+): Promise<void> {
+  const ctx = useStreamStore.getState().streamContext;
+  const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
+  if (!ctx || !context || saving) return;
+
+  // Confirmation path: resolve via the interaction API rather than direct save.
+  if (strategy === "update-or-create" && context.requestId) {
+    useRuleEditorStore.getState().setIsSavingRule(true);
+    useInteractionStore.getState().submitConfirmationStart();
+    try {
+      const result = await submitConfirmation(
+        ctx.assistantId,
+        context.requestId,
+        "allow",
+        { selectedPattern: rule.pattern, selectedScope: rule.scope },
+      );
+      if (!result.ok) {
+        useRuleEditorStore.getState().dismissRuleEditor();
+        useChatSessionStore.getState().setError({ message: result.error });
+        return;
+      }
+    } catch (err) {
+      captureError(err, { context: "save_trust_rule" });
+      useRuleEditorStore.getState().dismissRuleEditor();
+      useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
+      return;
+    } finally {
+      useRuleEditorStore.getState().setIsSavingRule(false);
+      useInteractionStore.getState().submitConfirmationEnd();
+    }
+
+    useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
+    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+    useChatSessionStore.getState().deleteConfirmationToolCall(context.requestId);
+    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
+      clearConfirmationByRequestId(prev, context.requestId),
+    );
+    useRuleEditorStore.getState().dismissRuleEditor();
+    return;
+  }
+
+  // Direct save path: persist rule to the trust-rules API.
+  useRuleEditorStore.getState().setIsSavingRule(true);
+  try {
+    if (strategy === "update-or-create" && context.existingRule) {
+      await updateTrustRule(ctx.assistantId, context.existingRule.id, {
+        risk: rule.riskLevel as "low" | "medium" | "high",
+      });
+    } else {
+      await addTrustRule(ctx.assistantId, {
+        tool: rule.toolName,
+        pattern: rule.pattern,
+        risk: rule.riskLevel as "low" | "medium" | "high",
+        description: `${rule.toolName} — ${rule.pattern}`,
+        scope: rule.scope,
+      });
+    }
+  } catch (err) {
+    captureError(err, { context: strategy === "always-create" ? "save_as_new_trust_rule" : "save_trust_rule_direct" });
+    useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
+  } finally {
+    useRuleEditorStore.getState().setIsSavingRule(false);
+    useRuleEditorStore.getState().dismissRuleEditor();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +224,8 @@ export interface UseInteractionActionsReturn {
   ) => Promise<void>;
   handleAllowAndCreateRule: (toolCall?: ChatMessageToolCall) => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
-  handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
-  handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
+  handleSaveRule: (rule: TrustRulePayload) => Promise<void>;
+  handleSaveAsNewRule: (rule: TrustRulePayload) => Promise<void>;
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
   handleDismissPendingQuestion: () => void;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
@@ -747,105 +837,12 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   const handleSaveRule = useCallback(
-    async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
-      const ctx = useStreamStore.getState().streamContext;
-      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
-      if (!ctx || !context) {
-        return;
-      }
-      if (saving) {
-        return;
-      }
-
-      if (!context.requestId) {
-        useRuleEditorStore.getState().setIsSavingRule(true);
-        try {
-          if (context.existingRule) {
-            // Edit mode: update the existing rule's risk level.
-            await updateTrustRule(ctx.assistantId, context.existingRule.id, {
-              risk: rule.riskLevel as "low" | "medium" | "high",
-            });
-          } else {
-            await addTrustRule(ctx.assistantId, {
-              tool: rule.toolName,
-              pattern: rule.pattern,
-              risk: rule.riskLevel as "low" | "medium" | "high",
-              description: `${rule.toolName} — ${rule.pattern}`,
-              scope: rule.scope,
-            });
-          }
-        } catch (err) {
-          captureError(err, { context: "save_trust_rule_direct" });
-          useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
-        } finally {
-          useRuleEditorStore.getState().setIsSavingRule(false);
-          useRuleEditorStore.getState().dismissRuleEditor();
-        }
-        return;
-      }
-
-      useRuleEditorStore.getState().setIsSavingRule(true);
-      useInteractionStore.getState().submitConfirmationStart();
-      try {
-        const result = await submitConfirmation(
-          ctx.assistantId,
-          context.requestId,
-          "allow",
-          { selectedPattern: rule.pattern, selectedScope: rule.scope },
-        );
-
-        if (!result.ok) {
-          useRuleEditorStore.getState().dismissRuleEditor();
-          useChatSessionStore.getState().setError({ message: result.error });
-          return;
-        }
-      } catch (err) {
-        captureError(err, { context: "save_trust_rule" });
-        useRuleEditorStore.getState().dismissRuleEditor();
-        useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
-        return;
-      } finally {
-        useRuleEditorStore.getState().setIsSavingRule(false);
-        useInteractionStore.getState().submitConfirmationEnd();
-      }
-
-      useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().deleteConfirmationToolCall(context.requestId);
-      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
-      useRuleEditorStore.getState().dismissRuleEditor();
-    },
+    (rule: TrustRulePayload) => executeSaveRule("update-or-create", rule),
     [],
   );
 
   const handleSaveAsNewRule = useCallback(
-    async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
-      const ctx = useStreamStore.getState().streamContext;
-      const { ruleEditorContext: context, isSavingRule: saving } = useRuleEditorStore.getState();
-      if (!ctx || !context) {
-        return;
-      }
-      if (saving) {
-        return;
-      }
-
-      useRuleEditorStore.getState().setIsSavingRule(true);
-      try {
-        await addTrustRule(ctx.assistantId, {
-          tool: rule.toolName,
-          pattern: rule.pattern,
-          risk: rule.riskLevel as "low" | "medium" | "high",
-          description: `${rule.toolName} — ${rule.pattern}`,
-          scope: rule.scope,
-        });
-      } catch (err) {
-        captureError(err, { context: "save_as_new_trust_rule" });
-        useChatSessionStore.getState().setError({ message: "Failed to save trust rule. Please try again." });
-      } finally {
-        useRuleEditorStore.getState().setIsSavingRule(false);
-        useRuleEditorStore.getState().dismissRuleEditor();
-      }
-    },
+    (rule: TrustRulePayload) => executeSaveRule("always-create", rule),
     [],
   );
 
