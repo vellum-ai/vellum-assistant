@@ -1,4 +1,4 @@
-import { Cloud, Laptop } from "lucide-react";
+import { Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -13,8 +13,6 @@ import {
 } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-
-const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) return a.name;
@@ -135,7 +133,7 @@ export function SelectAssistantScreen() {
         )}
 
         <div
-          className="mt-10 grid w-full auto-rows-fr gap-3"
+          className="mt-10 flex w-full flex-col gap-3"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
           {assistants.map((assistant) => {
@@ -226,24 +224,39 @@ function AssistantCard({
   badge?: string;
   onSelect: () => void;
 }) {
+  const subtitle = assistantSubtitle(assistant);
+
   return (
     <button
       type="button"
       onClick={onSelect}
       disabled={disabled}
-      className={`flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-colors ${
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-      } ${
+      className={[
+        "group flex w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left",
+        "transition-all duration-200 ease-out",
+        disabled
+          ? "cursor-not-allowed opacity-50"
+          : "cursor-pointer hover:bg-[var(--surface-secondary)]",
         selected && !disabled
-          ? "border-[var(--primary-base)] bg-[var(--primary-base)]/5"
-          : "border-[var(--border-element)] bg-transparent"
-      }`}
+          ? "border-[var(--primary-base)] bg-[var(--primary-base)]/[0.08] shadow-[inset_0_0_0_1px_var(--primary-base)]"
+          : "border-[var(--border-element)] bg-transparent",
+      ].join(" ")}
     >
-      {assistant.isLocal ? (
-        <Laptop className={ICON_CLASS} />
-      ) : (
-        <Cloud className={ICON_CLASS} />
-      )}
+      <div
+        className={[
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors duration-200",
+          selected && !disabled
+            ? "bg-[var(--primary-base)]/15 text-[var(--primary-base)]"
+            : "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
+        ].join(" ")}
+      >
+        {assistant.isLocal ? (
+          <Laptop className="h-5 w-5" />
+        ) : (
+          <Cloud className="h-5 w-5" />
+        )}
+      </div>
+
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-body-medium-default text-[var(--content-default)]">
@@ -255,23 +268,23 @@ function AssistantCard({
             </span>
           )}
         </div>
-        {assistantSubtitle(assistant) && (
+        {subtitle && (
           <span className="mt-0.5 block text-body-small-default text-[var(--content-tertiary)]">
-            {assistantSubtitle(assistant)}
+            {subtitle}
           </span>
         )}
       </div>
+
       {!disabled && (
         <div
-          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+          className={[
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
             selected
-              ? "border-[var(--primary-base)]"
-              : "border-[var(--border-element)]"
-          }`}
+              ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
+              : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
+          ].join(" ")}
         >
-          {selected && (
-            <div className="h-1.5 w-1.5 rounded-full bg-[var(--primary-base)]" />
-          )}
+          {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
         </div>
       )}
     </button>
