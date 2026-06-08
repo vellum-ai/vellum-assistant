@@ -25,7 +25,7 @@ import { AssistantClient } from "../lib/assistant-client.js";
 import { saveAssistantEntry } from "../lib/assistant-config.js";
 import { loadGuardianToken, saveGuardianToken } from "../lib/guardian-token.js";
 
-const RUNTIME = "http://10.0.0.9:7830";
+const RUNTIME = "https://gw.example.com";
 const FUTURE = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
 function seedPaired(refreshToken: string): void {
