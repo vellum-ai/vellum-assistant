@@ -22,7 +22,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface UseVoiceInputOptions {
-  /** Current assistant ID — required for dictation cleanup via the daemon. */
+  /** Current assistant ID — required for dictation cleanup via the assistant. */
   assistantId: string | null;
   /** Ref to the composer textarea for cursor-position reads and resize. */
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -80,7 +80,7 @@ export interface UseVoiceInputReturn {
  * - Voice interim/error state
  * - Mic-permission primer dialog
  * - Push-to-talk keyboard shortcut integration
- * - Dictation transcript processing (daemon cleanup + cursor-aware splicing)
+ * - Dictation transcript processing for composer or front-app insertion
  * - Recording lifecycle callbacks
  *
  * Framework-agnostic: no Next.js imports. Pure React hooks + browser APIs.
@@ -140,7 +140,6 @@ export function useVoiceInput({
       const capturedPos = voiceCursorPosRef.current;
       voiceCursorPosRef.current = null;
 
-      // --- Daemon cleanup (macOS parity: transforming phase) ----
       let insertText = rawText;
       const dictationResult = assistantId
         ? await postDictation(rawText, assistantId, {

@@ -10,7 +10,7 @@ const CLIPBOARD_RESTORE_DELAY_MS = 500;
 const PASTE_SHORTCUT_SCRIPT =
   'tell application "System Events" to keystroke "v" using command down';
 
-export const AUTOMATION_SETTINGS_URL =
+const AUTOMATION_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
 
 export type TextInsertionResult =
@@ -25,6 +25,7 @@ export type TextInsertionDeps = {
   writeClipboardText: (text: string) => void;
   hideApp: () => void;
   runAppleScript: (script: string) => Promise<unknown>;
+  warn: (...args: unknown[]) => void;
   setTimeout: (callback: () => void, ms: number) => unknown;
   sleep: (ms: number) => Promise<void>;
 };
@@ -40,6 +41,7 @@ const defaultDeps: TextInsertionDeps = {
   writeClipboardText: (text) => clipboard.writeText(text),
   hideApp: () => app.hide(),
   runAppleScript,
+  warn: (...args) => log.warn(...args),
   setTimeout,
   sleep,
 };
@@ -87,21 +89,22 @@ export const typeIntoFrontAppWithDeps = async (
   deps.hideApp();
   await deps.sleep(FOCUS_RETURN_DELAY_MS);
 
+  let result: TextInsertionResult;
   try {
     await deps.runAppleScript(PASTE_SHORTCUT_SCRIPT);
+    result = { status: "inserted" };
   } catch (err) {
-    log.warn("[text-insertion] paste shortcut failed:", err);
-    scheduleClipboardRestore(deps, previousText, text);
+    deps.warn("[text-insertion] paste shortcut failed:", err);
 
     if (isAutomationDeniedError(err)) {
-      return { status: "automation-denied" };
+      result = { status: "automation-denied" };
+    } else {
+      result = { status: "blocked" };
     }
-
-    return { status: "blocked" };
   }
 
   scheduleClipboardRestore(deps, previousText, text);
-  return { status: "inserted" };
+  return result;
 };
 
 export const typeIntoFrontApp = (text: string): Promise<TextInsertionResult> =>

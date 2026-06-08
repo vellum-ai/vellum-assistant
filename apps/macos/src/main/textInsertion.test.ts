@@ -13,6 +13,7 @@ type Harness = {
   writes: string[];
   hideApp: ReturnType<typeof mock>;
   runAppleScript: ReturnType<typeof mock>;
+  warn: ReturnType<typeof mock>;
 };
 
 const createHarness = ({
@@ -29,6 +30,7 @@ const createHarness = ({
   const writes: string[] = [];
   const hideApp = mock(() => undefined);
   const runAppleScriptMock = mock((_script: string) => runAppleScript());
+  const warn = mock(() => undefined);
 
   return {
     deps: {
@@ -40,6 +42,7 @@ const createHarness = ({
       },
       hideApp,
       runAppleScript: runAppleScriptMock,
+      warn,
       setTimeout: (callback: () => void) => {
         timers.push(callback);
       },
@@ -55,6 +58,7 @@ const createHarness = ({
     writes,
     hideApp,
     runAppleScript: runAppleScriptMock,
+    warn,
   };
 };
 
@@ -107,5 +111,6 @@ describe("typeIntoFrontApp", () => {
 
     harness.flushTimers();
     expect(harness.getClipboardText()).toBe("previous clipboard");
+    expect(harness.warn).toHaveBeenCalledTimes(1);
   });
 });
