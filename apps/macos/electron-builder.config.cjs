@@ -18,10 +18,17 @@ if (env !== "production") {
   schemes.push(`vellum-assistant-${env}`);
 }
 
+const channel =
+  env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
+
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
   appId,
   productName,
+  publish: {
+    provider: "generic",
+    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${targetArch}/`,
+  },
   directories: {
     output: "dist",
   },
