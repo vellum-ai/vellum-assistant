@@ -1,11 +1,15 @@
 import { Cloud, Laptop, Package } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { isPlatformLocal } from "@/lib/auth/loopback-auth";
+import { isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { isElectron } from "@/runtime/is-electron";
+import { startAuthFlow } from "@/runtime/native-auth";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { docsUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -56,11 +60,18 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromSelectAssistant = searchParams.get("from") === "select-assistant";
   const hasPlatformSession = useHasPlatformSession();
   const options = useHostingOptions();
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession ? "vellum-cloud" : "local",
   );
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const loginFlowIdRef = useRef(0);
+
+  const showLogin = fromSelectAssistant && !hasPlatformSession;
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {
@@ -76,7 +87,42 @@ export function HostingScreen() {
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.welcome);
+    void navigate(
+      fromSelectAssistant
+        ? routes.onboarding.selectAssistant
+        : routes.onboarding.welcome,
+    );
+  };
+
+  const handleLogin = async () => {
+    const returnTo = `${routes.onboarding.hosting}?from=select-assistant`;
+
+    if (isLocalMode() && isPlatformLocal()) {
+      void navigate(
+        `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`,
+      );
+      return;
+    }
+    const flowId = ++loginFlowIdRef.current;
+    setLoginError(null);
+    setLoginLoading(true);
+    try {
+      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
+      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
+    } catch {
+      if (flowId !== loginFlowIdRef.current) return;
+      setLoginError("Something went wrong. Please try again.");
+      setLoginLoading(false);
+    }
+  };
+
+  const handleCancelLogin = () => {
+    loginFlowIdRef.current++;
+    setLoginLoading(false);
+    setLoginError(null);
+    if (isElectron()) {
+      void window.vellum?.auth?.cancelOAuth();
+    }
   };
 
   return (
@@ -94,6 +140,12 @@ export function HostingScreen() {
         >
           Where do you want your assistant to live?
         </p>
+
+        {loginError && (
+          <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
+            {loginError}
+          </p>
+        )}
 
         <div
           className="mt-10 grid w-full auto-rows-fr gap-3"
@@ -124,12 +176,26 @@ export function HostingScreen() {
           >
             Continue
           </Button>
+          {showLogin && (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              className="h-11 text-base"
+              onClick={
+                loginLoading ? handleCancelLogin : () => void handleLogin()
+              }
+            >
+              {loginLoading ? "Cancel" : "Log In"}
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="regular"
             fullWidth
             className="h-11 text-base"
             onClick={onBack}
+            disabled={loginLoading}
           >
             Back
           </Button>

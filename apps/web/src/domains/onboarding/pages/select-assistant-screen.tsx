@@ -191,6 +191,20 @@ export function SelectAssistantScreen() {
               {connecting ? "Connecting…" : "Continue"}
             </Button>
           )}
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            className="h-11 text-base"
+            onClick={() =>
+              void navigate(
+                `${routes.onboarding.hosting}?from=select-assistant`,
+              )
+            }
+            disabled={connecting || loginLoading}
+          >
+            Create New Assistant
+          </Button>
           {showLogin && (
             <Button
               variant="outlined"
