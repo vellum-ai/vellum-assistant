@@ -95,6 +95,7 @@ import {
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -223,6 +224,14 @@ export interface AssistantSurface {
   persistent?: boolean;
   /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Persisted so app previews can gate on the tool result's arrival rather than whole-turn streaming state. */
   toolCallId?: string;
+  /**
+   * Commit-timing activation-rail tag (daemon-only). Persisted into the
+   * server-side `ui_surface` history block — NOT the client `ui_surface_show`
+   * message — so `restoreSurfaceStateFromHistory` can rehydrate the tag and a
+   * post-reload commit still records its funnel milestone. Show-timing moments
+   * record at render and are never stored here.
+   */
+  activationMoment?: ActivationMomentParam;
 }
 
 // ── runAgentLoop ─────────────────────────────────────────────────────

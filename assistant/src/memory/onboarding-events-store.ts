@@ -2,6 +2,12 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import {
+  ACTIVATION_AB_VARIANT,
+  ACTIVATION_FUNNEL_VERSION,
+  activationStepIndex,
+  type ActivationStepName,
+} from "../telemetry/activation-funnel.js";
 import { getDb } from "./db-connection.js";
 import { onboardingEvents } from "./schema.js";
 
@@ -16,6 +22,11 @@ export interface OnboardingEvent {
   googleScopesJson: string | null;
   priorAssistantsJson: string | null;
   abVariant: string | null;
+  sessionId: string | null;
+  stepName: string | null;
+  stepIndex: number | null;
+  completedAt: string | null;
+  funnelVersion: string | null;
 }
 
 export interface RecordOnboardingEventParams {
@@ -27,6 +38,17 @@ export interface RecordOnboardingEventParams {
   googleScopes?: string[];
   priorAssistants?: string[];
   abVariant?: string;
+  sessionId?: string | null;
+  stepName?: string | null;
+  stepIndex?: number | null;
+  completedAt?: string | null;
+  funnelVersion?: string | null;
+}
+
+/** Insert a fully-built event row. Shared by all record* entry points. */
+function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent {
+  getDb().insert(onboardingEvents).values(event).run();
+  return event;
 }
 
 /**
@@ -37,8 +59,7 @@ export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
   if (!getConfig().collectUsageData) return null;
-  const db = getDb();
-  const event: OnboardingEvent = {
+  return insertOnboardingEvent({
     id: uuid(),
     createdAt: Date.now(),
     screen: params.screen,
@@ -53,22 +74,44 @@ export function recordOnboardingEvent(
       ? JSON.stringify(params.priorAssistants)
       : null,
     abVariant: params.abVariant ?? null,
-  };
-  db.insert(onboardingEvents)
-    .values({
-      id: event.id,
-      createdAt: event.createdAt,
-      screen: event.screen,
-      toolsJson: event.toolsJson,
-      tasksJson: event.tasksJson,
-      tone: event.tone,
-      googleConnected: event.googleConnected,
-      googleScopesJson: event.googleScopesJson,
-      priorAssistantsJson: event.priorAssistantsJson,
-      abVariant: event.abVariant,
-    })
-    .run();
-  return event;
+    sessionId: params.sessionId ?? null,
+    stepName: params.stepName ?? null,
+    stepIndex: params.stepIndex ?? null,
+    completedAt: params.completedAt ?? null,
+    funnelVersion: params.funnelVersion ?? null,
+  });
+}
+
+/**
+ * Record an activation-funnel milestone event. Reuses the onboarding telemetry
+ * substrate (`screen` carries the step name to satisfy the NOT NULL column).
+ * Returns null when usage data collection is disabled.
+ */
+export function recordActivationEvent(params: {
+  stepName: ActivationStepName;
+  sessionId: string;
+  userId?: string | null;
+  abVariant?: string;
+}): OnboardingEvent | null {
+  if (!getConfig().collectUsageData) return null;
+  const createdAt = Date.now();
+  return insertOnboardingEvent({
+    id: uuid(),
+    createdAt,
+    screen: params.stepName,
+    toolsJson: null,
+    tasksJson: null,
+    tone: null,
+    googleConnected: null,
+    googleScopesJson: null,
+    priorAssistantsJson: null,
+    abVariant: params.abVariant ?? ACTIVATION_AB_VARIANT,
+    sessionId: params.sessionId,
+    stepName: params.stepName,
+    stepIndex: activationStepIndex(params.stepName),
+    completedAt: new Date(createdAt).toISOString(),
+    funnelVersion: ACTIVATION_FUNNEL_VERSION,
+  });
 }
 
 /**
@@ -93,6 +136,11 @@ export function queryUnreportedOnboardingEvents(
       googleScopesJson: onboardingEvents.googleScopesJson,
       priorAssistantsJson: onboardingEvents.priorAssistantsJson,
       abVariant: onboardingEvents.abVariant,
+      sessionId: onboardingEvents.sessionId,
+      stepName: onboardingEvents.stepName,
+      stepIndex: onboardingEvents.stepIndex,
+      completedAt: onboardingEvents.completedAt,
+      funnelVersion: onboardingEvents.funnelVersion,
     })
     .from(onboardingEvents)
     .where(

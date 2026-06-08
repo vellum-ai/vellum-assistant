@@ -8,6 +8,7 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
+import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -203,6 +204,12 @@ export const uiShowTool = {
         type: "boolean",
         description:
           "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
+      },
+      activation_moment: {
+        type: "string",
+        enum: ACTIVATION_MOMENT_PARAMS,
+        description:
+          "Activation-rail telemetry tag (cohort only). Set this when this surface IS one of the activation funnel moments; the milestone is recorded automatically when the user commits the surface. Omit for all non-activation surfaces.",
       },
     },
     required: ["surface_type", "data"],
