@@ -100,7 +100,7 @@ mock.module("../config/loader.js", () => ({
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
 // Both the calibrated entry point (`estimatePromptTokens`, which backs the
-// preflight overflow gate and the convergence path) and the raw entry point
+// loop's budget gate and the convergence path) and the raw entry point
 // (`estimatePromptTokensRaw`, used by the pre-send calibration capture) are
 // stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
@@ -113,7 +113,7 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
-  // The preflight overflow gate calls this calibrated wrapper directly, so it
+  // The loop's budget gate calls this calibrated wrapper directly, so it
   // must honor `mockEstimateTokens` too — otherwise the real implementation
   // (which sums tool tokens onto the real calibrated estimate) ignores the
   // per-test value and the overflow scenarios below never trigger.
@@ -795,9 +795,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     const events: ServerMessage[] = [];
     let reducerCalled = false;
 
-    // GIVEN the estimator reports 185k — under the 190k preflight budget
-    // (200k * 0.95), so the turn proceeds to the provider rather than
-    // compacting up front.
+    // GIVEN the estimator reports 185k and the context manager's compaction
+    // is a no-op, so the first call proceeds to the provider without any
+    // up-front reduction.
     mockEstimateTokens = 185_000;
 
     // AND the post-run convergence reducer successfully compacts
@@ -1364,14 +1364,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     // Budget = 200_000 * 0.95 = 190_000
     // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint call: above threshold — always triggers yield
-      return 170_000;
-    };
+    // Every estimate is above the threshold, so the first-call gate compacts
+    // before the first provider call and every checkpoint trips the yield.
+    mockEstimateTokens = 170_000;
 
     // The convergence reducer reduces tokens enough for the rerun to recover.
     let convergenceReducerCalled = false;
@@ -1485,16 +1480,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     // Budget = 200_000 * 0.95 = 190_000
     // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget.
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint estimate: above threshold — always trips the
-      // yield. Simulates a long turn where each tool call's result
-      // inflates the context past 85% even after a successful compaction.
-      return 170_000;
-    };
+    // Every estimate is above the threshold: the first-call gate compacts
+    // before the first provider call, and each subsequent checkpoint trips
+    // the yield even after a successful compaction (each tool result inflates
+    // the context back past 85%).
+    mockEstimateTokens = 170_000;
 
     // A single tool round reaches one checkpoint; the in-loop budget gate
     // trips there and compaction runs in place. The loop continues the run
@@ -1685,125 +1675,6 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       "test-conv",
       "context_too_large",
     );
-  });
-
-  // ── Test 8 ────────────────────────────────────────────────────────
-  // BUG: The preflight overflow reducer's budget check uses
-  // step.estimatedTokens (computed on bare ctx.messages) without
-  // accounting for tokens added by applyRuntimeInjections(). This
-  // causes the reducer to stop early when the bare estimate is under
-  // budget, even though post-injection tokens exceed it — leading to
-  // a wasted provider round-trip that gets rejected.
-  //
-  // After fix: the budget check re-estimates on runMessages (with
-  // injections) so the reducer continues to the next tier.
-  test("preflight reducer continues when post-injection tokens exceed budget", async () => {
-    const events: ServerMessage[] = [];
-
-    // Injections add an extra message, bumping the token count.
-    const injectionMessage: Message = {
-      role: "user" as const,
-      content: [
-        {
-          type: "text" as const,
-          text: "injected context " + "x".repeat(500),
-        },
-      ],
-    };
-    mockApplyRuntimeInjections = (msgs) => [...msgs, injectionMessage];
-
-    // Budget = 200_000 * 0.95 = 190_000
-    // The estimator returns different values based on whether the
-    // injection message is present:
-    //   - bare history (no injection msg) → 195_000 (triggers preflight)
-    //   - after tier 1 bare → 185_000 (under budget, would stop early without fix)
-    //   - after tier 1 with injection → 195_000 (still over budget)
-    //   - after tier 2 bare → 170_000
-    //   - after tier 2 with injection → 175_000 (under budget, reducer stops)
-    let reducerCallCount = 0;
-    mockEstimateTokens = (msgs?: Message[]) => {
-      const hasInjection = msgs?.some(
-        (m) =>
-          m.role === "user" &&
-          Array.isArray(m.content) &&
-          m.content.some(
-            (b: { type: string; text?: string }) =>
-              b.type === "text" &&
-              typeof b.text === "string" &&
-              b.text.startsWith("injected context"),
-          ),
-      );
-      if (reducerCallCount === 0) {
-        // Before any reduction: preflight check on runMessages (with injection)
-        return 195_000;
-      }
-      if (reducerCallCount === 1) {
-        // After tier 1
-        return hasInjection ? 195_000 : 185_000;
-      }
-      // After tier 2
-      return hasInjection ? 175_000 : 170_000;
-    };
-
-    mockReducerStepFn = (msgs: Message[]) => {
-      reducerCallCount++;
-      const tier =
-        reducerCallCount === 1 ? "forced_compaction" : "tool_result_truncation";
-      return {
-        messages: msgs,
-        tier,
-        state: {
-          appliedTiers:
-            reducerCallCount === 1
-              ? ["forced_compaction"]
-              : ["forced_compaction", "tool_result_truncation"],
-          injectionMode: "full" as const,
-          exhausted: reducerCallCount >= 2,
-        },
-        // Bare-history estimate (what the reducer sees on ctx.messages)
-        estimatedTokens: reducerCallCount === 1 ? 185_000 : 170_000,
-        compactionResult: {
-          compacted: true,
-          messages: msgs,
-          compactedPersistedMessages: 5,
-          summaryText: "Summary",
-          previousEstimatedInputTokens: 195_000,
-          estimatedInputTokens: reducerCallCount === 1 ? 185_000 : 170_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-        },
-      };
-    };
-
-    // The preflight overflow reducer runs in the orchestrator before the loop,
-    // so a single successful provider turn is enough to drive the path.
-    const ctx = makeCtx({
-      providerResponses: [textResponse("done")],
-      contextWindowManager: {
-        updateConfig: () => {},
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => ({ compacted: false }),
-      } as unknown as Conversation["contextWindowManager"],
-    });
-
-    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-    // The reducer must be called twice — the first tier's bare estimate
-    // (185k) is under budget (190k), but post-injection tokens (195k)
-    // still exceed it. Without the fix, the reducer would stop after
-    // tier 1 and the provider call would likely fail.
-    expect(reducerCallCount).toBe(2);
-
-    // Should succeed without errors
-    const conversationError = events.find(
-      (e) => e.type === "conversation_error",
-    );
-    expect(conversationError).toBeUndefined();
   });
 
   // ── Test 9 ────────────────────────────────────────────────────────

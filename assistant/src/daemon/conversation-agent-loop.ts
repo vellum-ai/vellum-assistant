@@ -41,7 +41,6 @@ import {
 } from "../context/post-turn-tool-result-truncation.js";
 import {
   estimatePromptTokens,
-  estimatePromptTokensWithTools,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowCompactOptions } from "../context/window-manager.js";
@@ -147,10 +146,6 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import {
-  type OverflowReduceArgs,
-  runOverflowReductionLoop,
-} from "./overflow-reduction-loop.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import {
   persistUnsendableImageDowngrades,
@@ -874,12 +869,11 @@ export async function runAgentLoopImpl(
     // outputs, persists the retrieval's own side effects (injected-block
     // metadata, recall log, `memory_recalled` event), and assembles the turn's
     // runtime-injection blocks onto the history (persisting those blocks too).
-    // Runs at the early "prompt submitted, before context assembly" moment
-    // because its output feeds the overflow-reduction transform below. It is
-    // shaped as the `user-prompt-submit-temp` hook handler but invoked directly
-    // for now: it must run early, while the canonical late `user-prompt-submit`
-    // hook (history repair, title) runs after that transform, so the two cannot
-    // share a fire site until compaction is cleared from the gap between them.
+    // Runs at the early "prompt submitted, before context assembly" moment so
+    // its injected output is what the agent loop receives. It is shaped as the
+    // `user-prompt-submit-temp` hook handler but invoked directly for now,
+    // separate from the canonical late `user-prompt-submit` hook (history
+    // repair, title) that fires just before the loop.
     // The injection inputs (`mode`, `isNonInteractive`, `modelProfile`,
     // `actorContext`) are resolved once at turn start and threaded in so
     // post-compaction re-injection reuses the same snapshot rather than live
@@ -915,143 +909,15 @@ export async function runAgentLoopImpl(
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
-    // ── Preflight budget evaluation ──────────────────────────────
-    // After runtime injections are applied, estimate the prompt token count
-    // and proactively invoke the reducer if already above budget. This avoids
-    // a wasted provider round-trip that would just fail with context_too_large.
-    const initialContextBudget = resolveCurrentContextBudget();
-    const overflowRecovery = initialContextBudget.overflowRecovery;
-    const preflightBudget = initialContextBudget.preflightBudget;
+    // Reducer state, tool-token budget, and calibration provider key consumed
+    // by the post-rejection convergence loop further down. The tool-token
+    // budget is resolved once per turn (the resolved tool set is stable across
+    // the turn); the calibration key matches the key recorded by `handleUsage`
+    // for wrapper providers (OpenRouter routing to Anthropic → key is
+    // `"anthropic"`).
     let reducerState: ReducerState | undefined;
-
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key — used by the preflight estimate, the
-    // overflow reducer config, and the convergence-path `estimatePromptTokens`
-    // call. Matches the key recorded by `handleUsage` for wrapper providers
-    // (OpenRouter routing to Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
-
-    const preflightTokens = estimatePromptTokensWithTools(
-      runMessages,
-      ctx.systemPrompt,
-      ctx.agentLoop.getResolvedTools(runMessages),
-      estimationProviderName,
-    );
-
-    if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
-      rlog.warn(
-        {
-          phase: "preflight",
-          estimatedTokens: preflightTokens,
-          budget: preflightBudget,
-        },
-        "Preflight budget exceeded — running overflow reducer before provider call",
-      );
-
-      // `runOverflowReductionLoop` drives the tier loop — forced compaction →
-      // tool-result truncation → media stubbing → injection downgrade — plus
-      // the re-inject/re-estimate convergence check. The callbacks below are
-      // the orchestrator-specific side effects it coordinates per iteration
-      // (activity emission, compaction application, runtime injection
-      // reassembly, token re-estimation).
-      const messagesForPreflightOverflowReduction =
-        slackChronologicalContext?.messages ?? ctx.messages;
-      const overflowArgs: OverflowReduceArgs = {
-        messages: messagesForPreflightOverflowReduction,
-        runMessages,
-        systemPrompt: ctx.systemPrompt,
-        providerName: estimationProviderName,
-        contextWindow: resolveCurrentContextWindowConfig(),
-        preflightBudget,
-        toolTokenBudget,
-        maxAttempts: resolveCurrentContextBudget().overflowRecovery.maxAttempts,
-        abortSignal: abortController.signal,
-        compactFn: async (msgs, signal, opts) => {
-          // Delegate the reducer's forced-compaction tier to the default
-          // compaction plugin, overlaying the turn's resolved inference
-          // profile and actor trust class onto the reducer-supplied options.
-          const reducerOptions = (opts ?? {}) as ContextWindowCompactOptions;
-          return defaultCompact({
-            manager: ctx.contextWindowManager,
-            messages: msgs,
-            signal,
-            ...reducerOptions,
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            actorTrustClass: resolveTurnActorTrustClass(ctx),
-          });
-        },
-        emitActivityState: () => {
-          ctx.emitActivityState("thinking", "context_compacting", {
-            requestId: reqId,
-          });
-        },
-        onCompactionResult: async (result, compactedBasis) => {
-          // Track circuit-breaker state whenever the reducer invoked
-          // compaction. The reducer's forced_compaction tier uses
-          // force:true, so it bypasses the open-circuit check, but we
-          // still want failure tracking to detect a run of broken
-          // summaries and clear the counter on success. Only track when
-          // the summary LLM actually ran — `summaryFailed === undefined`
-          // indicates an early return (no eligible messages,
-          // truncation-only path, etc.) that shouldn't influence the
-          // breaker.
-          if (result.summaryFailed !== undefined) {
-            await ctx.agentLoop.compactionCircuit.recordOutcome(
-              result.summaryFailed,
-              onEvent,
-            );
-          }
-          if (result.compacted) {
-            await applySuccessfulCompaction(result, compactedBasis);
-          }
-        },
-        reinjectForMode: async (reducedMessages, mode) => {
-          // `ctx.messages` must track the reducer's latest output before
-          // re-injection runs: the injectors' message-presence scans and the
-          // self-resolved Slack chronological transcript read live conversation
-          // state, and `applyCompactionResult` only updates `ctx.messages` on a
-          // compaction tier. Assigning here keeps non-compaction tiers
-          // (tool-result truncation, media stubbing, injection downgrade)
-          // observable to downstream injection assembly on the same turn.
-          ctx.messages = reducedMessages;
-
-          // When THIS iteration compacted, it stripped the existing
-          // memory-static block — so we re-inject current content. A later
-          // iteration that only truncates or downgrades must NOT re-force it,
-          // or each round would grow the token count.
-          // Gate: only the iteration that actually compacted re-injects.
-          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
-          // self-gate inside their injectors on whether they are already
-          // present in `reducedMessages`.)
-          const injection = await applyRuntimeInjections(reducedMessages, {
-            isNonInteractive,
-            modelProfile: modelProfileStr,
-            actorContext,
-            mode,
-            requestId: reqId,
-            conversationId: ctx.conversationId,
-          });
-          let next = injection.messages;
-          if (isTrustedActor && mode !== "minimal") {
-            const memResult = ctx.graphMemory.reinjectCachedMemory(next);
-            next = memResult.runMessages;
-          }
-          return next;
-        },
-        estimatePostInjection: (runMsgs) =>
-          estimatePromptTokens(runMsgs, ctx.systemPrompt, {
-            providerName: estimationProviderName,
-            toolTokenBudget,
-          }),
-      };
-
-      const overflowResult = await runOverflowReductionLoop(overflowArgs);
-
-      ctx.messages = overflowResult.messages;
-      runMessages = overflowResult.runMessages;
-      currentInjectionMode = overflowResult.injectionMode;
-      reducerState = overflowResult.reducerState;
-    }
 
     // Replace historical web_search_tool_result blocks with text summaries.
     // The opaque `encrypted_content` tokens Anthropic attaches to each result
@@ -1557,7 +1423,7 @@ export async function runAgentLoopImpl(
       // through to the final graceful-error fallback below.
       if (state.contextTooLargeDetected) {
         const action = resolveOverflowAction({
-          overflowRecovery,
+          overflowRecovery: convergenceBudget.overflowRecovery,
           isInteractive: isInteractiveResolved,
         });
 
