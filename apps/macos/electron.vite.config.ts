@@ -24,6 +24,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 const DEPS_TO_INLINE = [
   "electron-log",
   "electron-store",
+  "electron-updater",
   "conf",
   "@vellumai/local-mode",
   "@vellumai/environments",
