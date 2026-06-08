@@ -521,10 +521,10 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      const optimisticUserId = crypto.randomUUID();
+      const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
-        id: optimisticUserId,
-        clientMessageId: optimisticUserId,
+        id: clientMessageId,
+        clientMessageId,
         isOptimistic: true,
         role: "user",
         textSegments: [content],
@@ -547,7 +547,7 @@ export function useSendMessage({
             content,
             attachmentIds,
             undefined,
-            optimisticUserId,
+            clientMessageId,
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -632,7 +632,7 @@ export function useSendMessage({
           turnId,
           attachments.map((att) => att.id),
           isDraft,
-          optimisticUserId,
+          clientMessageId,
         );
 
         if (result.status === "failed") {
@@ -677,7 +677,7 @@ export function useSendMessage({
           const serverUserMessageId = result.userMessageId;
           setMessages((prev) =>
             prev.map((m) =>
-              m.isOptimistic && m.id === optimisticUserId
+              m.isOptimistic && m.id === clientMessageId
                 ? { ...m, id: serverUserMessageId, isOptimistic: false }
                 : m,
             ),

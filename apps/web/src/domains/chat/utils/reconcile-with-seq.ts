@@ -249,16 +249,26 @@ function preserveUnreflectedLocalRows(
   local: DisplayMessage[],
   serverIds: Set<string>,
 ): void {
-  const claimed = new Set<DisplayMessage>();
   for (const m of local) {
     if (!m.isOptimistic && hasServerIdentity(serverIds, m)) {
       continue;
     }
 
     if (m.isOptimistic) {
-      const match = findOptimisticEcho(reconciled, m, claimed);
+      const match = findOptimisticEcho(reconciled, m);
       if (match) {
-        claimed.add(match);
+        // Stamp the optimistic row's nonce onto the server row it folded into
+        // when the daemon echoed none. This records the correlation on the
+        // row's own identity, so a second nonce-less optimistic row can't also
+        // fold onto it through the recency fallback (which only considers rows
+        // that still carry no nonce) and drop a message from the transcript.
+        if (
+          m.role === "user" &&
+          m.clientMessageId !== undefined &&
+          match.clientMessageId === undefined
+        ) {
+          match.clientMessageId = m.clientMessageId;
+        }
         if (!match.timestamp && m.timestamp) {
           match.timestamp = m.timestamp;
         }
@@ -278,43 +288,32 @@ function preserveUnreflectedLocalRows(
  *   - user rows correlate on the client-generated `clientMessageId` nonce the
  *     daemon echoes back on the persisted row; absent the nonce (a daemon that
  *     predates the idempotency contract) they fall back to the most recent
- *     server user row not already correlated by a nonce. Identity-first
- *     correlation is robust to duplicate or normalized text and to two sends
- *     fired in quick succession;
+ *     server user row that still carries no nonce. The nonce is unique per
+ *     send, so the primary match is naturally one-to-one; the caller stamps
+ *     the nonce onto a row folded through the fallback so a later nonce-less
+ *     row can't resolve to it again. Identity-first correlation is robust to
+ *     duplicate or normalized text and to two sends fired in quick succession;
  *   - assistant rows match when the streamed local text is a non-empty prefix
  *     of the server row's content — the live tail rendered before the daemon
  *     assigned the row an id (only against pre-anchor-protocol daemons that
  *     stream deltas without a `messageId`).
- *
- * `claimed` carries the server rows already folded into an earlier optimistic
- * row in the same pass; a claimed row is never reused, so two optimistic sends
- * can't collapse onto one server row (which would drop a row from the
- * transcript). This matters for the nonce-less fallback, where multiple
- * optimistic rows would otherwise all resolve to the same most-recent server
- * row.
  */
 function findOptimisticEcho(
   reconciled: DisplayMessage[],
   optimistic: DisplayMessage,
-  claimed: Set<DisplayMessage>,
 ): DisplayMessage | undefined {
   if (optimistic.role === "user") {
     if (optimistic.clientMessageId !== undefined) {
       const byNonce = reconciled.find(
         (r) =>
-          r.role === "user" &&
-          r.clientMessageId === optimistic.clientMessageId &&
-          !claimed.has(r),
+          r.role === "user" && r.clientMessageId === optimistic.clientMessageId,
       );
       if (byNonce) {
         return byNonce;
       }
     }
     return reconciled.findLast(
-      (r) =>
-        r.role === "user" &&
-        r.clientMessageId === undefined &&
-        !claimed.has(r),
+      (r) => r.role === "user" && r.clientMessageId === undefined,
     );
   }
 
@@ -326,7 +325,6 @@ function findOptimisticEcho(
     return reconciled.find(
       (r) =>
         r.role === "assistant" &&
-        !claimed.has(r) &&
         segmentsToPlainText(r.textSegments).trim().startsWith(optimisticText),
     );
   }

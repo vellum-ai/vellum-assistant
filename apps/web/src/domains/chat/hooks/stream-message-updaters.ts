@@ -14,7 +14,11 @@ import type { Surface } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  RiskScopeOption,
+} from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -408,13 +412,15 @@ export function finalizeMessageComplete(
  * Resolve the optimistic user row a `user_message_echo` confirms.
  *
  * Primary match is the correlation nonce: the originating client minted
- * `clientMessageId` at send time and the daemon echoes it back, so the
- * optimistic row whose `clientMessageId` equals the event's is the exact send
- * being confirmed — robust to duplicate or normalized text and to two sends
- * fired in quick succession (each carries a distinct nonce). When the event
- * carries no nonce — a daemon that predates the idempotency contract, or a
- * synthetic surface-action echo — fall back to the most recent
- * still-optimistic user row.
+ * `clientMessageId` at send time and the daemon echoes it back, so the user
+ * row whose `clientMessageId` equals the event's is the exact send being
+ * confirmed — robust to duplicate or normalized text and to two sends fired in
+ * quick succession (each carries a distinct nonce). The nonce is unique per
+ * send and an already-resolved row is short-circuited by id upstream, so the
+ * nonce match needs no separate optimistic flag. When the event carries no
+ * nonce — a daemon that predates the idempotency contract, or a synthetic
+ * surface-action echo — fall back to the most recent still-optimistic user
+ * row, which has no nonce to key on and so is identified by `isOptimistic`.
  */
 function findOptimisticUserEchoIdx(
   prev: DisplayMessage[],
@@ -422,10 +428,7 @@ function findOptimisticUserEchoIdx(
 ): number {
   if (clientMessageId !== undefined) {
     return prev.findIndex(
-      (m) =>
-        m.role === "user" &&
-        m.isOptimistic === true &&
-        m.clientMessageId === clientMessageId,
+      (m) => m.role === "user" && m.clientMessageId === clientMessageId,
     );
   }
 
@@ -878,9 +881,7 @@ export function setQueuePosition(
   id: string,
   position: number,
 ): DisplayMessage[] {
-  return prev.map((m) =>
-    m.id === id ? { ...m, queuePosition: position } : m,
-  );
+  return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
 }
 
 /** Clear queue status on a message by id. */
