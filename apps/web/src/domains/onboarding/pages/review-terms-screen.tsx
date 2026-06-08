@@ -12,6 +12,7 @@ import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
+import { sanitizeReturnTo } from "@/utils/return-to";
 import { legalUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Checkbox } from "@vellumai/design-library/components/checkbox";
@@ -35,12 +36,8 @@ export function ReviewTermsScreen() {
   const onContinue = useCallback(() => {
     saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
 
-    const returnTo = searchParams.get("returnTo");
-    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
-      void navigate(returnTo, { replace: true });
-    } else {
-      void navigate(routes.assistant, { replace: true });
-    }
+    const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
+    void navigate(destination, { replace: true });
   }, [
     aiDataConsent,
     hasPlatformSession,
