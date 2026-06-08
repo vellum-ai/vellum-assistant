@@ -1289,10 +1289,7 @@ jobs:
       - name: Sync feature flag registry for publish
         run: bun run meta/feature-flags/sync-bundled-copies.ts
 
-      - name: Install and publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+      - name: Install package dependencies
         run: |
           PACKAGE="${{ matrix.package }}"
           cd "$PACKAGE"
@@ -1302,6 +1299,13 @@ jobs:
             rm -rf node_modules
             bun install
           fi
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+        run: |
+          PACKAGE="${{ matrix.package }}"
+          cd "$PACKAGE"
           PKG_NAME=$(node -p "require('./package.json').name")
           PKG_VERSION=$(node -p "require('./package.json').version")
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
@@ -1397,14 +1401,17 @@ jobs:
         run: bun run meta/feature-flags/sync-bundled-copies.ts
       - name: Stamp staging version
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
-      - name: Install and publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Install package dependencies
         run: |
           cd "${{ matrix.package }}"
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd "${{ matrix.package }}"
           PKG_NAME=$(node -p "require('./package.json').name")
           PKG_VERSION=$(node -p "require('./package.json').version")
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
