@@ -2349,9 +2349,9 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  # ── Electron macOS build (arm64) ──────────────────────────────────────
-  # Builds the Electron-wrapped macOS app, code-signs it, notarizes the
-  # DMG, and uploads it as a release asset. Non-blocking (continue-on-error)
+  # ── Electron macOS build (arm64 + x64) ────────────────────────────────
+  # Builds the Electron-wrapped macOS app for each architecture, code-signs,
+  # notarizes, and uploads as release assets. Non-blocking (continue-on-error)
   # while the Electron client is WIP.
   build-electron:
     needs: [extract-version, publish-meta-prod, publish-meta-staging]
@@ -2359,12 +2359,23 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            dmg_name: vellum-assistant-electron.dmg
+            artifact_name: macos-build-electron
+          - arch: x64
+            dmg_name: vellum-assistant-electron-x64.dmg
+            artifact_name: macos-build-electron-x64
     defaults:
       run:
         working-directory: apps/macos
     env:
       KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -2461,7 +2472,7 @@ jobs:
             exit 1
           fi
           echo "Found DMG: $ELECTRON_DMG"
-          FINAL_DMG="dist/vellum-assistant-electron.dmg"
+          FINAL_DMG="dist/${{ matrix.dmg_name }}"
           mv "$ELECTRON_DMG" "$FINAL_DMG"
           echo "dmg_path=$FINAL_DMG" >> "$GITHUB_OUTPUT"
 
@@ -2538,8 +2549,8 @@ jobs:
       - name: Upload Electron DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-build-electron
-          path: apps/macos/dist/vellum-assistant-electron.dmg
+          name: ${{ matrix.artifact_name }}
+          path: apps/macos/dist/${{ matrix.dmg_name }}
           if-no-files-found: error
           retention-days: 7
 
@@ -2617,12 +2628,19 @@ jobs:
           name: chrome-extension-crx-zip
           path: chrome-extension-artifacts
 
-      - name: Download Electron DMG artifact
+      - name: Download Electron DMG artifact (arm64)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         continue-on-error: true
         with:
           name: macos-build-electron
           path: electron-artifacts
+
+      - name: Download Electron DMG artifact (x64)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: macos-build-electron-x64
+          path: electron-artifacts-x64
 
       - name: Create GitHub Releases
         env:
@@ -2648,10 +2666,14 @@ jobs:
             [ -n "$X64_DMG" ] && ASSETS+=("$X64_DMG#vellum-assistant-x64.dmg")
           fi
 
-          # Add Electron DMG if available (non-blocking — may not exist if Electron build failed)
+          # Add Electron DMGs if available (non-blocking — may not exist if Electron build failed)
           if [ -d "electron-artifacts" ]; then
             ELECTRON_DMG=$(find electron-artifacts -name "vellum-assistant-electron.dmg" -type f | grep -m1 .)
             [ -n "$ELECTRON_DMG" ] && ASSETS+=("$ELECTRON_DMG#vellum-assistant-electron.dmg")
+          fi
+          if [ -d "electron-artifacts-x64" ]; then
+            ELECTRON_X64_DMG=$(find electron-artifacts-x64 -name "vellum-assistant-electron-x64.dmg" -type f | grep -m1 .)
+            [ -n "$ELECTRON_X64_DMG" ] && ASSETS+=("$ELECTRON_X64_DMG#vellum-assistant-electron-x64.dmg")
           fi
 
           INSTALL_SH="cli/src/adapters/install.sh"

@@ -1813,12 +1813,26 @@ jobs:
     needs: [compute-version, publish-meta-dev]
     runs-on: macos-26
     timeout-minutes: 30
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            dmg_name: vellum-assistant-electron-dev.dmg
+            artifact_name: dev-electron-dmg
+            experimental: false
+          - arch: x64
+            dmg_name: vellum-assistant-electron-dev-x64.dmg
+            artifact_name: dev-electron-dmg-x64
+            experimental: true
     defaults:
       run:
         working-directory: apps/macos
     env:
       KEYCHAIN_NAME: build-electron.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1915,7 +1929,7 @@ jobs:
             exit 1
           fi
           echo "Found DMG: $ELECTRON_DMG"
-          FINAL_DMG="dist/vellum-assistant-electron-dev.dmg"
+          FINAL_DMG="dist/${{ matrix.dmg_name }}"
           mv "$ELECTRON_DMG" "$FINAL_DMG"
           echo "dmg_path=$FINAL_DMG" >> "$GITHUB_OUTPUT"
 
@@ -1988,8 +2002,8 @@ jobs:
       - name: Upload Electron DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dev-electron-dmg
-          path: apps/macos/dist/vellum-assistant-electron-dev.dmg
+          name: ${{ matrix.artifact_name }}
+          path: apps/macos/dist/${{ matrix.dmg_name }}
           if-no-files-found: error
           retention-days: 30
 
