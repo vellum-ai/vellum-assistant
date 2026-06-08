@@ -83,6 +83,12 @@ export interface LifecycleServiceInputs {
    * behavior. Optional so existing `setInputs` callers/tests need no change.
    */
   selectedPlatformAssistantId?: string | null;
+  /**
+   * Whether the organization store has resolved an active org ID.
+   * Platform API calls require the Vellum-Organization-Id header;
+   * `respondToInputs` defers `checkAssistant` until this is true.
+   */
+  hasOrganization?: boolean;
 }
 
 const NOOP_REDIRECT = (_: string) => {};
@@ -194,6 +200,7 @@ class AssistantLifecycleService {
     if (this.inputs.hasPlatformSession) {
       setSelfHostedConnection(null);
     }
+    if (!this.inputs.hasOrganization) return;
     await this.checkAssistant();
   }
 

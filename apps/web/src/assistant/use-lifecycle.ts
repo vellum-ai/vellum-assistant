@@ -101,6 +101,7 @@ export function useAssistantLifecycle({
       resolveOnboardingRedirect,
       queryClient,
       selectedPlatformAssistantId,
+      hasOrganization: !!currentOrganizationId,
     });
     void lifecycleService.respondToInputs();
   }, [
@@ -112,6 +113,7 @@ export function useAssistantLifecycle({
     resolveOnboardingRedirect,
     queryClient,
     selectedPlatformAssistantId,
+    currentOrganizationId,
   ]);
 
   // Hand poll results to the service — it decides whether to
