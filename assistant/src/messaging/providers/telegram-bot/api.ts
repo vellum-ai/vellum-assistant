@@ -8,7 +8,8 @@
  */
 
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../../security/secure-keys.js";
+import { getSecureKeyResultAsync } from "../../../security/secure-keys.js";
+import { BackendUnavailableError, ConfigError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("telegram-api");
@@ -197,13 +198,21 @@ async function retryableFetch<T>(
 // ---------------------------------------------------------------------------
 
 async function resolveBotToken(): Promise<string> {
-  const botToken = await getSecureKeyAsync(
+  const result = await getSecureKeyResultAsync(
     credentialKey("telegram", "bot_token"),
   );
-  if (!botToken) {
-    throw new Error("Telegram bot token not configured");
+  if (result.value) {
+    return result.value;
   }
-  return botToken;
+  // Distinguish a transient credential-store outage from a token that was
+  // genuinely never set. Both surface as an absent value, but only the
+  // latter is an operator misconfiguration; the former is retryable
+  // infrastructure unavailability that callers should not treat as
+  // "not configured".
+  if (result.unreachable) {
+    throw new BackendUnavailableError("Telegram credential store unreachable");
+  }
+  throw new ConfigError("Telegram bot token not configured");
 }
 
 // ---------------------------------------------------------------------------
