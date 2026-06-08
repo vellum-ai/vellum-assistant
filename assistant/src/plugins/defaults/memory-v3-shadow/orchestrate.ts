@@ -38,6 +38,7 @@ import type { PoolCandidate } from "./pool-select.js";
 import { selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
+  CandidateLane,
   MemoryRoutingTurn,
   Section,
   SectionIndex,
@@ -86,6 +87,11 @@ export interface OrchestrateResult {
    *  Populated from the lane hits and consumed by the injector to render each
    *  selected slug's matched section (progressive disclosure). */
   sectionBySlug: Map<Slug, Section>;
+  /** The candgen lane that FIRST surfaced each pooled slug, keyed by slug.
+   *  Insertion order is needle → dense → edge, so a page surfaced by more than
+   *  one lane records the highest-precedence one. Consumed by the selection
+   *  telemetry to attribute each selection to its true lane. */
+  laneBySlug: Map<Slug, CandidateLane>;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -110,23 +116,29 @@ export async function orchestrate(
   ]);
 
   // The pool accumulates one entry per distinct article. `sectionBySlug` records
-  // the matched `Section` (when one is known) for downstream injection.
+  // the matched `Section` (when one is known) for downstream injection;
+  // `laneBySlug` records the lane that first surfaced each slug for telemetry.
   const poolBySlug = new Map<Slug, PoolCandidate>();
   const sectionBySlug = new Map<Slug, Section>();
+  const laneBySlug = new Map<Slug, CandidateLane>();
 
   // Add one pool candidate, recording its matched `Section` (when known) for
-  // downstream injection. `descriptor` overrides the section text when supplied
-  // (the edge lane prefers a curated `links` description). The first lane to
-  // surface a slug wins both the pool entry and the recorded section.
+  // downstream injection and the `lane` that surfaced it for telemetry.
+  // `descriptor` overrides the section text when supplied (the edge lane prefers
+  // a curated `links` description). The first lane to surface a slug wins the
+  // pool entry, the recorded section, AND the recorded lane — so the
+  // needle → dense → edge call order encodes lane precedence.
   const addCandidate = (
     slug: Slug,
     section: Section | undefined,
-    descriptor?: string,
+    descriptor: string | undefined,
+    lane: CandidateLane,
   ): void => {
     if (section && !sectionBySlug.has(slug)) {
       sectionBySlug.set(slug, section);
     }
     if (poolBySlug.has(slug)) return;
+    laneBySlug.set(slug, lane);
     poolBySlug.set(slug, {
       slug,
       descriptor: descriptor ?? section?.text ?? "",
@@ -136,7 +148,7 @@ export async function orchestrate(
   // Step 2a: needle hits — descriptor is the matched section's text. `section`
   // is an index into `sections`.
   for (const hit of needled) {
-    addCandidate(hit.article, sections[hit.section]);
+    addCandidate(hit.article, sections[hit.section], undefined, "needle");
   }
 
   // Step 2b: dense hits — `section` is the matched ORDINAL; resolve it to the
@@ -146,6 +158,8 @@ export async function orchestrate(
     addCandidate(
       hit.article,
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
+      undefined,
+      "dense",
     );
   }
 
@@ -165,7 +179,7 @@ export async function orchestrate(
   for (const neighbor of surfaced) {
     const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
     const section = best >= 0 ? sections[best] : undefined;
-    addCandidate(neighbor.article, section, neighbor.description);
+    addCandidate(neighbor.article, section, neighbor.description, "edge");
   }
 
   // Step 3: a SINGLE forced-tool select over the unified pool.
@@ -201,7 +215,13 @@ export async function orchestrate(
     deps.workingSet.recordSelection(sel.slug, turn.turnNumber, sel.pinned);
   }
 
-  return { currentSelections, workingSetUnion, finalInjection, sectionBySlug };
+  return {
+    currentSelections,
+    workingSetUnion,
+    finalInjection,
+    sectionBySlug,
+    laneBySlug,
+  };
 }
 
 /**

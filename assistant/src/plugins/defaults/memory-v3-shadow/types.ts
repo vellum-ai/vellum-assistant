@@ -104,3 +104,13 @@ export const SELECTION_SOURCES = [
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
+
+/**
+ * The candidate-generation lanes — the strict subset of {@link SelectionSource}
+ * a pooled candidate can be tagged with at pool-build time. (`carry-forward` is
+ * the one source assigned later, by the orchestrator's working-set union, not by
+ * a candgen lane.) Defined as `Exclude<SelectionSource, "carry-forward">` so it
+ * can never drift from {@link SELECTION_SOURCES}: adding a lane there widens this
+ * automatically.
+ */
+export type CandidateLane = Exclude<SelectionSource, "carry-forward">;

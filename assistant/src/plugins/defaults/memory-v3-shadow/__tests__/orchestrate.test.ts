@@ -311,6 +311,50 @@ describe("orchestrate — candidate pool composition", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Lane provenance: each pooled slug records the candgen lane that FIRST
+// surfaced it (needle → dense → edge precedence), exposed via
+// `result.laneBySlug` so the selection telemetry can attribute true sources.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — lane provenance (laneBySlug)", () => {
+  test("laneBySlug tags each pooled slug with its surfacing lane", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle). Dense returns topic-b. topic-a links to
+    // topic-d (edge). So each lane contributes exactly one distinct slug.
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = selectProvider([]); // selection irrelevant to pool provenance
+    const result = await orchestrate(makeTurn(1, "apple"), {
+      sectionIndex: lanes.sectionIndex,
+      needle: lanes.needle,
+      denseConfig: config,
+      edgeGraph: lanes.edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    expect(result.laneBySlug.get("topic-a")).toBe("needle");
+    expect(result.laneBySlug.get("topic-b")).toBe("dense");
+    expect(result.laneBySlug.get("topic-d")).toBe("edge");
+  });
+
+  test("a slug surfaced by needle AND dense keeps the needle lane (first wins)", async () => {
+    const lanes = await buildLanes();
+    // topic-a is surfaced by the needle on "apple"; dense ALSO returns topic-a.
+    // Needle runs first (step 2a before 2b), so the recorded lane stays needle.
+    denseHits = [{ article: "topic-a", section: 0 }];
+    providerStub = selectProvider([]);
+    const result = await orchestrate(makeTurn(1, "apple"), {
+      sectionIndex: lanes.sectionIndex,
+      needle: lanes.needle,
+      denseConfig: config,
+      edgeGraph: lanes.edgeGraph,
+      workingSet: new WorkingSet(),
+    });
+
+    expect(result.laneBySlug.get("topic-a")).toBe("needle");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Carry-forward: same working-set semantics as the prior tree pipeline.
 // ---------------------------------------------------------------------------
 
