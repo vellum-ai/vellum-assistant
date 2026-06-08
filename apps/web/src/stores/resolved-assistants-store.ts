@@ -24,7 +24,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import { isLocalMode, isLocalAssistant } from "@/lib/local-mode";
+import { isLocalMode, isLocalAssistant, isPlatformAssistant } from "@/lib/local-mode";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile } from "@/runtime/local-mode-host";
 import type { Assistant } from "@/generated/api/types.gen";
@@ -33,6 +33,7 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   isLocal: boolean;
+  isPlatformHosted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: a.assistantId,
           name: a.name,
           isLocal: isLocalAssistant(a),
+          isPlatformHosted: isPlatformAssistant(a),
         })),
       }),
 
@@ -130,6 +132,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: a.id,
           name: a.name,
           isLocal: a.is_local,
+          isPlatformHosted: !a.is_local,
         })),
       }),
 

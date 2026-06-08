@@ -140,7 +140,7 @@
     },
     {
       "id": "multi-platform-assistant",
-      "scope": "assistant",
+      "scope": "client",
       "key": "multi-platform-assistant",
       "label": "Multi-Platform Assistant Switcher",
       "description": "Enable the menu-bar assistant switcher for managing multiple platform-hosted assistants (new/switch/retire)",
