@@ -1,5 +1,5 @@
 /**
- * Disk-pressure banner state — owns per-assistant localStorage-backed
+ * Disk-pressure banner slot — owns per-assistant localStorage-backed
  * dismiss / suppress flags and renders the appropriate {@link DiskPressureBanner}
  * variant based on the current monitor status.
  *
@@ -8,7 +8,7 @@
  * ("Don't show again") persists across state transitions.
  */
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -18,10 +18,10 @@ import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-se
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
-// Params
+// Props
 // ---------------------------------------------------------------------------
 
-export interface UseDiskPressureBannerParams {
+export interface DiskPressureBannerSlotProps {
   diskPressure: UseDiskPressureMonitorResult;
   assistantId: string | null;
   /** `"active"` for platform-hosted assistants that have an upgrade path. */
@@ -29,14 +29,14 @@ export interface UseDiskPressureBannerParams {
 }
 
 // ---------------------------------------------------------------------------
-// Hook
+// Component
 // ---------------------------------------------------------------------------
 
-export function useDiskPressureBanner({
+export function DiskPressureBannerSlot({
   diskPressure,
   assistantId,
   assistantStateKind,
-}: UseDiskPressureBannerParams): () => ReactNode {
+}: DiskPressureBannerSlotProps) {
   const navigate = useNavigate();
 
   const dismissedKey = assistantId
@@ -84,24 +84,21 @@ export function useDiskPressureBanner({
     }
   }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
 
-  const renderDiskPressureBanner = useCallback((): ReactNode => {
-    if (!diskPressure.status) return null;
-    const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
-    if (!mode) return null;
-    if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
-    return (
-      <DiskPressureBanner
-        status={diskPressure.status}
-        mode={mode}
-        isAcknowledging={diskPressure.isAcknowledging}
-        acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
-        onAcknowledge={() => void diskPressure.acknowledge()}
-        onDismissWarning={dismissWarning}
-        onReviewWorkspaceData={() => void navigate(routes.workspace)}
-        onUpgradeStorage={assistantStateKind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
-      />
-    );
-  }, [diskPressure, navigate, assistantStateKind, warningDismissed, warningSuppressed, dismissWarning]);
+  if (!diskPressure.status) return null;
+  const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
+  if (!mode) return null;
+  if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
 
-  return renderDiskPressureBanner;
+  return (
+    <DiskPressureBanner
+      status={diskPressure.status}
+      mode={mode}
+      isAcknowledging={diskPressure.isAcknowledging}
+      acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
+      onAcknowledge={() => void diskPressure.acknowledge()}
+      onDismissWarning={dismissWarning}
+      onReviewWorkspaceData={() => void navigate(routes.workspace)}
+      onUpgradeStorage={assistantStateKind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
+    />
+  );
 }

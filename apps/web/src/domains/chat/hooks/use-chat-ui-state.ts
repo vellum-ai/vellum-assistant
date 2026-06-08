@@ -33,6 +33,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export interface ChatUIState {
   uiContext: UIContext;
+  /** Whether the turn phase is `"idle"` (no active turn in progress). */
+  isIdle: boolean;
   showThinking: boolean;
   isAssistantStreaming: boolean;
   canStopGenerating: boolean;
@@ -128,6 +130,7 @@ export function useChatUIState(): ChatUIState {
 
   return {
     uiContext,
+    isIdle: phase === "idle",
     showThinking,
     isAssistantStreaming,
     canStopGenerating,
