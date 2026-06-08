@@ -629,6 +629,9 @@ async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
 ): Promise<void> {
+  // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
+  Object.assign(process.env, flagEnvVars);
+
   // Prefer Vite dev server in source checkouts for full local-mode support
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
