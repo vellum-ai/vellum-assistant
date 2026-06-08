@@ -10,13 +10,11 @@
  * history (and the blocks it captured), with no dependency on the agent loop's
  * closure state.
  *
- * It re-applies the runtime injections via {@link applyRuntimeInjections},
- * re-tracks the memory graph's cached nodes against the re-injected history,
- * and converts now-historical `web_search_tool_result` blocks to text so their
- * expired `encrypted_content` tokens are not replayed. The remaining
- * orchestrator-side step (the post-injection bookkeeping the loop records) is
- * expected to migrate here as the hook subsumes the loop's re-injection
- * ceremony.
+ * It re-applies the runtime injections via {@link applyRuntimeInjections} and
+ * re-tracks the memory graph's cached nodes against the re-injected history.
+ * The remaining orchestrator-side step (the post-injection bookkeeping the
+ * loop records) is expected to migrate here as the hook subsumes the loop's
+ * re-injection ceremony.
  *
  * The memory graph handle is sourced internally from the plugin's own
  * conversation-keyed registry ({@link getLiveGraphMemory}) rather than being
@@ -34,12 +32,8 @@ import {
   resolveTrustClass,
   type TrustContext,
 } from "../../../../daemon/trust-context.js";
-import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import type { Message } from "../../../../providers/types.js";
-import { getLogger } from "../../../../util/logger.js";
-
-const log = getLogger("post-compact-reinject");
 
 /**
  * Everything the post-compaction hook needs, supplied by the agent loop from
@@ -141,16 +135,5 @@ export default async function postCompact(
   if (isTrustedActor && options.mode !== "minimal") {
     getLiveGraphMemory(conversationId)?.retrackCachedNodes();
   }
-  const strip = stripHistoricalWebSearchResults(result.messages);
-  if (strip.stats.blocksStripped > 0) {
-    log.info(
-      {
-        phase: "mid-loop-compact",
-        conversationId,
-        ...strip.stats,
-      },
-      "Converted historical web_search_tool_result blocks to text summaries",
-    );
-  }
-  return { ...result, messages: strip.messages };
+  return result;
 }

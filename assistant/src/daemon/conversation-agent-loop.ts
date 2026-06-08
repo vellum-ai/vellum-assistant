@@ -152,7 +152,6 @@ import {
   UNSENDABLE_IMAGE_NOTE,
 } from "./persist-unsendable-image.js";
 import { resolveTrustClass, type TrustContext } from "./trust-context.js";
-import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -919,20 +918,6 @@ export async function runAgentLoopImpl(
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
 
-    // Replace historical web_search_tool_result blocks with text summaries.
-    // The opaque `encrypted_content` tokens Anthropic attaches to each result
-    // expire / are route-scoped; replaying a stale token is rejected with
-    // `Invalid encrypted_content in search_result block`. Titles + URLs
-    // preserve enough context for the model on follow-up turns.
-    const webSearchStrip = stripHistoricalWebSearchResults(runMessages);
-    if (webSearchStrip.stats.blocksStripped > 0) {
-      rlog.info(
-        { phase: "pre_run", ...webSearchStrip.stats },
-        "Converted historical web_search_tool_result blocks to text summaries",
-      );
-      runMessages = webSearchStrip.messages;
-    }
-
     // user-prompt-submit hook: plugins may transform `runMessages` right
     // before the agent loop receives them. Fires once per user turn at the
     // primary `agentLoop.run` only — the re-entry / retry calls further down
@@ -1085,8 +1070,6 @@ export async function runAgentLoopImpl(
       // intentionally deferred until there's a concrete plugin-level use case.
       const retryRepair = deepRepairHistory(updatedHistory);
       runMessages = retryRepair.messages;
-      const retryStrip = stripHistoricalWebSearchResults(runMessages);
-      runMessages = retryStrip.messages;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
@@ -1380,14 +1363,6 @@ export async function runAgentLoopImpl(
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
         }
-        const convergenceStrip = stripHistoricalWebSearchResults(runMessages);
-        if (convergenceStrip.stats.blocksStripped > 0) {
-          rlog.info(
-            { phase: "convergence", ...convergenceStrip.stats },
-            "Converted historical web_search_tool_result blocks to text summaries",
-          );
-          runMessages = convergenceStrip.messages;
-        }
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
@@ -1468,14 +1443,6 @@ export async function runAgentLoopImpl(
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
-          }
-          const fallbackStrip = stripHistoricalWebSearchResults(runMessages);
-          if (fallbackStrip.stats.blocksStripped > 0) {
-            rlog.info(
-              { phase: "fail_gracefully_compact", ...fallbackStrip.stats },
-              "Converted historical web_search_tool_result blocks to text summaries",
-            );
-            runMessages = fallbackStrip.messages;
           }
           state.contextTooLargeDetected = false;
 
