@@ -6,7 +6,6 @@ import {
 import {
   getLocalSetting,
   removeLocalSetting,
-  setLocalSetting,
 } from "@/utils/local-settings";
 
 export interface SttTranscribeOk {
@@ -94,8 +93,8 @@ async function migrateLegacyLocalSttSettings(
   const provider = normalizeSttProviderId(
     getLocalSetting(LS_STT_PROVIDER, DEFAULT_STT_PROVIDER_ID),
   );
-  const apiKey = readLegacyLocalSttKey(provider).trim();
-  if (!apiKey) return false;
+  const credentialValue = readLegacyLocalSttKey(provider).trim();
+  if (!credentialValue) return false;
 
   const credentialProvider = credentialProviderForSttProvider(provider);
   try {
@@ -104,7 +103,7 @@ async function migrateLegacyLocalSttSettings(
       body: {
         type: "api_key",
         name: credentialProvider,
-        value: apiKey,
+        value: credentialValue,
       },
       throwOnError: true,
     });
@@ -136,7 +135,6 @@ async function migrateLegacyLocalSttSettings(
     return false;
   }
 
-  setLocalSetting(LS_STT_PROVIDER, provider);
   clearLegacyLocalSttKey(provider);
   return true;
 }
@@ -306,7 +304,12 @@ export async function postSttTranscribe(
     return { status: "error", reason, httpStatus: response.status, message };
   };
 
+  const migratedBeforeSend = await migrateLegacyLocalSttSettings(assistantId);
   const firstAttempt = await send();
+  if (migratedBeforeSend) {
+    return firstAttempt;
+  }
+
   if (
     firstAttempt.status !== "error" ||
     firstAttempt.reason !== "config-missing"
@@ -314,7 +317,7 @@ export async function postSttTranscribe(
     return firstAttempt;
   }
 
-  const migrated = await migrateLegacyLocalSttSettings(assistantId);
-  if (!migrated) return firstAttempt;
+  const migratedAfterFailure = await migrateLegacyLocalSttSettings(assistantId);
+  if (!migratedAfterFailure) return firstAttempt;
   return send();
 }
