@@ -14,7 +14,11 @@
 
 import { resolveAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
-import { loadGuardianToken, refreshGuardianToken } from "./guardian-token.js";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+  guardianTokenDueForRenewal,
+} from "./guardian-token.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
@@ -226,13 +230,20 @@ export class AssistantClient {
     // just see the original 401. The platform session-auth path is never
     // refreshed here (its token is managed by the Vellum platform).
     if (response.status === 401 && !this.isSessionAuth) {
-      const refreshed = await refreshGuardianToken(
-        this.runtimeUrl,
-        this._assistantId,
-      );
-      if (refreshed?.accessToken) {
-        this.token = refreshed.accessToken;
-        return doFetch();
+      // Only disclose the long-lived refresh token when our access token is
+      // actually due for renewal. A 401 on a still-valid token (e.g. a forged
+      // 401 from an impostor endpoint trying to coax out the refresh
+      // credential) is surfaced as-is, not refreshed.
+      const stored = loadGuardianToken(this._assistantId);
+      if (stored?.refreshToken && guardianTokenDueForRenewal(stored)) {
+        const refreshed = await refreshGuardianToken(
+          this.runtimeUrl,
+          this._assistantId,
+        );
+        if (refreshed?.accessToken) {
+          this.token = refreshed.accessToken;
+          return doFetch();
+        }
       }
     }
 

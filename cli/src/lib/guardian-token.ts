@@ -285,6 +285,19 @@ function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
   }
 }
 
+/**
+ * True when a stored guardian token has reached its renewal point — now is
+ * at/after `refreshAfter` (preferred) or `accessTokenExpiresAt`. Used to gate
+ * refresh so a forged/synthetic 401 on a still-valid token can't coax out the
+ * long-lived refresh credential. Unparseable timestamps → not due.
+ */
+export function guardianTokenDueForRenewal(token: GuardianTokenData): boolean {
+  const raw = token.refreshAfter || token.accessTokenExpiresAt;
+  const at = new Date(raw).getTime();
+  if (!Number.isFinite(at)) return false;
+  return at <= Date.now();
+}
+
 export async function refreshGuardianToken(
   gatewayUrl: string,
   assistantId: string,
