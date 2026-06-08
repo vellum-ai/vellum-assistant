@@ -223,18 +223,25 @@ export class AssistantClient {
 
     const response = await doFetch();
 
-    // Reactive auto-refresh: a paired/local guardian access token that has
-    // expired comes back 401. Refresh it once via the stored refresh credential
-    // and retry. Self-gating — refreshGuardianToken returns null unless a usable
-    // refresh token is stored, so ephemeral (`--token`) and access-only sessions
-    // just see the original 401. The platform session-auth path is never
-    // refreshed here (its token is managed by the Vellum platform).
+    // Reactive auto-refresh on a 401 for the guardian (non-session) path.
+    // Ephemeral (`--token`) and access-only sessions have no stored refresh
+    // credential and just see the original 401; the platform session-auth path
+    // is never refreshed here (its token is managed by the Vellum platform).
     if (response.status === 401 && !this.isSessionAuth) {
-      // Only disclose the long-lived refresh token when our access token is
-      // actually due for renewal. A 401 on a still-valid token (e.g. a forged
-      // 401 from an impostor endpoint trying to coax out the refresh
-      // credential) is surfaced as-is, not refreshed.
       const stored = loadGuardianToken(this._assistantId);
+
+      // Another process may have already rotated and persisted a fresh access
+      // token (e.g. a concurrent `vellum events`). Adopt it and retry — this
+      // sends no refresh credential, just picks up the newer local token.
+      if (stored?.accessToken && stored.accessToken !== this.token) {
+        this.token = stored.accessToken;
+        return doFetch();
+      }
+
+      // Otherwise only disclose the long-lived refresh token when our access
+      // token is actually due for renewal. A 401 on a still-valid token (e.g. a
+      // forged 401 from an impostor endpoint trying to coax out the refresh
+      // credential) is surfaced as-is, not refreshed.
       if (stored?.refreshToken && guardianTokenDueForRenewal(stored)) {
         const refreshed = await refreshGuardianToken(
           this.runtimeUrl,

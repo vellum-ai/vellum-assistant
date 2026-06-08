@@ -205,4 +205,39 @@ describe("AssistantClient 401 -> refresh -> retry", () => {
     expect(assistantAttempts).toBe(1); // no retry
     expect(calls.filter((c) => isRefresh(c.url))).toHaveLength(0); // refresh not attempted
   });
+
+  test("adopts a token rotated by another process on a 401 (no refresh sent)", async () => {
+    // Construct the client capturing the current ("old-acc") token, then
+    // simulate a concurrent process (e.g. `vellum events`) rotating + persisting
+    // a fresh, not-due token. A 401 must pick up the fresh local token and retry
+    // WITHOUT sending the refresh credential.
+    seedPaired("refresh-tok", { due: false });
+    const client = new AssistantClient({ assistantId: "px" });
+    saveGuardianToken("px", {
+      guardianPrincipalId: "imported",
+      accessToken: "fresh-acc",
+      accessTokenExpiresAt: FUTURE,
+      refreshToken: "refresh-tok",
+      refreshTokenExpiresAt: FUTURE,
+      refreshAfter: FUTURE, // fresh — not due for renewal
+      isNew: false,
+      deviceId: "dev",
+      leasedAt: new Date().toISOString(),
+    });
+
+    const calls = stubFetch((url, log) => {
+      if (isRefresh(url)) return refreshResponse();
+      const auth = log[log.length - 1].headers["Authorization"];
+      return new Response("", {
+        status: auth === "Bearer fresh-acc" ? 200 : 401,
+      });
+    });
+
+    const res = await client.get("/messages/");
+
+    expect(res.status).toBe(200);
+    expect(calls.filter((c) => isRefresh(c.url))).toHaveLength(0); // no refresh sent
+    const assistantCalls = calls.filter((c) => !isRefresh(c.url));
+    expect(assistantCalls[1].headers["Authorization"]).toBe("Bearer fresh-acc");
+  });
 });
