@@ -40,7 +40,7 @@ export function SelectAssistantScreen() {
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
-  const hasPlatformAssistants = assistants.some((a) => !a.isLocal);
+  const hasPlatformAssistants = assistants.some((a) => a.isPlatformHosted);
   const showLogin = hasPlatformAssistants && !hasPlatformSession;
 
   const [selected, setSelected] = useState<string | null>(null);
@@ -140,7 +140,7 @@ export function SelectAssistantScreen() {
                 assistant={assistant}
                 selected={selected === assistant.id}
                 disabled={!accessible}
-                badge={!accessible && !assistant.isLocal ? "Requires Account" : undefined}
+                badge={!accessible && assistant.isPlatformHosted ? "Requires Account" : undefined}
                 onSelect={() => {
                   if (accessible) setSelected(assistant.id);
                 }}

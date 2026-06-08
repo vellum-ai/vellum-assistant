@@ -24,8 +24,16 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
   },
 }));
 
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    getState: () => ({}),
+    subscribe: () => () => {},
+  },
+}));
+
 mock.module("@/lib/feature-flags/feature-flag-catalog", () => ({
   ASSISTANT_FLAG_DEFAULTS: { betaThing: false },
+  CLIENT_FLAG_DEFAULTS: {},
   storeKeyToFlagKey: (key: string) => key,
 }));
 

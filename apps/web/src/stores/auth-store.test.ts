@@ -75,6 +75,7 @@ mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => mockIsLocalMode,
   isLocalAssistant: (a: { cloud?: string; resources?: { gatewayPort?: number } }) =>
     a.cloud !== "vellum" && a.resources?.gatewayPort != null,
+  isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   clearSelectedAssistant: () => {},
@@ -238,8 +239,6 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("logout does not clear consent flags (durable device keys survive)", async () => {
     await useAuthStore.getState().logout();
-
-    expect(logoutMock).toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });

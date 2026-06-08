@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,
+  CLIENT_FLAG_DEFAULTS,
   storeKeyToFlagKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { isElectron } from "@/runtime/is-electron";
@@ -19,18 +21,22 @@ import { isElectron } from "@/runtime/is-electron";
  * No-op on non-Electron hosts.
  */
 function writeToMainProcess(): void {
-  const state = useAssistantFeatureFlagStore.getState();
+  const assistantState = useAssistantFeatureFlagStore.getState();
+  const clientState = useClientFeatureFlagStore.getState();
   const flags: Record<string, boolean> = {};
 
   for (const storeKey of Object.keys(ASSISTANT_FLAG_DEFAULTS)) {
-    const value = state[storeKey];
-    if (typeof value !== "boolean") {
-      continue;
-    }
+    const value = assistantState[storeKey];
+    if (typeof value !== "boolean") continue;
     const flagKey = storeKeyToFlagKey(storeKey);
-    if (flagKey) {
-      flags[flagKey] = value;
-    }
+    if (flagKey) flags[flagKey] = value;
+  }
+
+  for (const storeKey of Object.keys(CLIENT_FLAG_DEFAULTS)) {
+    const value = clientState[storeKey];
+    if (typeof value !== "boolean") continue;
+    const flagKey = storeKeyToFlagKey(storeKey);
+    if (flagKey) flags[flagKey] = value;
   }
 
   window.vellum?.featureFlags?.set(flags);
@@ -53,7 +59,11 @@ export function useElectronFeatureFlagBridge(): void {
     writeToMainProcess();
 
     // Re-sync on every store update.
-    const unsub = useAssistantFeatureFlagStore.subscribe(writeToMainProcess);
-    return unsub;
+    const unsubAssistant = useAssistantFeatureFlagStore.subscribe(writeToMainProcess);
+    const unsubClient = useClientFeatureFlagStore.subscribe(writeToMainProcess);
+    return () => {
+      unsubAssistant();
+      unsubClient();
+    };
   }, []);
 }

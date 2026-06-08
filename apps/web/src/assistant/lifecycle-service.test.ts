@@ -60,6 +60,7 @@ const isLocalModeMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
   isLocalAssistant: () => false,
+  isPlatformAssistant: () => false,
   getSelectedAssistant: () => null,
   getLocalGatewayUrl: () => null,
 }));
