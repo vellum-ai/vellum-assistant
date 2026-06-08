@@ -18,6 +18,7 @@ function makeApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
   return {
     name: `App ${overrides.id}`,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
     version: "1.0.0",
     contentId: `content_${overrides.id}`,
     ...overrides,

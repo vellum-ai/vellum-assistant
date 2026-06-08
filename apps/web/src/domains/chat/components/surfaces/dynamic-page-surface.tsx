@@ -169,6 +169,7 @@ export function DynamicPageSurface({
             name: cardName,
             icon: data.preview?.icon,
             createdAt: 0,
+            updatedAt: 0,
             version: "",
             contentId: "",
           })

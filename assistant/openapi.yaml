@@ -480,6 +480,8 @@ paths:
                           type: string
                         createdAt:
                           type: number
+                        updatedAt:
+                          type: number
                         version:
                           type: string
                         contentId:
@@ -488,6 +490,7 @@ paths:
                         - id
                         - name
                         - createdAt
+                        - updatedAt
                         - version
                         - contentId
                       additionalProperties: false

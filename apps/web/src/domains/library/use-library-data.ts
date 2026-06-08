@@ -14,6 +14,17 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 
+/**
+ * Order apps most-recently-touched first. Sorting by `updatedAt` (not
+ * `createdAt`) keeps a freshly edited app at the top and matches the daemon's
+ * own ordering, so updated apps resurface in the Library instead of staying
+ * buried by creation order. `createdAt` breaks ties.
+ */
+const byMostRecentlyUpdated = (
+  a: { updatedAt: number; createdAt: number },
+  b: { updatedAt: number; createdAt: number },
+) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt;
+
 export function useLibraryData(assistantId: string) {
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
 
@@ -45,12 +56,12 @@ export function useLibraryData(assistantId: string) {
   }, [apps, searchText]);
 
   const pinnedApps = useMemo(
-    () => filteredApps.filter((a) => pinnedAppIds.has(a.id)).sort((a, b) => b.createdAt - a.createdAt),
+    () => filteredApps.filter((a) => pinnedAppIds.has(a.id)).sort(byMostRecentlyUpdated),
     [filteredApps, pinnedAppIds],
   );
 
   const recentApps = useMemo(
-    () => filteredApps.filter((a) => !pinnedAppIds.has(a.id)).sort((a, b) => b.createdAt - a.createdAt),
+    () => filteredApps.filter((a) => !pinnedAppIds.has(a.id)).sort(byMostRecentlyUpdated),
     [filteredApps, pinnedAppIds],
   );
 
