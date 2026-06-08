@@ -73,7 +73,7 @@ mock.module("@/lib/threshold-api", () => ({
 // wiring and simulate the provider's onCreated callback firing.
 type QuickAddArgs = {
   existingNames?: string[];
-  onCreated?: (name: string) => void;
+  onCreated?: (name: string, label: string | null) => void;
 };
 const openProfileQuickAdd = mock((_args?: QuickAddArgs) => {});
 mock.module("@/components/profile-quick-add-provider", () => ({
@@ -126,6 +126,7 @@ mock.module("@vellumai/design-library", () => {
 });
 
 const NEW_PROFILE_NAME = "fast-cheap";
+const NEW_PROFILE_LABEL = "Fast & Cheap";
 
 // --- generated SDK -----------------------------------------------------------
 // Mocks are loosely typed (`unknown` args, structural returns) so per-test
@@ -243,7 +244,7 @@ describe("Model Profile quick-add", () => {
     // Simulate the provider persisting a profile and invoking onCreated — the
     // composer must run handleProfileSelect (per-thread override PUT).
     const onCreated = openProfileQuickAdd.mock.calls[0]![0]!.onCreated!;
-    onCreated(NEW_PROFILE_NAME);
+    onCreated(NEW_PROFILE_NAME, NEW_PROFILE_LABEL);
 
     await waitFor(() => {
       expect(inferenceprofilePut).toHaveBeenCalledTimes(1);
@@ -252,9 +253,11 @@ describe("Model Profile quick-add", () => {
       (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile,
     ).toBe(NEW_PROFILE_NAME);
 
-    // The new profile is now reflected locally and renders in the picker.
+    // The new profile is now reflected locally and renders in the picker by
+    // its display-name label (not the slugified key) — the label is handed
+    // through onCreated so the entry shows its Name without a config refetch.
     await waitFor(() => {
-      expect(document.body.textContent).toContain(NEW_PROFILE_NAME);
+      expect(document.body.textContent).toContain(NEW_PROFILE_LABEL);
     });
   });
 
@@ -309,7 +312,7 @@ describe("Model Profile quick-add", () => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
     });
     const onCreated = openProfileQuickAdd.mock.calls[0]![0]!.onCreated!;
-    onCreated(NEW_PROFILE_NAME);
+    onCreated(NEW_PROFILE_NAME, NEW_PROFILE_LABEL);
 
     await waitFor(() => {
       expect(toastError).toHaveBeenCalledWith(

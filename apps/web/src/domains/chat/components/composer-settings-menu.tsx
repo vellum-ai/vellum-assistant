@@ -352,11 +352,14 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           setOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
-            onCreated: (name) => {
+            onCreated: (name, label) => {
               // Reflect the new profile locally so the picker renders it
               // immediately (the daemon-config fetch only re-runs on
-              // assistant/conversation change).
-              setProfileMap((prev) => ({ ...prev, [name]: { label: null } }));
+              // assistant/conversation change). Store the real display-name
+              // label so the entry shows its Name right away; without it the
+              // picker would fall back to the key (`label ?? name`) until the
+              // next config refetch.
+              setProfileMap((prev) => ({ ...prev, [name]: { label } }));
               setProfileOrder((prev) =>
                 prev.includes(name) ? prev : [...prev, name],
               );
