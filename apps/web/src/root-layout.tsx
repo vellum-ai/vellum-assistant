@@ -248,10 +248,12 @@ export function RootLayout() {
         paddingRight:
           "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
         isolation: "isolate",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       <UpdateBanner />
-      <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
+      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>
 
