@@ -13,6 +13,7 @@ import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { lookupAssistantByIdentifier } from "../lib/assistant-config";
 import { checkHealth } from "../lib/health-check";
 import { loadGuardianToken, refreshGuardianToken } from "../lib/guardian-token";
+import { trustedRefreshUrl } from "../lib/runtime-url";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
 import { segmentsToPlainText } from "../lib/segments-to-plain-text";
@@ -193,6 +194,16 @@ function friendlyErrorMessage(status: number, body: string): string {
  * and access-only tokens. Because the TUI threads one shared `auth` object by
  * reference, mutating it here propagates to every later request and the SSE
  * reconnect — no callback threading needed.
+ *
+ * SECURITY: the refresh is bound to the paired entry's persisted runtime URL.
+ * `vellum client` lets `--url`/`-u` override the runtime URL while still using
+ * the selected paired entry's stored guardian token, so a victim pointed at an
+ * attacker-controlled (or poisoned/redirected) URL that returns 401 must NOT
+ * cause us to POST the long-lived refreshToken + deviceId to that origin. We
+ * therefore (a) refuse to refresh unless `baseUrl` normalizes to one of the
+ * entry's persisted URLs, and (b) send the refresh to the persisted URL rather
+ * than the caller-supplied `baseUrl` — defense in depth if the gate is ever
+ * bypassed.
  */
 export async function maybeRefreshAuthHeaders(
   baseUrl: string,
@@ -210,11 +221,18 @@ export async function maybeRefreshAuthHeaders(
     return false;
   }
 
+  // Bind the refresh origin to the persisted paired entry: refuse (and never
+  // leak credentials) if `baseUrl` was overridden via --url or poisoned to an
+  // origin that isn't one of the entry's persisted URLs. `refreshUrl` is the
+  // trusted persisted URL we actually send to.
+  const refreshUrl = trustedRefreshUrl(lookup.entry, baseUrl);
+  if (!refreshUrl) return false;
+
   const stored = loadGuardianToken(assistantId);
   if (!stored || stored.accessToken !== bearer || !stored.refreshToken) {
     return false;
   }
-  const refreshed = await refreshGuardianToken(baseUrl, assistantId);
+  const refreshed = await refreshGuardianToken(refreshUrl, assistantId);
   if (!refreshed?.accessToken) return false;
   auth["Authorization"] = `Bearer ${refreshed.accessToken}`;
   return true;
