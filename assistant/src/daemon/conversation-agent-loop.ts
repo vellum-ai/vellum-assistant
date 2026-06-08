@@ -1212,7 +1212,6 @@ export async function runAgentLoopImpl(
           resolveOverrideProfile: resolveCurrentOverrideProfile,
           resolveContextWindow,
           compactInPlace,
-          compactBeforeFirstCall: compactInPlace,
           isNonInteractive,
           modelProfile: modelProfileStr,
           actorContext,
