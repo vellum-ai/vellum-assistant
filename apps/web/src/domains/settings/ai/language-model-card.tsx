@@ -1,9 +1,12 @@
-import { Loader2 } from "lucide-react";
+import { ChevronRight, Loader2, Plus, Settings } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+
+import { useQuery } from "@tanstack/react-query";
 
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -18,8 +21,10 @@ import {
     profilePickerLabel,
     visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
+import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
 export function LanguageModelCard() {
   const {
@@ -32,13 +37,14 @@ export function LanguageModelCard() {
 
   const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(activeProfile);
 
-  // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
+  const openAICompatibleEndpoints =
+    useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
 
   const defaultProfilePickerEntries = useMemo(
     () =>
@@ -49,11 +55,34 @@ export function LanguageModelCard() {
     [orderedProfiles, effectiveActiveProfile, queryComplexityRoutingEnabled],
   );
 
+  // Provider connections — fetched inline for counts
+  const { data: connectionsData } = useQuery({
+    ...inferenceProviderconnectionsGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: !!assistantId,
+    staleTime: 60_000,
+  });
+  const connections = useMemo(
+    () => filterFlaggedConnections(connectionsData?.connections ?? [], openAICompatibleEndpoints),
+    [connectionsData, openAICompatibleEndpoints],
+  );
+
+  const managedConnectionCount = connections.filter((c) => c.isManaged).length;
+  const ownConnectionCount = connections.filter((c) => !c.isManaged).length;
+
+  const managedProfileCount = orderedProfiles.filter(
+    (p) => p.source === "managed" && p.name !== AUTO_PROFILE_NAME,
+  ).length;
+  const ownProfileCount = orderedProfiles.filter(
+    (p) => p.source !== "managed" && p.name !== AUTO_PROFILE_NAME,
+  ).length;
+
   const overrideCount = Object.entries(callSites).filter(
     ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
-  const overrideLabel =
-    overrideCount === 1 ? "1 Override" : overrideCount > 0 ? `${overrideCount} Overrides` : "Overrides";
+  const totalCallSiteCount = Object.keys(callSites).filter((id) => id !== "mainAgent").length;
+
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
 
   const handleManagedProfileSave = useCallback(async () => {
@@ -69,8 +98,8 @@ export function LanguageModelCard() {
   return (
     <>
       <ByoServiceCard
-        title="Language Model"
-        subtitle="Configure the LLMs that power your assistant"
+        title="Model Profiles"
+        subtitle="Configure the base LLMs which power your assistants."
       >
         <div className="space-y-4">
           <div className="space-y-1">
@@ -104,34 +133,61 @@ export function LanguageModelCard() {
                 as="p"
                 className="mt-1 text-(--content-tertiary)"
               >
-                No profiles yet. Click Profiles below to create one.
+                No profiles yet. Open Advanced Options to create one.
               </Typography>
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setManageProvidersOpen(true)}
-            >
-              Providers
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setManageProfilesOpen(true)}
-            >
-              Profiles
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setOverridesOpen(true)}
-            >
-              {overrideLabel}
-            </Button>
-          </div>
+          <Collapsible.Root type="single" collapsible>
+            <Collapsible.Item value="advanced">
+              <Collapsible.Trigger className="group gap-2 rounded-md py-2">
+                <Settings className="h-4 w-4 text-[var(--content-tertiary)]" />
+                <span className="text-body-medium-default text-[var(--content-secondary)]">
+                  Advanced Options
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-[var(--content-tertiary)] transition-transform duration-200 group-data-[state=open]:rotate-90" />
+              </Collapsible.Trigger>
+              <Collapsible.Content>
+                <p className="mb-4 text-body-small-default text-[var(--content-disabled)]">
+                  Define custom model APIs, create and edit Profiles and manage overrides.
+                </p>
+                <div className="space-y-1">
+                  <AdvancedRow
+                    label="Provider Connections"
+                    description="Configure your own API keys & view Vellum managed options"
+                    counts={
+                      connections.length > 0
+                        ? { managed: managedConnectionCount, own: ownConnectionCount }
+                        : undefined
+                    }
+                    onAdd={() => setManageProvidersOpen(true)}
+                    onManage={() => setManageProvidersOpen(true)}
+                  />
+                  <AdvancedRow
+                    label="Profiles"
+                    description="View and manage assistant usage profiles"
+                    counts={
+                      orderedProfiles.length > 0
+                        ? { managed: managedProfileCount, own: ownProfileCount }
+                        : undefined
+                    }
+                    onAdd={() => setManageProfilesOpen(true)}
+                    onManage={() => setManageProfilesOpen(true)}
+                  />
+                  <AdvancedRow
+                    label="Overrides"
+                    description="Assign specific profiles or provider/model combinations"
+                    overrideSummary={
+                      totalCallSiteCount > 0
+                        ? `${overrideCount}/${totalCallSiteCount} overrides`
+                        : undefined
+                    }
+                    onManage={() => setOverridesOpen(true)}
+                  />
+                </div>
+              </Collapsible.Content>
+            </Collapsible.Item>
+          </Collapsible.Root>
 
           {isProfileDirty && (
             <div className="flex items-center gap-2">
@@ -168,5 +224,74 @@ export function LanguageModelCard() {
         />
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AdvancedRow — a single row inside the Advanced Options collapsible
+// ---------------------------------------------------------------------------
+
+interface AdvancedRowProps {
+  label: string;
+  description: string;
+  counts?: { managed: number; own: number };
+  overrideSummary?: string;
+  onAdd?: () => void;
+  onManage: () => void;
+}
+
+function AdvancedRow({ label, description, counts, overrideSummary, onAdd, onManage }: AdvancedRowProps) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg px-1 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-body-medium-default text-[var(--content-default)]">{label}</div>
+        <div className="text-body-small-default text-[var(--content-tertiary)]">{description}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {counts && (
+          <div className="flex items-center gap-1.5 text-body-small-default">
+            {counts.managed > 0 && (
+              <span className="rounded bg-[var(--surface-active)] px-1.5 py-0.5 text-[var(--content-secondary)]">
+                {counts.managed} Managed
+              </span>
+            )}
+            {counts.own > 0 && (
+              <span className="rounded bg-[var(--system-positive-weak)] px-1.5 py-0.5 text-[var(--system-positive-strong)]">
+                {counts.own} Own
+              </span>
+            )}
+          </div>
+        )}
+        {overrideSummary && (
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            {overrideSummary}
+          </span>
+        )}
+        {onAdd && (
+          <Button
+            variant="ghost"
+            size="compact"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+            aria-label={`Add ${label.toLowerCase()}`}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="compact"
+          onClick={(e) => {
+            e.stopPropagation();
+            onManage();
+          }}
+          aria-label={`Manage ${label.toLowerCase()}`}
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
   );
 }
