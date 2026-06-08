@@ -254,10 +254,51 @@ function releaseRefreshLock(lockPath: string): void {
  * process already rotated it while we waited, we return that fresh token
  * instead of replaying our now-stale refresh token.
  */
+/**
+ * The guardian refresh token is long-lived and replayable, so we only transmit
+ * it over a confidential channel: HTTPS, or a loopback host (local dev, or a
+ * same-host reverse proxy / tunnel agent). Refreshing against a non-loopback
+ * plaintext `http://` URL is refused — an on-path attacker could otherwise
+ * capture the refresh token and rotate it into fresh credentials.
+ *
+ * A user-chosen malicious `https://` destination is intentionally out of scope:
+ * HTTPS protects the channel, and the access token already goes wherever the
+ * configured URL points. This guard targets the plaintext-interception vector.
+ */
+function isLoopbackHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "::1" ||
+    h === "[::1]" ||
+    h === "0:0:0:0:0:0:0:1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(h)
+  );
+}
+
+function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
+  try {
+    const url = new URL(gatewayUrl);
+    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function refreshGuardianToken(
   gatewayUrl: string,
   assistantId: string,
 ): Promise<GuardianTokenData | null> {
+  // Never send the long-lived refresh token over a non-loopback plaintext URL.
+  if (!isConfidentialRefreshUrl(gatewayUrl)) {
+    console.warn(
+      `Refusing to refresh the guardian token over an insecure URL (${gatewayUrl}). ` +
+        "The refresh token is only sent over https or a loopback address — " +
+        "use an https URL (e.g. a tunnel) or connect over loopback.",
+    );
+    return null;
+  }
+
   const before = loadGuardianToken(assistantId);
   if (!before) return null;
 
