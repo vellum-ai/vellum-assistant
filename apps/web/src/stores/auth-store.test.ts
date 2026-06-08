@@ -230,11 +230,11 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
   });
 
-  test("logout clears onboarding flags directly", async () => {
+  test("logout preserves onboarding flags for same-user re-login", async () => {
     await useAuthStore.getState().logout();
 
     expect(logoutMock).toHaveBeenCalled();
-    expect(clearOnboardingFlagsMock).toHaveBeenCalled();
+    expect(clearOnboardingFlagsMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });
