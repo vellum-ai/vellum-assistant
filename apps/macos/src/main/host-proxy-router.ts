@@ -17,6 +17,8 @@ import type { Lockfile } from "@vellumai/local-mode/contract";
 
 import { HostProxySseClient, type HostProxySseMessage } from "./host-proxy-sse";
 import { HostProxyPoster } from "./host-proxy-poster";
+import { hostFileExecutor } from "./executors/host-file-executor";
+import { hostTransferExecutor } from "./executors/host-transfer-executor";
 import { onLockfileChange } from "./lockfile-watcher";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
 import log from "./logger";
@@ -239,6 +241,8 @@ export function installHostProxyBridge(
   cliResolver: () => Promise<CliInvocation>,
 ): () => void {
   resolveCliInvocation = cliResolver;
+  setExecutor("host_file", hostFileExecutor);
+  setExecutor("host_transfer", hostTransferExecutor);
   unsubscribe = onLockfileChange(handleLockfileChange);
 
   // Register built-in executors
