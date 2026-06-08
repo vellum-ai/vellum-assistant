@@ -17,7 +17,7 @@ import {
     AttachFileButton,
     ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import type { ChatAttachment } from "@/domains/chat/composer-store";
+import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
@@ -385,7 +385,16 @@ export function ChatComposer({
                   }
                   if (files.length > 0) {
                     e.preventDefault();
-                    onAddAttachmentFiles(files);
+                    const allowed = modelSupportsVision
+                      ? files
+                      : files.filter((f) => !f.type.startsWith("image/"));
+                    if (allowed.length < files.length) {
+                      useComposerStore.setState({
+                        attachmentLastError:
+                          "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
+                      });
+                    }
+                    if (allowed.length > 0) onAddAttachmentFiles(allowed);
                   }
                 }}
                 onKeyDown={(e) => {

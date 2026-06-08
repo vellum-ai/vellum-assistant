@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 import { estimatePromptTokens } from "../context/token-estimator.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowResult,
-} from "../context/window-manager.js";
-import { createContextSummaryMessage } from "../context/window-manager.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerConfig,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
+import type {
+  ContextWindowCompactOptions,
+  ContextWindowResult,
+} from "../plugins/defaults/compaction/window-manager.js";
+import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message } from "../providers/types.js";
 
 function msg(role: "user" | "assistant", text: string): Message {

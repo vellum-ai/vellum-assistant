@@ -12,8 +12,8 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ let mockCompactResult: ContextWindowResult = {
   summaryText: "",
 };
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     nonPersistedPrefixCount = 0;
     constructor() {}

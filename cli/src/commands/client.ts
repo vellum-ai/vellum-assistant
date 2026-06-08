@@ -43,6 +43,7 @@ import {
   type CliInvocation,
 } from "@vellumai/local-mode";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import { parseFeatureFlagArgs, readAmbientFlagEnvVars } from "../lib/flag-args";
 import {
   fetchOrganizationId,
   fetchPlatformAssistants,
@@ -76,6 +77,10 @@ interface ParsedArgs {
   bearerToken?: string;
   /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
   interfaceId: SupportedInterface;
+  /** VELLUM_FLAG_* env vars for the gateway (process.env propagation). */
+  flagEnvVars: Record<string, string>;
+  /** Parsed --flag overrides: kebab-case key -> typed value (for web injection). */
+  parsedFlagOverrides: Record<string, boolean | string>;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -87,7 +92,26 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
 
 // Exported for unit testing the arg/auth resolution without launching the TUI.
 export function parseArgs(): ParsedArgs {
-  const args = process.argv.slice(3);
+  const { envVars: cliFlagVars, remaining: argsWithoutFlags } =
+    parseFeatureFlagArgs(process.argv.slice(3));
+  const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
+  const args = argsWithoutFlags;
+
+  // Build parsedFlagOverrides from the extracted env vars:
+  // VELLUM_FLAG_UPPER_SNAKE -> kebab-case key with typed value.
+  const parsedFlagOverrides: Record<string, boolean | string> = {};
+  for (const [envName, rawValue] of Object.entries(flagEnvVars)) {
+    const snake = envName.replace(/^VELLUM_FLAG_/, "");
+    const kebab = snake.toLowerCase().replace(/_/g, "-");
+    const lower = rawValue.toLowerCase();
+    if (["true", "1", "yes", "on"].includes(lower)) {
+      parsedFlagOverrides[kebab] = true;
+    } else if (["false", "0", "no", "off"].includes(lower)) {
+      parsedFlagOverrides[kebab] = false;
+    } else {
+      parsedFlagOverrides[kebab] = rawValue;
+    }
+  }
 
   const positionalName = parseAssistantTargetArg(args, [
     "--url",
@@ -222,6 +246,8 @@ export function parseArgs(): ParsedArgs {
     platformToken,
     bearerToken,
     interfaceId,
+    flagEnvVars,
+    parsedFlagOverrides,
   };
 }
 
@@ -241,6 +267,7 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
                               not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
+    --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -250,12 +277,14 @@ ${ANSI.bold}DEFAULTS:${ANSI.reset}
 ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client
     vellum client vellum-assistant-foo
-    vellum client --url http://34.56.78.90:${GATEWAY_PORT}
+    # Remote assistants must be reached over https (e.g. a tunnel) — the
+    # guardian refresh token is only sent over https or a loopback address:
+    vellum client --url https://your-tunnel.example
     vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
 
     # Ephemeral: connect to another machine's assistant with a paired token
     # (no lockfile entry, nothing persisted):
-    vellum client --url http://10.0.0.196:${GATEWAY_PORT} --token <jwt>
+    vellum client --url https://your-tunnel.example --token <jwt>
 `);
 }
 
@@ -616,12 +645,18 @@ function getBaseDir(): string {
   return path.resolve(import.meta.dir, "..", "..", "..");
 }
 
-async function runWebInterface(): Promise<void> {
+async function runWebInterface(
+  flagEnvVars: Record<string, string>,
+  parsedFlagOverrides: Record<string, boolean | string>,
+): Promise<void> {
+  // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
+  Object.assign(process.env, flagEnvVars);
+
   // Prefer Vite dev server in source checkouts for full local-mode support
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
   if (webSourceDir) {
-    return runViteDevServer(webSourceDir);
+    return runViteDevServer(webSourceDir, flagEnvVars);
   }
 
   const distDir = findWebDistDir();
@@ -638,10 +673,16 @@ async function runWebInterface(): Promise<void> {
   const rawIndexHtml = await Bun.file(path.join(distDir, "index.html")).text();
   const platformUrl = getPlatformUrl();
   const webUrl = getWebUrl();
-  const configJson = JSON.stringify({ webUrl, platformUrl });
+  const safeJson = (v: unknown) =>
+    JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+  const configJson = safeJson({ webUrl, platformUrl });
+  const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
+  const flagOverridesSnippet = hasOverrides
+    ? `;window.__VELLUM_FLAG_OVERRIDES__=${safeJson(parsedFlagOverrides)}`
+    : "";
   const indexHtml = rawIndexHtml.replace(
     "</head>",
-    `<script>window.__VELLUM_CONFIG__=${configJson}</script></head>`,
+    `<script>window.__VELLUM_CONFIG__=${configJson}${flagOverridesSnippet}</script></head>`,
   );
 
   const server = Bun.serve({
@@ -766,14 +807,25 @@ async function runWebInterface(): Promise<void> {
   await new Promise(() => {});
 }
 
-async function runViteDevServer(webSourceDir: string): Promise<void> {
+async function runViteDevServer(
+  webSourceDir: string,
+  flagEnvVars: Record<string, string>,
+): Promise<void> {
   const platformUrl = getPlatformUrl();
+
+  // Build VITE_VELLUM_FLAG_* vars so Vite exposes them to the browser bundle.
+  const viteFlagVars: Record<string, string> = {};
+  for (const [envName, value] of Object.entries(flagEnvVars)) {
+    viteFlagVars[`VITE_${envName}`] = value;
+  }
 
   const child = spawn("bun", ["run", "dev"], {
     cwd: webSourceDir,
     stdio: "inherit",
     env: {
       ...process.env,
+      ...flagEnvVars,
+      ...viteFlagVars,
       VITE_PLATFORM_MODE: "false",
       API_PROXY_TARGET: platformUrl,
       VELLUM_WEB_URL: getWebUrl(),
@@ -854,10 +906,12 @@ export async function client(): Promise<void> {
     platformToken,
     bearerToken,
     interfaceId,
+    flagEnvVars,
+    parsedFlagOverrides,
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    await runWebInterface();
+    await runWebInterface(flagEnvVars, parsedFlagOverrides);
     return;
   }
 

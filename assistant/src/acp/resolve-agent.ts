@@ -3,15 +3,13 @@
  *
  * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
- * `claude` and `codex` Just Work whenever ACP is enabled (the `acp` feature
- * flag or `acp.enabled: true`; see `feature-gate.ts`), with no per-user
- * config required. Natural names ("claude code", "Gemini CLI") resolve via
- * `AGENT_ID_ALIASES` when the raw id misses both maps. The result is a
- * discriminated union covering every reason
- * a spawn might fail before we even start the agent process: ACP disabled,
- * unknown agent id, or binary missing from PATH. Callers (acp_spawn,
- * acp_list_agents, and the `/v1/acp/spawn` HTTP route) get a single source
- * of truth and matching actionable hints.
+ * `claude` and `codex` Just Work with no per-user config required. Natural
+ * names ("claude code", "Gemini CLI") resolve via `AGENT_ID_ALIASES` when the
+ * raw id misses both maps. The result is a discriminated union covering every
+ * reason a spawn might fail before we even start the agent process: unknown
+ * agent id, or binary missing from PATH. Callers (acp_spawn, acp_list_agents,
+ * and the `/v1/acp/spawn` HTTP route) get a single source of truth and
+ * matching actionable hints.
  *
  * The resolver NEVER fetches or runs packages in the (untrusted) task cwd.
  * When the adapter binary is missing, resolution simply fails with
@@ -33,7 +31,6 @@ import {
 } from "../config/acp-defaults.js";
 import type { AcpAgentConfig } from "../config/acp-schema.js";
 import { getConfig } from "../config/loader.js";
-import { isAcpEnabled } from "./feature-gate.js";
 
 /**
  * Whether this agent's entry came from user config (wins over default) or
@@ -47,7 +44,6 @@ export type ResolveAcpAgentResult =
   | ResolveAcpAgentFailure;
 
 export type ResolveAcpAgentFailure =
-  | { ok: false; reason: "acp_disabled"; hint: string }
   | { ok: false; reason: "unknown_agent"; available: string[] }
   | {
       ok: false;
@@ -68,8 +64,6 @@ export function formatResolveFailure(
   failure: ResolveAcpAgentFailure,
 ): string {
   switch (failure.reason) {
-    case "acp_disabled":
-      return failure.hint;
     case "unknown_agent":
       return `Unknown agent "${agentId}". Available: ${failure.available.join(", ")}.`;
     case "binary_not_found":
@@ -92,14 +86,6 @@ interface AcpAgentEntry {
   unavailableReason?: string;
   setupHint?: string;
 }
-
-/**
- * Single-source-of-truth hint for "ACP is disabled". Exported so any caller
- * that surfaces a disabled-state message (resolver, list-agents tool) reads
- * the same string instead of duplicating near-identical copy.
- */
-export const ACP_DISABLED_HINT =
-  "Enable the \"ACP Coding Agents\" feature flag in the client's feature flags UI (or set 'acp.enabled': true in ~/.vellum/workspace/config.json).";
 
 function installHintFor(command: string): string {
   const pkg = DEFAULT_AGENT_NPM_PACKAGES[command];
@@ -209,9 +195,8 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  * Resolve an ACP agent id to its config + binary preflight result.
  *
  * Order of checks:
- * 1. ACP must be enabled (feature flag or config; see `isAcpEnabled`).
- * 2. The id must resolve to an agent (user config wins; falls back to defaults).
- * 3. The agent must be runnable: its `command` on PATH (see
+ * 1. The id must resolve to an agent (user config wins; falls back to defaults).
+ * 2. The agent must be runnable: its `command` on PATH (see
  *    `resolveRunnableAgent`).
  *
  * Each failure mode carries an actionable hint so callers can surface a
@@ -219,10 +204,6 @@ function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
  */
 export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
   const config = getConfig();
-  if (!isAcpEnabled(config)) {
-    return { ok: false, reason: "acp_disabled", hint: ACP_DISABLED_HINT };
-  }
-
   const userAgents = config.acp.agents;
   const found = lookupAgent(userAgents, id);
   if (!found) {
@@ -252,20 +233,11 @@ export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
  * plus any user-only entries — with per-entry availability info. Used by the
  * `acp_list_agents` tool to render setup steps when an agent's binary isn't
  * installed yet.
- *
- * `enabled: false` short-circuits and returns an empty catalog so the tool
- * can render a single "ACP is disabled" hint instead of advertising agents
- * the user can't actually run.
  */
 export function listAcpAgents(): {
-  enabled: boolean;
   agents: AcpAgentEntry[];
 } {
   const config = getConfig();
-  if (!isAcpEnabled(config)) {
-    return { enabled: false, agents: [] };
-  }
-
   const userAgents = config.acp.agents;
   const agents: AcpAgentEntry[] = mergedAgentIds(userAgents).map((id) => {
     // Non-null: ids come from `mergedAgentIds` so the lookup always resolves.
@@ -288,5 +260,5 @@ export function listAcpAgents(): {
     return entry;
   });
 
-  return { enabled: true, agents };
+  return { agents };
 }

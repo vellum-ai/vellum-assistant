@@ -460,10 +460,13 @@ describe("resolveNavigation", () => {
       ).toBe("/assistant/onboarding/hosting");
     });
 
-    test("returns the same path for non-welcome pages", () => {
+    test("appends fromLogin param when logging in from select-assistant", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/select-assistant"),
-      ).toBe("/assistant/onboarding/select-assistant");
+      ).toBe("/assistant/onboarding/select-assistant?fromLogin=1");
+    });
+
+    test("returns the same path for other non-welcome pages", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
       ).toBe("/assistant/onboarding/hosting");

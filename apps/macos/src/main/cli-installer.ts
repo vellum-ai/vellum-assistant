@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { spawn } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -67,14 +68,37 @@ export function buildInstallEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function bunAdd(pkg: string): Promise<void> {
+/**
+ * Seed the install directory with the package.json and bun.lock shipped in
+ * the signed app bundle.  When present, the subsequent `bun install
+ * --frozen-lockfile` uses the exact dependency graph that was resolved at
+ * build time rather than resolving from the live registry.
+ */
+function seedCliLockfile(installDir: string): boolean {
+  const seedDir = path.join(process.resourcesPath, "cli-lockfile");
+  const seedPkg = path.join(seedDir, "package.json");
+  const seedLock = path.join(seedDir, "bun.lock");
+
+  if (!existsSync(seedPkg) || !existsSync(seedLock)) return false;
+
+  copyFileSync(seedPkg, path.join(installDir, "package.json"));
+  copyFileSync(seedLock, path.join(installDir, "bun.lock"));
+  return true;
+}
+
+function bunInstallCli(): Promise<void> {
   const installDir = getCliInstallDir();
   mkdirSync(installDir, { recursive: true });
 
   const bunPath = getBundledBunPath();
+  const seeded = seedCliLockfile(installDir);
+
+  const args = seeded
+    ? ["install", "--frozen-lockfile", "--ignore-scripts"]
+    : ["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"];
 
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(bunPath, ["add", `${pkg}@${PINNED_CLI_VERSION}`], {
+    const child = spawn(bunPath, args, {
       cwd: installDir,
       env: buildInstallEnv(),
     });
@@ -124,10 +148,9 @@ export function _resetInstallLock(): void {
 /**
  * Install the pinned vellum meta-package if it isn't already present.
  *
- * Uses the bundled bun runtime to `bun add vellum@<version>` into the
- * per-version install directory. The meta-package brings the full local
- * stack (daemon, gateway, credential-executor, web). After a successful
- * install, stale versions are cleaned up.
+ * Packaged builds ship a pre-resolved lockfile so `bun install
+ * --frozen-lockfile` pins the exact dependency graph from build time;
+ * lifecycle scripts are always suppressed via `--ignore-scripts`.
  */
 export async function ensureCliInstalled(): Promise<void> {
   if (isCliInstalled()) return;
@@ -135,7 +158,7 @@ export async function ensureCliInstalled(): Promise<void> {
   if (cliInstallPromise) return cliInstallPromise;
 
   cliInstallPromise = (async () => {
-    await bunAdd("vellum");
+    await bunInstallCli();
     cleanupOldVersions();
   })();
 

@@ -18,7 +18,6 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -28,6 +27,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";

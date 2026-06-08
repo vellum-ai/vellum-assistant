@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +29,35 @@ mock.module("../../../providers/speech-to-text/resolve.js", () => ({
     if (mockResolveError) throw mockResolveError;
     return mockTranscriber;
   },
+}));
+
+// -- Spawn mock (ffmpeg/ffprobe) for the file-transcription path ------------
+
+type SpawnResult = { exitCode: number; stdout: string; stderr: string };
+let spawnOverride: ((args: string[]) => SpawnResult) | null = null;
+
+/**
+ * Default spawn behavior: ffmpeg writes the requested output file so the
+ * downstream readFile succeeds, ffprobe reports a short duration.
+ */
+function defaultSpawn(args: string[]): SpawnResult {
+  if (args[0] === "ffmpeg") {
+    const outputPath = args[args.length - 1];
+    writeFileSync(outputPath, Buffer.from("fake-wav-bytes"));
+    return { exitCode: 0, stdout: "", stderr: "" };
+  }
+  if (args[0] === "ffprobe") {
+    return { exitCode: 0, stdout: "1.0", stderr: "" };
+  }
+  return { exitCode: 0, stdout: "", stderr: "" };
+}
+
+mock.module("../../../util/spawn.js", () => ({
+  FFMPEG_TRANSCODE_TIMEOUT_MS: 60_000,
+  FFPROBE_TIMEOUT_MS: 10_000,
+  STT_REQUEST_TIMEOUT_MS: 300_000,
+  spawnWithTimeout: async (args: string[]) =>
+    (spawnOverride ?? defaultSpawn)(args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -86,6 +120,7 @@ const fakeTranscriber: BatchTranscriber = {
 beforeEach(() => {
   mockTranscriber = fakeTranscriber;
   mockResolveError = null;
+  spawnOverride = null;
 });
 
 afterEach(() => {
@@ -365,5 +400,82 @@ describe("stt-routes", () => {
       502,
       "BAD_GATEWAY",
     );
+  });
+
+  // -- File transcription: provider error categorization --------------------
+
+  async function withTempAudioFile(
+    run: (filePath: string) => Promise<void>,
+  ): Promise<void> {
+    const filePath = join(tmpdir(), `vellum-stt-test-${randomUUID()}.wav`);
+    await writeFile(filePath, Buffer.from("fake-audio"));
+    try {
+      await run(filePath);
+    } finally {
+      await unlink(filePath).catch(() => {});
+    }
+  }
+
+  test("transcribe-file maps provider auth failures (403) to 401", async () => {
+    // Reproduces JARVIS-994: a raw Gemini 403 denial must surface as an
+    // actionable 401, not a generic 502, and must not be treated as a
+    // daemon-level error.
+    mockTranscriber = {
+      providerId: "google-gemini",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        throw new Error(
+          'Google Gemini API error (403): {"error":{"code":403,"message":"Your project has been denied access. Please contact support.","status":"PERMISSION_DENIED"}}',
+        );
+      },
+    };
+
+    await withTempAudioFile(async (filePath) => {
+      const { handler } = getRoute("stt/transcribe-file");
+      const err = await expectRouteError(
+        () => handler(makeArgs({ filePath })),
+        401,
+        "UNAUTHORIZED",
+      );
+      expect(err.message).toContain("credentials");
+    });
+  });
+
+  test("transcribe-file maps generic provider failures to 502", async () => {
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        throw new Error("upstream kaboom");
+      },
+    };
+
+    await withTempAudioFile(async (filePath) => {
+      const { handler } = getRoute("stt/transcribe-file");
+      await expectRouteError(
+        () => handler(makeArgs({ filePath })),
+        502,
+        "BAD_GATEWAY",
+      );
+    });
+  });
+
+  test("transcribe-file maps ffmpeg failures to 502 even when stderr contains a status-like number", async () => {
+    // Guards against ffmpeg stderr (or a user-supplied path) deciding the HTTP
+    // category: a conversion failure whose message contains "403" must stay a
+    // 502 conversion error, not become a misleading 401 auth error.
+    spawnOverride = (args) =>
+      args[0] === "ffmpeg"
+        ? { exitCode: 1, stdout: "", stderr: "Error opening /tmp/403/clip.wav" }
+        : { exitCode: 0, stdout: "1.0", stderr: "" };
+
+    await withTempAudioFile(async (filePath) => {
+      const { handler } = getRoute("stt/transcribe-file");
+      await expectRouteError(
+        () => handler(makeArgs({ filePath })),
+        502,
+        "BAD_GATEWAY",
+      );
+    });
   });
 });

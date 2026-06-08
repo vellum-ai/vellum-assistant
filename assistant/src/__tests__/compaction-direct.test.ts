@@ -3,19 +3,29 @@
  *
  * The agent loop calls {@link defaultCompact} directly with a
  * {@link CompactionContext} rather than routing through a middleware pipeline.
- * These tests assert that the default implementation delegates to the
- * supplied {@link ContextWindowManager} and forwards the request's
- * conversational options verbatim. The orchestrator integration path
- * (conversation-agent-loop) is exercised by
+ * These tests assert that the default implementation resolves the
+ * conversation's {@link ContextWindowManager} from the compaction store and
+ * forwards the request's conversational options verbatim. The orchestrator
+ * integration path (conversation-agent-loop) is exercised by
  * `conversation-agent-loop-overflow.test.ts`.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import {
-  type CompactionContext,
-  defaultCompact,
-} from "../plugins/defaults/compaction/compact.js";
+// `defaultCompact` resolves the manager from the per-conversation compaction
+// store. Register each test's canned stub in a map the mocked store reads from.
+const fakeContextWindowManagers = new Map<string, unknown>();
+mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
+  createContextWindowManager: () => undefined,
+  getContextWindowManager: (conversationId: string) =>
+    fakeContextWindowManagers.get(conversationId),
+  disposeContextWindowManager: (conversationId: string) => {
+    fakeContextWindowManagers.delete(conversationId);
+  },
+}));
+
+const { defaultCompact } =
+  await import("../plugins/defaults/compaction/compact.js");
 
 type ContextWindowResultShape = {
   compacted: boolean;
@@ -55,13 +65,17 @@ function makeResult(
   };
 }
 
-function makeManager(result: ContextWindowResultShape) {
+/** Register a stub manager under a conversation id and return its recorder. */
+function registerManager(
+  conversationId: string,
+  result: ContextWindowResultShape,
+) {
   const observed: {
     messages: unknown;
     signal: unknown;
     options: unknown;
   }[] = [];
-  const manager = {
+  fakeContextWindowManagers.set(conversationId, {
     maybeCompact: async (
       messages: unknown,
       signal: unknown,
@@ -70,8 +84,8 @@ function makeManager(result: ContextWindowResultShape) {
       observed.push({ messages, signal, options });
       return result;
     },
-  } as unknown as CompactionContext["manager"];
-  return { manager, observed };
+  });
+  return observed;
 }
 
 describe("defaultCompact", () => {
@@ -81,13 +95,13 @@ describe("defaultCompact", () => {
       summaryText: "manager-summary",
       compactedMessages: 7,
     });
-    const { manager, observed } = makeManager(expected);
+    const observed = registerManager("conv-delegates", expected);
     const messages = [{ role: "user", content: "hi" }] as never;
     const signal = new AbortController().signal;
 
     // WHEN defaultCompact runs with those messages and a signal
     const result = (await defaultCompact({
-      manager,
+      conversationId: "conv-delegates",
       messages,
       signal,
     })) as unknown as ContextWindowResultShape;
@@ -105,11 +119,11 @@ describe("defaultCompact", () => {
 
   test("forwards the request's compaction options to the manager", async () => {
     // GIVEN a manager and a fully-populated compaction context
-    const { manager, observed } = makeManager(makeResult());
+    const observed = registerManager("conv-options", makeResult());
 
     // WHEN defaultCompact runs with force/profile/trust options
     await defaultCompact({
-      manager,
+      conversationId: "conv-options",
       messages: [] as never,
       force: true,
       overrideProfile: "fast-profile",
@@ -118,7 +132,7 @@ describe("defaultCompact", () => {
       actorTrustClass: "guardian",
     });
 
-    // THEN the manager received exactly those options, and the manager,
+    // THEN the manager received exactly those options, and the conversation id,
     // messages, and signal are not leaked into the options bag
     expect(observed).toHaveLength(1);
     expect(observed[0]!.options).toEqual({

@@ -14,7 +14,10 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { persistUnsendableImageDowngrades } from "../daemon/persist-unsendable-image.js";
+import {
+  oversizedImageReplacement,
+  persistUnsendableImageDowngrades,
+} from "../daemon/persist-unsendable-image.js";
 import {
   addMessage,
   createConversation,
@@ -84,6 +87,20 @@ function imageBlock(data: string): ContentBlock {
   return {
     type: "image",
     source: { type: "base64", media_type: "image/png", data },
+  };
+}
+
+/**
+ * A tool_result carrying a nested image in its contentBlocks, mirroring what a
+ * browser screenshot produces. This is the JARVIS-1041 shape: the oversized
+ * image lives at tool_result.contentBlocks, never as a top-level block.
+ */
+function toolResultWithImage(data: string): ContentBlock {
+  return {
+    type: "tool_result",
+    tool_use_id: "toolu_123",
+    content: "Screenshot captured",
+    contentBlocks: [imageBlock(data)],
   };
 }
 
@@ -194,6 +211,61 @@ describe("persistUnsendableImageDowngrades", () => {
     expect(content.some((b) => b.type === "image")).toBe(false);
   });
 
+  /** JARVIS-1041: the oversized image is nested inside a tool_result (e.g. a
+   *  browser screenshot), not a top-level block. The downgrade must descend
+   *  into tool_result.contentBlocks and swap the nested image for a note, while
+   *  keeping the tool_result itself intact so tool_use/tool_result pairing
+   *  survives. */
+  test("downgrades an oversized image nested in tool_result.contentBlocks", async () => {
+    // GIVEN an assistant turn whose tool_result holds an oversized screenshot
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([toolResultWithImage(makePngBase64(12000, 9000))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the message is rewritten with the nested image swapped for a note
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    const toolResult = content.find((b) => b.type === "tool_result");
+    expect(toolResult).toBeDefined();
+    // AND the tool_result is preserved (pairing intact) with no image left
+    const nested = (toolResult as { contentBlocks?: ContentBlock[] })
+      .contentBlocks;
+    expect(nested?.some((b) => b.type === "image")).toBe(false);
+    expect(nested?.some((b) => b.type === "text")).toBe(true);
+  });
+
+  /** A sendable nested screenshot is never disturbed. */
+  test("leaves a normally-sized tool_result image untouched", async () => {
+    // GIVEN a tool_result with an image well within provider limits
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([toolResultWithImage(makePngBase64(1024, 768))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN nothing is rewritten and the nested image remains
+    expect(rewritten).toBe(0);
+    const [content] = storedContent(conv.id);
+    const toolResult = content.find((b) => b.type === "tool_result") as {
+      contentBlocks?: ContentBlock[];
+    };
+    expect(toolResult.contentBlocks?.some((b) => b.type === "image")).toBe(
+      true,
+    );
+  });
+
   /** Re-running after a rewrite is a safe no-op (no image blocks remain). */
   test("is idempotent — a second run rewrites nothing", async () => {
     // GIVEN a conversation whose oversized image has already been downgraded
@@ -211,5 +283,29 @@ describe("persistUnsendableImageDowngrades", () => {
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);
+  });
+});
+
+describe("oversizedImageReplacement", () => {
+  /** A still-sendable image must be left alone — never replaced with a note.
+   *  This is the gate that keeps the in-memory recovery from discarding valid
+   *  screenshots when only one image in the turn was actually oversized. */
+  test("returns null for an image within the provider caps", () => {
+    const sendable = imageBlock(makePngBase64(1024, 768)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(oversizedImageReplacement(sendable)).toBeNull();
+  });
+
+  /** An image past the provider caps that cannot be shrunk on this host (fake
+   *  PNG that sips cannot decode) collapses to the unsendable note. */
+  test("returns the unsendable note when an oversized image cannot be shrunk", () => {
+    const oversized = imageBlock(makePngBase64(12000, 9000)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = oversizedImageReplacement(oversized);
+    expect(replacement?.type).toBe("text");
   });
 });

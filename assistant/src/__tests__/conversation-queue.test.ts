@@ -262,7 +262,7 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
     updateConfig() {}

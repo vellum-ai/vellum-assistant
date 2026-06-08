@@ -37,7 +37,7 @@ import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
-  type InboundActorContext,
+  resolveTurnInboundActorContext,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
@@ -89,12 +89,6 @@ export interface MemoryRetrievalHookContext {
    * at turn start, so it is threaded in rather than re-derived.
    */
   readonly modelProfile: string | null;
-  /**
-   * Inbound actor identity and trust fields for the unified `<turn_context>`
-   * block, or `null` on guardian turns (which suppress the actor section).
-   * Resolved once at turn start from the actor-trust resolver and threaded in.
-   */
-  readonly actorContext: InboundActorContext | null;
 }
 
 /**
@@ -259,6 +253,10 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   const abortSignal = conversation?.abortController?.signal;
   const isTrustedActor =
     resolveTrustClass(conversation?.trustContext) === "guardian";
+  const actorContext = resolveTurnInboundActorContext(
+    conversation?.trustContext,
+    conversation?.assistantId,
+  );
 
   if (conversation && isTrustedActor && abortSignal) {
     const graphResult = await conversation.graphMemory.prepareMemory(
@@ -303,13 +301,14 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // block, channel/voice/transport hints, and the turn's trust/index/call-site
   // — from the live conversation, so we hand in only the request id and
   // conversation id plus the fields resolved once at turn start
-  // (`isNonInteractive`, `modelProfile`, `actorContext`). This first-call
-  // assembly always runs at `"full"` volume; overflow reduction only
+  // (`isNonInteractive`, `modelProfile`). The unified `<turn_context>` actor
+  // input is self-resolved from the live conversation's trust context. This
+  // first-call assembly always runs at `"full"` volume; overflow reduction only
   // downgrades the mode on later re-injection.
   const injection = await applyRuntimeInjections(ctx.latestMessages, {
     isNonInteractive: ctx.isNonInteractive,
     modelProfile: ctx.modelProfile,
-    actorContext: ctx.actorContext,
+    actorContext,
     mode: "full",
     requestId: ctx.requestId,
     conversationId: ctx.conversationId,

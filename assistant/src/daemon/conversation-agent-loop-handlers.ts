@@ -17,7 +17,6 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -46,6 +45,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type {
   ContentBlock,
   ImageContent,

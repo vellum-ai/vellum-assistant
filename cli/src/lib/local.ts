@@ -1057,7 +1057,11 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string; bootstrapSecret?: string },
+  options?: {
+    signingKey?: string;
+    bootstrapSecret?: string;
+    envOverrides?: Record<string, string>;
+  },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1083,6 +1087,7 @@ export async function startGateway(
 
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
+    ...options?.envOverrides,
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
     // Pass gateway operational settings via env vars so the CLI does not

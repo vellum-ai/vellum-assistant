@@ -218,15 +218,17 @@ describe("getPluginDetails", () => {
     expect(contentsRefs.get("external")).toBe(
       "2222222222222222222222222222222222222222",
     );
-    // AND the first-party collision probe still uses the catalog ref
-    expect(contentsRefs.get("first-party")).toBe("main");
+    // AND the marketplace entry owns the name, so the first-party directory is
+    // never probed (its same-named in-repo dir would be the adapter stub)
+    expect(contentsRefs.has("first-party")).toBe(false);
     // AND the README from the pinned ref is surfaced
     expect(details.readme).toContain("Caveman");
   });
 
-  test("first-party directory wins a name also claimed by the marketplace", async () => {
-    // GIVEN both a marketplace entry AND a first-party in-repo directory for
-    // the same name
+  test("a marketplace entry owns a name shared by an in-repo stub dir", async () => {
+    // GIVEN a marketplace entry for "simple-memory"
+    // AND a same-named in-repo directory — caveman-style, this is the plugin's
+    // adapter stub, not a standalone first-party plugin
     const fetch = makeFetch({
       marketplace: {
         name: "vellum",
@@ -242,11 +244,11 @@ describe("getPluginDetails", () => {
         ],
       },
       listings: {
-        "vellum-ai/vellum-assistant/experimental/plugins/simple-memory": [
-          fileEntry("README.md", "raw://fp/readme"),
+        "example-org/simple-memory": [
+          fileEntry("README.md", "raw://ext/readme"),
         ],
       },
-      raw: { "raw://fp/readme": "# Simple Memory (first-party)" },
+      raw: { "raw://ext/readme": "# Simple Memory (external)" },
     });
 
     // WHEN we resolve the detail view
@@ -255,9 +257,14 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the first-party source is used, not the external one
-    expect(details.source).toEqual({ kind: "first-party" });
-    expect(details.readme).toContain("first-party");
+    // THEN the external marketplace source is used — the stub dir is an
+    // adapter overlay for the clone, so it does not override the claim
+    expect(details.source).toEqual({
+      kind: "github",
+      repo: "example-org/simple-memory",
+      ref: "9999999999999999999999999999999999999999",
+    });
+    expect(details.readme).toContain("external");
   });
 
   test("prefers an installed copy's README and package.json over the repo", async () => {

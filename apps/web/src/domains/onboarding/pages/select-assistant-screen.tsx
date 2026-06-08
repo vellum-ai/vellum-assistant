@@ -1,9 +1,10 @@
 import { Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
@@ -20,12 +21,15 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: ResolvedAssistant): string {
-  return a.isLocal ? "Running locally on this device" : "Hosted on Vellum Cloud";
+function assistantSubtitle(a: ResolvedAssistant): string | undefined {
+  if (!a.hatchedAt) return undefined;
+  return `Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromLogin = searchParams.get("fromLogin") === "1";
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
   const {
@@ -63,6 +67,7 @@ export function SelectAssistantScreen() {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
         await selectPlatformAssistant(assistant.id);
+        await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
     } catch {
@@ -72,8 +77,9 @@ export function SelectAssistantScreen() {
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
-  // Don't skip when inaccessible assistants exist — the user may want to log in.
+  // Don't skip when the user just logged in — let them see the now-enabled option.
   useEffect(() => {
+    if (fromLogin) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
@@ -249,9 +255,11 @@ function AssistantCard({
             </span>
           )}
         </div>
-        <span className="mt-0.5 line-clamp-2 text-body-small-default text-[var(--content-tertiary)]">
-          {assistantSubtitle(assistant)}
-        </span>
+        {assistantSubtitle(assistant) && (
+          <span className="mt-0.5 block text-body-small-default text-[var(--content-tertiary)]">
+            {assistantSubtitle(assistant)}
+          </span>
+        )}
       </div>
       {!disabled && (
         <div

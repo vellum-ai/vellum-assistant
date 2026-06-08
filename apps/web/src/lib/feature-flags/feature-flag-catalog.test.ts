@@ -1,10 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ASSISTANT_FLAG_DEFAULTS,
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
+  getEnvFlagOverridesForScope,
+  readEnvFlagOverrides,
+  resetEnvOverridesCache,
+  scopeIncludes,
 } from "@/lib/feature-flags/feature-flag-catalog";
+
+afterEach(() => {
+  resetEnvOverridesCache();
+  delete (globalThis as Record<string, unknown>).window;
+});
 
 describe("feature flag catalog", () => {
   test("exposes self-intro greeting to client and assistant flag stores", () => {
@@ -27,5 +36,88 @@ describe("feature flag catalog", () => {
   test("exposes dynamic empty-state greetings as an assistant flag", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.emptyStateDynamicGreetings).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
+});
+
+describe("readEnvFlagOverrides", () => {
+  test("returns empty object when neither window global nor Vite env vars are present", () => {
+    const overrides = readEnvFlagOverrides();
+    expect(overrides).toEqual({});
+  });
+
+  test("reads from window.__VELLUM_FLAG_OVERRIDES__ when set", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "self-intro-greeting": true,
+        "home-tab": "variant-a",
+      },
+    };
+    resetEnvOverridesCache();
+
+    const overrides = readEnvFlagOverrides();
+    expect(overrides).toEqual({
+      "self-intro-greeting": true,
+      "home-tab": "variant-a",
+    });
+  });
+});
+
+describe("getEnvFlagOverridesForScope", () => {
+  test("returns empty bool and str maps when no overrides are present", () => {
+    const result = getEnvFlagOverridesForScope("client");
+    expect(result).toEqual({ bool: {}, str: {} });
+  });
+
+  test("filters client-scoped flags and separates bool/str", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        // client-only flag (boolean)
+        "home-tab": true,
+        // assistant-only flag (boolean) — should be excluded from client scope
+        "auto-analyze": true,
+        // client-only flag (string)
+        "pre-chat-onboarding-experiment-2026-06-06": "variant-a",
+      },
+    };
+    resetEnvOverridesCache();
+
+    const result = getEnvFlagOverridesForScope("client");
+    expect(result.bool).toEqual({ homeTab: true });
+    expect(result.str).toEqual({
+      preChatOnboardingExperiment20260606: "variant-a",
+    });
+    expect(result.bool).not.toHaveProperty("autoAnalyze");
+  });
+
+  test("flags with scope 'both' appear for both client and assistant scopes", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "self-intro-greeting": true,
+      },
+    };
+    resetEnvOverridesCache();
+
+    const clientResult = getEnvFlagOverridesForScope("client");
+    const assistantResult = getEnvFlagOverridesForScope("assistant");
+
+    expect(clientResult.bool).toEqual({ selfIntroGreeting: true });
+    expect(assistantResult.bool).toEqual({ selfIntroGreeting: true });
+  });
+});
+
+describe("scopeIncludes", () => {
+  test("'both' includes client and assistant", () => {
+    expect(scopeIncludes("both", "client")).toBe(true);
+    expect(scopeIncludes("both", "assistant")).toBe(true);
+  });
+
+  test("'client' only includes client", () => {
+    expect(scopeIncludes("client", "client")).toBe(true);
+    expect(scopeIncludes("client", "assistant")).toBe(false);
+  });
+
+  test("'assistant' only includes assistant", () => {
+    expect(scopeIncludes("assistant", "assistant")).toBe(true);
+    expect(scopeIncludes("assistant", "client")).toBe(false);
   });
 });

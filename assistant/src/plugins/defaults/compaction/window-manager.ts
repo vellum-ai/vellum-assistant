@@ -14,23 +14,23 @@
  * marker is wrapped around the assistant-role memory message we emit on
  * successful compaction so those code paths keep working unchanged.
  */
-import { getConfig } from "../config/loader.js";
-import type { CompactionConfig } from "../config/schemas/compaction.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ContextWindowConfig } from "../config/types.js";
+import { getConfig } from "../../../config/loader.js";
+import type { CompactionConfig } from "../../../config/schemas/compaction.js";
+import type { LLMCallSite } from "../../../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../../../config/types.js";
+import {
+  type CompactionRunArgs,
+  runAssistantDrivenCompaction,
+} from "../../../context/compactor.js";
+import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ToolDefinition,
-} from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getLogger } from "../util/logger.js";
-import {
-  type CompactionRunArgs,
-  runAssistantDrivenCompaction,
-} from "./compactor.js";
-import { estimatePromptTokens } from "./token-estimator.js";
+} from "../../../providers/types.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("context-window");
 

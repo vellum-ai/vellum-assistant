@@ -94,7 +94,7 @@ mock.module("../context/compactor.js", () => ({
   },
 }));
 
-import { ContextWindowManager } from "../context/window-manager.js";
+import { ContextWindowManager } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, Provider } from "../providers/types.js";
 
 function makeProvider(): Provider {

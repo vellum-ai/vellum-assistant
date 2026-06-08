@@ -6,12 +6,28 @@ import {
 } from "@/utils/api-errors";
 import { parseDrfFieldError } from "@/domains/account/parse-drf-field-error";
 
+export interface UserConsent {
+  tos_accepted_version: string;
+  tos_accepted_at: string | null;
+  privacy_policy_accepted_version: string;
+  privacy_policy_accepted_at: string | null;
+  ai_data_sharing_accepted_version: string;
+  ai_data_sharing_accepted_at: string | null;
+  share_analytics: boolean;
+  share_diagnostics: boolean;
+}
+
+export type ConsentPatch = Partial<
+  Omit<UserConsent, "tos_accepted_at" | "privacy_policy_accepted_at" | "ai_data_sharing_accepted_at">
+>;
+
 export interface UserMe {
   id: string;
   username: string;
   email: string;
   first_name: string;
   last_name: string;
+  consent: UserConsent | null;
 }
 
 export type UsernameErrorCode =
@@ -115,6 +131,14 @@ export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
     kind: "error",
     message: extractErrorMessage(error, response, "Failed to save profile."),
   };
+}
+
+export async function patchConsent(consent: ConsentPatch): Promise<void> {
+  await client.patch({
+    url: "/v1/user/me/",
+    body: { consent },
+    throwOnError: true,
+  });
 }
 
 export async function checkUsernameAvailable(

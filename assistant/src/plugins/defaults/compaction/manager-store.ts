@@ -15,7 +15,7 @@
 import {
   ContextWindowManager,
   type ContextWindowManagerOptions,
-} from "../../../context/window-manager.js";
+} from "./window-manager.js";
 
 /** Live managers keyed by conversation id. */
 const managersByConversation = new Map<string, ContextWindowManager>();

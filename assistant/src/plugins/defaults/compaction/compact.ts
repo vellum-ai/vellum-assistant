@@ -2,19 +2,19 @@
  * Default compaction implementation.
  *
  * Summarizes conversation history when the context window fills up by
- * delegating to a {@link ContextWindowManager}. The agent loop calls
- * {@link defaultCompact} directly with a {@link CompactionContext}; the request
- * carries the conversational inputs while the manager performs the work.
+ * delegating to the conversation's {@link ContextWindowManager}. The agent loop
+ * calls {@link defaultCompact} directly with a {@link CompactionContext}; the
+ * request carries the conversational inputs while the compaction module resolves
+ * (and, if needed, builds) the manager from its per-conversation store.
  *
  * This module is side-effect free: importing it does not register any plugin.
  */
 
-import type {
-  ContextWindowManager,
-  ContextWindowResult,
-} from "../../../context/window-manager.js";
 import type { Message } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import { PluginExecutionError } from "../../types.js";
+import { getContextWindowManager } from "./manager-store.js";
+import type { ContextWindowResult } from "./window-manager.js";
 
 /**
  * Name under which the default compaction plugin registers. Exposed so call
@@ -24,13 +24,14 @@ export const DEFAULT_COMPACTION_PLUGIN_NAME = "default-compaction";
 
 /**
  * Self-describing compaction request handed to {@link defaultCompact}. Carries
- * the conversational inputs plus the {@link ContextWindowManager} that runs the
- * summary, so the request is the part that can grow toward a model-facing
- * compaction-method shape without coupling callers to the manager's option bag.
+ * the conversational inputs plus the `conversationId` the compaction module
+ * resolves its manager from, so callers never hold or pass a manager handle and
+ * the request can grow toward a model-facing compaction-method shape without
+ * coupling callers to the manager's option bag.
  */
 export interface CompactionContext {
-  /** Context window manager that performs the compaction. */
-  manager: ContextWindowManager;
+  /** Conversation whose manager performs the compaction. */
+  conversationId: string;
   /** Message history to consider for compaction. */
   messages: Message[];
   /** Abort signal forwarded to the compaction summary call. */
@@ -48,12 +49,20 @@ export interface CompactionContext {
 }
 
 /**
- * Run compaction for the turn: delegates to the request's context window
- * manager and returns the (possibly summarized) message history.
+ * Run compaction for the turn: resolves the conversation's context window
+ * manager from the compaction store (building it on first access) and returns
+ * the (possibly summarized) message history.
  */
 export async function defaultCompact(
   context: CompactionContext,
 ): Promise<ContextWindowResult> {
-  const { manager, messages, signal, ...options } = context;
+  const { conversationId, messages, signal, ...options } = context;
+  const manager = getContextWindowManager(conversationId);
+  if (manager == null) {
+    throw new PluginExecutionError(
+      `default-compaction: no ContextWindowManager registered for conversation ${conversationId} — the conversation must register one before compaction runs`,
+      DEFAULT_COMPACTION_PLUGIN_NAME,
+    );
+  }
   return manager.maybeCompact(messages, signal, options);
 }

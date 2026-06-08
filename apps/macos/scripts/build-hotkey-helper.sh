@@ -16,7 +16,16 @@ if ! command -v xcrun >/dev/null 2>&1; then
   exit 1
 fi
 
+BUILD_ARGS=(--package-path "$PACKAGE_DIR" -c release)
+if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
+  case "$ELECTRON_TARGET_ARCH" in
+    arm64) BUILD_ARGS+=(--triple arm64-apple-macosx15.0) ;;
+    x64)   BUILD_ARGS+=(--triple x86_64-apple-macosx15.0) ;;
+  esac
+fi
+
 mkdir -p "$OUTPUT_DIR"
-xcrun swift build --package-path "$PACKAGE_DIR" -c release
-cp "$PACKAGE_DIR/.build/release/hotkey-helper" "$OUTPUT"
+xcrun swift build "${BUILD_ARGS[@]}"
+BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
+cp "$BUILD_DIR/hotkey-helper" "$OUTPUT"
 chmod 755 "$OUTPUT"

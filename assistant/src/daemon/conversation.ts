@@ -33,11 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import {
-  type ContextWindowManager,
-  type ContextWindowResult,
-  createContextSummaryMessage,
-} from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -67,6 +62,11 @@ import {
   createContextWindowManager,
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
+import {
+  type ContextWindowManager,
+  type ContextWindowResult,
+  createContextSummaryMessage,
+} from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import {
   applyBootstrapTemplate,
@@ -642,11 +642,11 @@ export class Conversation {
 
   /**
    * The conversation's {@link ContextWindowManager}, owned by the compaction
-   * module's per-conversation store. The constructor registers it there; this
-   * accessor resolves it on demand so the conversation holds no separate
-   * handle. Present for the conversation's whole in-memory lifetime (registered
-   * at construction, released on teardown), so a live conversation always
-   * resolves an instance.
+   * module's per-conversation store. The constructor builds and registers it
+   * there; this accessor resolves it on demand so the conversation holds no
+   * separate handle. Present for the conversation's whole in-memory lifetime
+   * (registered at construction, released on teardown), so a live conversation
+   * always resolves an instance.
    */
   /** @internal */ get contextWindowManager(): ContextWindowManager {
     const manager = getContextWindowManager(this.conversationId);
@@ -1473,7 +1473,7 @@ export class Conversation {
     const messagesToCompact =
       slackChronologicalContext?.messages ?? this.messages;
     const result = await defaultCompact({
-      manager: this.contextWindowManager,
+      conversationId: this.conversationId,
       messages: messagesToCompact,
       signal: this.abortController?.signal ?? undefined,
       force: true,

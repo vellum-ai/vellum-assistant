@@ -76,6 +76,8 @@ afterEach(() => {
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
   clearRemoteFeatureFlagStoreCache();
+  resetEnvOverridesCache();
+  delete process.env.VELLUM_FLAG_A2A_CHANNEL;
 });
 
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
@@ -83,6 +85,8 @@ const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
 const { clearFeatureFlagStoreCache } = await import("../feature-flag-store.js");
 const { clearRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 const { GatewayIpcServer } = await import("../ipc/server.js");
 const { featureFlagRoutes } = await import("../ipc/feature-flag-handlers.js");
 
@@ -306,6 +310,22 @@ describe("IPC feature flag routes", () => {
 
     expect(res.error).toBeDefined();
     expect(res.error).toContain("Invalid params");
+  });
+
+  test("get_feature_flags includes env override values", async () => {
+    process.env.VELLUM_FLAG_A2A_CHANNEL = "true";
+    resetEnvOverridesCache();
+
+    if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
+    clearFeatureFlagStoreCache();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "get_feature_flags");
+
+    expect(res.error).toBeUndefined();
+    const flags = res.result as Record<string, boolean | string>;
+    // a2a-channel defaults to false, but env override sets it to true
+    expect(flags["a2a-channel"]).toBe(true);
   });
 
   test("unknown method returns error", async () => {
