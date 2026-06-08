@@ -35,6 +35,9 @@ const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
+const { resetEnvOverridesCache } = await import(
+  "../feature-flag-env-overrides.js"
+);
 
 // ---------------------------------------------------------------------------
 // Test-local registry with a GA flag (defaultEnabled: true) for the
@@ -125,17 +128,21 @@ function defaultCredentials(): Record<string, string> {
 // ---------------------------------------------------------------------------
 const savedVellumPlatformUrl = process.env.VELLUM_PLATFORM_URL;
 const savedAssistantCredential = process.env.ASSISTANT_API_KEY;
+const savedPlatformFeaturesFlag =
+  process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE;
 
 beforeEach(() => {
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
+  delete process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE;
   mkdirSync(protectedDir, { recursive: true });
   // Write the test registry and point resolution at it
   writeFileSync(testRegistryPath, JSON.stringify(TEST_REGISTRY, null, 2));
   _setRegistryCandidateOverrides([testRegistryPath]);
   resetFeatureFlagDefaultsCache();
+  resetEnvOverridesCache();
   clearRemoteFeatureFlagStoreCache();
   fetchMock = mock(async () => new Response());
 });
@@ -151,6 +158,10 @@ afterEach(() => {
   };
   restoreEnv("VELLUM_PLATFORM_URL", savedVellumPlatformUrl);
   restoreEnv("ASSISTANT_API_KEY", savedAssistantCredential);
+  restoreEnv(
+    "VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE",
+    savedPlatformFeaturesFlag,
+  );
   try {
     rmSync(protectedDir, { recursive: true, force: true });
     mkdirSync(protectedDir, { recursive: true });
@@ -159,6 +170,7 @@ afterEach(() => {
   }
   _setRegistryCandidateOverrides(null);
   resetFeatureFlagDefaultsCache();
+  resetEnvOverridesCache();
   clearRemoteFeatureFlagStoreCache();
 });
 
@@ -166,6 +178,20 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe("RemoteFeatureFlagSync", () => {
+  test("skips sync when platform features are disabled", async () => {
+    fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
+    process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE = "false";
+    resetEnvOverridesCache();
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("skips sync when no platform URL is available from cache or env", async () => {
     fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
 
@@ -203,7 +229,9 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("skips sync when assistant_api_key is missing", async () => {
+  test("fetches without auth header when assistant_api_key is missing", async () => {
+    fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
+
     const creds = defaultCredentials();
     delete creds["credential/vellum/assistant_api_key"];
 
@@ -213,7 +241,11 @@ describe("RemoteFeatureFlagSync", () => {
     await sync.start();
     sync.stop();
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers.Accept).toBe("application/json");
   });
 
   test("syncs when only platformUrl and assistantApiKey are present", async () => {
@@ -873,14 +905,13 @@ describe("RemoteFeatureFlagSync", () => {
     sync.stop();
   });
 
-  test("pauses polling when credentials are missing and resumes on invalidation", async () => {
+  test("pauses polling when platform URL is missing and resumes on invalidation", async () => {
     fetchMock = mock(async () =>
       Response.json({ flags: { "resumed-flag": true } }),
     );
 
     const creds = fakeCredentialCache({
-      ...defaultCredentials(),
-      "credential/vellum/assistant_api_key": undefined,
+      "credential/vellum/assistant_api_key": "test-api-key",
     });
 
     const sync = new RemoteFeatureFlagSync({
@@ -889,14 +920,14 @@ describe("RemoteFeatureFlagSync", () => {
     });
     await sync.start();
 
-    // No fetch calls — missing creds, polling should be paused
+    // No fetch calls — missing platform URL, polling should be paused
     expect(fetchMock).not.toHaveBeenCalled();
 
     // Wait well past the initial poll interval — should still not poll
     await new Promise((r) => setTimeout(r, 200));
     expect(fetchMock).not.toHaveBeenCalled();
 
-    // Simulate user logging in — credentials now available
+    // Simulate platform URL becoming available
     creds._setValues(defaultCredentials());
     creds._invalidate();
 

@@ -3,6 +3,7 @@ import { credentialKey } from "./credential-key.js";
 import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
@@ -325,6 +326,11 @@ export class RemoteFeatureFlagSync {
   }
 
   private async fetchRemoteFeatureFlags(): Promise<RemoteFetchResult> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug("Remote feature flag sync skipped: platform features disabled");
+      return { status: "missing_credentials" };
+    }
+
     // Wrap credential reads so transient failures (CES unreachable, keychain
     // errors) are treated as retriable errors with backoff, not as "missing
     // credentials" which would pause polling indefinitely.
@@ -347,33 +353,29 @@ export class RemoteFeatureFlagSync {
       ""
     ).replace(/\/+$/, "");
 
-    // Feature flag sync hits the public platform API and requires assistant
-    // API key auth.
     const assistantCredential =
       assistantApiKeyRaw?.trim() ||
       process.env.ASSISTANT_API_KEY?.trim() ||
       undefined;
 
-    if (!platformUrl || !assistantCredential) {
-      log.debug(
-        {
-          hasPlatformUrl: !!platformUrl,
-          hasApiKey: !!assistantCredential,
-        },
-        "Remote feature flag sync skipped: missing credentials",
-      );
+    if (!platformUrl) {
+      log.debug("Remote feature flag sync skipped: no platform URL configured");
       return { status: "missing_credentials" };
     }
 
     const url = `${platformUrl}/v1/feature-flags/assistant-flag-values/`;
-    log.debug({ url }, "Fetching remote feature flags from platform");
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (assistantCredential) {
+      headers["Authorization"] = `Api-Key ${assistantCredential}`;
+    }
+    log.debug(
+      { url, authenticated: !!assistantCredential },
+      "Fetching remote feature flags from platform",
+    );
 
     const response = await fetchImpl(url, {
       method: "GET",
-      headers: {
-        Authorization: `Api-Key ${assistantCredential}`,
-        Accept: "application/json",
-      },
+      headers,
       signal: AbortSignal.timeout(10_000),
     });
 
