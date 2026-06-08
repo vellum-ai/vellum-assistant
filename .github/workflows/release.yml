@@ -2635,9 +2635,6 @@ jobs:
             [ -d "$ARCH_DIR" ] || continue
             PREFIX="electron/${CHANNEL}/${ARCH}"
 
-            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
-            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
-
             find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
               gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
             done
@@ -2645,6 +2642,9 @@ jobs:
             find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
               gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
             done
+
+            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
           done
 
   release:
