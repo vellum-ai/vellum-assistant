@@ -100,7 +100,16 @@ mock.module("electron", () => ({
     openExternal: () => Promise.resolve(),
   },
   clipboard: {
+    availableFormats: () => [],
+    clear: () => undefined,
+    readBookmark: () => ({ title: "", url: "" }),
+    readBuffer: () => Buffer.alloc(0),
+    readHTML: () => "",
+    readImage: () => ({ isEmpty: () => true }),
+    readRTF: () => "",
     readText: () => "",
+    write: () => undefined,
+    writeBuffer: () => undefined,
     writeText: () => undefined,
   },
 }));

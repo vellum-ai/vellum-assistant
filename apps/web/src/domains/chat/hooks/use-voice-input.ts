@@ -156,11 +156,8 @@ export function useVoiceInput({
       }
       if (frontAppInsertion.status === "automation-denied") {
         setVoiceError("dictation-automation-denied");
-        return;
-      }
-      if (frontAppInsertion.status === "blocked") {
+      } else if (frontAppInsertion.status === "blocked") {
         setVoiceError("dictation-paste-blocked");
-        return;
       }
 
       setInput((current: string) => {
