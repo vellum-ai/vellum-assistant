@@ -111,14 +111,18 @@ mock.module("@/runtime/native-biometric", () => ({
 
 const clearUserScopedStorageMock = mock(() => {});
 
+const patchConsentMock = mock(async (_consent: unknown) => {});
+
 mock.module("@/domains/account/profile", () => ({
   fetchMe: fetchMeMock,
+  patchConsent: patchConsentMock,
 }));
 
 mock.module("@/utils/onboarding-cleanup", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
   resolveServerConsent: resolveServerConsentMock,
+  CONSENT_VERSION: "2026-06-08",
 }));
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
@@ -191,6 +195,7 @@ beforeEach(() => {
   persistConsentForUserMock.mockClear();
   resolveServerConsentMock.mockClear();
   fetchMeMock.mockClear();
+  patchConsentMock.mockClear();
   mockFetchMeResult = { id: "user-1", username: "test", email: "test@example.com", first_name: "", last_name: "", consent: null };
   mockFetchMeError = null;
   clearOrganizationMock.mockClear();
@@ -207,8 +212,13 @@ beforeEach(() => {
 });
 
 describe("auth store onboarding flag reconciliation", () => {
-  test("initSession fetches consent from server for platform users", async () => {
+  test("initSession uses server consent when server has a consent record", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchMeResult = {
+      id: "user-1", username: "test", email: "test@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
 
     await useAuthStore.getState().initSession();
 
@@ -216,6 +226,26 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("initSession falls through to device keys when server consent is null", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+
+    await useAuthStore.getState().initSession();
+
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).not.toHaveBeenCalled();
+    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("initSession backfills server when device keys show prior consent and server has no record", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    restoreConsentForUserMock.mockReturnValueOnce({ tos: true, ai: true });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalled();
   });
 
   test("initSession falls back to device keys when fetchMe fails", async () => {
@@ -233,6 +263,11 @@ describe("auth store onboarding flag reconciliation", () => {
     mockIsLocalMode = true;
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    mockFetchMeResult = {
+      id: "user-1", username: "test", email: "test@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
 
     await useAuthStore.getState().initSession();
 
@@ -243,6 +278,11 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("refreshSession fetches consent from server for platform users", async () => {
     sessionUser = { id: "user-2", email: "user@example.com" };
+    mockFetchMeResult = {
+      id: "user-2", username: "test", email: "user@example.com",
+      first_name: "", last_name: "",
+      consent: { tos_accepted_version: "2026-06-08", privacy_policy_accepted_version: "2026-06-08", ai_data_sharing_accepted_version: "2026-06-08", share_analytics: true, share_diagnostics: true },
+    };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
