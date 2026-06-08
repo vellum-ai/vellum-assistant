@@ -44,9 +44,9 @@ export interface ResolvedHotkey {
   accelerator: string;
 }
 
-// Surface exposed to the renderer as `window.vellum`. `platform`, `hotkeys`,
-// and `commands` are wired through IPC; `auth` and `helper` are typed stubs
-// that reject with "not implemented yet" until their feature tickets land.
+// Surface exposed to the renderer as `window.vellum`. Each privileged
+// capability is routed through a narrow IPC method; the renderer never gets a
+// raw main-process or native-helper RPC passthrough.
 // When adding new bridge methods, see the "When to extend the bridge with
 // new methods" section in `apps/macos/README.md` for the convention
 // (generic KV for non-sensitive prefs; dedicated `<capability>.<verb>()`
@@ -107,6 +107,23 @@ export interface HotkeyEvent {
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
+
+export type HelperState =
+  | { status: "idle" }
+  | { status: "starting"; attempt: number }
+  | { status: "running"; pid?: number }
+  | {
+      status: "backing-off";
+      attempt: number;
+      retryAt: number;
+      reason: string;
+    }
+  | { status: "circuit-open"; reason: string }
+  | { status: "stopped"; reason?: string };
+
+export type HelperRestartResult =
+  | { ok: true; state: HelperState }
+  | { ok: false; reason: string; state: HelperState };
 
 /**
  * Mirror of `AssistantStatus` in `apps/macos/src/main/status.ts`. Inlined for
@@ -274,6 +291,9 @@ export interface VellumBridge {
   };
   helper: {
     ping(): Promise<"pong">;
+    getState(): Promise<HelperState>;
+    restart(): Promise<HelperRestartResult>;
+    onState(callback: (state: HelperState) => void): () => void;
     hotkey: {
       /**
        * Enable or disable the native Fn push-to-talk registration.
@@ -596,6 +616,21 @@ const bridge: VellumBridge = {
   helper: {
     ping: () =>
       ipcRenderer.invoke("vellum:helper:ping") as Promise<"pong">,
+    getState: () =>
+      ipcRenderer.invoke("vellum:helper:state:get") as Promise<HelperState>,
+    restart: () =>
+      ipcRenderer.invoke(
+        "vellum:helper:restart",
+      ) as Promise<HelperRestartResult>,
+    onState: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: HelperState) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:helper:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:helper:state", handler);
+      };
+    },
     hotkey: {
       fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
         ipcRenderer.invoke(

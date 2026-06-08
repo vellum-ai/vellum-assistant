@@ -116,6 +116,23 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+export type HelperState =
+  | { status: "idle" }
+  | { status: "starting"; attempt: number }
+  | { status: "running"; pid?: number }
+  | {
+      status: "backing-off";
+      attempt: number;
+      retryAt: number;
+      reason: string;
+    }
+  | { status: "circuit-open"; reason: string }
+  | { status: "stopped"; reason?: string };
+
+export type HelperRestartResult =
+  | { ok: true; state: HelperState }
+  | { ok: false; reason: string; state: HelperState };
+
 /**
  * Renderer-side mirror of `NotificationCategory` in
  * `apps/macos/src/main/notifications.ts`. Each variant maps to a set of
@@ -241,6 +258,10 @@ declare global {
         set(flags: Record<string, boolean>): void;
       };
       helper?: {
+        ping?(): Promise<"pong">;
+        getState?(): Promise<HelperState>;
+        restart?(): Promise<HelperRestartResult>;
+        onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;

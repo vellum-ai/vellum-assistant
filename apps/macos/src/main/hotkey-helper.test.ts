@@ -102,6 +102,7 @@ Object.defineProperty(process, "resourcesPath", {
 const {
   __resetForTesting,
   __setPlatformForTesting,
+  __setSupervisorOptionsForTesting,
   getHotkeyHelperPath,
   installHotkeyHelper,
 } = await import("./hotkey-helper");
@@ -120,6 +121,15 @@ const invokeFnPushToTalkFrom = (enable: boolean, sender: FakeWebContents) =>
 
 const invokePing = () =>
   handlers["vellum:helper:ping"]({ sender: defaultSender }) as Promise<unknown>;
+
+const invokeGetState = () =>
+  handlers["vellum:helper:state:get"]({ sender: defaultSender }) as unknown;
+
+const invokeRestart = () =>
+  handlers["vellum:helper:restart"]({ sender: defaultSender }) as unknown;
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 beforeEach(() => {
   __resetForTesting();
@@ -156,6 +166,8 @@ describe("installHotkeyHelper", () => {
   test("registers the fnPushToTalk IPC handler", () => {
     installHotkeyHelper();
     expect(handlers["vellum:helper:ping"]).toBeDefined();
+    expect(handlers["vellum:helper:state:get"]).toBeDefined();
+    expect(handlers["vellum:helper:restart"]).toBeDefined();
     expect(handlers["vellum:helper:hotkey:fnPushToTalk"]).toBeDefined();
   });
 
@@ -172,6 +184,20 @@ describe("installHotkeyHelper", () => {
     );
 
     expect(await pending).toBe("pong");
+  });
+
+  test("exposes helper state and user-initiated restart", () => {
+    installHotkeyHelper();
+
+    expect(invokeGetState()).toEqual({ status: "idle" });
+
+    expect(invokeRestart()).toEqual({
+      ok: true,
+      state: { status: "running" },
+    });
+    expect(spawnCalls[0]?.[0]).toBe(
+      "/repo/apps/macos/resources/hotkey-helper",
+    );
   });
 
   test("sends hotkey.fnPushToTalk to the helper process", async () => {
@@ -195,6 +221,56 @@ describe("installHotkeyHelper", () => {
     );
 
     expect(await pending).toEqual({ ok: true, enabled: true });
+  });
+
+  test("restarts the helper after a crash", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+    });
+    installHotkeyHelper();
+
+    const pending = invokePing();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"pong\"}\n"),
+    );
+    expect(await pending).toBe("pong");
+
+    const crashed = lastChild;
+    crashed?.emit("close", 1, null);
+    await wait(5);
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(lastChild).not.toBe(crashed);
+  });
+
+  test("restores Fn push-to-talk after a helper crash", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+    });
+    installHotkeyHelper();
+
+    const pending = invokeFnPushToTalk(true);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+    expect(await pending).toEqual({ ok: true, enabled: true });
+
+    const crashed = lastChild;
+    crashed?.emit("close", 1, null);
+    await wait(5);
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(lastChild).not.toBe(crashed);
+    expect(lastChild?.stdin.writes[0]).toContain(
+      "\"method\":\"hotkey.fnPushToTalk\"",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
   });
 
   test("maps JSON-RPC helper errors to hotkey results", async () => {
@@ -308,7 +384,7 @@ describe("installHotkeyHelper", () => {
     );
     await pending;
 
-    appListeners.get("will-quit")?.();
+    appListeners.get("before-quit")?.();
 
     expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
     expect(lastChild?.stdin.ended).toBe(true);
