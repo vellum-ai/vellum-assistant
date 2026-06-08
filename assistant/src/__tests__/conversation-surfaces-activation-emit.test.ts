@@ -22,6 +22,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
 }));
 
+// Stub the child-conversation launcher so the launch_conversation commit path
+// runs without spinning up a real conversation.
+mock.module("../daemon/conversation-launch.js", () => ({
+  launchConversation: async () => ({ conversationId: "spawned-conv" }),
+}));
+
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
@@ -230,6 +236,92 @@ describe("activation moment emission from ui_show surface commits", () => {
     });
 
     expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+  });
+
+  test("FIX 1: launch_conversation commit on a tagged surface records exactly one row", async () => {
+    markActivationSession("conv-launch");
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext("conv-launch", sent);
+
+    // A launcher card tagged with a commit-timing moment. The committed action
+    // carries `_action: launch_conversation`, so handleSurfaceAction takes the
+    // inline-launch branch (which previously returned before the emit).
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Start something",
+      data: { text: "Kick off a draft" },
+      actions: [{ id: "go", label: "Go", style: "primary" }],
+      activation_moment: "moment_1",
+    });
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    await handleSurfaceAction(ctx, surfaceId, "go", {
+      _action: "launch_conversation",
+      title: "Draft",
+      seedPrompt: "Write a draft",
+    });
+
+    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stepName).toBe("activation_moment_1_complete");
+    expect(rows[0]!.sessionId).toBe("conv-launch");
+  });
+
+  test("FIX 2: commit-timing tag survives a surfaceState restore from history", async () => {
+    markActivationSession("conv-restore");
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext("conv-restore", sent);
+    const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
+
+    // The daemon-only tag must NOT leak to the client.
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    expect(
+      (showMessage as unknown as Record<string, unknown>).activation_moment,
+    ).toBeUndefined();
+    expect(JSON.stringify(showMessage)).not.toContain("moment_2");
+
+    // Persist the surface into a history block exactly as the agent loop does
+    // (conversation-agent-loop-handlers): copy the activationMoment through.
+    const persisted = ctx.currentTurnSurfaces.map((s) => ({
+      type: "ui_surface" as const,
+      surfaceId: s.surfaceId,
+      surfaceType: s.surfaceType,
+      title: s.title,
+      data: s.data,
+      actions: s.actions,
+      ...(s.activationMoment ? { activationMoment: s.activationMoment } : {}),
+    }));
+    expect(persisted[0]!.activationMoment).toBe("moment_2");
+
+    // Simulate a reload: drop the in-memory surfaceState, then rebuild it from
+    // the persisted history block the same way restoreSurfaceStateFromHistory
+    // does (including rehydrating the daemon-only tag).
+    ctx.surfaceState.clear();
+    for (const b of persisted) {
+      ctx.surfaceState.set(b.surfaceId, {
+        surfaceType: b.surfaceType,
+        data: b.data,
+        title: b.title,
+        actions: b.actions,
+        ...(b.activationMoment ? { activationMoment: b.activationMoment } : {}),
+      });
+    }
+
+    // A commit after restore still records exactly one row.
+    await handleSurfaceAction(ctx, surfaceId, "inbox", {
+      choiceId: "inbox",
+      selectedIds: ["inbox"],
+    });
+
+    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
+    expect(rows[0]!.sessionId).toBe("conv-restore");
   });
 
   test("intermediate selection_changed does NOT emit; the terminal commit does", async () => {

@@ -629,6 +629,12 @@ export interface SurfaceConversationContext {
     display?: string;
     persistent?: boolean;
     toolCallId?: string;
+    /**
+     * Commit-timing activation-rail tag (daemon-only). Carried through to the
+     * persisted `ui_surface` history block so it survives a reload — never sent
+     * to the client.
+     */
+    activationMoment?: ActivationMomentParam;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1480,6 +1486,10 @@ export async function handleSurfaceAction(
       { originConversationId: ctx.conversationId, conversationId, surfaceId },
       "launch_conversation dispatched inline from surface action",
     );
+    // Launching a child conversation is a terminal user commit — record an
+    // activation milestone if tagged. The helper clears the tag after firing,
+    // so the other commit-path call sites below can't double-emit.
+    maybeEmitActivationMoment(ctx, surfaceId);
     return { accepted: true, conversationId };
   }
 
@@ -2651,7 +2661,9 @@ export async function surfaceProxyResolver(
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
-    // Track surface for persistence with the message
+    // Track surface for persistence with the message. The commit-timing
+    // activation tag rides along (daemon-only) so it survives history restore;
+    // show-timing moments aren't stored here (already recorded at render).
     ctx.currentTurnSurfaces.push({
       surfaceId,
       surfaceType,
@@ -2661,6 +2673,7 @@ export async function surfaceProxyResolver(
       display,
       ...(persistent ? { persistent: true } : {}),
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
+      ...(storeTagForCommit ? { activationMoment } : {}),
     });
 
     if (awaitAction) {
