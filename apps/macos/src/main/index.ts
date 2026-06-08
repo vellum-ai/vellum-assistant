@@ -85,8 +85,12 @@ const isDev = !app.isPackaged;
 // when multiple environment builds (dev, staging, production) run side-by-side.
 // Append an environment suffix for non-production builds; production keeps the
 // original path for backwards compatibility.
+declare const __VELLUM_ENVIRONMENT__: string;
 if (app.isPackaged) {
-  const env = process.env.VELLUM_ENVIRONMENT || "production";
+  const env =
+    typeof __VELLUM_ENVIRONMENT__ === "string"
+      ? __VELLUM_ENVIRONMENT__
+      : "production";
   if (env !== "production") {
     const base = app.getPath("userData");
     app.setPath("userData", `${base}-${env}`);
