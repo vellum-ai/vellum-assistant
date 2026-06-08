@@ -43,20 +43,20 @@ When the user first tries to use ACP and it's not enabled, set it up automatical
 
 2. Then retry the `acp_spawn` call. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
 
-No manual binary installation is needed first: missing adapter binaries are run on demand via bun, or installed automatically (see below).
+No manual binary installation is needed first: missing adapter binaries are installed automatically (see below).
 
 ## Automatic adapter availability
 
-When `acp_spawn` finds the agent's binary missing from PATH, the assistant runs the adapter through bun instead (`bun x --bun <package>`). Bun fetches the package into its cache on first use, so there is no global install and it works on hosts without node or npm (platform-hosted assistants ship bun only). When bun itself is not on PATH, the assistant falls back to silently installing the matching npm package globally and proceeds in the same call.
+When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with the Claude/Gemini secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
 
-Only the allowlisted out-of-box packages are ever run or installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`, `@google/gemini-cli`); user-configured agents with custom commands are never fetched or installed automatically.
+Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`, `@google/gemini-cli`); user-configured agents with custom commands are never installed automatically.
 
-Manual installation is fallback guidance for unusual setups: bun and npm both unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
+Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
 
 ```bash
-npm i -g @agentclientprotocol/claude-agent-acp   # claude
-npm i -g @zed-industries/codex-acp               # codex
-npm i -g @google/gemini-cli                      # gemini
+bun add -g @agentclientprotocol/claude-agent-acp   # claude
+bun add -g @zed-industries/codex-acp               # codex
+bun add -g @google/gemini-cli                       # gemini
 ```
 
 ## Claude setup
@@ -71,7 +71,7 @@ When the token is missing, do NOT ask the user to paste it into chat. Collect it
 
 ## Codex setup
 
-The `codex-acp` adapter is fetched automatically when missing, but it shells out to the underlying `codex` CLI, which must also be on PATH:
+The `codex-acp` adapter is installed automatically when missing, but it shells out to the underlying `codex` CLI, which must also be on PATH:
 
 1. **Install the Codex CLI** (version 0.111 or higher) via OpenAI's distribution channel of choice. The adapter will fail if `codex` isn't on PATH.
 
@@ -82,7 +82,7 @@ The `codex-acp` adapter is fetched automatically when missing, but it shells out
 
 ## Gemini setup
 
-Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter binary. The CLI itself is fetched from `@google/gemini-cli` when missing.
+Gemini CLI speaks ACP natively (`gemini --acp`) - there is no separate adapter binary. The CLI itself is installed from `@google/gemini-cli` when missing.
 
 **Authenticate** with an API key through the credential store (the primary path):
 
@@ -120,14 +120,14 @@ A workspace `acp.agents.gemini` override is only for non-secret customization (c
 
 ## Updating an adapter
 
-This applies only to adapters installed globally via npm; adapters run via bun are fetched on first use and have no global install to update. If `acp_spawn` reports that an adapter is outdated, ask the user before updating. To update:
+Adapters are installed once via a bun global install. To update one to the latest version, ask the user first, then re-install it globally:
 
 ```bash
-npm i -g @agentclientprotocol/claude-agent-acp@latest
+bun add -g @agentclientprotocol/claude-agent-acp@latest
 # or
-npm i -g @zed-industries/codex-acp@latest
+bun add -g @zed-industries/codex-acp@latest
 # or
-npm i -g @google/gemini-cli@latest
+bun add -g @google/gemini-cli@latest
 ```
 
 Then retry the `acp_spawn` call.
@@ -140,7 +140,7 @@ Then retry the `acp_spawn` call.
 
 ## Discoverability
 
-Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether ACP is enabled, whether the agent is runnable (its binary is on PATH, or the assistant can run it via bun), and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
+Use `acp_list_agents` to see what's set up and what's missing. It returns each available agent profile, whether ACP is enabled, whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install hint if not. This is the right tool to call when deciding between `claude`, `codex`, and `gemini`, or when the user asks "what coding agents do I have?"
 
 ## Working directory
 

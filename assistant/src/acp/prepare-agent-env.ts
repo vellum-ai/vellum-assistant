@@ -20,6 +20,8 @@
  * owns the plaintext read boundary.
  */
 
+import { basename } from "node:path";
+
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
@@ -27,7 +29,6 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
-import { adapterCommandOf } from "./resolve-agent.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
@@ -98,13 +99,11 @@ async function injectCredential(
  * credential is missing from both the user-supplied env override and the
  * secure store.
  *
- * Gating is keyed off the canonical adapter identity (`adapterCommand` set
- * by the resolver, falling back to the command basename for plain configs),
- * not the user-facing agent id. A custom `acp.agents.my-claude = { command:
- * "claude-agent-acp", ... }` alias still gets the env it needs, and so does
- * the bunx-rewritten claude adapter (whose `command` is "bun"). Without
- * the adapterCommand gate, bunx-resolved spawns would start with no auth
- * and die as zombies on the first prompt.
+ * Gating is keyed off the resolved command basename, not the user-facing
+ * agent id. A custom `acp.agents.my-claude = { command: "claude-agent-acp",
+ * ... }` alias (or a full path like `/opt/bin/claude-agent-acp`) still gets
+ * the env it needs. Because resolution always yields the real adapter binary
+ * (never a `bun x` wrapper), the basename is the canonical adapter identity.
  *
  * For `claude-agent-acp` the only required env var is
  * `CLAUDE_CODE_OAUTH_TOKEN`. Two provisioning routes converge on it, with
@@ -132,7 +131,7 @@ export async function prepareAgentEnv(
   // agent reference. The local `env` binding sidesteps TS narrowing
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
-  const adapterCommand = adapterCommandOf(agentConfig);
+  const adapterCommand = basename(agentConfig.command);
 
   if (adapterCommand === "claude-agent-acp") {
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {

@@ -52,7 +52,6 @@ class FakeAcpAgentProcess {
     public readonly config: {
       command: string;
       args: string[];
-      adapterCommand?: string;
     },
     private readonly clientFactory: (agent: unknown) => FakeClient,
   ) {
@@ -138,7 +137,7 @@ mock.module("../prepare-agent-env.js", () => ({
 type ResolveResult =
   | {
       ok: true;
-      agent: { command: string; args: string[]; adapterCommand?: string };
+      agent: { command: string; args: string[] };
     }
   | { ok: false; reason: "binary_not_found"; hint: string; command: string };
 let resolveImpl: (id: string) => ResolveResult = () => ({
@@ -329,46 +328,41 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(internals(manager).eventBuffers.has("no-caps-1")).toBe(false);
   });
 
-  test("bunx-rewritten resolver output flows through resume with the canonical adapter command", async () => {
-    // resolveAcpAgent rewrites a missing claude-agent-acp binary to run via
-    // `bun x --bun <pkg>`; resumeFromHistory re-resolves through it, so the
-    // rewritten config must reach the agent process while the SessionEntry
-    // keeps the canonical adapter command (resume hints gate on it).
+  test("re-resolves via resolveAcpAgent: the installed real binary flows through resume", async () => {
+    // resumeFromHistory re-resolves through resolveAcpAgent, so the one-time
+    // sandboxed install performed at spawn time benefits resume too: the
+    // resolver now returns the real installed binary (a full path here), and
+    // the SessionEntry tracks its basename for resume-hint gating.
     fakeCaps.resume = true;
-    insertHistoryRow({ id: "bunx-resume-1" });
+    insertHistoryRow({ id: "installed-resume-1" });
     resolveImpl = () => ({
       ok: true,
       agent: {
-        command: "bun",
-        args: ["x", "--bun", "@agentclientprotocol/claude-agent-acp"],
-        adapterCommand: "claude-agent-acp",
+        command: "/usr/local/bin/claude-agent-acp",
+        args: [],
       },
     });
 
     const manager = new AcpSessionManager(4);
-    await manager.resumeFromHistory("bunx-resume-1", () => {});
+    await manager.resumeFromHistory("installed-resume-1", () => {});
 
     const fake = fakeInstances[0]!;
-    expect(fake.config.command).toBe("bun");
-    expect(fake.config.args).toEqual([
-      "x",
-      "--bun",
-      "@agentclientprotocol/claude-agent-acp",
-    ]);
+    expect(fake.config.command).toBe("/usr/local/bin/claude-agent-acp");
     expect(fake.resumeSessionCalls).toEqual([
       { sessionId: "proto-old", cwd: "/tmp/proj" },
     ]);
+    // The SessionEntry command is the basename (resume hints gate on it).
     expect(
-      internals(manager).sessions.get("bunx-resume-1")!.command,
+      internals(manager).sessions.get("installed-resume-1")!.command,
     ).toBe("claude-agent-acp");
   });
 
-  test("resolver failures surface the actionable hint", async () => {
+  test("missing binary on resume surfaces the actionable bun install hint", async () => {
     insertHistoryRow({ id: "no-bin-1" });
     resolveImpl = () => ({
       ok: false,
       reason: "binary_not_found",
-      hint: "npm i -g @agentclientprotocol/claude-agent-acp",
+      hint: "bun add -g @agentclientprotocol/claude-agent-acp",
       command: "claude-agent-acp",
     });
 
@@ -376,7 +370,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     await expect(
       manager.resumeFromHistory("no-bin-1", () => {}),
     ).rejects.toThrow(
-      "claude-agent-acp is not on PATH. npm i -g @agentclientprotocol/claude-agent-acp",
+      "claude-agent-acp is not on PATH. bun add -g @agentclientprotocol/claude-agent-acp",
     );
   });
 

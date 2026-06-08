@@ -8,9 +8,10 @@
  * (default 50, max 500).
  *
  * `POST /v1/acp/spawn`: when the adapter binary is missing, the handler
- * silently auto-installs allowlisted adapter packages before failing with
- * the install hint. `execFile` is stubbed via the shared
- * `installExecFileStub` helper so tests can script `npm i -g` outcomes.
+ * silently auto-installs allowlisted adapter packages via a sandboxed `bun`
+ * global install before failing with the install hint. `execFile` is stubbed
+ * via the shared `installExecFileStub` helper so tests can script
+ * `bun add --global` outcomes.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -433,43 +434,20 @@ const SPAWN_BODY = {
   conversationId: "conv-1",
 };
 
-describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
-  test("binary missing + bun present: spawn proceeds via bunx without npm", async () => {
-    which.setWhich({ bun: "/usr/local/bin/bun" });
+const BUN_BIN = "/usr/local/bin/bun";
+const BUN_ADD_KEY = `${BUN_BIN} add`;
 
-    const handler = getSpawnHandler();
-    const body = (await handler({ body: SPAWN_BODY })) as Record<
-      string,
-      unknown
-    >;
-
-    expect(body).toEqual({
-      acpSessionId: "acp-route-session",
-      protocolSessionId: "proto-route-session",
-      agent: "claude",
-    });
-    expect(execFileMock).not.toHaveBeenCalled();
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    const agentConfigArg = (spawnMock.mock.calls[0] as unknown[])[1] as {
-      command: string;
-      args: string[];
-      adapterCommand?: string;
-    };
-    expect(agentConfigArg.command).toBe("bun");
-    expect(agentConfigArg.args).toEqual([
-      "x",
-      "--bun",
-      "@agentclientprotocol/claude-agent-acp",
-    ]);
-    expect(agentConfigArg.adapterCommand).toBe("claude-agent-acp");
-  });
-
-  test("known command: installs the mapped package and spawn proceeds", async () => {
-    // Binary appears on PATH only after `npm i -g` runs, simulating a
-    // successful global install.
+describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () => {
+  test("known command + bun present: installs via bun, then spawns the real binary", async () => {
+    // Binary appears on PATH only after `bun add --global` runs, simulating a
+    // successful global install that links the adapter bin onto PATH.
     let binaryOnPath = false;
-    which.setWhich((cmd) => (binaryOnPath ? `/usr/local/bin/${cmd}` : null));
-    execScripts.set("npm i", {
+    which.setWhich((cmd) => {
+      if (cmd === "bun") return BUN_BIN;
+      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
       stdout: "",
       onCall: () => {
         binaryOnPath = true;
@@ -488,17 +466,68 @@ describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
       agent: "claude",
     });
     expect(spawnMock).toHaveBeenCalledTimes(1);
+    // The real adapter binary is spawned, not a `bun x` wrapper.
+    const agentConfigArg = (spawnMock.mock.calls[0] as unknown[])[1] as {
+      command: string;
+    };
+    expect(agentConfigArg.command).toBe("claude-agent-acp");
+    // Exactly one install, and it was `bun add --global` (never npm).
     expect(execFileMock).toHaveBeenCalledTimes(1);
-    expect(execFileMock.mock.calls[0][1]).toEqual([
-      "i",
-      "-g",
+    const [command, args] = execFileMock.mock.calls[0];
+    expect(command).toBe(BUN_BIN);
+    expect(args).toEqual([
+      "add",
+      "--global",
       "@agentclientprotocol/claude-agent-acp",
     ]);
   });
 
-  test("npm failure: FailedDependencyError carries hint and failure reason", async () => {
-    which.setWhich({});
-    execScripts.set("npm i", {
+  test("install runs in a temp dir (not the task cwd) with secrets stripped", async () => {
+    let binaryOnPath = false;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") return BUN_BIN;
+      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
+
+    const handler = getSpawnHandler();
+    await handler({ body: { ...SPAWN_BODY, cwd: "/untrusted/project" } });
+
+    const options = execFileMock.mock.calls[0][2] as {
+      cwd?: string;
+      env?: NodeJS.ProcessEnv;
+    };
+    expect(options.cwd).not.toBe("/untrusted/project");
+    expect(options.cwd).toContain("vellum-acp-install-");
+    expect(options.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(options.env?.GEMINI_API_KEY).toBeUndefined();
+    expect(options.env?.BUN_CONFIG_REGISTRY).toBe(
+      "https://registry.npmjs.org/",
+    );
+  });
+
+  test("bun absent: no install attempted, FailedDependencyError with the hint", async () => {
+    which.setWhich({}); // neither bun nor the adapter on PATH
+
+    const handler = getSpawnHandler();
+    const promise = handler({ body: SPAWN_BODY });
+    await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
+    await expect(promise).rejects.toThrow(
+      /claude-agent-acp is not on PATH.*bun add -g @agentclientprotocol\/claude-agent-acp/,
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("install failure: FailedDependencyError carries hint and failure reason, never npm", async () => {
+    which.setWhich({ bun: BUN_BIN });
+    execScripts.set(BUN_ADD_KEY, {
       error: new Error("EACCES: permission denied"),
     });
 
@@ -506,8 +535,11 @@ describe("POST /v1/acp/spawn: auto-install on missing binary", () => {
     const promise = handler({ body: SPAWN_BODY });
     await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
     await expect(promise).rejects.toThrow(
-      /claude-agent-acp is not on PATH.*npm i -g @agentclientprotocol\/claude-agent-acp.*auto-install failed.*EACCES/,
+      /claude-agent-acp is not on PATH.*bun add -g @agentclientprotocol\/claude-agent-acp.*auto-install failed.*EACCES/,
     );
+    for (const call of execFileMock.mock.calls) {
+      expect(call[0]).not.toBe("npm");
+    }
     expect(spawnMock).not.toHaveBeenCalled();
   });
 

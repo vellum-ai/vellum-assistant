@@ -1,11 +1,15 @@
 /**
  * Shared test helper: stub `execFile` from `node:child_process` for ACP tests.
  *
- * Several ACP suites (the `acp_spawn` tool's version probes, the adapter
- * auto-installer, and the `/v1/acp/spawn` route) shell out via
- * `execFileWithTimeout`. Each test file used to duplicate the same
- * `mock.module("node:child_process", ...)` + scripted-responses boilerplate;
- * this helper consolidates it, mirroring `which-stub.ts`.
+ * Several ACP suites (the adapter auto-installer and the `/v1/acp/spawn`
+ * route) shell out via `execFileWithTimeout` (e.g. `bun add --global`). Each
+ * test file used to duplicate the same `mock.module("node:child_process",
+ * ...)` + scripted-responses boilerplate; this helper consolidates it,
+ * mirroring `which-stub.ts`.
+ *
+ * The mock records every call's args, INCLUDING the options object (cwd, env,
+ * ...) at `execFileMock.mock.calls[i][2]`, so tests can assert the installer's
+ * sandboxed cwd and sanitized env.
  *
  * Like the other helpers here, the hook is process-global by design (Bun's
  * `mock.module` is process-global). Each test file should call
@@ -45,8 +49,9 @@ type ExecFileMock = ReturnType<
 export interface ExecFileStubHandle {
   /**
    * Per-call scripted responses, keyed by `${command} ${args[0]}` so tests
-   * can target `npm ls`, `npm view`, and `npm i` independently. Calls with
-   * no script reject with a recognizable "No script for <key>" error.
+   * can target distinct subcommands (e.g. `<bunPath> add`) independently.
+   * Calls with no script reject with a recognizable "No script for <key>"
+   * error.
    */
   execScripts: Map<string, ExecScript>;
   execFileMock: ExecFileMock;
