@@ -1,11 +1,12 @@
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
+import { readEnvFeatureFlagOverrides } from "./feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "./feature-flag-store.js";
 
 /**
  * Resolve the raw value for a feature flag.
  *
- * Priority: persisted (user-toggled) > remote (platform-pushed) > registry default.
+ * Priority: env override > persisted (user-toggled) > remote (platform-pushed) > registry default.
  * Undeclared keys return `false` (fail closed), even if stale local/remote
  * state contains a value for them.
  */
@@ -13,6 +14,9 @@ export function getFeatureFlagValue(key: string): boolean | string {
   const defaults = loadFeatureFlagDefaults();
   const defaultDef = defaults[key];
   if (defaultDef === undefined) return false;
+
+  const envOverrides = readEnvFeatureFlagOverrides();
+  if (key in envOverrides) return envOverrides[key];
 
   const persisted = readPersistedFeatureFlags();
   const persistedValue = persisted[key];
