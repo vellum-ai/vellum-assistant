@@ -305,7 +305,7 @@ export function ChatBody({ messages, onSubmit }: ChatBodyProps) { /* ... */ }
 ### Custom hooks start with `use`
 
 All custom hooks follow the React naming convention: `useSendMessage`,
-`useConversationHistory`, `useInteractionActions`.
+`useConversationHistory`, `useChatUIState`.
 
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 

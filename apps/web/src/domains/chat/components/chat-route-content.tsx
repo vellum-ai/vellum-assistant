@@ -68,7 +68,9 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
-import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { handleConfirmationSubmit, handleAllowAndCreateRule } from "@/domains/chat/confirmation-actions";
+import { handleOpenRuleEditorForToolCall, handleSaveRule, handleSaveAsNewRule } from "@/domains/chat/rule-editor-actions";
+import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
@@ -237,14 +239,7 @@ export function ChatMainPanel({
     handleRetryMicPermission,
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
-  const {
-    handleConfirmationSubmit,
-    handleAllowAndCreateRule,
-    handleOpenRuleEditorForToolCall,
-    handleSaveRule,
-    handleSaveAsNewRule,
-    handleSurfaceAction,
-  } = useInteractionActions();
+
 
   const showRuleEditor = useRuleEditorStore.use.showRuleEditor();
   const ruleEditorContext = useRuleEditorStore.use.ruleEditorContext();
@@ -285,7 +280,7 @@ export function ChatMainPanel({
     (surfaceId: string, action: string, input: unknown) => {
       void handleSurfaceAction(surfaceId, action, input as Record<string, unknown> | undefined);
     },
-    [handleSurfaceAction],
+    [],
   );
 
   const handleForkConversationCallback = useCallback(

@@ -11,7 +11,7 @@ import type {
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
-import type { ToolCallRuleContext } from "@/domains/chat/hooks/use-interaction-actions";
+import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",

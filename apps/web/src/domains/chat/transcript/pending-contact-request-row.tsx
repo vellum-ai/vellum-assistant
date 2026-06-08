@@ -4,14 +4,13 @@
  */
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { handleContactPromptSubmit, handleContactPromptCancel } from "@/domains/chat/contact-actions";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 
 export function PendingContactRequestRow() {
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
   const isSubmitting = useInteractionStore.use.isSubmittingContactRequest();
   const accepted = useInteractionStore.use.contactRequestAccepted();
-  const { handleContactPromptSubmit, handleContactPromptCancel } = useInteractionActions();
 
   if (!pendingContactRequest) return null;
 
