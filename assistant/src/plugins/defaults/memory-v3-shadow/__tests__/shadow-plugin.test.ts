@@ -106,6 +106,7 @@ let sectionBuilds = 0;
 let needleBuilds = 0;
 let edgeBuilds = 0;
 let ensureCollectionCalls = 0;
+let ensureCollectionThrows = false;
 
 // The `pageBody` resolver `initLanes` passes to `buildSectionIndex` (its second
 // arg), captured by the stub below so a test can drive it directly: a capability
@@ -291,6 +292,7 @@ mock.module("../section-dense-store.js", () => ({
       return realSectionDenseStore.ensureSectionCollection(...args);
     }
     ensureCollectionCalls++;
+    if (ensureCollectionThrows) throw new Error("qdrant unavailable");
   },
 }));
 
@@ -334,6 +336,7 @@ beforeEach(() => {
   needleBuilds = 0;
   edgeBuilds = 0;
   ensureCollectionCalls = 0;
+  ensureCollectionThrows = false;
   capturedPageBody = null;
   testDb = makeDb();
   resetShadowLanesForTests();
@@ -472,6 +475,19 @@ describe("memory-v3 shadow plugin", () => {
     expect(edgeBuilds).toBe(1);
     expect(ensureCollectionCalls).toBe(1);
     expect(orchestrateSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test("a Qdrant section-collection failure does not disable the in-memory lanes", async () => {
+    shadowEnabled = true;
+    ensureCollectionThrows = true;
+    // initLanes still builds the needle + edge lanes and orchestrate runs — a
+    // Qdrant outage degrades only the dense lane, it does not take down all of v3
+    // (and does not poison the memoized lanes by rejecting init).
+    await runShadowObservation("conv-1", 0);
+    expect(needleBuilds).toBe(1);
+    expect(edgeBuilds).toBe(1);
+    expect(ensureCollectionCalls).toBe(1);
+    expect(orchestrateSpy).toHaveBeenCalledTimes(1);
   });
 
   test("invalidateLanes forces a one-time rebuild on the next turn", async () => {

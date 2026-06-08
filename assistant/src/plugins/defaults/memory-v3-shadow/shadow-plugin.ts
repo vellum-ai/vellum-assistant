@@ -154,7 +154,21 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
-  await ensureSectionCollection(config);
+  // Ensuring the dense collection is best-effort: the needle + edge lanes and
+  // carry-forward are in-memory and independent of Qdrant, so a Qdrant outage
+  // must NOT reject lane init (which would return `null` from observeTurn and
+  // disable ALL of v3, plus poison the memoized lanes until invalidation). On
+  // failure we log and continue with the dense lane degraded — denseLane already
+  // returns no hits on a Qdrant error, and maintain/backfill re-ensure the
+  // collection once Qdrant recovers.
+  try {
+    await ensureSectionCollection(config);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3: section collection ensure failed; continuing with the dense lane degraded",
+    );
+  }
 
   const workingSet = new WorkingSet(
     config.memory.v3.workingSet.maxPages,
