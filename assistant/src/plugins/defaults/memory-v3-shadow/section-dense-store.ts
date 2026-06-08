@@ -9,14 +9,15 @@
 // collection embeds whole pages, this one embeds sub-page sections so a query
 // can match the single relevant block of a long article.
 //
-// Reuses the v2 Qdrant REST client (`resolveQdrantUrl` + `config.memory.qdrant.*`)
+// Reuses the v2 Qdrant URL/config (`resolveQdrantUrl` + `config.memory.qdrant.*`)
 // and the shared embedding backend (`embedWithBackend`) rather than standing up
 // new infrastructure. The collection carries a single dense named vector sized
 // to the configured embedding backend (`config.memory.qdrant.vectorSize`) — no
 // sparse channel, since the section dense lane is dense-only.
 //
-// Additive: nothing queries this collection yet. PR 3 of the section-lanes plan
-// only populates it; the retrieval read path lands in a later PR.
+// This module owns the write side (collection lifecycle + upserts) and the
+// shared Qdrant client; the read side (`dense.ts`) reuses that client to query
+// this collection.
 
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
@@ -44,8 +45,14 @@ const SECTION_NAMESPACE = "1d2c3b4a-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 let _client: QdrantRestClient | null = null;
 let _collectionReady = false;
 
-/** Lazily create a Qdrant REST client bound to the resolved URL. */
-function getClient(config: AssistantConfig): QdrantRestClient {
+/**
+ * Lazily create the shared Qdrant REST client bound to the resolved URL.
+ * Shared by both section-dense lanes (this store and the dense read lane in
+ * `dense.ts`) so they reuse one client instance and one reset hook.
+ */
+export function getSectionDenseClient(
+  config: AssistantConfig,
+): QdrantRestClient {
   if (_client) return _client;
   _client = new QdrantRestClient({
     url: resolveQdrantUrl(config),
@@ -74,7 +81,7 @@ export async function ensureSectionCollection(
 ): Promise<void> {
   if (_collectionReady) return;
 
-  const client = getClient(config);
+  const client = getSectionDenseClient(config);
   const vectorSize = config.memory.qdrant.vectorSize;
   const onDisk = config.memory.qdrant.onDisk;
 
@@ -161,7 +168,10 @@ export async function upsertSections(
     },
   }));
 
-  await getClient(config).upsert(SECTION_COLLECTION, { wait: true, points });
+  await getSectionDenseClient(config).upsert(SECTION_COLLECTION, {
+    wait: true,
+    points,
+  });
 }
 
 /**
@@ -176,7 +186,7 @@ export async function deleteSectionsForArticle(
 ): Promise<void> {
   await ensureSectionCollection(config);
 
-  await getClient(config).delete(SECTION_COLLECTION, {
+  await getSectionDenseClient(config).delete(SECTION_COLLECTION, {
     wait: true,
     filter: { must: [{ key: "article", match: { value: article } }] },
   });

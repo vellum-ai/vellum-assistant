@@ -1,22 +1,20 @@
 /**
  * Memory v3 — single pool selector.
  *
- * Where the per-leaf L2 selector (`./selector.ts`) runs ONE forced-tool call per
- * opened leaf over that leaf's static `<pages>` block, the pool selector runs a
- * SINGLE forced-tool call over one unified candidate pool. Each candidate is a
- * page slug paired with a per-candidate `descriptor` the caller supplies — the
- * matched section text for a needle/dense hit, or a curated link description for
- * an edge page. The caller assembles the pool by unioning the section lanes; the
- * pool selector only decides which of those candidates the reply will draw on.
+ * Runs a SINGLE forced-tool call over one unified candidate pool. Each candidate
+ * is a page slug paired with a per-candidate `descriptor` the caller supplies —
+ * the matched section text for a needle/dense hit, or a curated link description
+ * for an edge page. The caller assembles the pool by unioning the section lanes;
+ * the pool selector only decides which of those candidates the reply will draw
+ * on.
  *
- * No cache breakpoint. Unlike the per-leaf selector, whose `<pages>` block is
- * stable for a given leaf turn-after-turn (and so carries a `cache_control`
- * breakpoint), the pool is recomputed from per-turn section matches and is
- * therefore dynamic per turn. Caching a prefix that changes every turn would
- * never hit; carry-forward (the working set unioned in by the orchestrator) is
- * the cache mechanism here, not a static prefix breakpoint.
+ * No cache breakpoint. The pool is recomputed from per-turn section matches and
+ * is therefore dynamic per turn, so it carries no `cache_control` breakpoint:
+ * caching a prefix that changes every turn would never hit. Carry-forward (the
+ * working set unioned in by the orchestrator) is the cache mechanism here, not a
+ * static prefix breakpoint.
  *
- * Failure handling mirrors the per-leaf selector EXACTLY:
+ * Failure handling is recall-safe by construction:
  *   - explicit `ids` → select exactly those candidates,
  *   - explicit empty `ids: []` → select none (deliberate abstention),
  *   - omitted `ids` → keep ALL candidates (the recall-safe "all of these are
@@ -142,9 +140,9 @@ export async function selectPool(
     return [];
   }
 
-  // The pool is dynamic per turn, so — unlike the per-leaf selector — there is
-  // no static cache breakpoint here; carry-forward is the cache mechanism. The
-  // candidate list and the per-turn context go in a single plain text block.
+  // The pool is dynamic per turn, so there is no static cache breakpoint here;
+  // carry-forward is the cache mechanism. The candidate list and the per-turn
+  // context go in a single plain text block.
   const userMsg: Message = {
     role: "user",
     content: [

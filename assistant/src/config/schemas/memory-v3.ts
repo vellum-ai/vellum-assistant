@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Memory v3 (topic-tree routing) working-set configuration.
+ * Memory v3 (section-grain lane retrieval) working-set configuration.
  *
  * The working set is the per-conversation set of concept pages carried
  * forward across turns. Eviction keeps it bounded: pages unseen for longer

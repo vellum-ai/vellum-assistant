@@ -4,6 +4,16 @@ import { renderCapabilityContent } from "./capabilities.js";
 import type { Section, Slug } from "./types.js";
 
 /**
+ * Prefix `body` with the `# memory/concepts/<slug>.md` header marker the v3
+ * `<memory>` block uses. Both the full-page and matched-section renderers emit
+ * this exact marker, and the v2 stripper recognizes pages by it — so the two
+ * call sites MUST stay byte-identical, which is why this lives in one place.
+ */
+function withConceptHeader(slug: Slug, body: string): string {
+  return `# memory/concepts/${slug}.md\n${body}`;
+}
+
+/**
  * Render a selected page's full content for the v3 `<memory>` block. Mirrors
  * the v2 dynamic-memory layout (`# memory/concepts/<slug>.md\n<frontmatter+body>`)
  * so the working-set block reads like v2's. A missing page (or any read
@@ -27,7 +37,7 @@ export async function renderV3PageContent(slug: Slug): Promise<string> {
     if (!page) return "";
     const content = renderPageContent(page).trim();
     if (content.length === 0) return "";
-    return `# memory/concepts/${slug}.md\n${content}`;
+    return withConceptHeader(slug, content);
   } catch {
     return "";
   }
@@ -57,5 +67,5 @@ export async function renderV3SectionContent(
 
   const text = section.text.trim();
   if (text.length === 0) return "";
-  return `# memory/concepts/${slug}.md\n${text}`;
+  return withConceptHeader(slug, text);
 }

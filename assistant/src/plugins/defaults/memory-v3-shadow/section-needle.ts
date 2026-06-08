@@ -21,9 +21,9 @@ const k1 = 1.5;
 const b = 0.75;
 
 /** `head`-field weight in the BM25F term-frequency blend. */
-export const HEAD_WEIGHT = 2.5;
+const HEAD_WEIGHT = 2.5;
 /** `body`-field weight in the BM25F term-frequency blend. */
-export const BODY_WEIGHT = 1;
+const BODY_WEIGHT = 1;
 
 export interface SectionNeedle {
   /**
@@ -41,7 +41,7 @@ export interface SectionNeedle {
   bestSection(article: Slug, queryText: string): number;
 }
 
-/** Lowercase, split on non-alphanumeric, drop empties. Mirrors `needle.ts`. */
+/** Lowercase, split on non-alphanumeric, drop empties. */
 function tokenizeUnigrams(text: string): string[] {
   return text
     .toLowerCase()

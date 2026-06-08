@@ -87,18 +87,14 @@ export interface MemoryRoutingTurn {
 }
 
 /**
- * Lane attribution recorded per selection. The section-lane pipeline writes one
- * of the lane literals below. The legacy tree literals (`"l1+l2" | "core+l2"`)
- * were dropped once the per-leaf/route selector was deleted — nothing writes
- * them anymore. The `memory_v3_selections.source` column is free-text, so this
- * tightening needs no migration (any historical rows with the old labels still
- * read back fine via the permissive `z.string()` row schema).
- */
-/**
- * Canonical ordered list of the lane sources. The {@link SelectionSource} type
- * is derived from this so a new lane is added in exactly one place and the
- * runtime list (used for telemetry roll-ups and source validation) can never
- * drift from the type.
+ * Canonical ordered list of the lane sources recorded per selection. The
+ * {@link SelectionSource} type is derived from this so a new lane is added in
+ * exactly one place and the runtime list (used for telemetry roll-ups and
+ * source validation) can never drift from the type.
+ *
+ * The `memory_v3_selections.source` column is free-text, so tightening this set
+ * needs no migration: any historical rows with older labels still read back
+ * fine via the permissive `z.string()` row schema.
  */
 export const SELECTION_SOURCES = [
   "needle",

@@ -1,7 +1,7 @@
 /**
  * Wire contract for the memory v3 selection set surfaced in the inspector's
  * Memory tab. Mirrors the return value of `getMemoryV3SelectionForInspector`
- * in `assistant/src/memory/v3/selection-log-store.ts`.
+ * in `assistant/src/plugins/defaults/memory-v3-shadow/selection-log-store.ts`.
  *
  * Canonical wire-contract source. Assistant code imports the types directly
  * from this file via relative paths; external consumers (web client, gateway,

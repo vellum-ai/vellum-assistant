@@ -15,13 +15,13 @@
 // `[]`. The orchestrator unions the other lanes (needle, edge) plus carry-
 // forward regardless, so a dense outage narrows recall but never breaks a turn.
 
-import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
-
 import type { AssistantConfig } from "../../../config/types.js";
 import { embedWithBackend } from "../../../memory/embedding-backend.js";
-import { resolveQdrantUrl } from "../../../memory/qdrant-client.js";
 import { getLogger } from "../../../util/logger.js";
-import { SECTION_COLLECTION } from "./section-dense-store.js";
+import {
+  getSectionDenseClient,
+  SECTION_COLLECTION,
+} from "./section-dense-store.js";
 import type { Slug } from "./types.js";
 
 const log = getLogger("memory-v3-dense-lane");
@@ -37,18 +37,6 @@ export const OVERSAMPLE = 6;
 export interface DenseHit {
   article: Slug;
   section: number;
-}
-
-let _client: QdrantRestClient | null = null;
-
-/** Lazily create a Qdrant REST client bound to the resolved URL. */
-function getClient(config: AssistantConfig): QdrantRestClient {
-  if (_client) return _client;
-  _client = new QdrantRestClient({
-    url: resolveQdrantUrl(config),
-    checkCompatibility: false,
-  });
-  return _client;
 }
 
 /**
@@ -73,11 +61,14 @@ export async function denseLane(
     const vector = vectors[0];
     if (!vector || vector.length === 0) return [];
 
-    const result = await getClient(config).query(SECTION_COLLECTION, {
-      query: vector,
-      limit: k * OVERSAMPLE,
-      with_payload: true,
-    });
+    const result = await getSectionDenseClient(config).query(
+      SECTION_COLLECTION,
+      {
+        query: vector,
+        limit: k * OVERSAMPLE,
+        with_payload: true,
+      },
+    );
     points = result.points;
   } catch (err) {
     log.warn({ err }, "memory v3 dense lane failed; degrading to no hits");
@@ -103,9 +94,4 @@ export async function denseLane(
   }
 
   return hits;
-}
-
-/** @internal Test-only: reset module-level singletons. */
-export function _resetDenseLaneForTests(): void {
-  _client = null;
 }

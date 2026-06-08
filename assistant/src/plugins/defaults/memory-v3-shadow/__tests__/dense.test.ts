@@ -64,9 +64,9 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
-const { denseLane, OVERSAMPLE, _resetDenseLaneForTests } =
-  await import("../dense.js");
-const { SECTION_COLLECTION } = await import("../section-dense-store.js");
+const { denseLane, OVERSAMPLE } = await import("../dense.js");
+const { SECTION_COLLECTION, _resetSectionDenseStoreForTests } =
+  await import("../section-dense-store.js");
 
 const CONFIG = {
   memory: { qdrant: { vectorSize: 4, onDisk: true } },
@@ -82,7 +82,7 @@ function resetState(): void {
   state.points = [];
   state.queryThrows = null;
   state.queryCalls.length = 0;
-  _resetDenseLaneForTests();
+  _resetSectionDenseStoreForTests();
 }
 
 describe("memory v3 dense lane", () => {

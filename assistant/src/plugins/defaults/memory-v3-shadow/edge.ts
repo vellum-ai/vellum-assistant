@@ -29,7 +29,7 @@ import type { Slug } from "./types.js";
 
 /** Default in-degree above which an article is treated as a hub and excluded
  * from expansion (a hub neighbour is too generic to be a useful surface). */
-export const DEFAULT_HUB_DEGREE = 30;
+const DEFAULT_HUB_DEGREE = 30;
 
 const DEFAULT_SEED_COUNT = 18;
 const DEFAULT_PER_SEED = 6;
