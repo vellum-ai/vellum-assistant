@@ -1,4 +1,3 @@
-export type LeafPath = string; // dot- or slash-pathed taxonomy node
 export type Slug = string;
 
 /**
@@ -10,29 +9,6 @@ export type Slug = string;
  * suppression bypass.
  */
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
-
-export interface LeafFrontmatter {
-  path: LeafPath;
-  in_core: boolean;
-  /**
-   * Optional stable identifier for the leaf, independent of its taxonomy path.
-   * Older leaves predate this field and omit it, so it is optional.
-   */
-  id?: string;
-}
-
-export interface LeafNode {
-  path: LeafPath;
-  frontmatter: LeafFrontmatter;
-  description: string;
-  members: Slug[];
-  domain: string;
-}
-
-export interface LeafTree {
-  leaves: Map<LeafPath, LeafNode>;
-  byPage: Map<Slug, LeafPath[]>;
-}
 
 /**
  * A single section of a page: the lead (text before the first `## heading`,

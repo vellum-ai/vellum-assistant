@@ -63,19 +63,6 @@ import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { loadCore } from "../../plugins/defaults/memory-v3-shadow/core.js";
-import {
-  computeV3Health,
-  renderV3Health,
-} from "../../plugins/defaults/memory-v3-shadow/health.js";
-import {
-  loadLeafTree,
-  resolveDataDir,
-} from "../../plugins/defaults/memory-v3-shadow/tree.js";
-import type {
-  LeafPath,
-  Slug,
-} from "../../plugins/defaults/memory-v3-shadow/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -86,7 +73,6 @@ import {
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
-import { getPageIndex } from "../v2/page-index.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -96,8 +82,7 @@ const log = getLogger("memory-v2-consolidate");
 const JOB_NAME = "memory.consolidate";
 
 /**
- * v3 plugin flags. Either being on (a) prepends a v3 health block to the
- * consolidation prompt and (b) enqueues `memory_v3_maintain` as a
+ * v3 plugin flags. Either being on enqueues `memory_v3_maintain` as a
  * post-consolidation follow-up. These gate the v3 plugin itself.
  */
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
@@ -191,15 +176,10 @@ export async function memoryV2ConsolidateJob(
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
     // bytes through the wake hint.
-    //
-    // That resolved prompt is the base; `maybePrependV3Health` prepends a
-    // freshly computed v3 health block when a v3 flag is on and the tree has
-    // actionable drift, leaving it untouched otherwise.
-    const basePrompt = resolveConsolidationPrompt(
+    const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
     );
-    const prompt = await maybePrependV3Health(basePrompt, config);
 
     const runResult = await runBackgroundJob({
       jobName: JOB_NAME,
@@ -267,56 +247,6 @@ export async function memoryV2ConsolidateJob(
     };
   } finally {
     releaseLock(lockPath);
-  }
-}
-
-/**
- * When a v3 flag is enabled and the v3 tree has actionable structural drift,
- * prepend a rendered health block to `basePrompt` so the consolidation run can
- * fold tree maintenance into its pass. Returns `basePrompt` UNCHANGED when:
- *   - neither `memory-v3-shadow` nor `memory-v3-live` is enabled,
- *   - the health report is all-green (`renderV3Health` returns ""), or
- *   - computing the report throws for any reason.
- *
- * The block is computed here (not baked into the prompt template) so an
- * operator's custom consolidation prompt stays untouched and the block reflects
- * the tree state at run time. Health computation is wrapped so a load/compute
- * failure can never break consolidation — the run proceeds on the base prompt.
- */
-async function maybePrependV3Health(
-  basePrompt: string,
-  config: AssistantConfig,
-): Promise<string> {
-  const v3Enabled =
-    isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-    isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
-  if (!v3Enabled) return basePrompt;
-
-  try {
-    const pageIndex = await getPageIndex(getWorkspaceDir());
-    const pageLeaves = new Map<Slug, LeafPath[]>();
-    const allSlugs: Slug[] = [];
-    for (const entry of pageIndex.entries) {
-      pageLeaves.set(entry.slug, entry.leaves);
-      allSlugs.push(entry.slug);
-    }
-
-    const dataDir = resolveDataDir();
-    const [tree, core] = await Promise.all([
-      loadLeafTree(dataDir, pageLeaves),
-      loadCore(dataDir),
-    ]);
-
-    const report = computeV3Health({ tree, allSlugs, core });
-    const healthBlock = renderV3Health(report);
-    if (healthBlock.length === 0) return basePrompt;
-    return `${healthBlock}\n\n${basePrompt}`;
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "consolidation: v3 health computation failed; using base prompt",
-    );
-    return basePrompt;
   }
 }
 
