@@ -19548,11 +19548,13 @@ paths:
       operationId: plugins_install_post
       summary: Install a plugin
       description:
-        Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json`
-        entry, else the first-party `experimental/plugins/<name>/` convention. Materializes the plugin under
-        `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant
+        "Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json`
+        entry, else the first-party `experimental/plugins/<name>/` convention. Always resolves against the curated
+        default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the
+        marketplace/first-party curation boundary and let attacker-controlled code be loaded. Materializes the plugin
+        under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant
         plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing
-        at the ref returns 404. Sibling to `POST /v1/skills/install`.
+        returns 404. Sibling to `POST /v1/skills/install`."
       tags:
         - plugins
       responses:
@@ -19601,9 +19603,6 @@ paths:
                 name:
                   type: string
                   description: Install name to resolve against the catalog (first-party directory or marketplace entry).
-                ref:
-                  description: Optional git ref to install from. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.
-                  type: string
                 force:
                   description: Overwrite an existing install in place. Defaults to false.
                   type: boolean

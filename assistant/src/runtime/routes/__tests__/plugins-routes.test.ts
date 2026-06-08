@@ -737,7 +737,7 @@ describe("POST /v1/plugins/install", () => {
     installSpy.mockReset();
   });
 
-  test("forwards name/ref/force to installPlugin and shapes the result", async () => {
+  test("forwards name/force and shapes the result, pinning ref to the default", async () => {
     installSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
@@ -747,7 +747,7 @@ describe("POST /v1/plugins/install", () => {
     }));
 
     const result = await invokeInstall({
-      body: { name: "caveman", ref: "v1.8.2", force: true },
+      body: { name: "caveman", force: true },
     });
 
     expect(result).toEqual({
@@ -755,12 +755,37 @@ describe("POST /v1/plugins/install", () => {
       name: "caveman",
       target: "/workspace/.vellum/plugins/caveman",
       fileCount: 7,
-      ref: "v1.8.2",
+      ref: "main",
     });
     expect(installSpy.mock.calls[0]?.[0]).toEqual({
       name: "caveman",
-      ref: "v1.8.2",
+      ref: "main",
       force: true,
+    });
+  });
+
+  test("ignores a caller-supplied ref and pins to the curated default", async () => {
+    // Security boundary: installing from an unreviewed ref (a PR branch,
+    // fork ref, ...) could load attacker-controlled marketplace/first-party
+    // code, so the HTTP route never honors a body `ref` — it always resolves
+    // against the curated default ref.
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+    }));
+
+    const result = await invokeInstall({
+      body: { name: "caveman", ref: "attacker-pr-branch" },
+    });
+
+    expect(result.ref).toBe("main");
+    expect(installSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "main",
+      force: undefined,
     });
   });
 

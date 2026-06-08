@@ -202,12 +202,6 @@ const pluginInstallRequestSchema = z.object({
     .describe(
       "Install name to resolve against the catalog (first-party directory or marketplace entry).",
     ),
-  ref: z
-    .string()
-    .optional()
-    .describe(
-      "Optional git ref to install from. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.",
-    ),
   force: z
     .boolean()
     .optional()
@@ -442,12 +436,19 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
   if (!name) {
     throw new BadRequestError("`name` is required");
   }
-  const ref = typeof body.ref === "string" ? body.ref : undefined;
   const force = typeof body.force === "boolean" ? body.force : undefined;
 
+  // The ref is pinned to the curated `DEFAULT_PLUGIN_REF` rather than taken
+  // from the request: a caller-supplied ref would let any `settings.write`
+  // principal install from an unreviewed revision (a PR branch, fork ref,
+  // ...) whose marketplace manifest or first-party plugin directory could
+  // carry attacker code that the loader then dynamically imports. Installs
+  // over HTTP therefore only ever resolve against the reviewed catalog on
+  // the default ref. Operators who need another ref use the local CLI's
+  // `assistant plugins install --ref`.
   try {
     const result = await installPlugin(
-      { name, ref, force },
+      { name, ref: DEFAULT_PLUGIN_REF, force },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
     return {
@@ -545,7 +546,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Install a plugin",
     description:
-      "Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json` entry, else the first-party `experimental/plugins/<name>/` convention. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing at the ref returns 404. Sibling to `POST /v1/skills/install`.",
+      "Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json` entry, else the first-party `experimental/plugins/<name>/` convention. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace/first-party curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
     tags: ["plugins"],
     requestBody: pluginInstallRequestSchema,
     responseBody: pluginInstallResponseSchema,
