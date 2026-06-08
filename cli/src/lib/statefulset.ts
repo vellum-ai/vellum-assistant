@@ -257,6 +257,7 @@ export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
   instanceName: string;
   res: DockerResourceNames;
   extraAssistantEnv?: Record<string, string>;
+  extraGatewayEnv?: Record<string, string>;
   /** Avatar device path, if available. Injected by `docker.ts` after resolving. */
   avatarDevicePath?: string;
 }
@@ -285,6 +286,7 @@ export function buildServiceRunArgs(
     instanceName,
     res,
     extraAssistantEnv,
+    extraGatewayEnv,
     avatarDevicePath,
   } = opts;
 
@@ -343,6 +345,13 @@ export function buildServiceRunArgs(
           const hostVar = entry.hostVar ?? entry.name;
           const val = process.env[hostVar];
           if (val) args.push("-e", `${entry.name}=${val}`);
+        }
+      }
+
+      // Gateway-only additions (e.g. feature flag env overrides)
+      if (svc === "gateway" && extraGatewayEnv) {
+        for (const [k, v] of Object.entries(extraGatewayEnv)) {
+          args.push("-e", `${k}=${v}`);
         }
       }
 

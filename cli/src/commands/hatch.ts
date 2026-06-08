@@ -580,7 +580,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch, configValues, {
+    await hatchDocker(species, detached, name, watch, configValues, flagEnvVars, {
       sourcePath,
       analyze,
     });
