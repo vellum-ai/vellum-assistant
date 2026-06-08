@@ -11,26 +11,37 @@ exports.default = async function afterPack(context) {
 
   const { appOutDir, packager } = context;
   const productName = packager.appInfo.productFilename;
-  const bunPath = path.join(
+  const resourcesDir = path.join(
     appOutDir,
     `${productName}.app`,
     "Contents",
     "Resources",
-    "bun"
   );
-
-  if (!fs.existsSync(bunPath)) {
-    console.warn(`afterPack: bun binary not found at ${bunPath}, skipping codesign`);
-    return;
-  }
-
-  const entitlements = path.join(__dirname, "entitlements", "bun.plist");
   const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
   const timestamp = identity === "-" ? "" : " --timestamp";
+  const executables = [
+    {
+      name: "bun",
+      path: path.join(resourcesDir, "bun"),
+      entitlements: path.join(__dirname, "entitlements", "bun.plist"),
+    },
+    {
+      name: "hotkey-helper",
+      path: path.join(resourcesDir, "hotkey-helper"),
+      entitlements: path.join(__dirname, "entitlements", "inherit.plist"),
+    },
+  ];
 
-  console.log(`afterPack: codesigning bun binary with identity="${identity}"`);
-  execSync(
-    `codesign --force --options runtime --sign "${identity}"${timestamp} --entitlements "${entitlements}" "${bunPath}"`,
-    { stdio: "inherit" }
-  );
+  for (const executable of executables) {
+    if (!fs.existsSync(executable.path)) {
+      console.warn(`afterPack: ${executable.name} not found at ${executable.path}, skipping codesign`);
+      continue;
+    }
+
+    console.log(`afterPack: codesigning ${executable.name} with identity="${identity}"`);
+    execSync(
+      `codesign --force --options runtime --sign "${identity}"${timestamp} --entitlements "${executable.entitlements}" "${executable.path}"`,
+      { stdio: "inherit" }
+    );
+  }
 };

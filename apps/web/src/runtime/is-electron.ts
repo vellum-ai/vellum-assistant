@@ -105,6 +105,17 @@ export type ConnectivityState =
   | "device-offline"
   | "backend-unreachable";
 
+export type HotkeyEventState = "down" | "up";
+
+export interface HotkeyEvent {
+  kind: "fnPushToTalk";
+  state: HotkeyEventState;
+}
+
+export type FnPushToTalkResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
 /**
  * Renderer-side mirror of `NotificationCategory` in
  * `apps/macos/src/main/notifications.ts`. Each variant maps to a set of
@@ -208,6 +219,12 @@ declare global {
       };
       featureFlags?: {
         set(flags: Record<string, boolean>): void;
+      };
+      helper?: {
+        hotkey?: {
+          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          onEvent(callback: (event: HotkeyEvent) => void): () => void;
+        };
       };
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
