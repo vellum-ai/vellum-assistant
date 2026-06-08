@@ -110,9 +110,6 @@ function renderMessage(
     <TranscriptMessageBody
       message={message}
       assistantDisplayName={props.assistantDisplayName}
-      expandedToolCallIds={new Set()}
-      expandedCardIds={new Map()}
-      expandedThinkingKeys={new Map()}
       onSurfaceAction={noop}
       onInspectMessage={props.onInspectMessage}
       isStreaming={props.isStreaming}
@@ -221,9 +218,6 @@ describe("TranscriptMessageBody", () => {
             },
           },
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -269,9 +263,6 @@ describe("TranscriptMessageBody", () => {
               },
             },
           }}
-          expandedToolCallIds={new Set()}
-          expandedCardIds={new Map()}
-          expandedThinkingKeys={new Map()}
           onSurfaceAction={noop}
         />,
       );
@@ -302,9 +293,6 @@ describe("TranscriptMessageBody", () => {
           role: "assistant",
           ...textBody("hello"),
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -323,9 +311,6 @@ describe("TranscriptMessageBody", () => {
           role: "user",
           ...textBody("hello"),
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
       />,
@@ -354,9 +339,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -387,9 +369,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -419,9 +398,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -462,9 +438,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -499,9 +472,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -534,9 +504,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -575,9 +542,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -606,9 +570,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -650,9 +611,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -684,9 +642,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -711,9 +666,6 @@ describe("TranscriptMessageBody", () => {
           textSegments: ["do this"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -745,9 +697,6 @@ describe("TranscriptMessageBody", () => {
           textSegments: ["after surface"],
           surfaces: [{ surfaceId: "s-1" } as never],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -796,9 +745,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -852,9 +798,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -885,9 +828,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -910,9 +850,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1001,9 +938,6 @@ describe("TranscriptMessageBody", () => {
           ],
           timestamp: 1_000,
         }}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1064,9 +998,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1126,9 +1057,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1170,9 +1098,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1213,9 +1138,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );
@@ -1248,9 +1170,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={message}
-        expandedToolCallIds={new Set()}
-        expandedCardIds={new Map()}
-        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
       />,
     );

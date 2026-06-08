@@ -22,9 +22,6 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 export interface TranscriptRowProps {
   item: TranscriptItem;
   assistantDisplayName?: string | null;
-  expandedToolCallIds: Set<string>;
-  expandedCardIds: Map<string, boolean>;
-  expandedThinkingKeys: Map<string, boolean>;
   onSurfaceAction: (
     surfaceId: string,
     actionId: string,
@@ -73,9 +70,6 @@ export interface TranscriptRowProps {
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   assistantDisplayName,
-  expandedToolCallIds,
-  expandedCardIds,
-  expandedThinkingKeys,
   onSurfaceAction,
   onForkConversation,
   onInspectMessage,
@@ -98,9 +92,6 @@ export const TranscriptRow = memo(function TranscriptRow({
         <TranscriptMessageBody
           message={item.message}
           assistantDisplayName={assistantDisplayName}
-          expandedToolCallIds={expandedToolCallIds}
-          expandedCardIds={expandedCardIds}
-          expandedThinkingKeys={expandedThinkingKeys}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
           onInspectMessage={onInspectMessage}

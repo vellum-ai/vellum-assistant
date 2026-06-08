@@ -63,6 +63,8 @@ export interface ChatSessionState {
   pendingQueuedMessageIds: string[];
   requestIdToMessageId: Map<string, string>;
   pendingLocalDeletions: Set<string>;
+
+  // --- Expansion state (subscribed reactively by leaf components) ---
   expandedToolCallIds: Set<string>;
 
   // --- Confirmation tool-call mapping ---
@@ -156,6 +158,11 @@ export interface ChatSessionActions {
   popRequestIdMapping: (requestId: string) => string | undefined;
   addPendingLocalDeletion: (messageId: string) => void;
   consumePendingLocalDeletion: (messageId: string) => boolean;
+
+  // --- Expansion state (tool calls, progress cards, thinking blocks) ---
+  toggleExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
+  toggleExpandedCardId: (cardId: string, expanded: boolean) => void;
+  toggleExpandedThinkingKey: (key: string, expanded: boolean) => void;
 
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
@@ -427,6 +434,29 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     set({ pendingLocalDeletions: next });
     return true;
   },
+
+  // --- Expansion state (tool calls, progress cards, thinking blocks) ---
+  toggleExpandedToolCallId: (toolCallId, expanded) =>
+    set((s) => {
+      const next = new Set(s.expandedToolCallIds);
+      if (expanded) next.add(toolCallId);
+      else next.delete(toolCallId);
+      return { expandedToolCallIds: next };
+    }),
+
+  toggleExpandedCardId: (cardId, expanded) =>
+    set((s) => {
+      const next = new Map(s.expandedCardIds);
+      next.set(cardId, expanded);
+      return { expandedCardIds: next };
+    }),
+
+  toggleExpandedThinkingKey: (key, expanded) =>
+    set((s) => {
+      const next = new Map(s.expandedThinkingKeys);
+      next.set(key, expanded);
+      return { expandedThinkingKeys: next };
+    }),
 
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId, usage) =>

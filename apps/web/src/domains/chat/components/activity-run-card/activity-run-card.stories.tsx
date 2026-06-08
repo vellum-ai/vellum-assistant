@@ -36,9 +36,6 @@ function baseProps(
 ): ActivityRunCardProps {
   return {
     toolCalls: [],
-    expandedToolCallIds: new Set<string>(),
-    onExpandChange: () => {},
-    expandedCardIds: new Map<string, boolean>(),
     autoExpand: true,
     ...overrides,
   };
