@@ -251,6 +251,17 @@ export function conversationListOptions(assistantId: string) {
     queryKey: conversationsQueryKey(assistantId),
     queryFn: () => listConversations(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
+    structuralSharing(oldData, newData) {
+      if (!oldData || !Array.isArray(oldData) || !Array.isArray(newData)) {
+        return newData;
+      }
+      const drafts = (oldData as Conversation[]).filter((c) => c.draft);
+      if (drafts.length === 0) return newData;
+      const newIds = new Set((newData as Conversation[]).map((c) => c.conversationId));
+      const surviving = drafts.filter((d) => !newIds.has(d.conversationId));
+      if (surviving.length === 0) return newData;
+      return [...surviving, ...(newData as Conversation[])];
+    },
   });
 }
 
