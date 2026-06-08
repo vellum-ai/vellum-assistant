@@ -40,6 +40,7 @@ import {
   type CliInvocation,
 } from "@vellumai/local-mode";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import { parseFeatureFlagArgs } from "../lib/flag-args";
 import {
   fetchOrganizationId,
   fetchPlatformAssistants,
@@ -73,6 +74,10 @@ interface ParsedArgs {
   bearerToken?: string;
   /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
   interfaceId: SupportedInterface;
+  /** VELLUM_FLAG_* env vars for the gateway (process.env propagation). */
+  flagEnvVars: Record<string, string>;
+  /** Parsed --flag overrides: kebab-case key -> typed value (for web injection). */
+  parsedFlagOverrides: Record<string, boolean | string>;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -84,7 +89,25 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
 
 // Exported for unit testing the arg/auth resolution without launching the TUI.
 export function parseArgs(): ParsedArgs {
-  const args = process.argv.slice(3);
+  const { envVars: flagEnvVars, remaining: argsWithoutFlags } =
+    parseFeatureFlagArgs(process.argv.slice(3));
+  const args = argsWithoutFlags;
+
+  // Build parsedFlagOverrides from the extracted env vars:
+  // VELLUM_FLAG_UPPER_SNAKE -> kebab-case key with typed value.
+  const parsedFlagOverrides: Record<string, boolean | string> = {};
+  for (const [envName, rawValue] of Object.entries(flagEnvVars)) {
+    const snake = envName.replace(/^VELLUM_FLAG_/, "");
+    const kebab = snake.toLowerCase().replace(/_/g, "-");
+    const lower = rawValue.toLowerCase();
+    if (["true", "1", "yes", "on"].includes(lower)) {
+      parsedFlagOverrides[kebab] = true;
+    } else if (["false", "0", "no", "off"].includes(lower)) {
+      parsedFlagOverrides[kebab] = false;
+    } else {
+      parsedFlagOverrides[kebab] = rawValue;
+    }
+  }
 
   const positionalName = parseAssistantTargetArg(args, [
     "--url",
@@ -219,6 +242,8 @@ export function parseArgs(): ParsedArgs {
     platformToken,
     bearerToken,
     interfaceId,
+    flagEnvVars,
+    parsedFlagOverrides,
   };
 }
 
@@ -238,6 +263,7 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
                               not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
+    --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -599,12 +625,15 @@ function getBaseDir(): string {
   return path.resolve(import.meta.dir, "..", "..", "..");
 }
 
-async function runWebInterface(): Promise<void> {
+async function runWebInterface(
+  flagEnvVars: Record<string, string>,
+  parsedFlagOverrides: Record<string, boolean | string>,
+): Promise<void> {
   // Prefer Vite dev server in source checkouts for full local-mode support
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
   if (webSourceDir) {
-    return runViteDevServer(webSourceDir);
+    return runViteDevServer(webSourceDir, flagEnvVars);
   }
 
   const distDir = findWebDistDir();
@@ -622,9 +651,13 @@ async function runWebInterface(): Promise<void> {
   const platformUrl = getPlatformUrl();
   const webUrl = getWebUrl();
   const configJson = JSON.stringify({ webUrl, platformUrl });
+  const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
+  const flagOverridesSnippet = hasOverrides
+    ? `;window.__VELLUM_FLAG_OVERRIDES__=${JSON.stringify(parsedFlagOverrides)}`
+    : "";
   const indexHtml = rawIndexHtml.replace(
     "</head>",
-    `<script>window.__VELLUM_CONFIG__=${configJson}</script></head>`,
+    `<script>window.__VELLUM_CONFIG__=${configJson}${flagOverridesSnippet}</script></head>`,
   );
 
   const server = Bun.serve({
@@ -749,14 +782,25 @@ async function runWebInterface(): Promise<void> {
   await new Promise(() => {});
 }
 
-async function runViteDevServer(webSourceDir: string): Promise<void> {
+async function runViteDevServer(
+  webSourceDir: string,
+  flagEnvVars: Record<string, string>,
+): Promise<void> {
   const platformUrl = getPlatformUrl();
+
+  // Build VITE_VELLUM_FLAG_* vars so Vite exposes them to the browser bundle.
+  const viteFlagVars: Record<string, string> = {};
+  for (const [envName, value] of Object.entries(flagEnvVars)) {
+    viteFlagVars[`VITE_${envName}`] = value;
+  }
 
   const child = spawn("bun", ["run", "dev"], {
     cwd: webSourceDir,
     stdio: "inherit",
     env: {
       ...process.env,
+      ...flagEnvVars,
+      ...viteFlagVars,
       VITE_PLATFORM_MODE: "false",
       API_PROXY_TARGET: platformUrl,
       VELLUM_WEB_URL: getWebUrl(),
@@ -837,10 +881,12 @@ export async function client(): Promise<void> {
     platformToken,
     bearerToken,
     interfaceId,
+    flagEnvVars,
+    parsedFlagOverrides,
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    await runWebInterface();
+    await runWebInterface(flagEnvVars, parsedFlagOverrides);
     return;
   }
 
