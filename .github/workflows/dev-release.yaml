@@ -1813,7 +1813,7 @@ jobs:
     needs: [compute-version, publish-meta-dev]
     runs-on: macos-26
     timeout-minutes: 30
-    continue-on-error: true
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
@@ -1821,9 +1821,11 @@ jobs:
           - arch: arm64
             dmg_name: vellum-assistant-electron-dev.dmg
             artifact_name: dev-electron-dmg
+            experimental: false
           - arch: x64
             dmg_name: vellum-assistant-electron-dev-x64.dmg
             artifact_name: dev-electron-dmg-x64
+            experimental: true
     defaults:
       run:
         working-directory: apps/macos
