@@ -77,11 +77,15 @@ export async function getMemoryV3SelectionForInspector(
     pinned: r.pinned === 1,
   }));
   const slugs: Slug[] = selections.map((s) => s.slug);
-  // The inspector re-renders from persisted rows without re-running
-  // orchestration, so the per-slug matched section is unavailable. An empty map
-  // makes `renderV3SectionContent` fall back to the full/lead page for every
-  // slug — the same full-page rendering the inspector showed before
-  // matched-section injection.
+  // NOTE: `injectedText` is APPROXIMATE — it renders the full/lead page for
+  // every slug, not the exact matched section live injection used. The inspector
+  // re-renders from persisted rows without re-running orchestration, and the
+  // section identity is not persisted (`memory_v3_selections` stores
+  // slug/source/pinned, not the section ordinal), so the section map is empty
+  // and `renderV3SectionContent` falls back to the full page. Persisting the
+  // injected section (a schema migration) is deliberately deferred: the A/B's
+  // primary signal is slug-level recall via `summarizeSelections`, which is
+  // exact — only this debug-oriented injected text is an approximation.
   const injectedText = await renderMemoryBlock(
     slugs,
     new Map<Slug, Section>(),
