@@ -36,14 +36,18 @@ function buildSuppressCjkMap(): Readonly<Record<string, number>> {
 }
 
 /**
- * Resolve a preset name to its `logit_bias` map, or `undefined` for an unknown
- * name. The `suppress-cjk` map is built once and cached — it's a constant
- * ~5.3k-entry object reused across every request on the owning profile.
+ * Resolve a preset to its `logit_bias` map for `model`, or `undefined` when the
+ * preset is unknown or doesn't apply to the model. `suppress-cjk`'s token IDs
+ * come from the Kimi tokenizer, so it only resolves for Kimi models — this keeps
+ * the preset from being misapplied to a different-tokenizer model that happened
+ * to inherit it. The map is built once and cached (a constant ~5.3k-entry object
+ * reused across every request on the owning profile).
  */
 export function resolveLogitBiasPreset(
   preset: string,
+  model: string,
 ): Readonly<Record<string, number>> | undefined {
-  if (preset === "suppress-cjk") {
+  if (preset === "suppress-cjk" && /kimi/i.test(model)) {
     suppressCjkMap ??= buildSuppressCjkMap();
     return suppressCjkMap;
   }

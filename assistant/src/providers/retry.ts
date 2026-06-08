@@ -279,15 +279,29 @@ function normalizeSendMessageOptions(
       nextConfig.openrouter = { only: resolved.openrouter.only };
     }
     // Forward a profile's opted-in `logit_bias` preset only on the Fireworks
-    // (OpenAI-compatible) path. The preset's token IDs are tokenizer-specific
-    // (Kimi), and strict-schema clients like Anthropic reject unknown body
-    // fields, so this must never leak onto other providers.
+    // (OpenAI-compatible) path. Resolve the preset from the *applied* profile —
+    // the one that actually won resolution (`attribution.appliedProfile`, or the
+    // chosen arm for a mix) — rather than the deep-merged config, so an active
+    // profile's bias can't leak into other profiles that merely inherited it
+    // without opting in. `resolveLogitBiasPreset` additionally gates on the
+    // resolved model's tokenizer. Strict-schema clients (Anthropic) reject
+    // unknown body fields, hence the provider gate.
+    const appliedProfileName =
+      attribution.resolvedMixArm ?? attribution.appliedProfile;
+    const appliedLogitBias =
+      appliedProfileName != null
+        ? getConfig().llm.profiles?.[appliedProfileName]?.logitBias
+        : undefined;
     if (
       providerName === "fireworks" &&
       nextConfig.logit_bias === undefined &&
-      resolved.logitBias !== undefined
+      appliedLogitBias !== undefined &&
+      typeof nextConfig.model === "string"
     ) {
-      const biasMap = resolveLogitBiasPreset(resolved.logitBias);
+      const biasMap = resolveLogitBiasPreset(
+        appliedLogitBias,
+        nextConfig.model,
+      );
       if (biasMap !== undefined) {
         nextConfig.logit_bias = biasMap;
       }

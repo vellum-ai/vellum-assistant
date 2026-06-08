@@ -304,6 +304,11 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // profile before this point), but strip it defensively so it can never
     // leak into the merged `LLMConfigBase`.
     mix: _mix,
+    // `logitBias` is profile-identity metadata, not inheritable config: a
+    // preset must apply only to the profile that opted in, never bleed from a
+    // lower-precedence (e.g. active) profile into one that merely inherited it.
+    // `RetryProvider` resolves it from the applied profile, not the merge.
+    logitBias: _logitBias,
     ...config
   } = profile;
   return config as Mergeable;

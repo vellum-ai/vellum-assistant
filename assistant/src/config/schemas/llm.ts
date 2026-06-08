@@ -126,10 +126,12 @@ const MaxTokensSchema = z.number().int().positive();
 const TemperatureSchema = z.number().min(0).max(2).nullable();
 // Named, code-resolved logit-bias preset a profile may opt into. The value is a
 // preset *name*, not an inline token→bias map, so the workspace config stays
-// small; `RetryProvider` resolves it to a `logit_bias` map at request time and
-// forwards it only on the Fireworks (OpenAI-compatible) path. Keep these
-// literals in sync with the presets handled by `resolveLogitBiasPreset` in
-// `providers/inference/logit-bias.ts` (kept separate to avoid a schema →
+// small. This is profile-identity metadata, not inheritable config: the
+// resolver strips it from the deep-merge (see `profileConfigFragment`), and
+// `RetryProvider` resolves it to a `logit_bias` map from the *applied* profile
+// at request time, forwarded only on the Fireworks (OpenAI-compatible) path.
+// Keep these literals in sync with the presets handled by `resolveLogitBiasPreset`
+// in `providers/inference/logit-bias.ts` (kept separate to avoid a schema →
 // provider import cycle).
 const LogitBiasPresetSchema = z.enum(["suppress-cjk"]);
 
@@ -324,9 +326,6 @@ export const LLMConfigBase = z.object({
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
   openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
-  // Optional with no default so it flows through `resolveCallSiteConfig` only
-  // when a profile sets it (mirrors `provider_connection`).
-  logitBias: LogitBiasPresetSchema.optional(),
 });
 export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
 
