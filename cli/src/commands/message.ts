@@ -67,8 +67,15 @@ export function parseMessageArgs(rawArgs: string[]): ParseResult {
   );
   args = afterConversationKey;
 
+  const fileFlagPresent = args.includes("--file");
   const [filePath, afterFile] = extractFlag(args, "--file");
   args = afterFile;
+
+  // `extractFlag` strips a trailing value-less `--file`, which would otherwise
+  // make the next positional masquerade as the message content. Reject it.
+  if (fileFlagPresent && filePath === undefined) {
+    return { ok: false, error: "--file requires a path argument." };
+  }
 
   if (filePath !== undefined) {
     // vellum message [assistant] --file <path>

@@ -61,6 +61,14 @@ describe("parseMessageArgs", () => {
     });
   });
 
+  test("rejects --file without a path argument", () => {
+    const r = parseMessageArgs(["my-assistant", "--file"]);
+    expect(r).toEqual({
+      ok: false,
+      error: "--file requires a path argument.",
+    });
+  });
+
   test("preserves --conversation-key and --json alongside --file", () => {
     const r = parseMessageArgs([
       "--json",
