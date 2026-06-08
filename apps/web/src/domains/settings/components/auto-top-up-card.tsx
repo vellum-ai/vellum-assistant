@@ -169,6 +169,10 @@ export function AutoTopUpCard() {
 
   const config = configQuery.data;
   const enabled = config.enabled === true;
+  // The backend pauses auto-reload after several declined charges and flips
+  // this flag (it's reset once a fresh PM is attached). When set, the card
+  // shows a tailored explanation instead of the generic add-PM gate copy.
+  const disabledAfterDeclines = config.disabled_due_to_repeated_failures === true;
 
   /**
    * Transition into form mode. Resets any prior mutation errors so stale
@@ -383,9 +387,23 @@ export function AutoTopUpCard() {
         )}
       </div>
 
+      {disabledAfterDeclines && (
+        <Notice
+          tone="warning"
+          className="mt-3"
+          data-testid="auto-top-up-declined-cutoff"
+        >
+          We paused automatic reloads after several declined payments. Add a new
+          payment method below to turn auto-reload back on.
+        </Notice>
+      )}
+
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-        style={{ gridTemplateRows: showNoPmNotice ? "1fr" : "0fr" }}
+        style={{
+          gridTemplateRows:
+            showNoPmNotice && !disabledAfterDeclines ? "1fr" : "0fr",
+        }}
       >
         <div className="overflow-hidden">
           <Notice tone="warning" className="mt-3">
