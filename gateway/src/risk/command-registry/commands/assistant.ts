@@ -163,6 +163,9 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v3",
+  "memory v3 rebuild-index",
+  "memory v3 backfill-sections",
   "notifications",
   "notifications send",
   "notifications list",
@@ -493,6 +496,18 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "memory v2 validate",
     risk: "low",
     reason: "Read-only diagnostic walk over concept pages and edges",
+  },
+  {
+    path: "memory v3 backfill-sections",
+    risk: "medium",
+    reason:
+      "Embeds every page's sections into the v3 dense store and advances the maintain checkpoint",
+  },
+  {
+    path: "memory v3 rebuild-index",
+    risk: "low",
+    reason:
+      "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
   },
   { path: "notifications send", risk: "low" },
   {
