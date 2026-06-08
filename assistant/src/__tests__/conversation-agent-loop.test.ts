@@ -114,35 +114,38 @@ mock.module("../context/token-estimator.js", () => ({
 let mockReducerStepFn:
   | ((msgs: Message[], cfg: unknown, state: unknown) => unknown)
   | null = null;
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      appliedTiers: [],
+      injectionMode: "full" as const,
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (
+      msgs: Message[],
+      cfg: unknown,
+      state: unknown,
+    ) => {
+      if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+      };
+    },
   }),
-  reduceContextOverflow: async (
-    msgs: Message[],
-    cfg: unknown,
-    state: unknown,
-  ) => {
-    if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
-    return {
-      messages: msgs,
-      tier: "forced_compaction",
-      state: {
-        appliedTiers: [
-          "forced_compaction",
-          "tool_result_truncation",
-          "media_stubbing",
-          "injection_downgrade",
-        ],
-        injectionMode: "full",
-        exhausted: true,
-      },
-      estimatedTokens: 1000,
-    };
-  },
-}));
+);
 
 // Policy: default to fail_gracefully
 let mockOverflowAction: string = "fail_gracefully";

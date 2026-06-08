@@ -76,6 +76,11 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrosp
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  createInitialReducerState,
+  reduceContextOverflow,
+  type ReducerState,
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -98,11 +103,6 @@ import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
-import {
-  createInitialReducerState,
-  reduceContextOverflow,
-  type ReducerState,
-} from "./context-overflow-reducer.js";
 import type { Conversation } from "./conversation.js";
 import {
   createEventHandlerState,

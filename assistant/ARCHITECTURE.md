@@ -1088,12 +1088,12 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 
 ### Key Source Files
 
-| File                                     | Purpose                                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `src/daemon/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
-| `src/daemon/context-overflow-policy.ts`  | Overflow policy resolver: maps config + interactivity to concrete action      |
-| `src/daemon/conversation-agent-loop.ts`  | Integration: preflight budget check, convergence loop, emergency compaction   |
-| `src/config/core-schema.ts`              | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
+| File                                                          | Purpose                                                                       |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/plugins/defaults/compaction/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
+| `src/daemon/context-overflow-policy.ts`                       | Overflow policy resolver: maps config + interactivity to concrete action      |
+| `src/daemon/conversation-agent-loop.ts`                       | Integration: preflight budget check, convergence loop, emergency compaction   |
+| `src/config/core-schema.ts`                                   | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
 
 ---
 
