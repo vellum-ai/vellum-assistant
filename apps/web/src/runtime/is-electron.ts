@@ -191,6 +191,26 @@ export interface BundleScanData {
   bundleSizeBytes: number;
 }
 
+/**
+ * Renderer-side mirror of `UpdateStatus` / `UpdateState` in
+ * `apps/macos/src/main/auto-update.ts`. Inline for the same reason as
+ * the other bridge types.
+ */
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  version?: string;
+  progress?: { percent: number; transferred: number; total: number };
+  error?: string;
+}
+
 declare global {
   interface Window {
     vellum?: {
@@ -342,6 +362,13 @@ declare global {
       bundleConfirm?: {
         getData(): Promise<BundleScanData | null>;
         respond(accepted: boolean): void;
+      };
+      // Optional: older Electron shells predate the auto-update channel.
+      update?: {
+        getState(): Promise<UpdateState>;
+        check(): Promise<void>;
+        install(): Promise<void>;
+        onState(callback: (state: UpdateState) => void): () => void;
       };
     };
   }

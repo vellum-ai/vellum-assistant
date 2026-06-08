@@ -132,6 +132,25 @@ export type ConnectivityState =
   | "backend-unreachable";
 
 /**
+ * Mirror of `UpdateStatus` / `UpdateState` in `apps/macos/src/main/auto-update.ts`.
+ * Inlined for the same reason as the other bridge types.
+ */
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  version?: string;
+  progress?: { percent: number; transferred: number; total: number };
+  error?: string;
+}
+
+/**
  * Mirror of `NotificationCategory` in `apps/macos/src/main/notifications.ts`.
  * Inlined for the same reason as the other bridge types: preload + main +
  * renderer each have their own TS project.
@@ -508,6 +527,16 @@ export interface VellumBridge {
      */
     open(conversationId: string): Promise<void>;
   };
+  update: {
+    /** Read the current auto-update state. */
+    getState(): Promise<UpdateState>;
+    /** Trigger an update check. */
+    check(): Promise<void>;
+    /** Quit and install the downloaded update. */
+    install(): Promise<void>;
+    /** Subscribe to auto-update state changes. Returns an unsubscribe function. */
+    onState(callback: (state: UpdateState) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -786,6 +815,23 @@ const bridge: VellumBridge = {
   popout: {
     open: (conversationId: string): Promise<void> =>
       ipcRenderer.invoke("vellum:popout:open", conversationId) as Promise<void>,
+  },
+  update: {
+    getState: (): Promise<UpdateState> =>
+      ipcRenderer.invoke("vellum:update:getState") as Promise<UpdateState>,
+    check: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:update:check") as Promise<void>,
+    install: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:update:install") as Promise<void>,
+    onState: (callback) => {
+      const handler = (_event: IpcRendererEvent, state: UpdateState) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:update:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:update:state", handler);
+      };
+    },
   },
 };
 
