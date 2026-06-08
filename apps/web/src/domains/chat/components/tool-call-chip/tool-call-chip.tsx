@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+
 import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk";
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
@@ -35,8 +37,6 @@ import {
 
 export interface ToolCallChipProps {
   toolCall: ChatMessageToolCall;
-  defaultExpanded: boolean;
-  onExpandChange: (expanded: boolean) => void;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -252,14 +252,20 @@ function InlineConfirmationCard({
 
 export function ToolCallChip({
   toolCall,
-  defaultExpanded,
-  onExpandChange,
   onOpenRuleEditor,
   onConfirmationSubmit,
   onAllowAndCreateRule,
   embedded = false,
 }: ToolCallChipProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const expanded = useChatSessionStore(
+    (s) => s.expandedToolCallIds.has(toolCall.id),
+  );
+  const toggleExpanded = useCallback(
+    (next: boolean) => {
+      useChatSessionStore.getState().setExpandedToolCallId(toolCall.id, next);
+    },
+    [toolCall.id],
+  );
   // Per-chip submission state. Each tool call that is awaiting a confirmation
   // renders its own inline card and tracks its own in-flight Allow/Deny, so a
   // second confirmation outstanding in the same turn stays independently
@@ -288,14 +294,19 @@ export function ToolCallChip({
     hasPendingConfirmation ||
     (!isRunning && (toolCall.result !== undefined || Object.keys(toolCall.input).length > 0));
 
-  // Auto-expand whenever this chip has a pending confirmation so its inline
-  // approve/deny card is immediately visible.
+  // Auto-expand on the false→true transition of pendingConfirmation so the
+  // inline approve/deny card is immediately visible. Initialized to `false`
+  // so a chip that mounts with a pending confirmation expands immediately.
+  // Tracks the previous value to fire only on the transition — this lets the
+  // user manually collapse without the effect re-expanding it every render.
+  const prevPendingRef = useRef(false);
   useEffect(() => {
-    if (toolCall.pendingConfirmation && !expanded) {
-      setExpanded(true);
-      onExpandChange(true);
+    const wasPending = prevPendingRef.current;
+    prevPendingRef.current = !!toolCall.pendingConfirmation;
+    if (toolCall.pendingConfirmation && !wasPending) {
+      toggleExpanded(true);
     }
-  }, [toolCall.pendingConfirmation, onExpandChange]);
+  }, [toolCall.pendingConfirmation, toggleExpanded]);
 
   const handleConfirmationSubmit = useCallback(
     async (decision: ConfirmationDecision) => {
@@ -484,18 +495,12 @@ export function ToolCallChip({
           role="button"
           tabIndex={canExpand ? 0 : undefined}
           onClick={() => {
-            if (canExpand) {
-              const next = !expanded;
-              setExpanded(next);
-              onExpandChange(next);
-            }
+            if (canExpand) toggleExpanded(!expanded);
           }}
           onKeyDown={(e) => {
             if (canExpand && (e.key === "Enter" || e.key === " ")) {
               e.preventDefault();
-              const next = !expanded;
-              setExpanded(next);
-              onExpandChange(next);
+              toggleExpanded(!expanded);
             }
           }}
           className={`w-full ${canExpand ? "cursor-pointer" : "cursor-default"}`}
@@ -528,11 +533,7 @@ export function ToolCallChip({
       <button
         type="button"
         onClick={() => {
-          if (canExpand) {
-            const next = !expanded;
-            setExpanded(next);
-            onExpandChange(next);
-          }
+          if (canExpand) toggleExpanded(!expanded);
         }}
         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-body-medium-default transition-colors ${
           isError

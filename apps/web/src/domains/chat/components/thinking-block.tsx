@@ -4,19 +4,18 @@
  * shows "Thinking…" while the model is still streaming reasoning and
  * "Thought process" once complete.
  *
- * Expansion state is owned by the caller via a persistent
- * `expandedThinkingKeys` map (keyed by a stable `expansionKey`) so a user's
- * expand/collapse choice survives the transcript virtualization unmounts
- * that would otherwise reset local component state — the web analogue of
- * macOS's injected `ThinkingBlockExpansionStore`. Markdown is rendered only
- * while expanded (Radix unmounts collapsed content), so the parse cost is
- * paid lazily on demand rather than for every collapsed block.
+ * Expansion state lives in `useChatSessionStore.expandedThinkingKeys` — a
+ * Zustand-managed Set of expanded keys. The store action produces a new Set
+ * instance on change, so this component re-renders reactively via its
+ * selector without needing a local useState mirror.
+ * Markdown is rendered only while expanded (Radix unmounts collapsed
+ * content), so the parse cost is paid lazily on demand.
  */
 
 import { Brain, ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { Collapsible } from "@vellumai/design-library";
 
 export interface ThinkingBlockProps {
@@ -29,33 +28,20 @@ export interface ThinkingBlockProps {
    * message id combined with the block's position in `contentOrder`.
    */
   expansionKey: string;
-  /**
-   * Caller-owned persistence for expand/collapse state, surviving transcript
-   * remounts. Mutated in place; the component mirrors writes into local state
-   * so a toggle re-renders.
-   */
-  expandedThinkingKeys: Map<string, boolean>;
 }
 
 export function ThinkingBlock({
   content,
   isStreaming,
   expansionKey,
-  expandedThinkingKeys,
 }: ThinkingBlockProps) {
-  // `localToggle` mirrors the map mutation so React re-renders on click —
-  // mutating the persistent map alone wouldn't trigger one. Thinking blocks
-  // default collapsed (matching macOS), so an absent value reads as closed.
-  const [localToggle, setLocalToggle] = useState<boolean | undefined>(
-    undefined,
+  const isExpanded = useChatSessionStore(
+    (s) => s.expandedThinkingKeys.has(expansionKey),
   );
-  const persisted = expandedThinkingKeys.get(expansionKey);
-  const isExpanded = (localToggle ?? persisted) ?? false;
 
   const handleValueChange = (value: string) => {
     const next = value === expansionKey;
-    setLocalToggle(next);
-    expandedThinkingKeys.set(expansionKey, next);
+    useChatSessionStore.getState().setExpandedThinkingKey(expansionKey, next);
   };
 
   return (

@@ -75,13 +75,9 @@ function assistantMessageItem(id: string, content: string): MessageItem {
 const noop = () => {};
 
 const sharedProps = {
-  expandedToolCallIds: new Set<string>(),
-  expandedCardIds: new Map<string, boolean>(),
-  expandedThinkingKeys: new Map<string, boolean>(),
   onSurfaceAction: noop,
   onSecretSubmit: noop,
   onConfirmationDecision: noop,
-
 };
 
 describe("LatestTurnRow render order", () => {
