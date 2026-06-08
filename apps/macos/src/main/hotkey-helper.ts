@@ -51,9 +51,9 @@ const getPlatform = (): NodeJS.Platform =>
 
 export const getHotkeyHelperPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "hotkey-helper");
+    return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
   }
-  return path.join(app.getAppPath(), "resources", "hotkey-helper");
+  return path.join(app.getAppPath(), "resources", "vellum-mac-helper");
 };
 
 const makeClient = (): MacHelperClient =>

@@ -288,7 +288,7 @@ final class HotkeyHelper: @unchecked Sendable {
     }
 
     private func log(_ message: String) {
-        FileHandle.standardError.write(Data("[hotkey-helper] \(message)\n".utf8))
+        FileHandle.standardError.write(Data("[vellum-mac-helper] \(message)\n".utf8))
     }
 }
 

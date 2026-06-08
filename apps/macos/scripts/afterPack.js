@@ -1,7 +1,7 @@
 // afterPack hook for electron-builder (macOS only).
 //
 // Runs after files are packaged but before code signing. Handles:
-//   1. Codesigning the bundled bun binary with JIT/network entitlements.
+//   1. Codesigning bundled executables with their own entitlements.
 //   2. Compiling and embedding Quick Look extensions (.appex) for .vellum files.
 //
 // electron-builder skips signing Contents/PlugIns (intended for kexts but also
@@ -150,9 +150,9 @@ exports.default = async function afterPack(context) {
       entitlements: path.join(__dirname, "entitlements", "bun.plist"),
     },
     {
-      name: "hotkey-helper",
-      path: path.join(resourcesDir, "hotkey-helper"),
-      entitlements: path.join(__dirname, "entitlements", "inherit.plist"),
+      name: "vellum-mac-helper",
+      path: path.join(resourcesDir, "bin", "vellum-mac-helper"),
+      entitlements: path.join(__dirname, "entitlements", "helper.plist"),
     },
   ];
 

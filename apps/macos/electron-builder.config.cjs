@@ -34,7 +34,7 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
-    { from: "resources/hotkey-helper", to: "hotkey-helper" },
+    { from: "resources/vellum-mac-helper", to: "bin/vellum-mac-helper" },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },

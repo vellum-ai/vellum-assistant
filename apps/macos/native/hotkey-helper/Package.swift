@@ -7,7 +7,7 @@ let package = Package(
         .macOS(.v15),
     ],
     products: [
-        .executable(name: "hotkey-helper", targets: ["HotkeyHelperExecutable"]),
+        .executable(name: "vellum-mac-helper", targets: ["HotkeyHelperExecutable"]),
     ],
     targets: [
         .target(name: "HotkeyHelperCore"),

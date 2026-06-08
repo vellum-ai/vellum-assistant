@@ -4,6 +4,7 @@ dist/
 build/
 resources/bun
 resources/hotkey-helper
+resources/vellum-mac-helper
 resources/web-dist
 native/hotkey-helper/.build/
 resources/cli-lockfile
