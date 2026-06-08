@@ -54,8 +54,10 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import {
   type ActorTrustContext,
   isUntrustedTrustClass,
+  resolveActorTrust,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -172,6 +174,40 @@ export function inboundActorContextFromTrust(
     contactInteractionCount:
       ctx.memberRecord?.contact.interactionCount ?? undefined,
   };
+}
+
+/**
+ * Resolve the model-facing inbound actor context for a turn from the
+ * conversation's trust context, for the unified `<turn_context>` actor section.
+ *
+ * Returns `null` when there is no trust context and on guardian (owner) turns —
+ * the actor section is suppressed for the owner. When the trust context carries
+ * enough identity to look up member status / policy and the guardian binding,
+ * the unified actor-trust resolver is preferred; otherwise the context is
+ * projected directly. Derives purely from the passed trust context, so callers
+ * self-resolve it from the live conversation rather than threading it.
+ */
+export function resolveTurnInboundActorContext(
+  trustContext: TrustContext | undefined,
+  assistantId: string | undefined,
+): InboundActorContext | null {
+  if (!trustContext) {
+    return null;
+  }
+  let resolved: InboundActorContext;
+  if (trustContext.requesterExternalUserId && trustContext.requesterChatId) {
+    const actorTrust = resolveActorTrust({
+      assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      sourceChannel: trustContext.sourceChannel,
+      conversationExternalId: trustContext.requesterChatId,
+      actorExternalId: trustContext.requesterExternalUserId,
+      actorDisplayName: trustContext.requesterSenderDisplayName,
+    });
+    resolved = inboundActorContextFromTrust(actorTrust);
+  } else {
+    resolved = inboundActorContextFromTrustContext(trustContext);
+  }
+  return resolved.trustClass === "guardian" ? null : resolved;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */

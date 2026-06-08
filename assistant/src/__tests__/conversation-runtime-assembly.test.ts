@@ -86,12 +86,14 @@ import {
   loadSlackChronologicalContext,
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
+  resolveTurnInboundActorContext,
   stripChannelCapabilityContext,
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -1435,6 +1437,75 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
       .join("\n");
 
     expect(allText).not.toContain("<NOW.md");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTurnInboundActorContext
+// ---------------------------------------------------------------------------
+
+describe("resolveTurnInboundActorContext", () => {
+  /**
+   * No trust context means there is no inbound actor to ground the turn on, so
+   * the actor section is suppressed.
+   */
+  test("returns null when there is no trust context", () => {
+    // GIVEN a turn with no trust context
+    // WHEN the inbound actor context is resolved
+    const actorContext = resolveTurnInboundActorContext(undefined, "asst-1");
+
+    // THEN there is no actor context to inject
+    expect(actorContext).toBeNull();
+  });
+
+  /**
+   * Guardian (owner) turns suppress the actor section — the unified turn context
+   * only renders actor fields for non-guardian actors.
+   */
+  test("returns null on guardian turns", () => {
+    // GIVEN a guardian trust context (no requester chat id, so the direct
+    // projection branch is taken)
+    const trustContext: TrustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+      requesterDisplayName: "Alice",
+    };
+
+    // WHEN the inbound actor context is resolved
+    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+
+    // THEN the actor section is suppressed for the owner
+    expect(actorContext).toBeNull();
+  });
+
+  /**
+   * A non-guardian trust context without the identity fields needed for the
+   * unified actor-trust lookup is projected directly into the actor context.
+   */
+  test("projects a non-guardian trust context directly", () => {
+    // GIVEN a trusted-contact trust context lacking requester chat/user ids
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterIdentifier: "@bob_handle",
+      requesterDisplayName: "Bob",
+      requesterSenderDisplayName: "Bobby",
+    };
+
+    // WHEN the inbound actor context is resolved
+    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+
+    // THEN the trust context is projected into the model-facing actor context
+    expect(actorContext).toEqual({
+      sourceChannel: "telegram",
+      canonicalActorIdentity: null,
+      actorIdentifier: "@bob_handle",
+      actorDisplayName: "Bob",
+      actorSenderDisplayName: "Bobby",
+      actorMemberDisplayName: undefined,
+      trustClass: "trusted_contact",
+      guardianIdentity: undefined,
+    });
   });
 });
 

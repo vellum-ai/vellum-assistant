@@ -88,10 +88,7 @@ import userPromptSubmitMemoryRetrieval, {
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  resolveActorTrust,
-} from "../runtime/actor-trust-resolver.js";
+import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -122,16 +119,12 @@ import {
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import type {
-  InboundActorContext,
-  InjectionMode,
-} from "./conversation-runtime-assembly.js";
+import type { InjectionMode } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
   getSlackCompactionWatermarkForPrefix,
-  inboundActorContextFromTrust,
-  inboundActorContextFromTrustContext,
   loadSlackChronologicalContext,
+  resolveTurnInboundActorContext,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -771,41 +764,16 @@ export async function runAgentLoopImpl(
       hostTimeZone,
     });
 
-    // Resolve the inbound actor context for the unified <turn_context> block.
-    // When the conversation carries enough identity info, use the unified
-    // actor trust resolver so member status/policy and guardian binding details
-    // are fresh for this turn. The conversation runtime context remains the source
-    // for policy gating; this block is model-facing grounding metadata.
-    let resolvedInboundActorContext: InboundActorContext | null = null;
-    if (ctx.trustContext) {
-      const gc = ctx.trustContext;
-      if (gc.requesterExternalUserId && gc.requesterChatId) {
-        const actorTrust = resolveActorTrust({
-          assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          sourceChannel: gc.sourceChannel,
-          conversationExternalId: gc.requesterChatId,
-          actorExternalId: gc.requesterExternalUserId,
-          actorDisplayName: gc.requesterSenderDisplayName,
-        });
-        resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
-      } else {
-        resolvedInboundActorContext = inboundActorContextFromTrustContext(gc);
-      }
-    }
-
-    // Resolve the guardian flag for this turn. It derives only from the
-    // resolved actor trust class — never from retrieval — so it settles before
-    // context assembly.
-    const isGuardian =
-      resolvedInboundActorContext?.trustClass === "guardian" ||
-      !resolvedInboundActorContext;
-
-    // Unified `<turn_context>` actor input, included only for non-guardian
-    // turns. Resolved once at turn start and threaded per call site (like
-    // `modelProfile`) so post-compaction re-injection receives it as an
-    // explicit hook input rather than re-deriving it from live state that can
-    // flip mid-turn.
-    const actorContext = isGuardian ? null : resolvedInboundActorContext;
+    // Unified `<turn_context>` actor input for this turn (model-facing grounding
+    // metadata; the conversation runtime context remains the source for policy
+    // gating). Resolved once at turn start and threaded per call site (like
+    // `modelProfile`) so post-compaction re-injection receives it as an explicit
+    // hook input rather than re-deriving it from live state that can flip
+    // mid-turn.
+    const actorContext = resolveTurnInboundActorContext(
+      ctx.trustContext,
+      ctx.assistantId,
+    );
 
     // Surface long gaps between user messages so the model can acknowledge
     // the absence naturally. Gated at >12h to avoid noisy injection during
@@ -873,10 +841,9 @@ export async function runAgentLoopImpl(
     // `user-prompt-submit-temp` hook handler but invoked directly for now,
     // separate from the canonical late `user-prompt-submit` hook (history
     // repair, title) that fires just before the loop.
-    // The injection inputs (`isNonInteractive`, `modelProfile`,
-    // `actorContext`) are resolved once at turn start and threaded in so
-    // post-compaction re-injection reuses the same snapshot rather than live
-    // state that can flip mid-turn.
+    // The injection inputs (`isNonInteractive`, `modelProfile`) are resolved
+    // once at turn start and threaded in so post-compaction re-injection reuses
+    // the same snapshot rather than live state that can flip mid-turn.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
     const memoryCtx: MemoryRetrievalHookContext = {
@@ -888,7 +855,6 @@ export async function runAgentLoopImpl(
       requestId: reqId,
       isNonInteractive,
       modelProfile: modelProfileStr,
-      actorContext,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 

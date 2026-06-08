@@ -36,6 +36,7 @@ const applyRuntimeInjectionsMock = mock(async (messages: unknown) => ({
 }));
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
+  resolveTurnInboundActorContext: () => null,
 }));
 
 // The hook self-resolves the live conversation and its trust class; both are
@@ -148,7 +149,6 @@ function makeHookCtx(
     requestId: "req-test",
     isNonInteractive: false,
     modelProfile: null,
-    actorContext: null,
     ...overrides,
   };
 }
