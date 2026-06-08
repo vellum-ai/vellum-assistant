@@ -9,7 +9,6 @@ import {
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
-import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
 import { legalUrl, routes } from "@/utils/routes";
@@ -35,8 +34,12 @@ export function ReviewTermsScreen() {
   const onContinue = useCallback(() => {
     saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
 
-    const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
-    void navigate(destination, { replace: true });
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+      void navigate(returnTo, { replace: true });
+    } else {
+      void navigate(routes.assistant, { replace: true });
+    }
   }, [
     aiDataConsent,
     hasPlatformSession,
