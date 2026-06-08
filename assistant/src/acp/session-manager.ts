@@ -16,9 +16,10 @@ import { acpSessionHistory } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
+import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
-import { formatResolveFailure, resolveAcpAgent } from "./resolve-agent.js";
+import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
@@ -347,8 +348,8 @@ export class AcpSessionManager {
    * merges new events into the original row instead of losing them.
    *
    * Throws with an actionable message when the row is missing, was recorded
-   * before resume support (no cwd), the agent cannot be resolved, or the
-   * agent advertises neither resume capability.
+   * before resume support (no cwd), the agent cannot be resolved or
+   * auto-installed, or the agent advertises neither resume capability.
    */
   async resumeFromHistory(
     acpSessionId: string,
@@ -384,11 +385,6 @@ export class AcpSessionManager {
       );
     }
 
-    const resolved = resolveAcpAgent(row.agentId);
-    if (!resolved.ok) {
-      throw new Error(formatResolveFailure(row.agentId, resolved));
-    }
-
     // Everything up to here is synchronous. Reserve the id + concurrency
     // slot BEFORE the first await so a concurrent resume of the same id
     // (or a spawn racing the cap) fails the guards above instead of
@@ -396,11 +392,12 @@ export class AcpSessionManager {
     // reservation holds the resume's promise until it settles so
     // steerOrResume can await a concurrent caller's in-flight resume, and
     // so the delete guards see the id as live while the row's terminal
-    // status still reflects the previous run.
+    // status still reflects the previous run. Agent resolution (which may
+    // auto-install a missing adapter) is therefore deferred into
+    // performResume, after the slot is reserved.
     const resumePromise = this.performResume(
       acpSessionId,
       row as ResumableHistoryRow,
-      resolved.agent,
       sendToVellum,
     );
     this.pendingResumes.set(acpSessionId, resumePromise);
@@ -414,15 +411,34 @@ export class AcpSessionManager {
   /**
    * The async body of resumeFromHistory, split out so the caller can store
    * its promise in `pendingResumes` synchronously before the first await.
-   * All guards and row validation have already passed.
+   * All guards and row validation have already passed; this resolves the
+   * adapter (auto-installing a missing allowlisted binary), prepares its
+   * env, and reattaches.
    */
   private async performResume(
     acpSessionId: string,
     row: ResumableHistoryRow,
-    agent: AcpAgentConfig,
     sendToVellum: (msg: ServerMessage) => void,
   ): Promise<void> {
-    const agentConfig = await prepareAgentEnv(agent);
+    // Resolve the adapter, silently auto-installing a missing allowlisted
+    // binary via the same sandboxed `bun` path as spawn (see
+    // acp/auto-install.ts). A fresh container, or a session created under
+    // the old bunx fallback, may have no adapter on PATH; resume installs it
+    // transparently instead of failing with binary_not_found. The token is
+    // NEVER in scope here — resolveAgentWithAutoInstall strips it from the
+    // installer env; it is injected only by prepareAgentEnv below, at spawn
+    // time, on the real installed binary.
+    const { resolved, failureMessage } = await resolveAgentWithAutoInstall(
+      row.agentId,
+    );
+    if (failureMessage) {
+      throw new Error(failureMessage);
+    }
+    if (!resolved.ok) {
+      throw new Error(formatResolveFailure(row.agentId, resolved));
+    }
+
+    const agentConfig = await prepareAgentEnv(resolved.agent);
 
     // The daemon may have shut down while prepareAgentEnv was pending.
     // Registering now would spawn a child process on a disposed manager
