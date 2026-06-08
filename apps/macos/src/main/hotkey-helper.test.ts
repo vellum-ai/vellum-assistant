@@ -84,6 +84,7 @@ mock.module("node:child_process", () => ({
 
 mock.module("./logger", () => ({
   default: {
+    info: mock(() => undefined),
     warn: mock(() => undefined),
   },
 }));

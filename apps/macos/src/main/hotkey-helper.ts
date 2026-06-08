@@ -8,15 +8,9 @@ import { handle } from "./ipc";
 import log from "./logger";
 
 export type HotkeyEventState = "down" | "up";
-export type HotkeyModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
 
 export interface HotkeyEvent {
-  kind: "pushToTalk" | "fnPushToTalk";
+  kind: "fnPushToTalk";
   state: HotkeyEventState;
 }
 
@@ -32,16 +26,8 @@ type PendingCall = {
 const RESPONSE_TIMEOUT_MS = 2_000;
 const SHUTDOWN_KILL_DELAY_MS = 500;
 
-const HOTKEY_MODIFIER_SCHEMA = z.enum([
-  "function",
-  "control",
-  "shift",
-  "option",
-  "command",
-]);
-
 const HOTKEY_EVENT_SCHEMA = z.object({
-  kind: z.union([z.literal("pushToTalk"), z.literal("fnPushToTalk")]),
+  kind: z.literal("fnPushToTalk"),
   state: z.enum(["down", "up"]),
 });
 
@@ -98,17 +84,10 @@ class HotkeyHelperClient {
   }
 
   async fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult> {
-    return this.pushToTalk(enable, ["function"]);
-  }
-
-  async pushToTalk(
-    enable: boolean,
-    modifiers: HotkeyModifier[],
-  ): Promise<FnPushToTalkResult> {
     if (getPlatform() !== "darwin") {
       return {
         ok: false,
-        reason: "Push-to-talk hotkeys are only available on macOS",
+        reason: "Fn push-to-talk is only available on macOS",
       };
     }
 
@@ -117,12 +96,7 @@ class HotkeyHelperClient {
       return { ok: false, reason: "hotkey helper is not available" };
     }
 
-    const fnOnly = modifiers.length === 1 && modifiers[0] === "function";
-    return this.call(
-      child,
-      fnOnly ? "hotkey.fnPushToTalk" : "hotkey.pushToTalk",
-      { enable, modifiers },
-    );
+    return this.call(child, "hotkey.fnPushToTalk", { enable });
   }
 
   shutdown(): void {
@@ -132,8 +106,8 @@ class HotkeyHelperClient {
       this.child.stdin.write(
         `${JSON.stringify({
           id: this.nextId++,
-          method: "hotkey.pushToTalk",
-          params: { enable: false, modifiers: [] },
+          method: "hotkey.fnPushToTalk",
+          params: { enable: false },
         })}\n`,
       );
       this.child.stdin.end();
@@ -275,7 +249,6 @@ class HotkeyHelperClient {
 
   private emitEvent(event: HotkeyEvent): void {
     this.pttIsDown = event.state === "down";
-    log.info(`[hotkey-helper] event ${event.kind}:${event.state}`);
     for (const listener of this.listeners) listener(event);
   }
 
@@ -315,10 +288,7 @@ interface HotkeyOwner {
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
 let activeHotkeyOwnerId: number | null = null;
-let helperRegistrationKey: string | null = null;
-
-const modifierRegistrationKey = (modifiers: readonly HotkeyModifier[]): string =>
-  modifiers.join("+");
+let helperRegistered = false;
 
 const newestOwnerId = (): number | null => {
   let id: number | null = null;
@@ -346,14 +316,14 @@ const disableFnPushToTalkForOwner = async (
   if (hotkeyOwners.size > 0) {
     return { ok: true, enabled: true };
   }
-  if (helperRegistrationKey === null) {
+  if (!helperRegistered) {
     return { ok: true, enabled: false };
   }
 
   const result = await client.fnPushToTalk(false);
   if (result.ok) {
-    helperRegistrationKey = null;
-    log.info("[hotkey-helper] disabled push-to-talk");
+    helperRegistered = false;
+    log.info("[hotkey-helper] disabled Fn push-to-talk");
   }
   return result;
 };
@@ -386,36 +356,27 @@ const addHotkeyOwner = (webContents: WebContents): void => {
   activeHotkeyOwnerId = id;
 };
 
-const enablePushToTalkForOwner = async (
+const enableFnPushToTalkForOwner = async (
   webContents: WebContents,
-  modifiers: HotkeyModifier[],
 ): Promise<FnPushToTalkResult> => {
   addHotkeyOwner(webContents);
 
-  const nextKey = modifierRegistrationKey(modifiers);
-  if (helperRegistrationKey === nextKey) {
+  if (helperRegistered) {
     return { ok: true, enabled: true };
   }
 
-  const result = await client.pushToTalk(true, modifiers);
+  const result = await client.fnPushToTalk(true);
   if (result.ok) {
-    helperRegistrationKey = result.enabled ? nextKey : null;
-    log.info(
-      `[hotkey-helper] ${
-        result.enabled ? "enabled" : "disabled"
-      } push-to-talk for ${nextKey}`,
-    );
+    helperRegistered = result.enabled;
+    log.info("[hotkey-helper] enabled Fn push-to-talk");
   } else {
-    log.warn(`[hotkey-helper] failed to enable push-to-talk: ${result.reason}`);
+    log.warn(
+      `[hotkey-helper] failed to enable Fn push-to-talk: ${result.reason}`,
+    );
     removeHotkeyOwner(webContents.id);
   }
   return result;
 };
-
-const enableFnPushToTalkForOwner = async (
-  webContents: WebContents,
-): Promise<FnPushToTalkResult> =>
-  enablePushToTalkForOwner(webContents, ["function"]);
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
   const ownerId = activeHotkeyOwnerId ?? newestOwnerId();
@@ -435,17 +396,8 @@ export const installHotkeyHelper = (): void => {
 
   client.onEvent(sendHotkeyEventToOwner);
   client.onExit(() => {
-    helperRegistrationKey = null;
+    helperRegistered = false;
   });
-
-  handle(
-    "vellum:helper:hotkey:pushToTalk",
-    z.tuple([z.boolean(), z.array(HOTKEY_MODIFIER_SCHEMA)]),
-    ([enable, modifiers], event) =>
-      enable
-        ? enablePushToTalkForOwner(event.sender, modifiers)
-        : disableFnPushToTalkForOwner(event.sender),
-  );
 
   handle(
     "vellum:helper:hotkey:fnPushToTalk",
@@ -464,7 +416,7 @@ export const installHotkeyHelper = (): void => {
 export const __resetForTesting = (): void => {
   installed = false;
   platformForTesting = null;
-  helperRegistrationKey = null;
+  helperRegistered = false;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

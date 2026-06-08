@@ -82,7 +82,6 @@ final class HotkeyHelper {
                 "state": state,
             ],
         ])
-        log("event fnPushToTalk \(state)")
     }
 
     func handleRawKeyModifiersChanged(_ event: EventRef) {
@@ -159,31 +158,6 @@ final class HotkeyHelper {
                 }
                 self.setFnPushToTalk(enable: enable, id: id)
 
-            case "hotkey.pushToTalk":
-                let params = object["params"] as? [String: Any]
-                guard let enable = params?["enable"] as? Bool else {
-                    self.writeError(
-                        id: id,
-                        message: "hotkey.pushToTalk requires enable"
-                    )
-                    return
-                }
-
-                if !enable {
-                    self.setFnPushToTalk(enable: false, id: id)
-                    return
-                }
-
-                let modifiers = params?["modifiers"] as? [String] ?? ["function"]
-                guard modifiers == ["function"] else {
-                    self.writeError(
-                        id: id,
-                        message: "Native push-to-talk currently supports Fn only"
-                    )
-                    return
-                }
-                self.setFnPushToTalk(enable: true, id: id)
-
             default:
                 self.writeError(id: id, message: "Unknown method \(method)")
             }
@@ -227,7 +201,6 @@ final class HotkeyHelper {
         )
         if status == noErr {
             hotkeyRef = registeredHotkey
-            log("registered Fn Carbon EventHotKey and raw modifier monitor")
         } else {
             log("RegisterEventHotKey failed with status \(status); raw modifier monitor remains active")
         }

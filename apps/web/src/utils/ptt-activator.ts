@@ -3,8 +3,8 @@
  *
  * Mirrors the macOS `PTTActivator` model so the web port can (de)serialize
  * values already stored in `localStorage` by the settings UI. Browsers cannot
- * observe the Fn key, so stored Fn preferences fall back to Ctrl on read unless
- * a native host bridge asks to preserve native modifier bindings.
+ * observe the Fn key, so stored Fn preferences fall back to Ctrl on read
+ * unless the Electron host bridge asks to preserve the native Fn binding.
  */
 
 export type PTTModifier =
@@ -122,12 +122,6 @@ export function isFnPushToTalkActivator(activator: PTTActivator): boolean {
   );
 }
 
-export function isModifierOnlyPushToTalkActivator(
-  activator: PTTActivator,
-): activator is PTTModifierOnly {
-  return activator.kind === "modifierOnly";
-}
-
 function isPTTModifier(value: unknown): value is PTTModifier {
   return (
     typeof value === "string" &&
@@ -140,6 +134,9 @@ function normalizeModifiers(
   options: ParseActivatorOptions,
 ): PTTModifier[] {
   const modifiers = raw.filter(isPTTModifier);
+  if (options.preserveFunction && modifiers.includes("function")) {
+    return FN_PTT_ACTIVATOR.modifiers;
+  }
   const filtered = options.preserveFunction
     ? modifiers
     : modifiers.filter((m) => m !== "function");

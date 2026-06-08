@@ -106,15 +106,9 @@ export type ConnectivityState =
   | "backend-unreachable";
 
 export type HotkeyEventState = "down" | "up";
-export type HotkeyModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
 
 export interface HotkeyEvent {
-  kind: "pushToTalk" | "fnPushToTalk";
+  kind: "fnPushToTalk";
   state: HotkeyEventState;
 }
 
@@ -228,10 +222,6 @@ declare global {
       };
       helper?: {
         hotkey?: {
-          pushToTalk?(
-            enable: boolean,
-            modifiers: HotkeyModifier[],
-          ): Promise<FnPushToTalkResult>;
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
