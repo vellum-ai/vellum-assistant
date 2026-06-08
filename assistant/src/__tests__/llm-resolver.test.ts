@@ -256,6 +256,7 @@ describe("resolveCallSiteConfig", () => {
       },
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
+      modelContextLimits: [],
     };
     expect(() => resolveCallSiteConfig("mainAgent", llm)).toThrow(
       /references undefined profile "nonexistent"/,
@@ -390,6 +391,7 @@ describe("resolveCallSiteConfig", () => {
       activeProfile: "nonexistent",
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
+      modelContextLimits: [],
     };
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     // Falls through to default.

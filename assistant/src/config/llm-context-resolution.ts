@@ -5,8 +5,37 @@ import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type LLMCallSite,
   type LLMConfig,
+  type ModelContextLimit,
 } from "./schemas/llm.js";
 import type { ContextWindowConfig } from "./types.js";
+
+/**
+ * Resolve a configured context-window ceiling override for a provider/model.
+ * Matches on exact provider and the longest `modelPattern` prefix, mirroring
+ * the pricing-override resolution in `util/pricing.ts`.
+ */
+function findModelContextLimit(
+  overrides: ModelContextLimit[],
+  provider: string,
+  model: string,
+): number | undefined {
+  let bestTokens: number | undefined;
+  let bestLen = -1;
+  for (const override of overrides) {
+    if (override.provider !== provider) continue;
+    if (
+      model !== override.modelPattern &&
+      !model.startsWith(override.modelPattern)
+    ) {
+      continue;
+    }
+    if (override.modelPattern.length > bestLen) {
+      bestTokens = override.contextWindowTokens;
+      bestLen = override.modelPattern.length;
+    }
+  }
+  return bestTokens;
+}
 
 export interface EffectiveContextWindow {
   provider: string;
@@ -46,12 +75,22 @@ export function resolveEffectiveContextWindow({
     (provider) => provider.id === resolved.provider,
   )?.models.find((model) => model.id === resolved.model);
 
+  const overrideTokens = findModelContextLimit(
+    llm.modelContextLimits,
+    resolved.provider,
+    resolved.model,
+  );
   const modelMaxInputTokens =
+    overrideTokens ??
     catalogModel?.contextWindowTokens ??
     DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS;
-  const defaultInputTokens =
+  // Keep the long-context threshold at or below the (possibly overridden)
+  // ceiling, matching how the catalog derives `defaultContextWindowTokens`.
+  const defaultInputTokens = Math.min(
     catalogModel?.defaultContextWindowTokens ??
-    DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS;
+      DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    modelMaxInputTokens,
+  );
   const maxInputTokens = Math.min(
     resolved.contextWindow.maxInputTokens,
     modelMaxInputTokens,

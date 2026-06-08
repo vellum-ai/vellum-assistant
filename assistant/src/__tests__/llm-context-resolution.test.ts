@@ -154,6 +154,88 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.isLongContextEnabled).toBe(true);
   });
 
+  test("modelContextLimits override lowers a known model's ceiling", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+      modelContextLimits: [
+        {
+          provider: "openai",
+          modelPattern: "gpt-5.5",
+          contextWindowTokens: 50000,
+        },
+      ],
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(50000);
+    expect(resolved.maxInputTokens).toBe(50000);
+    expect(resolved.defaultInputTokens).toBe(50000);
+    expect(resolved.isLongContextEnabled).toBe(false);
+  });
+
+  test("modelContextLimits override raises an unknown model's ceiling", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        provider: "ollama",
+        model: "custom-model",
+        contextWindow: { maxInputTokens: 300000 },
+      },
+      modelContextLimits: [
+        {
+          provider: "ollama",
+          modelPattern: "custom-model",
+          contextWindowTokens: 500000,
+        },
+      ],
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(500000);
+    expect(resolved.maxInputTokens).toBe(300000);
+    expect(resolved.defaultInputTokens).toBe(200000);
+    expect(resolved.isLongContextEnabled).toBe(true);
+  });
+
+  test("modelContextLimits longest-prefix match wins and provider must match", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+      modelContextLimits: [
+        { provider: "openai", modelPattern: "gpt", contextWindowTokens: 11111 },
+        {
+          provider: "openai",
+          modelPattern: "gpt-5.5",
+          contextWindowTokens: 22222,
+        },
+        {
+          provider: "anthropic",
+          modelPattern: "gpt-5.5",
+          contextWindowTokens: 33333,
+        },
+      ],
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(22222);
+  });
+
   test("max output metadata is independent from context budget", () => {
     const llm = LLMSchema.parse({
       default: {

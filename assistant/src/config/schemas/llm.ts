@@ -286,6 +286,25 @@ const PricingOverrideSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Model context-window limit overrides
+//
+// The model's hard context ceiling otherwise comes only from the static
+// `model-catalog.ts` (`contextWindowTokens`), defaulting to 200k for models
+// the catalog doesn't know. These entries override that ceiling per model so
+// operators can correct a stale/missing catalog value or pin a smaller real
+// limit for a self-hosted model. Matched provider + longest `modelPattern`
+// prefix wins, mirroring `pricingOverrides`. Consumed by
+// `resolveEffectiveContextWindow`.
+// ---------------------------------------------------------------------------
+
+const ModelContextLimitSchema = z.object({
+  provider: z.string(),
+  modelPattern: z.string(),
+  contextWindowTokens: z.number().int().positive(),
+});
+export type ModelContextLimit = z.infer<typeof ModelContextLimitSchema>;
+
+// ---------------------------------------------------------------------------
 // Base config (all fields defaulted) and Fragment (all fields optional)
 // ---------------------------------------------------------------------------
 
@@ -451,6 +470,7 @@ export const LLMSchema = z
       })
       .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
+    modelContextLimits: z.array(ModelContextLimitSchema).default([]),
   })
   .superRefine((config, ctx) => {
     const profileNames = new Set(Object.keys(config.profiles ?? {}));
