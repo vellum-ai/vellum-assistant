@@ -59,33 +59,9 @@ function BillingStatusHandler() {
 }
 
 export function BillingPage() {
-  // Billing is fully platform-routed — plan management, payment methods,
-  // credit balance, referrals, and usage all live behind organization-scoped
-  // APIs that have no meaningful target on a self-hosted assistant. Use
-  // `platformHostedOnly` so the gate flips to `"gated"` in any self-hosted
-  // state (lifecycle `kind: "self_hosted"` or `kind: "active"` + `isLocal:
-  // true`) regardless of platform session, and to `"disabled"` when there's
-  // no platform session at all.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  // Strict hosting predicate. The page-level `platformGate` is the
-  // *Render*-tier predicate — intentionally permissive during the
-  // lifecycle-loading window so the page chrome / Navigate decision
-  // doesn't flash. But every subcomponent below this page mounts unguarded
-  // `useQuery` hooks against org-scoped billing endpoints (PlanCard,
-  // PaymentMethodsCard, AdjustPlanModal, BillingPanel, BillingUsagePanel,
-  // GracePeriodBanner, ReferralPanel — none have their own `enabled`
-  // predicates). Hold the subcomponent mount until lifecycle resolves
-  // positively to platform-hosted so a logged-in self-hosted user
-  // deep-linking here can't fire billing requests during the race window
-  // before `<Navigate />` takes over below.
+  const billingGate = usePlatformGate();
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
-  // Distinguish the genuine *resolving* window (`kind: "loading"`) from
-  // already-resolved-but-not-hosted states (`retired`, `error`,
-  // `awaiting_version_selection`). `!isPlatformHosted` is true for both —
-  // conflating them turns the lifecycle-loading spinner into a permanent
-  // spinner when the lifecycle has already terminated in a non-hosted
-  // non-self-hosted state (Trap 6 cached-state variant: rule applies to
-  // body-level guards too, not just `disabled`/`isResolving` predicates).
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,17 +91,11 @@ export function BillingPage() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  // Whole-page gate: bookmarks/shared-links to /settings/billing on a
-  // self-hosted assistant should land somewhere sensible rather than render
-  // nothing. Sidebar entry is also filtered out in `settings-layout.tsx` as
-  // defense in depth for in-app navigation.
-  if (platformGate === "gated") {
+  if (billingGate === "gated") {
     return <Navigate replace to={routes.settings.general} />;
   }
 
-  // Logged-out (no platform session, not self-hosted) renders the page
-  // chrome with a login notice — better UX than redirecting to general.
-  if (platformGate === "disabled") {
+  if (billingGate === "disabled") {
     return (
       <div className="space-y-4">
         <Notice tone="info">
@@ -135,14 +105,6 @@ export function BillingPage() {
     );
   }
 
-  // Lifecycle-loading race: `platformGate === "full"` is permissive during
-  // the loading window, so without this guard a logged-in user deep-linking
-  // here while the assistant is still resolving would mount every
-  // subcomponent and fire their org-scoped billing queries before we know
-  // whether the assistant is platform-hosted. Show a spinner *only* during
-  // the genuine resolving window; once lifecycle resolves we either render
-  // the body (hosted) or fall through to the terminal-non-hosted branch
-  // below.
   if (isLifecycleLoading) {
     return (
       <div className="space-y-4">
@@ -154,16 +116,9 @@ export function BillingPage() {
     );
   }
 
-  // Terminal non-hosted resolved states (`retired`, `error`,
-  // `awaiting_version_selection`): no platform-hosted assistant to manage
-  // billing for, but not self-hosted either so the `"gated"` branch above
-  // didn't match. Render a terminal Notice instead of a spinner that
-  // would wait for a hosting transition that will never happen — and
-  // keep the subcomponent queries silent. Transitional `initializing` /
-  // `cleaning_up` are now caught by the spinner branch above (they're
-  // pending a terminal hosting verdict from a successful platform
-  // response — see `useActiveAssistantLifecycleIsLoading()` docstring).
-  if (!isPlatformHosted) {
+  const showPlanManagement = isPlatformHosted;
+
+  if (!isPlatformHosted && platformGate !== "gated") {
     return (
       <div className="space-y-4">
         <Notice tone="warning">
@@ -179,20 +134,26 @@ export function BillingPage() {
         <BillingStatusHandler />
         <BillingPortalReturnHandler />
       </Suspense>
-      <GracePeriodBanner />
-      <PlanCard onManage={openPlanModal} />
-      <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
+      {showPlanManagement && <GracePeriodBanner />}
+      {showPlanManagement && <PlanCard onManage={openPlanModal} />}
+      {showPlanManagement && (
+        <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
+      )}
       <PaymentMethodsCard />
       <Suspense fallback={null}>
         <BillingPanel />
       </Suspense>
       <ReferralPanel />
       <BillingUsagePanel />
-      <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
-      <TierUpgradeResizeModal
-        open={resizeModalOpen}
-        onClose={() => setResizeModalOpen(false)}
-      />
+      {showPlanManagement && (
+        <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
+      )}
+      {showPlanManagement && (
+        <TierUpgradeResizeModal
+          open={resizeModalOpen}
+          onClose={() => setResizeModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
