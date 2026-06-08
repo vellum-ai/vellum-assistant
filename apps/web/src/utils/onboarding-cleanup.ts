@@ -86,7 +86,8 @@ export function resolveServerConsent(
 ): { tos: boolean; ai: boolean; shareAnalytics: boolean; shareDiagnostics: boolean } {
   if (!consent) return { tos: false, ai: false, shareAnalytics: true, shareDiagnostics: true };
   return {
-    tos: consent.tos_accepted_version === CONSENT_VERSION,
+    tos: consent.tos_accepted_version === CONSENT_VERSION
+      && consent.privacy_policy_accepted_version === CONSENT_VERSION,
     ai: consent.ai_data_sharing_accepted_version === CONSENT_VERSION,
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,

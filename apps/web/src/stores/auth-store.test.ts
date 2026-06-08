@@ -229,14 +229,15 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("initSession skips server fetch in local mode", async () => {
+  test("initSession fetches server consent for local-mode platform sessions", async () => {
     mockIsLocalMode = true;
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
 
     await useAuthStore.getState().initSession();
 
-    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    expect(fetchMeMock).toHaveBeenCalled();
+    expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 

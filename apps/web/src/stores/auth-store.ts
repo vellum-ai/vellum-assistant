@@ -165,7 +165,7 @@ function broadcastAuthChange(): void {
 }
 
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
-  if (nextUserId && !isLocalMode()) {
+  if (nextUserId) {
     try {
       const me = await fetchMe();
       const resolved = resolveServerConsent(me.consent);
