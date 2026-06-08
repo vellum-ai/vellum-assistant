@@ -82,6 +82,15 @@ describe("buildSwitchInferenceProfileToolDef", () => {
     expect(toolDef!.description).toContain("Auto (starting on Balanced)");
   });
 
+  test("description defaults to staying on current profile", () => {
+    const profiles = { auto, balanced, "quality-optimized": quality, "cost-optimized": speed };
+    const toolDef = buildSwitchInferenceProfileToolDef(profiles, "auto");
+
+    expect(toolDef).not.toBeNull();
+    expect(toolDef!.description).toContain("Stay on the current profile by default");
+    expect(toolDef!.description).not.toContain("You MUST");
+  });
+
   test("works with BYOK custom profiles", () => {
     const customBalanced: ProfileEntry = {
       ...balanced,

@@ -618,7 +618,8 @@ export function createResolveToolsCallback(
     const config = getConfig();
     if (
       isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
-      config.llm
+      config.llm &&
+      history.length > 1
     ) {
       const effectiveProfile =
         ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
