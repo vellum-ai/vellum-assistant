@@ -107,7 +107,6 @@ import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
-  resolveTurnModelProfileLabel,
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
@@ -820,15 +819,7 @@ export async function runAgentLoopImpl(
         : null;
     // The key is threaded as plain turn data to the user-prompt-submit and
     // post-compaction hooks, which render the `Label (model)` line from it
-    // themselves. The post-rejection convergence re-injection further down is a
-    // direct assembly call rather than a hook, so its label is still rendered
-    // here from the same key.
-    const modelProfileStr = resolveTurnModelProfileLabel(
-      modelProfileKey,
-      turnCallSite,
-      config.llm,
-      ctx.conversationId,
-    );
+    // themselves.
     if (modelProfileKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn

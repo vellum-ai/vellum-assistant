@@ -854,7 +854,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>;
     overrideProfile: string | null;
     isNonInteractive: boolean;
-    modelProfile: string | null;
+    modelProfileKey: string | null;
     actorContext: InboundActorContext | null;
   }): Promise<{ history: Message[]; state: ReducerState }> {
     const {
@@ -868,7 +868,7 @@ export class AgentLoop {
       onEvent,
       overrideProfile,
       isNonInteractive,
-      modelProfile,
+      modelProfileKey,
       actorContext,
     } = args;
     const { maxInputTokens, overflowRecovery } = contextWindow;
@@ -948,17 +948,19 @@ export class AgentLoop {
       });
     }
 
-    const injection = await postCompact({
+    const postCompactCtx: PostCompactContext = {
       history: step.messages,
       requestId,
       conversationId: this.conversationId,
       trust,
       isNonInteractive,
-      mode: step.state.injectionMode,
-      modelProfile,
+      modelProfileKey,
       actorContext,
-    });
-    return { history: injection.messages, state: step.state };
+    };
+    // The hook mutates the context's `history` in place; read it back once the
+    // hook settles.
+    await postCompact(postCompactCtx);
+    return { history: postCompactCtx.history, state: step.state };
   }
 
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
@@ -1469,7 +1471,7 @@ export class AgentLoop {
               onEvent,
               overrideProfile: resolveEffectiveOverrideProfile() ?? null,
               isNonInteractive,
-              modelProfile,
+              modelProfileKey,
               actorContext,
             });
             history = recovered.history;
