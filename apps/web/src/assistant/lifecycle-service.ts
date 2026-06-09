@@ -504,11 +504,11 @@ class AssistantLifecycleService {
             attempt: this.hatchRetryCount,
           },
         });
-        // Capacity / kill-switch from the backend
-        // (platform-hosted-enabled flag is off). Surface the
-        // tailored message instead of treating this as a
-        // recoverable 5xx — retrying just burns the
-        // MAX_HATCH_RETRIES budget and ends in a generic error.
+        // Capacity kill-switch: when platform hosting is unavailable
+        // the backend returns 503. Surface the tailored message
+        // instead of treating this as a recoverable 5xx — retrying
+        // just burns the MAX_HATCH_RETRIES budget and ends in a
+        // generic error.
         if (isPlatformHostedDisabled(result.status, result.error)) {
           this.transition({
             kind: "error",
