@@ -21,9 +21,19 @@ import {
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
  * Kept local to avoid a cycle with the button component.
  */
-interface PushToTalkTarget {
+export interface PushToTalkTarget {
   start: () => void;
   stop: () => void;
+}
+
+type PushToTalkTargetSource =
+  | RefObject<PushToTalkTarget | null>
+  | (() => PushToTalkTarget | null);
+
+function resolvePushToTalkTarget(
+  source: PushToTalkTargetSource,
+): PushToTalkTarget | null {
+  return typeof source === "function" ? source() : source.current;
 }
 
 /**
@@ -109,13 +119,14 @@ function playActivationBlip(): void {
  * UI without a reload.
  */
 export function usePushToTalk(
-  targetRef: RefObject<PushToTalkTarget | null>,
+  targetSource: PushToTalkTargetSource,
   options: { enabled?: boolean } = {},
 ): void {
   const { enabled = true } = options;
   const activatorRef = useRef<PTTActivator>({ kind: "off" });
   const activeRef = useRef(false);
   const activeOriginRef = useRef<"dom" | "native" | null>(null);
+  const activeTargetRef = useRef<PushToTalkTarget | null>(null);
 
   // Hold-delay state — tracked via refs so event handlers always see the
   // latest values without requiring effect re-runs.
@@ -144,6 +155,27 @@ export function usePushToTalk(
         holdTimerRef.current = null;
       }
       holdingRef.current = false;
+    };
+
+    const startActiveTarget = (origin: "dom" | "native") => {
+      const target = resolvePushToTalkTarget(targetSource);
+      if (!target) {
+        return;
+      }
+      activeRef.current = true;
+      activeOriginRef.current = origin;
+      activeTargetRef.current = target;
+      playActivationBlip();
+      target.start();
+    };
+
+    const stopActiveTarget = () => {
+      const target =
+        activeTargetRef.current ?? resolvePushToTalkTarget(targetSource);
+      activeRef.current = false;
+      activeOriginRef.current = null;
+      activeTargetRef.current = null;
+      target?.stop();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -185,10 +217,7 @@ export function usePushToTalk(
           return;
         }
         holdingRef.current = false;
-        activeRef.current = true;
-        activeOriginRef.current = "dom";
-        playActivationBlip();
-        targetRef.current?.start();
+        startActiveTarget("dom");
       }, PTT_HOLD_DELAY_MS);
     };
 
@@ -201,7 +230,11 @@ export function usePushToTalk(
       // For key activators with required modifiers (e.g. Ctrl+K), cancel
       // the hold if a required modifier is released before the timer fires.
       // eventDeactivatesPTT only matches the trigger key, not modifiers.
-      if (holdingRef.current && activator.kind === "key" && activator.modifiers.length > 0) {
+      if (
+        holdingRef.current &&
+        activator.kind === "key" &&
+        activator.modifiers.length > 0
+      ) {
         const k = event.key;
         const mods = activator.modifiers;
         if (
@@ -227,9 +260,7 @@ export function usePushToTalk(
       if (!activeRef.current) {
         return;
       }
-      activeRef.current = false;
-      activeOriginRef.current = null;
-      targetRef.current?.stop();
+      stopActiveTarget();
     };
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
@@ -244,19 +275,14 @@ export function usePushToTalk(
         if (activeRef.current) {
           return;
         }
-        activeRef.current = true;
-        activeOriginRef.current = "native";
-        playActivationBlip();
-        targetRef.current?.start();
+        startActiveTarget("native");
         return;
       }
 
       if (!activeRef.current || activeOriginRef.current !== "native") {
         return;
       }
-      activeRef.current = false;
-      activeOriginRef.current = null;
-      targetRef.current?.stop();
+      stopActiveTarget();
     };
 
     const handleBlur = () => {
@@ -267,13 +293,10 @@ export function usePushToTalk(
       // delivered by the host helper while the app is in the background, so
       // leave those sessions running until the helper sends the up event.
       if (activeRef.current && activeOriginRef.current !== "native") {
-        activeRef.current = false;
-        activeOriginRef.current = null;
-        targetRef.current?.stop();
+        stopActiveTarget();
       }
     };
 
-    const target = targetRef;
     const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, readActivator);
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
@@ -289,12 +312,10 @@ export function usePushToTalk(
       unsubscribeNative();
       cancelHold();
       if (activeRef.current) {
-        activeRef.current = false;
-        activeOriginRef.current = null;
-        target.current?.stop();
+        stopActiveTarget();
       }
     };
-  }, [enabled, targetRef]);
+  }, [enabled, targetSource]);
 }
 
 // Re-export for testing.

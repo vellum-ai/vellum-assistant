@@ -189,6 +189,7 @@ interface VoiceInputButtonProps {
   assistantId?: string | null;
   disabled?: boolean;
   onBeforeStart?: () => boolean | Promise<boolean>;
+  renderButton?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +208,7 @@ export const VoiceInputButton = forwardRef<
     assistantId,
     disabled = false,
     onBeforeStart,
+    renderButton = true,
   },
   ref,
 ) {
@@ -557,7 +559,7 @@ export const VoiceInputButton = forwardRef<
     ref,
     () => ({
       start: () => {
-        if (disabled || !assistantId) return;
+        if (disabled || !assistantId || !supported) return;
         // Refuse to start while the previous session is still transcribing.
         // Mirrors the visual `disabled` + `aria-busy` state on the button
         // and prevents push-to-talk from silently dropping the in-flight
@@ -567,12 +569,12 @@ export const VoiceInputButton = forwardRef<
       },
       stop: stopRecording,
     }),
-    [assistantId, disabled, startRecording, stopRecording],
+    [assistantId, disabled, startRecording, stopRecording, supported],
   );
 
   const isNative = useIsNativePlatform();
 
-  if (!supported || !assistantId) return null;
+  if (!renderButton || !supported || !assistantId) return null;
 
   // The button has three visible states:
   //   - idle:       mic icon, click to start
