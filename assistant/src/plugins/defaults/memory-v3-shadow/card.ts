@@ -1,3 +1,4 @@
+import { injectedConceptHeader } from "../../../memory/v2/injected-block-slugs.js";
 import {
   FRONTMATTER_REGEX,
   parseFrontmatterFields,
@@ -11,9 +12,10 @@ import type { Slug } from "./types.js";
  * enough signal to act on (or `file_read` the full page) at a fraction of the
  * full-page byte cost.
  *
- * The `# memory/concepts/<slug>.md` header matches the v2 memory-block page
- * convention, so the existing `file_read` affordance instruction applies to
- * cards unchanged.
+ * The `# memory/concepts/<slug>.md` header (shared builder:
+ * `injectedConceptHeader` in `memory/v2/injected-block-slugs.ts`) matches the
+ * v2 memory-block page convention, so the existing `file_read` affordance
+ * instruction applies to cards unchanged.
  *
  * Pure text → text: no I/O, no LLM calls. Callers load the raw page text via
  * the existing page-store helpers (see `page-content.ts`).
@@ -98,7 +100,7 @@ export function renderCard(slug: Slug, rawPageText: string): string {
   const firstHeading = SECTION_HEADING_REGEX.exec(body);
   const head = (firstHeading ? body.slice(0, firstHeading.index) : body).trim();
 
-  let card = `# memory/concepts/${slug}.md`;
+  let card = injectedConceptHeader(slug);
   if (head.length > 0) card += `\n${head}`;
 
   const toc = renderTocLine(body, fields);

@@ -1,10 +1,17 @@
 /**
  * Read-side store for the inspector's Memory V3 section. Reads the persisted
- * `memory_v3_selections` rows for a turn and re-renders the `<memory>` block
- * v3 selected, so the inspector can show what v3 chose (and, in live mode,
- * what it actually injected) without re-running orchestration — which would be
- * wrong anyway, since the hot lane is frecency-stateful and can't be
- * reproduced after the fact.
+ * `memory_v3_selections` rows for a turn and re-renders an APPROXIMATE
+ * `<memory>` block for what v3 selected, so the inspector can show the turn's
+ * selection without re-running orchestration — which would be wrong anyway,
+ * since the hot lane is frecency-stateful and can't be reproduced after the
+ * fact.
+ *
+ * The rendered text is inspector-only and NOT byte-identical to live
+ * injection: the live injector freezes net-new compact CARDS into history
+ * (`renderV3CardContent`) plus an ephemeral spotlight, while this store
+ * re-renders the whole selection set as full/lead pages
+ * (`renderV3SectionContent` with no persisted section identity — see the
+ * inline note at `injectedText`).
  */
 
 import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";

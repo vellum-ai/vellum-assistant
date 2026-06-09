@@ -18,9 +18,11 @@
  *   (a) a one-time strip of the pruned cards' sections from the `<memory>`
  *       blocks riding the LIVE in-memory history
  *       ({@link stripPrunedCardsFromMessages} — per-card boundaries are the
- *       `# memory/concepts/<slug>.md` headers within a block). The strip
- *       mutates the shared message objects in place so the agent loop's
- *       end-of-turn history fold-back keeps the stripped content;
+ *       `# memory/concepts/<slug>.md` headers within a block, terminated at
+ *       any other top-level header chunk such as capability content; see
+ *       {@link parseCardSections}). The strip mutates the shared message
+ *       objects in place so the agent loop's end-of-turn history fold-back
+ *       keeps the stripped content;
  *   (b) the `loadFromDb` rehydration splice in `daemon/conversation.ts`
  *       re-applies {@link filterPrunedCardSections} on every load, so prunes
  *       persist across daemon restarts without touching the metadata.
@@ -34,10 +36,18 @@
  * cannot tell layers apart syntactically. A block is treated as v3-owned only
  * when EVERY card section in it byte-matches a section of some persisted
  * `memoryV3InjectedBlock` for the conversation
- * ({@link collectPersistedV3CardSections}) — v2 sections render the page
- * SUMMARY (or full page) rather than the card head+TOC, so pre-flip v2 blocks
- * never qualify and are left untouched, keeping their unfiltered rehydration
+ * ({@link collectPersistedV3Cards}) — v2 sections render the page SUMMARY
+ * (or full page) rather than the card head+TOC, so pre-flip v2 blocks never
+ * qualify and are left untouched, keeping their unfiltered rehydration
  * byte-identical.
+ *
+ * Capability note: skill / CLI-command content renders under its own
+ * `# Skill:` / `# CLI command:` header — not a card section — so it can never
+ * be located (and therefore never stripped) by slug. The plan only counts and
+ * prunes slugs with a locatable persisted card section
+ * ({@link PruneDeps.locatableSlugs}); capability content riding a card block
+ * survives the prune of its neighboring cards as a non-card chunk. (The
+ * injector complements this by recording capability slugs at `bytes: 0`.)
  */
 
 import { getConfig } from "../../../config/loader.js";
@@ -46,6 +56,10 @@ import {
   unwrapMemoryBlock,
   wrapMemoryBlock,
 } from "../../../memory/memory-marker.js";
+import {
+  INJECTED_CONCEPT_HEADER_REGEX,
+  readInjectedBlock,
+} from "../../../memory/v2/injected-block-slugs.js";
 import type { ContentBlock, Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -60,11 +74,12 @@ const log = getLogger("memory-v3-shadow");
 
 // ─── card-section parsing & filtering ────────────────────────────────────────
 
-/** Matches a card's path-header line; capture group 1 is the page slug. */
-const CARD_HEADER_REGEX = /^# memory\/concepts\/(.+)\.md$/gm;
+/** Matches any top-level `# ` header line — concept card headers AND foreign
+ *  headers like a capability chunk's `# Skill:` / `# CLI command:` line. */
+const TOP_LEVEL_HEADER_REGEX = /^# /gm;
 
 /** One parsed card section: the header line plus everything up to the next
- *  card header (or end of block), trailing whitespace removed. */
+ *  chunk boundary (or end of block), trailing whitespace removed. */
 export interface CardSection {
   slug: string;
   /** The section text INCLUDING its `# memory/concepts/<slug>.md` header
@@ -73,24 +88,66 @@ export interface CardSection {
   text: string;
 }
 
+/** One ordered chunk of a parsed card block: a concept card (prunable, owned
+ *  by `slug`) or any other `\n\n`-joined chunk (e.g. capability content under
+ *  its own `# Skill:` / `# CLI command:` header — never prunable). */
+export type CardBlockPiece =
+  | { kind: "card"; slug: string; text: string }
+  | { kind: "other"; text: string };
+
 /**
  * Split an UNWRAPPED card-block body into its preamble (the instruction
- * header — everything before the first card header) and per-card sections.
- * Returns zero sections when the text carries no card headers.
+ * header — everything before the first boundary), the ordered chunk pieces,
+ * and the card sections (the `kind: "card"` pieces, kept as a convenience
+ * view). Returns zero sections/pieces when the text carries no concept card
+ * headers.
+ *
+ * A card's section ends at the next concept header OR at any other top-level
+ * `# ` header that starts its own `\n\n`-joined chunk — so a capability chunk
+ * trailing a concept card (`renderCardsBlockInner` joins them with `\n\n`) is
+ * parsed as a separate non-card piece instead of being absorbed into the
+ * card, and pruning the card never deletes it. The blank-line requirement
+ * keeps a card head's own `# Title` line (which follows the path header with
+ * a single `\n`) from splitting the card, and guarantees splits land on the
+ * renderer's `\n\n` seams so re-joins stay byte-identical.
  */
 export function parseCardSections(inner: string): {
   preamble: string;
   sections: CardSection[];
+  pieces: CardBlockPiece[];
 } {
-  const matches = [...inner.matchAll(CARD_HEADER_REGEX)];
-  if (matches.length === 0) return { preamble: inner, sections: [] };
+  const cardMatches = [...inner.matchAll(INJECTED_CONCEPT_HEADER_REGEX)];
+  if (cardMatches.length === 0) {
+    return { preamble: inner, sections: [], pieces: [] };
+  }
 
-  const preamble = inner.slice(0, matches[0]!.index).trimEnd();
-  const sections = matches.map((match, i) => {
-    const end = i + 1 < matches.length ? matches[i + 1]!.index : inner.length;
-    return { slug: match[1]!, text: inner.slice(match.index, end).trimEnd() };
+  const cardStarts = new Set(cardMatches.map((match) => match.index!));
+  const boundaries: Array<{ index: number; slug: string | null }> =
+    cardMatches.map((match) => ({ index: match.index!, slug: match[1]! }));
+  for (const match of inner.matchAll(TOP_LEVEL_HEADER_REGEX)) {
+    const i = match.index!;
+    if (cardStarts.has(i)) continue;
+    // Foreign header on a `\n\n` seam → starts its own chunk.
+    if (i >= 2 && inner[i - 1] === "\n" && inner[i - 2] === "\n") {
+      boundaries.push({ index: i, slug: null });
+    }
+  }
+  boundaries.sort((a, b) => a.index - b.index);
+
+  const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
+  const pieces = boundaries.map((boundary, i): CardBlockPiece => {
+    const end =
+      i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
+    const text = inner.slice(boundary.index, end).trimEnd();
+    return boundary.slug === null
+      ? { kind: "other", text }
+      : { kind: "card", slug: boundary.slug, text };
   });
-  return { preamble, sections };
+  const sections = pieces.filter(
+    (piece): piece is Extract<CardBlockPiece, { kind: "card" }> =>
+      piece.kind === "card",
+  );
+  return { preamble, sections, pieces };
 }
 
 /**
@@ -98,26 +155,30 @@ export function parseCardSections(inner: string): {
  *
  * Returns the input string UNCHANGED (same reference) when nothing is
  * removed — callers use identity to detect a no-op — and `""` when every
- * card section is pruned (the caller drops/skips the whole block; a bare
- * instruction header with no cards carries no content). Kept sections are
- * re-joined exactly as the renderer joined them (`\n\n`), so an unpruned
- * remainder stays byte-identical to what a fresh render of those cards would
- * produce.
+ * chunk is pruned (the caller drops/skips the whole block; a bare
+ * instruction header with no cards carries no content). Non-card chunks
+ * (capability content) are always kept, so a block whose concept cards are
+ * all pruned but which carries capability content keeps its preamble and
+ * that content. Kept chunks are re-joined exactly as the renderer joined
+ * them (`\n\n`), so an unpruned remainder stays byte-identical to what a
+ * fresh render of those chunks would produce.
  */
 export function filterPrunedCardSections(
   inner: string,
   prunedSlugs: ReadonlySet<string>,
 ): string {
-  const { preamble, sections } = parseCardSections(inner);
+  const { preamble, sections, pieces } = parseCardSections(inner);
   if (sections.length === 0) return inner;
 
-  const kept = sections.filter((section) => !prunedSlugs.has(section.slug));
-  if (kept.length === sections.length) return inner;
+  const kept = pieces.filter(
+    (piece) => piece.kind !== "card" || !prunedSlugs.has(piece.slug),
+  );
+  if (kept.length === pieces.length) return inner;
   if (kept.length === 0) return "";
 
-  const pieces = kept.map((section) => section.text);
-  if (preamble.length > 0) pieces.unshift(preamble);
-  return pieces.join("\n\n");
+  const texts = kept.map((piece) => piece.text);
+  if (preamble.length > 0) texts.unshift(preamble);
+  return texts.join("\n\n");
 }
 
 // ─── prune planning ──────────────────────────────────────────────────────────
@@ -135,25 +196,41 @@ export interface PruneDeps {
   /** Core + hot lane members — the selector's stable prefix must never be
    *  pruned out from under it. */
   exemptSlugs: ReadonlySet<string>;
+  /** Slugs whose card section is locatable in the conversation's persisted
+   *  card blocks ({@link collectPersistedV3Cards}'s `slugs`). Only these
+   *  bytes are freeable: a slug with no locatable section — a capability slug
+   *  rendered under its own `# Skill:` / `# CLI command:` header, or
+   *  accounting drift — could be tombstoned, but the strip/rehydration filter
+   *  could never remove its content, so its bytes would "free" on paper while
+   *  staying in context. Such slugs are excluded from candidacy AND from the
+   *  resident measure the plan works down, so the valve never loop-fires
+   *  against a target it cannot actually reach. */
+  locatableSlugs: ReadonlySet<string>;
 }
 
 /**
- * Plan a prune for the conversation, or `null` when the resident footprint is
- * within `maxResidentBytes` (or nothing is prunable).
+ * Plan a prune for the conversation, or `null` when the freeable resident
+ * footprint is within `maxResidentBytes` (or nothing is prunable).
  *
- * Candidates are the ACTIVE injected slugs ranked by last selection recency —
- * `MAX(created_at)` per slug from `memory_v3_selections`, falling back to the
- * store's `injected_at` for slugs with no selection rows (e.g. rows copied by
- * a full fork) — taken oldest-first until the resident footprint is at
- * `targetResidentBytes`. Core/hot lane members are exempt, and zero-byte rows
- * (truncated-fork seeds: dedup-only, no byte accounting) are skipped — pruning
- * them frees nothing while discarding inherited context.
+ * The footprint and the candidates both range over the ACTIVE injected slugs
+ * whose sections are locatable (`deps.locatableSlugs`) — bytes a prune cannot
+ * free are invisible to the plan. Candidates are ranked by last selection
+ * recency — `MAX(created_at)` per slug from `memory_v3_selections`, falling
+ * back to the store's `injected_at` for slugs with no selection rows (e.g.
+ * rows copied by a full fork) — taken oldest-first until the freeable
+ * footprint is at `targetResidentBytes`. Core/hot lane members are exempt,
+ * and zero-byte rows (truncated-fork seeds: dedup-only, no byte accounting)
+ * are skipped — pruning them frees nothing while discarding inherited
+ * context.
  */
 export function planPrune(
   deps: PruneDeps,
   conversationId: string,
 ): PrunePlan | null {
-  const resident = residentBytes(conversationId);
+  const locatableEntries = getActiveEntries(conversationId).filter((entry) =>
+    deps.locatableSlugs.has(entry.slug),
+  );
+  const resident = locatableEntries.reduce((sum, e) => sum + e.bytes, 0);
   if (resident <= deps.maxResidentBytes) return null;
 
   const selectionRows = getSqliteFrom(getDb())
@@ -169,7 +246,7 @@ export function planPrune(
     selectionRows.map((row) => [row.slug, row.lastSelectedAt]),
   );
 
-  const candidates = getActiveEntries(conversationId)
+  const candidates = locatableEntries
     .filter((entry) => entry.bytes > 0 && !deps.exemptSlugs.has(entry.slug))
     .map((entry) => ({
       ...entry,
@@ -190,17 +267,31 @@ export function planPrune(
 
 // ─── live-history strip ──────────────────────────────────────────────────────
 
+/** The conversation's persisted v3 card record (see
+ *  {@link collectPersistedV3Cards}). */
+export interface PersistedV3Cards {
+  /** Card section texts — the live strip's v3-ownership test: a live
+   *  `<memory>` block is v3-owned iff all of its card sections appear here
+   *  (see the module doc's v2-coexistence note). */
+  sections: Set<string>;
+  /** Slugs with a locatable persisted card section — `planPrune`'s freeable
+   *  set ({@link PruneDeps.locatableSlugs}). Capability slugs never appear:
+   *  their content renders under `# Skill:` / `# CLI command:` headers, which
+   *  parse as non-card chunks. */
+  slugs: Set<string>;
+}
+
 /**
- * The conversation's known v3 card sections, collected from every persisted
- * `metadata.memoryV3InjectedBlock` row. The live strip's v3-ownership test:
- * a live `<memory>` block is v3-owned iff all of its card sections appear in
- * this set (see the module doc's v2-coexistence note).
+ * Collect the conversation's known v3 cards from every persisted
+ * `metadata.memoryV3InjectedBlock` row: the section texts (live-strip
+ * ownership test) and the slugs whose sections are locatable (prune-plan
+ * candidacy).
  */
-export function collectPersistedV3CardSections(
+export function collectPersistedV3Cards(
   conversationId: string,
-): Set<string> {
+): PersistedV3Cards {
   // Substring prefilter (indexable LIKE) mirrors the Slack metadata scan;
-  // rows are validated by the JSON parse below.
+  // rows are validated by `readInjectedBlock`'s JSON parse.
   const rows = getSqliteFrom(getDb())
     .query(
       /*sql*/ `
@@ -213,21 +304,20 @@ export function collectPersistedV3CardSections(
   }>;
 
   const sections = new Set<string>();
+  const slugs = new Set<string>();
   for (const row of rows) {
-    if (!row.metadata) continue;
-    try {
-      const meta = JSON.parse(row.metadata) as Record<string, unknown>;
-      const block = meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
-      if (typeof block !== "string") continue;
-      for (const section of parseCardSections(unwrapMemoryBlock(block))
-        .sections) {
-        sections.add(section.text);
-      }
-    } catch {
-      /* malformed metadata rows are skipped */
+    const block = readInjectedBlock(
+      row.metadata,
+      MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+    );
+    if (block === null) continue;
+    for (const section of parseCardSections(unwrapMemoryBlock(block))
+      .sections) {
+      sections.add(section.text);
+      slugs.add(section.slug);
     }
   }
-  return sections;
+  return { sections, slugs };
 }
 
 /**
@@ -253,15 +343,17 @@ export function stripPrunedCardsFromMessages(
     let changed = false;
     const nextContent: ContentBlock[] = [];
     for (const block of message.content) {
-      if (
-        block.type !== "text" ||
-        !block.text.startsWith("<memory>\n") ||
-        !block.text.endsWith("\n</memory>")
-      ) {
+      if (block.type !== "text") {
         nextContent.push(block);
         continue;
       }
       const inner = unwrapMemoryBlock(block.text);
+      if (inner === block.text) {
+        // Not a wrapped `<memory>` block (unwrap is identity on anything
+        // without the full wrapper pair).
+        nextContent.push(block);
+        continue;
+      }
       const { sections } = parseCardSections(inner);
       const isV3Block =
         sections.length > 0 &&
@@ -328,11 +420,20 @@ export async function runPruneValve(
   const pruneConfig = getConfig().memory?.v3?.prune;
   if (!pruneConfig) return null;
 
+  // Fast path: the store's TOTAL resident bytes upper-bound the freeable
+  // (locatable-only) measure `planPrune` works with, so a conversation within
+  // the cap skips the persisted-metadata scan entirely (the common case).
+  if (residentBytes(conversationId) <= pruneConfig.maxResidentBytes) {
+    return null;
+  }
+
+  const persistedCards = collectPersistedV3Cards(conversationId);
   const plan = planPrune(
     {
       maxResidentBytes: pruneConfig.maxResidentBytes,
       targetResidentBytes: pruneConfig.targetResidentBytes,
       exemptSlugs: options.exemptSlugs,
+      locatableSlugs: persistedCards.slugs,
     },
     conversationId,
   );
@@ -348,7 +449,7 @@ export async function runPruneValve(
     strippedBlocks = stripPrunedCardsFromMessages(
       liveMessages,
       getPrunedSlugs(conversationId),
-      collectPersistedV3CardSections(conversationId),
+      persistedCards.sections,
     );
   }
 
