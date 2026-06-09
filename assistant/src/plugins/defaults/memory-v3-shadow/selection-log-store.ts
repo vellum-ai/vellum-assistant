@@ -1,10 +1,10 @@
 /**
  * Read-side store for the inspector's Memory V3 section. Reads the persisted
  * `memory_v3_selections` rows for a turn and re-renders the `<memory>` block
- * the v3 working set selected, so the inspector can show what v3 chose (and,
- * in live mode, what it actually injected) without re-running orchestration —
- * which would be wrong anyway, since the working set is stateful (carry-forward
- * across turns) and can't be reproduced after the fact.
+ * v3 selected, so the inspector can show what v3 chose (and, in live mode,
+ * what it actually injected) without re-running orchestration — which would be
+ * wrong anyway, since the hot lane is frecency-stateful and can't be
+ * reproduced after the fact.
  */
 
 import type { MemoryV3SelectionLog } from "../../../api/responses/memory-v3-selection-log.js";
@@ -57,9 +57,8 @@ function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
  * wrong data. Tying v3 rows to a message id for exact per-message attribution
  * regardless of counter drift is a documented follow-up.
  *
- * Selection rows are stored in `finalInjection` order (this turn's L2
- * selections, then carry-forward), so rendering them in row order reproduces
- * the block v3 would inject.
+ * Selection rows are stored in selection order, so rendering them in row order
+ * reproduces the block v3 would inject.
  */
 export async function getMemoryV3SelectionForInspector(
   conversationId: string,
@@ -106,10 +105,11 @@ export async function getMemoryV3SelectionForInspector(
  * `memory_v3_selections` row for the conversation (all turns) and rolls them up
  * for shadow-vs-v2 inspection without re-rendering any blocks:
  *
- *   - `bySource`: count of selection rows per lane source (`needle` / `dense` /
- *     `edge` / `carry-forward`). Every known source is present (zero when
- *     unused) so callers can diff two runs without null-guarding; an unknown
- *     historical/free-text source is ignored (the column is permissive).
+ *   - `bySource`: count of selection rows per lane source (`core` / `hot` /
+ *     `needle` / `dense` / `edge`, plus `carry-forward` for historical rows).
+ *     Every known source is present (zero when unused) so callers can diff two
+ *     runs without null-guarding; an unknown historical/free-text source is
+ *     ignored (the column is permissive).
  *   - `turns`: number of distinct turns that logged at least one selection.
  *   - `distinctSlugs`: number of distinct page slugs selected across all turns —
  *     the conversation's working-set footprint.

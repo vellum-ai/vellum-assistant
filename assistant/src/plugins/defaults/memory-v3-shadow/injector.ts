@@ -1,7 +1,10 @@
 /**
  * The memory-v3 {@link Injector}. Reads both v3 flags:
- *   - `memory-v3-live` on → orchestrate, log, render the working-set selection
+ *   - `memory-v3-live` on → orchestrate, log, render THIS TURN's selections
  *     into a `<memory>` block, and return it at v2's dynamic-memory placement.
+ *     (Interim shape: cross-turn persistence — net-new blocks frozen into
+ *     history — replaces this whole-selection render in a follow-up; until
+ *     then live/shadow output reflects current-turn selections only.)
  *   - `memory-v3-shadow` on (live off) → orchestrate + log only, return `null`.
  *   - both off → return `null` (no orchestration).
  *
@@ -51,8 +54,8 @@ export const memoryV3Injector: Injector = {
     try {
       // `renderMemoryBlock` returns "" for an empty selection; inject nothing.
       const text = await renderMemoryBlock(
-        result.finalInjection,
-        result.sectionBySlug,
+        result.selections.map((s) => s.slug),
+        result.matchedSections,
         renderV3SectionContent,
       );
       if (text.length === 0) return null;

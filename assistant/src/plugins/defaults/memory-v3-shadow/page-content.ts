@@ -53,9 +53,9 @@ export async function renderV3PageContent(slug: Slug): Promise<string> {
  * - Capability slugs (skills, `assistant` CLI commands) have no on-disk
  *   section, so they always render their capability content via
  *   {@link renderCapabilityContent}, never a section.
- * - When `section` is undefined (e.g. a carry-forward page with no current
- *   match), fall back to {@link renderV3PageContent} (the full/lead page) so the
- *   slug still contributes content.
+ * - When `section` is undefined (e.g. an edge-only or stable-prefix page with
+ *   no current match), fall back to {@link renderV3PageContent} (the full/lead
+ *   page) so the slug still contributes content.
  */
 export async function renderV3SectionContent(
   slug: Slug,
