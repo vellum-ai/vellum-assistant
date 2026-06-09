@@ -27,6 +27,7 @@ import { useOrganizationStore } from "@/stores/organization-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const TEST_ORG_ID = "org-test-1234";
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function setCsrfCookie(token: string): void {
   document.cookie = `csrftoken=${token}; path=/`;
@@ -34,6 +35,16 @@ function setCsrfCookie(token: string): void {
 
 function clearCsrfCookie(): void {
   document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+}
+
+function setElectronRenderer(enabled: boolean): void {
+  if (enabled) {
+    (window as unknown as { vellum?: { platform: "electron" } }).vellum = {
+      platform: "electron",
+    };
+  } else {
+    delete (window as unknown as { vellum?: unknown }).vellum;
+  }
 }
 
 async function intercept(method: string, url = "https://example.test/v1/probe") {
@@ -50,6 +61,10 @@ describe("api-interceptors / requestInterceptor", () => {
 
   afterAll(() => {
     clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    setElectronRenderer(false);
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on GET", async () => {
@@ -85,6 +100,19 @@ describe("api-interceptors / requestInterceptor", () => {
   test("does not attach X-CSRFToken on safe requests", async () => {
     const headers = await intercept("GET");
     expect(headers.get("X-CSRFToken")).toBeNull();
+  });
+
+  test("attaches Electron renderer-origin marker on Electron mutating requests", async () => {
+    setElectronRenderer(true);
+    const headers = await intercept("POST", "app://vellum.ai/v1/probe");
+    expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBe(
+      `${window.location.protocol}//${window.location.host}`,
+    );
+  });
+
+  test("does not attach Electron renderer-origin marker outside Electron", async () => {
+    const headers = await intercept("POST", "https://example.test/v1/probe");
+    expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
   });
 
   test("returns a new Request, leaving the input headers untouched", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { planPlatformForward } from "./platform-forward";
 
 const PLATFORM = "https://platform.vellum.ai";
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 const request = (
   pathname: string,
@@ -137,9 +138,66 @@ describe("planPlatformForward", () => {
     expect(plan.kind).toBe("reject");
   });
 
-  test("rejects source-less unsafe platform requests", () => {
+  test("trusts source-less unsafe requests from the packaged app origin with renderer marker", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { [ELECTRON_RENDERER_ORIGIN_HEADER]: "app://vellum.ai" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.shouldInjectCsrfToken).toBe(true);
+    expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
+    expect(plan.headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
+  });
+
+  test("rejects source-less unsafe requests from the packaged app origin without renderer marker", () => {
     const plan = planPlatformForward(
       request("/v1/assistants", { method: "POST" }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("trusts source-less unsafe requests with browser same-origin fetch metadata", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.shouldInjectCsrfToken).toBe(true);
+  });
+
+  test("rejects source-less unsafe requests with browser cross-site fetch metadata", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("rejects source-less unsafe platform requests from a foreign request URL", () => {
+    const plan = planPlatformForward(
+      {
+        url: "app://evil.example/v1/assistants",
+        method: "POST",
+        headers: new Headers(),
+      },
       PLATFORM,
       { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
     );

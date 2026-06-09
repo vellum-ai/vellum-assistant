@@ -35,6 +35,7 @@ export interface PlatformForwardOptions {
 }
 
 const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function isPlatformPath(pathname: string): boolean {
   return PLATFORM_PREFIXES.some(
@@ -59,7 +60,36 @@ function isUnsafeMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }
 
+function expectedRendererOrigin(allowed: PlatformForwardAllowedOrigin): string {
+  return `${allowed.protocol}//${allowed.host}`;
+}
+
+function hasTrustedSourceLessRendererSignal(
+  requestUrl: URL,
+  headers: Headers,
+  allowed: PlatformForwardAllowedOrigin,
+): boolean {
+  if (
+    requestUrl.protocol !== allowed.protocol ||
+    requestUrl.host !== allowed.host
+  ) {
+    return false;
+  }
+
+  if (
+    headers.get(ELECTRON_RENDERER_ORIGIN_HEADER) ===
+    expectedRendererOrigin(allowed)
+  ) {
+    return true;
+  }
+
+  // Chromium stamps Fetch Metadata headers. Unlike our app marker, `Sec-*`
+  // headers are browser-controlled and page JS cannot forge them.
+  return headers.get("sec-fetch-site") === "same-origin";
+}
+
 function getInitiatorTrust(
+  requestUrl: URL,
   headers: Headers,
   allowed?: PlatformForwardAllowedOrigin,
 ): { trusted: boolean; rejected: boolean } {
@@ -72,7 +102,16 @@ function getInitiatorTrust(
   }
 
   const referer = headers.get("referer");
-  if (!referer) return { trusted: false, rejected: false };
+  if (!referer) {
+    return {
+      trusted: hasTrustedSourceLessRendererSignal(
+        requestUrl,
+        headers,
+        allowed,
+      ),
+      rejected: false,
+    };
+  }
 
   const trusted = isAllowedSource(referer, allowed);
   return { trusted, rejected: !trusted };
@@ -99,7 +138,11 @@ export function planPlatformForward(
     return { kind: "pass" };
   }
 
-  const initiator = getInitiatorTrust(request.headers, options.allowedOrigin);
+  const initiator = getInitiatorTrust(
+    url,
+    request.headers,
+    options.allowedOrigin,
+  );
   const unsafeUntrustedRequest =
     options.allowedOrigin &&
     isUnsafeMethod(request.method) &&
@@ -114,6 +157,7 @@ export function planPlatformForward(
 
   const target = new URL(platformUrl);
   const headers = new Headers(request.headers);
+  headers.delete(ELECTRON_RENDERER_ORIGIN_HEADER);
   headers.set("origin", target.origin);
 
   return {
@@ -122,6 +166,6 @@ export function planPlatformForward(
     method: request.method,
     headers,
     hasBody: request.method !== "GET" && request.method !== "HEAD",
-    shouldInjectCsrfToken: initiator.trusted,
+    shouldInjectCsrfToken: initiator.trusted && isUnsafeMethod(request.method),
   };
 }

@@ -35,10 +35,16 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { isLocalMode } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+
+function getRendererTupleOrigin(): string {
+  return `${window.location.protocol}//${window.location.host}`;
+}
 
 /**
  * Allowlist of `/v1/assistants/{id}/<segment>/...` first segments that
@@ -188,6 +194,13 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     }
 
     // Platform path — Django session auth.
+    if (isElectron() && MUTATING_METHODS.has(request.method)) {
+      newRequest.headers.set(
+        ELECTRON_RENDERER_ORIGIN_HEADER,
+        getRendererTupleOrigin(),
+      );
+    }
+
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
