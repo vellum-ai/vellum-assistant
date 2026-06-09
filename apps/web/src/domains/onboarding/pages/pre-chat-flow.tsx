@@ -269,6 +269,9 @@ export function PreChatFlow() {
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
     variant = webFunnelVariant,
   ): void {
+    if (isPreview) {
+      return;
+    }
     emitOnboardingFunnelStepCompleted(step, {
       userId,
       variant: resolveOnboardingFunnelVariant(variant),

@@ -77,10 +77,10 @@ export function PrivacyScreen() {
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
-  const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
-  const [tosAccepted, setTosAccepted] = useTosAccepted();
-  const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
+  const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
+  const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
+  const [aiDataConsent, setAiDataConsentReal] = useAiDataConsent();
   const hasPlatformSession = useHasPlatformSession();
 
   useEffect(() => {
@@ -90,6 +90,11 @@ export function PrivacyScreen() {
   }, [isNative]);
 
   const isPreview = searchParams.get("preview") === "true";
+  const noop = useCallback((_next: boolean) => {}, []);
+  const setShareAnalytics = isPreview ? noop : setShareAnalyticsReal;
+  const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
+  const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
+  const setAiDataConsent = isPreview ? noop : setAiDataConsentReal;
 
   const onStart = useCallback(() => {
     if (isPreview) {
