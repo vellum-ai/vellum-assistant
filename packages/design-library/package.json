@@ -36,6 +36,7 @@
     "@radix-ui/react-tooltip": ">=1.2.0",
     "class-variance-authority": ">=0.7.0",
     "clsx": ">=2.1.0",
+    "katex": ">=0.16.0",
     "lucide-react": ">=1.16.0",
     "react": ">=19.0.0",
     "react-dom": ">=19.0.0",
@@ -78,6 +79,7 @@
     "@vitest/runner": "4.1.6",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "katex": "0.16.47",
     "lucide-react": "1.16.0",
     "playwright": "1.60.0",
     "react": "19.2.6",
@@ -94,8 +96,5 @@
     "unified": "11.0.5",
     "vite": "8.0.11",
     "vitest": "4.1.6"
-  },
-  "dependencies": {
-    "katex": "0.17.0"
   }
 }
