@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, hatchAssistant, type Assistant } from "@/assistant/api";
+import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import {
     isPlatformHostedDisabled,
@@ -396,6 +396,28 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
+
+            // Wait for the daemon to be reachable before navigating.
+            // The platform may report "active" before the pod is
+            // fully ready to serve requests.
+            transitionPhase("connecting");
+            while (!cancelled) {
+              try {
+                const health = await getAssistantHealthz(assistantId);
+                if (health.ok) break;
+              } catch {
+                // Daemon not reachable yet
+              }
+              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+                setError("Your assistant is taking longer than expected. Please try again.");
+                return;
+              }
+              await new Promise<void>(resolve => {
+                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+              });
+              pollTimer = null;
+            }
+            if (cancelled) return;
           }
 
           handleHatchReady();
