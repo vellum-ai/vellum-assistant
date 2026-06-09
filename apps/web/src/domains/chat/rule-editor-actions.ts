@@ -9,7 +9,7 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";

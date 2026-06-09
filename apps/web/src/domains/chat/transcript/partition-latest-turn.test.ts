@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
 import type {
   MessageItem,

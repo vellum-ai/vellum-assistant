@@ -8,8 +8,7 @@
 
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { Surface } from "@/domains/chat/types/types";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 /**
  * One item inside an `activity` run for the merged activity-summary grouping.

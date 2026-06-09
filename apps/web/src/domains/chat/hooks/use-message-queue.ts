@@ -14,7 +14,7 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";

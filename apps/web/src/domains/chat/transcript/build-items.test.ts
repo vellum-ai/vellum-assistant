@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { Surface } from "@/domains/chat/types/types";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type {
   MessageItem,

@@ -20,7 +20,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Params & return type

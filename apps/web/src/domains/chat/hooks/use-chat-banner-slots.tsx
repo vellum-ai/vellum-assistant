@@ -14,7 +14,7 @@ import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 
 // ---------------------------------------------------------------------------
