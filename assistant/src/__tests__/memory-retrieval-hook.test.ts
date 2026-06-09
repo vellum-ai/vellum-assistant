@@ -1,5 +1,5 @@
 /**
- * Tests for the default `user-prompt-submit-temp` hook (memory retrieval +
+ * Tests for the default `user-prompt-submit` hook (memory retrieval +
  * runtime injection).
  *
  * Covers the retrieval behavior, the side effects the hook owns (injected-block
@@ -65,14 +65,14 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageMock,
 }));
 
+import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import userPromptSubmitMemoryRetrieval, {
-  type MemoryRetrievalHookContext,
-} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
+import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
@@ -145,18 +145,20 @@ function makeFakeGraphMemory(overrides?: {
 }
 
 function makeHookCtx(
-  overrides: Partial<MemoryRetrievalHookContext> = {},
-): MemoryRetrievalHookContext {
+  overrides: Partial<UserPromptSubmitContext> = {},
+): UserPromptSubmitContext {
   return {
     conversationId: "conv-test",
     userMessageId: "msg-test",
     logger: {
       warn: () => {},
-    } as unknown as MemoryRetrievalHookContext["logger"],
+    } as unknown as UserPromptSubmitContext["logger"],
     latestMessages: [],
     requestId: "req-test",
     isNonInteractive: false,
     modelProfileKey: null,
+    prompt: "",
+    originalMessages: [],
     ...overrides,
   };
 }
@@ -191,7 +193,7 @@ beforeEach(() => {
   currentTrustClass = "guardian";
 });
 
-describe("user-prompt-submit-temp hook (memory retrieval)", () => {
+describe("user-prompt-submit hook (memory retrieval)", () => {
   test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },

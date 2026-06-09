@@ -31,6 +31,8 @@ import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
+import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
@@ -67,6 +69,24 @@ export const defaultEmptyResponsePlugin: Plugin = {
   },
   hooks: {
     stop: emptyResponseStop,
+  },
+};
+
+/**
+ * `memory-retrieval` — a `user-prompt-submit` hook that runs memory-graph
+ * retrieval and assembles the turn's runtime injections (the unified
+ * `<turn_context>` block, Slack chronological transcript, NOW.md / PKB /
+ * memory-v2 / workspace blocks). Registered first in the chain so later
+ * `user-prompt-submit` hooks (history repair, title) see the fully
+ * memory-injected history.
+ */
+export const defaultMemoryRetrievalPlugin: Plugin = {
+  manifest: {
+    name: memoryRetrievalPkg.name,
+    version: memoryRetrievalPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": memoryRetrievalUserPromptSubmit,
   },
 };
 
@@ -156,6 +176,7 @@ export const defaultToolResultTruncatePlugin: Plugin = {
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
+    defaultMemoryRetrievalPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
