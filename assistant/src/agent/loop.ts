@@ -371,6 +371,18 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_STOP_CONTINUE_RETRIES = 1;
+
+/**
+ * User-facing text substituted when a turn ends at the stop boundary with no
+ * visible assistant text — e.g. the provider returned `stopReason: "refusal"`
+ * and the `stop` hook's nudge budget is spent, or the model simply produced no
+ * text. Without this, the turn would reach the user as an empty assistant
+ * bubble. Unlike the `stop` hook's nudge text (which is shown only to the
+ * model), this is the message the user actually reads.
+ */
+export const EMPTY_RESPONSE_FALLBACK_TEXT =
+  "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
+
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -396,6 +408,13 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
     if (block.type === "text") text += block.text;
   }
   return text;
+}
+
+/** Whether `content` carries at least one non-empty `text` block. */
+function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) => block.type === "text" && block.text.trim().length > 0,
+  );
 }
 
 /**
@@ -1396,11 +1415,9 @@ export class AgentLoop {
         // yield to the user. The `stop` hook (below) decides whether to accept
         // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
         // gates the ops log for the post-tool empty case.
-        const hasVisibleText = response.content.some(
-          (block) => block.type === "text" && block.text.trim().length > 0,
-        );
+        const responseHasVisibleText = hasVisibleText(response.content);
         const priorAssistantHadVisibleText = producedVisibleTextThisRun;
-        if (hasVisibleText) {
+        if (responseHasVisibleText) {
           producedVisibleTextThisRun = true;
         }
 
@@ -1437,7 +1454,7 @@ export class AgentLoop {
             // for the post-tool empty case so ops dashboards that grep on it
             // keep working.
             if (
-              !hasVisibleText &&
+              !responseHasVisibleText &&
               toolUseTurns > 0 &&
               !priorAssistantHadVisibleText
             ) {
@@ -1454,6 +1471,26 @@ export class AgentLoop {
         // resolves to "stop" (a `continue` already re-queried above), so a
         // re-queried reply is never transformed-then-discarded.
         assistantMessage = await finalizeAssistantMessage(assistantMessage);
+
+        // Safety net for the stop boundary: a no-tool turn with no visible text
+        // would otherwise reach the user as an empty assistant bubble (e.g. a
+        // provider `refusal` after the `stop` hook's nudge budget is spent).
+        // Substitute a user-facing fallback and stream it, since nothing was
+        // emitted live for an empty turn. Scoped to runs that produced no
+        // visible text at all: when an earlier turn this run already replied
+        // (e.g. text alongside a tool call), an empty trailing turn is expected
+        // and must not append a spurious apology beneath the real answer.
+        if (
+          toolUseBlocks.length === 0 &&
+          !producedVisibleTextThisRun &&
+          !hasVisibleText(assistantMessage.content)
+        ) {
+          assistantMessage = {
+            role: "assistant",
+            content: [{ type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT }],
+          };
+          onEvent({ type: "text_delta", text: EMPTY_RESPONSE_FALLBACK_TEXT });
+        }
 
         history.push(assistantMessage);
         appendedNewMessages = true;
