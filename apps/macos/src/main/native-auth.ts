@@ -60,42 +60,16 @@ async function exchangeCode(
   return data.session_token;
 }
 
-async function installSessionCookie(
-  platformUrl: string,
-  sessionToken: string,
-): Promise<void> {
-  const target = new URL(platformUrl);
-  const domain = target.hostname.includes("vellum.ai")
-    ? ".vellum.ai"
-    : target.hostname;
-  const isSecure = target.protocol === "https:";
-  const expirationDate = Math.floor(Date.now() / 1000) + 14 * 24 * 3600;
-
-  await session.defaultSession.cookies.set({
-    url: platformUrl,
-    name: "sessionid",
-    value: sessionToken,
-    domain,
-    path: "/",
-    secure: isSecure,
-    httpOnly: true,
-    sameSite: "lax",
-    expirationDate,
-  });
-
-  if (isSecure) {
-    await session.defaultSession.cookies.set({
-      url: platformUrl,
-      name: "__Secure-sessionid",
-      value: sessionToken,
-      domain,
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      sameSite: "lax",
-      expirationDate,
-    });
-  }
+// Evict the session cookies installed by prior builds, so that
+// header auth takes precedence.
+async function clearLegacySessionCookies(): Promise<void> {
+  const url = resolveProxyPlatformUrl();
+  await Promise.all(
+    ["sessionid", "__Secure-sessionid"].map((name) =>
+      // Best-effort — a missing cookie is the common case.
+      session.defaultSession.cookies.remove(url, name).catch(() => undefined),
+    ),
+  );
 }
 
 function cancelPendingFlows(): void {
@@ -115,8 +89,7 @@ function resolveAuthPlatformUrl(): string {
   return resolveLocalConfigFromEnv(process.env).webUrl;
 }
 
-// The cookie must be installed against the platform URL the renderer's
-// proxy actually talks to (which may be localhost in dev).
+// The platform URL the renderer's proxy talks to.
 function resolveProxyPlatformUrl(): string {
   return resolveLocalConfigFromEnv(process.env).platformUrl;
 }
@@ -148,9 +121,7 @@ async function startOAuth(options: {
     void shell.openExternal(url);
   });
 
-  // The session cookie is here for backwards compatibility. We'll remove shortly.
   saveSessionToken(sessionToken);
-  await installSessionCookie(resolveProxyPlatformUrl(), sessionToken);
   return { sessionToken };
 }
 
@@ -196,6 +167,8 @@ let installed = false;
 export const installNativeAuth = (): void => {
   if (installed) return;
   installed = true;
+
+  void clearLegacySessionCookies();
 
   handle(
     "vellum:auth:startOAuth",
