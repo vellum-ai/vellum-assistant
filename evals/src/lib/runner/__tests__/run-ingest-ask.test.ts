@@ -32,7 +32,7 @@ mock.module("../create-agent", () => ({
 
 // Import-under-test goes AFTER `mock.module` so the runner's import-time
 // reference to `createAgent` resolves to the stub above.
-import { runIngestAsk } from "../run-ingest-ask";
+import { IngestAskError, runIngestAsk } from "../run-ingest-ask";
 
 function profileFor(id: string): Profile {
   return {
@@ -391,7 +391,14 @@ describe("runIngestAsk — ingest completion sentinel", () => {
 
     // THEN it refuses to grade the truncated ingest rather than rotating
     // to the question turn
-    await expect(run).rejects.toThrow(/never emitted the completion sentinel/);
+    const err = await run.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IngestAskError);
+    expect((err as Error).message).toMatch(
+      /never emitted the completion sentinel/,
+    );
+    // AND it carries the captured ingest events so the caller can persist
+    // them for debugging the stalled turn
+    expect((err as IngestAskError).ingestEvents.length).toBe(2);
     // AND the question turn was never sent
     expect(harness.sends()).toEqual(["ingest"]);
     expect(harness.shutdownCount()).toBe(1);

@@ -49,7 +49,10 @@ import {
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
 import type { TranscriptTurn } from "../../../src/lib/transcript";
-import { runIngestAsk } from "../../../src/lib/runner/run-ingest-ask";
+import {
+  IngestAskError,
+  runIngestAsk,
+} from "../../../src/lib/runner/run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
@@ -375,6 +378,14 @@ export async function runLongMemEvalV2Unit(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Persist whatever ingest-turn events were captured before the
+    // failure so a run that aborted (e.g. an ingest that never reached
+    // its completion sentinel) can still be inspected in the report.
+    if (err instanceof IngestAskError && err.ingestEvents.length > 0) {
+      await writeIngestAssistantEvents(input.runId, [
+        ...err.ingestEvents,
+      ]).catch(() => undefined);
+    }
     progress({
       step: "shutdown",
       status: "error",

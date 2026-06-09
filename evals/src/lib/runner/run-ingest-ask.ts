@@ -116,7 +116,22 @@ const DEFAULT_QUIET_MS = 30_000;
 const DEFAULT_INGEST_SENTINEL = "Ready.";
 const DEFAULT_INGEST_MAX_MS = 600_000;
 
-class IngestAskError extends Error {}
+/**
+ * Error raised when a two-conversation run cannot proceed. Carries the
+ * ingest-turn events captured so far (when any) so the caller can still
+ * persist them as a debugging artifact even though the run failed before
+ * producing a result — e.g. to inspect *why* an ingest never reached its
+ * completion sentinel.
+ */
+export class IngestAskError extends Error {
+  constructor(
+    message: string,
+    readonly ingestEvents: readonly AgentEvent[] = [],
+  ) {
+    super(message);
+    this.name = "IngestAskError";
+  }
+}
 
 /**
  * Normalize a single line for sentinel comparison: trim, strip wrapping
@@ -231,6 +246,7 @@ export async function runIngestAsk(
           `truncated — e.g. an unresolved tool confirmation, or the agent did not finish ` +
           `committing to memory. Refusing to grade a truncated ingest; conversation B would ` +
           `have nothing reliable to recall.`,
+        ingestEvents,
       );
     }
 
