@@ -92,7 +92,7 @@ export function SelectAssistantScreen() {
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.welcome);
+    void navigate(routes.welcome);
   };
 
   const displayError = loginError ?? error;
