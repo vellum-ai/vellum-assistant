@@ -6,7 +6,7 @@ import { useCommandPaletteStore } from "@/stores/command-palette-store";
  * Returns `true` when the keyboard event matches Ctrl/Cmd + one of the given
  * keys and the active element is not an input surface.
  */
-export function shouldHandleShortcut(
+function shouldHandleShortcut(
   event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "key">,
   activeElement: Element | null,
   key: string | string[],

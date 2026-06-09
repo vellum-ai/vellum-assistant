@@ -18,7 +18,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { setLocalBool, setLocalNumber } from "@/utils/local-settings";
+import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
@@ -76,8 +76,6 @@ const CommandPalette = lazy(() =>
     default: m.CommandPalette,
   })),
 );
-
-import { getLocalBool, getLocalNumber } from "@/utils/local-settings";
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "vellum:sidebar:collapsed";
 export const SIDEBAR_WIDTH_STORAGE_KEY = "vellum:sidebar:width";
@@ -198,7 +196,8 @@ export function ChatLayout() {
   //
   // ChatPage writes `headerSupplements` to signal it's active. When
   // supplements are present and no explicit `topBarCenter` override
-  // exists, ChatLayout renders the self-contained ChatConversationHeader.
+  // exists, ChatLayout renders ChatConversationHeader with conversation
+  // actions from the shared useConversationActions instance.
   // Non-chat routes (e.g. HomePageRoute) write `null` to topBarCenter
   // and never set supplements, so they get an empty center as before.
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
@@ -643,7 +642,7 @@ export function ChatLayout() {
                 {renderSideMenu({
                   collapsed: false,
                   variant: "overlay",
-                  onClose: () => setDrawerOpen(false),
+                  onClose: closeDrawer,
                 })}
               </aside>
             </div>
