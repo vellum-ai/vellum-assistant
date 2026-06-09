@@ -24,7 +24,10 @@ import {
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
 } from "../../../context/compactor.js";
-import { estimatePromptTokens } from "../../../context/token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateToolsTokens,
+} from "../../../context/token-estimator.js";
 import type {
   ContentBlock,
   Message,
@@ -261,6 +264,18 @@ export class ContextWindowManager {
    * from the emergency rung.
    */
   private _overflowReducerState: ReducerState | undefined;
+  /**
+   * The corrected compaction target and the prompt-token estimate it was
+   * derived from, computed once against the overflowing prompt on the first
+   * rung of a turn and reused across that turn's later rungs. The correction
+   * captures the estimator error the provider's actual token count revealed at
+   * the moment of overflow; re-deriving it against an already-reduced prompt
+   * would divide the original actual-token count by a smaller estimate and
+   * drive the target ever lower. Reset with {@link resetOverflowRecovery}.
+   */
+  private _overflowTurnTarget:
+    | { targetTokens: number; estimatedInputTokens: number }
+    | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
@@ -282,6 +297,7 @@ export class ContextWindowManager {
    */
   resetOverflowRecovery(): void {
     this._overflowReducerState = undefined;
+    this._overflowTurnTarget = undefined;
   }
 
   /** Leading non-persisted inherited-context messages the compactor preserves. */
@@ -408,32 +424,25 @@ export class ContextWindowManager {
         "ContextWindowManager has no conversationId — cannot run overflow recovery",
       );
     }
-    this._overflowReducerState ??= createInitialReducerState();
-
-    const estimatedTokensAtOverflow = estimatePromptTokens(
-      messages,
-      this.systemPrompt,
-      {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      },
-    );
-    const { targetTokens } = computeCorrectedOverflowTarget({
-      preflightBudget: this.resolveOverflowPreflightBudget(messages.length),
-      actualTokens: options.actualTokens,
-      estimatedTokens: estimatedTokensAtOverflow,
-    });
+    if (!this._overflowReducerState) {
+      this._overflowReducerState = createInitialReducerState();
+      this._overflowTurnTarget = this.deriveOverflowTurnTarget(
+        messages,
+        options.actualTokens,
+      );
+    }
+    const { targetTokens, estimatedInputTokens } = this._overflowTurnTarget!;
 
     const config: ReducerConfig = {
       providerName: this.estimationProviderName,
       systemPrompt: this.systemPrompt,
       contextWindow: this.config,
       targetTokens,
-      toolTokenBudget: this.toolTokenBudget,
+      toolTokenBudget: this.resolveTurnToolTokenBudget(),
       conversationId: this.conversationId,
       overrideProfile: options.overrideProfile ?? null,
       actorTrustClass: options.actorTrustClass,
-      previousEstimatedInputTokens: estimatedTokensAtOverflow,
+      previousEstimatedInputTokens: estimatedInputTokens,
       maxMiddleTierAttempts: this.config.overflowRecovery.maxAttempts,
       allowAutoCompressLatestTurn: options.allowAutoCompressLatestTurn,
     };
@@ -449,11 +458,60 @@ export class ContextWindowManager {
   }
 
   /**
+   * Compute the corrected compaction target for a turn's overflow recovery:
+   * the overflow preflight budget lowered in proportion to the estimator error
+   * the provider's actual token count reveals, so the reduced history lands
+   * under the provider's true ceiling rather than the under-counted estimate.
+   */
+  private deriveOverflowTurnTarget(
+    messages: Message[],
+    actualTokens: number | null,
+  ): { targetTokens: number; estimatedInputTokens: number } {
+    const estimatedInputTokens = estimatePromptTokens(
+      messages,
+      this.systemPrompt,
+      {
+        providerName: this.estimationProviderName,
+        toolTokenBudget: this.resolveTurnToolTokenBudget(),
+      },
+    );
+    const { targetTokens, estimationErrorRatio } =
+      computeCorrectedOverflowTarget({
+        preflightBudget: this.resolveOverflowPreflightBudget(messages.length),
+        actualTokens,
+        estimatedTokens: estimatedInputTokens,
+      });
+    if (estimationErrorRatio != null) {
+      log.warn(
+        {
+          actualTokens,
+          estimatedTokens: estimatedInputTokens,
+          estimationErrorRatio: estimationErrorRatio.toFixed(2),
+          targetTokens,
+        },
+        "Adjusting overflow compaction target based on observed estimation error",
+      );
+    }
+    return { targetTokens, estimatedInputTokens };
+  }
+
+  /**
    * The token budget overflow recovery compacts below, derived from the
    * manager's configured max-input cap and overflow-recovery safety margin.
    * Long histories (> 50 messages) get a wider margin so the reduced prompt
    * keeps clearance under the provider's true ceiling.
    */
+  /**
+   * Tool-token budget for the current turn's overflow recovery. Prefers the
+   * live tool set resolved for the turn — matching what the loop sends to the
+   * provider — and falls back to the constructor-time snapshot when no
+   * resolver is wired (legacy test paths, ad-hoc instantiation).
+   */
+  private resolveTurnToolTokenBudget(): number {
+    const tools = this.resolveTools?.();
+    return tools ? estimateToolsTokens(tools) : this.toolTokenBudget;
+  }
+
   private resolveOverflowPreflightBudget(messageCount: number): number {
     const baseSafetyMargin = this.config.overflowRecovery.safetyMarginRatio;
     const safetyMargin =

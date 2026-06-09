@@ -67,6 +67,10 @@ mock.module("../context/token-estimator.js", () => ({
     }
     return next;
   },
+  // Deterministic per-tool budget so tests can assert the manager fed the
+  // turn's resolved tool set (not the constructor-time snapshot) into the
+  // overflow estimate.
+  estimateToolsTokens: (tools: unknown[]): number => tools.length * 1_000,
 }));
 
 mock.module(
@@ -96,7 +100,7 @@ mock.module(
 );
 
 import { ContextWindowManager } from "../plugins/defaults/compaction/window-manager.js";
-import type { Message, Provider } from "../providers/types.js";
+import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 
 function makeProvider(): Provider {
   return {
@@ -194,6 +198,34 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     ]);
   });
 
+  test("reuses the first rung's corrected target across the turn's later rungs", async () => {
+    // GIVEN the provider rejected at 480k while the estimator counted 240k, and
+    // only one estimate is seeded so a second estimate call would throw
+    estimateReturns.push(240_000);
+    reduceSteps = [
+      makeStep(["emergency_compaction"]),
+      makeStep(["emergency_compaction", "forced_compaction"]),
+    ];
+    const manager = buildManager();
+
+    // WHEN two rungs run within the same turn with the provider's actual count
+    await manager.reduceOverflowOneRung(makeMessages(10), {
+      actualTokens: 480_000,
+      allowAutoCompressLatestTurn: false,
+    });
+    await manager.reduceOverflowOneRung(makeMessages(4), {
+      actualTokens: 480_000,
+      allowAutoCompressLatestTurn: false,
+    });
+
+    // THEN the corrected target (190k preflight / 2x error ratio) is computed
+    // once and reused, rather than re-derived against the shrunk prompt
+    expect(reduceCalls[0]?.config.targetTokens).toBe(95_000);
+    expect(reduceCalls[1]?.config.targetTokens).toBe(95_000);
+    expect(reduceCalls[0]?.config.previousEstimatedInputTokens).toBe(240_000);
+    expect(reduceCalls[1]?.config.previousEstimatedInputTokens).toBe(240_000);
+  });
+
   test("resetOverflowRecovery starts a fresh ladder", async () => {
     // GIVEN a manager whose ladder has already advanced one rung
     estimateReturns.push(240_000, 240_000);
@@ -233,6 +265,36 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     // THEN the target is the preflight budget (200k * 0.95 = 190k) divided by
     // the 2x estimation-error ratio
     expect(reduceCalls[0]?.config.targetTokens).toBe(95_000);
+  });
+
+  test("estimates against the turn's resolved tool set, not the constructor snapshot", async () => {
+    // GIVEN a manager whose live tool set (3 tools) differs from the stale
+    // constructor-time budget snapshot
+    estimateReturns.push(240_000);
+    reduceSteps = [makeStep(["emergency_compaction"])];
+    const resolvedTools = [
+      { name: "a" },
+      { name: "b" },
+      { name: "c" },
+    ] as unknown as ToolDefinition[];
+    const manager = new ContextWindowManager({
+      provider: makeProvider(),
+      systemPrompt: "you are a test assistant",
+      config: makeConfig(),
+      conversationId: "conv-test",
+      toolTokenBudget: 50,
+      resolveTools: () => resolvedTools,
+    });
+
+    // WHEN a rung runs
+    await manager.reduceOverflowOneRung(makeMessages(10), {
+      actualTokens: null,
+      allowAutoCompressLatestTurn: false,
+    });
+
+    // THEN the reducer is fed the resolved tool budget (3 tools * 1k) rather
+    // than the constructor snapshot (50)
+    expect(reduceCalls[0]?.config.toolTokenBudget).toBe(3_000);
   });
 
   test("target is the full preflight budget when the actual count is unknown", async () => {

@@ -96,11 +96,9 @@ mock.module("../context/token-estimator.js", () => ({
   estimateToolsTokens: () => 0,
 }));
 
-// Overflow recovery module mocks — the convergence loop delegates to these
-// but these tests exercise the Conversation-level flow, not the reducer internals.
-// The reducer mock runs the forced-compaction tier through defaultCompact, which
-// resolves the conversation's ContextWindowManager from the store — mirroring the
-// real reducer's Tier 1.
+// The wrapper's convergence loop seeds its gate-loop reducer state from this
+// factory; the per-rung reduction itself runs through the manager's
+// `reduceOverflowOneRung` (see the ContextWindowManager mock below).
 mock.module(
   "../plugins/defaults/compaction/context-overflow-reducer.js",
   () => ({
@@ -109,44 +107,6 @@ mock.module(
       injectionMode: "full" as const,
       exhausted: false,
     }),
-    reduceContextOverflow: async (
-      msgs: Message[],
-      cfg: { conversationId: string },
-      _state: unknown,
-      signal?: AbortSignal,
-    ) => {
-      const { defaultCompact } =
-        await import("../plugins/defaults/compaction/compact.js");
-      const cr = await defaultCompact({
-        conversationId: cfg.conversationId,
-        messages: msgs,
-        signal,
-        force: true,
-        minKeepRecentUserTurns: 0,
-      });
-      let resultMessages = msgs;
-      let compactionResult;
-      if (cr.compacted) {
-        resultMessages = cr.messages;
-        compactionResult = cr;
-      }
-      return {
-        messages: resultMessages,
-        tier: "forced_compaction",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "full",
-          exhausted: true,
-        },
-        estimatedTokens: 1000,
-        compactionResult,
-      };
-    },
   }),
 );
 
@@ -219,7 +179,10 @@ let forceCompactionEnabled = false;
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
-    constructor() {}
+    conversationId: string | undefined;
+    constructor(options?: { conversationId?: string }) {
+      this.conversationId = options?.conversationId;
+    }
     updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
@@ -248,6 +211,47 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
         };
       }
       return { compacted: false };
+    }
+    resetOverflowRecovery() {}
+    // Mirrors the real reducer's Tier 1: run forced compaction through
+    // defaultCompact (which resolves this same manager from the store) and
+    // report the ladder exhausted in one rung.
+    async reduceOverflowOneRung(
+      msgs: Message[],
+      _options: unknown,
+      signal?: AbortSignal,
+    ) {
+      const { defaultCompact } =
+        await import("../plugins/defaults/compaction/compact.js");
+      const cr = await defaultCompact({
+        conversationId: this.conversationId!,
+        messages: msgs,
+        signal,
+        force: true,
+        minKeepRecentUserTurns: 0,
+      });
+      let resultMessages = msgs;
+      let compactionResult;
+      if (cr.compacted) {
+        resultMessages = cr.messages;
+        compactionResult = cr;
+      }
+      return {
+        messages: resultMessages,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+        compactionResult,
+      };
     }
   },
   createContextSummaryMessage: () => ({
