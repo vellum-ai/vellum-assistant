@@ -20,7 +20,7 @@
  * candidate pool is the cache-ordered union of the lanes — synthetic capability
  * pages are indexed like any other page, so they enter through the needle lane
  * rather than being always-added — a SINGLE select runs per turn, the result is
- * this turn's selections only (no working-set carry), and each selection is
+ * this turn's selections only, and each selection is
  * logged tagged with its lane source. None of this changes live injection —
  * shadow mode is observation-only; cutover is the `memory-v3-live` flag flip.
  *
@@ -429,7 +429,7 @@ describe("memory-v3 shadow integration — lane-source attribution", () => {
 
 // ---------------------------------------------------------------------------
 // A/B readout: summarizeSelections aggregates the logged shadow run by lane
-// source, and reports turn count + distinct-slug (working-set) footprint.
+// source, and reports turn count + distinct-slug selection footprint.
 // ---------------------------------------------------------------------------
 
 describe("memory-v3 shadow integration — selection-log readout", () => {
@@ -455,8 +455,6 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
     // No selection was attributed to the core or edge lanes in this run.
     expect(summary.bySource.core).toBe(0);
     expect(summary.bySource.edge).toBe(0);
-    // No carry-forward rows are emitted anymore.
-    expect(summary.bySource["carry-forward"]).toBe(0);
     // dense lane surfaced candidates but none were selected.
     expect(summary.bySource.dense).toBe(0);
     // Three turns logged selections.
@@ -475,7 +473,6 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
         needle: 0,
         dense: 0,
         edge: 0,
-        "carry-forward": 0,
       },
       turns: 0,
       distinctSlugs: 0,

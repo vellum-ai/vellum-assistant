@@ -32,10 +32,9 @@
  *      page itself sits in the stable prefix. The selector dedupes selections
  *      by slug.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
- *      result is this turn's selections — current turn only. There is no
- *      working-set union or eviction here anymore: cross-turn persistence is
- *      the injector's job (net-new blocks frozen into history), not a per-turn
- *      re-rendered carry set.
+ *      result is this turn's selections — current turn only. Cross-turn
+ *      persistence is the injector's job (net-new blocks frozen into history),
+ *      not a per-turn re-rendered carry set.
  */
 
 import type { AssistantConfig } from "../../../config/schema.js";

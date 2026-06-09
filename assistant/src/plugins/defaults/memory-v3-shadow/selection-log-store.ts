@@ -106,13 +106,13 @@ export async function getMemoryV3SelectionForInspector(
  * for shadow-vs-v2 inspection without re-rendering any blocks:
  *
  *   - `bySource`: count of selection rows per lane source (`core` / `hot` /
- *     `needle` / `dense` / `edge`, plus `carry-forward` for historical rows).
- *     Every known source is present (zero when unused) so callers can diff two
- *     runs without null-guarding; an unknown historical/free-text source is
- *     ignored (the column is permissive).
+ *     `needle` / `dense` / `edge`). Every known source is present (zero when
+ *     unused) so callers can diff two runs without null-guarding; an unknown
+ *     historical/free-text source — including retired labels like the old
+ *     per-turn carry source — is ignored (the column is permissive).
  *   - `turns`: number of distinct turns that logged at least one selection.
  *   - `distinctSlugs`: number of distinct page slugs selected across all turns —
- *     the conversation's working-set footprint.
+ *     the conversation's selection footprint.
  *
  * This is read-only telemetry for comparing a shadow run's lane mix against
  * v2's logged selections offline; it never re-runs orchestration.

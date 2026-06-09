@@ -5,8 +5,8 @@
  * hot, both computed at lane init and passed in) with three deterministic
  * finder lanes — the section-grain BM25 needle, the dense lane, and link-graph
  * edge expansion — into ONE cache-ordered pool, then runs a SINGLE forced-tool
- * select over it. The result is this turn's selections only: there is no
- * working-set union/eviction in the flow anymore.
+ * select over it. The result is this turn's selections only; cross-turn
+ * persistence is the injector's job, not the orchestrator's.
  *
  * The select provider is stubbed (no network); a single stub answers the one
  * `select_pages` call per turn by reading the numbered `<candidates>` block.

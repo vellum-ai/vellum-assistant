@@ -1,34 +1,6 @@
 import { z } from "zod";
 
 /**
- * Memory v3 (section-grain lane retrieval) working-set configuration.
- *
- * The working set is the per-conversation set of concept pages carried
- * forward across turns. Eviction keeps it bounded: pages unseen for longer
- * than `evictWindow` turns are dropped, and the set is capped at `maxPages`.
- */
-export const MemoryV3WorkingSetSchema = z
-  .object({
-    maxPages: z
-      .number({ error: "memory.v3.workingSet.maxPages must be a number" })
-      .int("memory.v3.workingSet.maxPages must be an integer")
-      .positive("memory.v3.workingSet.maxPages must be a positive integer")
-      .default(150)
-      .describe(
-        "Upper bound on the number of pages retained in the working set. Once exceeded, the least-salient non-pinned pages are evicted until the set fits.",
-      ),
-    evictWindow: z
-      .number({ error: "memory.v3.workingSet.evictWindow must be a number" })
-      .int("memory.v3.workingSet.evictWindow must be an integer")
-      .positive("memory.v3.workingSet.evictWindow must be a positive integer")
-      .default(5)
-      .describe(
-        "Number of turns a non-pinned page may go unseen before it is evicted from the working set.",
-      ),
-  })
-  .describe("Memory v3 working-set retention/eviction tuning.");
-
-/**
  * Edge-lane tuning for the link-graph expansion that folds a turn's lexical and
  * dense seeds outward to their first-class neighbours.
  */
@@ -121,11 +93,12 @@ export const MemoryV3SpotlightSchema = z
   })
   .describe("Memory v3 ephemeral section-spotlight tuning.");
 
+// NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
+// per-turn carry set) used to live here. Existing user config files may still
+// contain the key; zod's default unknown-key stripping accepts and ignores it,
+// so legacy configs keep parsing. Do not make this object `.strict()`.
 export const MemoryV3ConfigSchema = z
   .object({
-    workingSet: MemoryV3WorkingSetSchema.default(
-      MemoryV3WorkingSetSchema.parse({}),
-    ),
     hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
     spotlight: MemoryV3SpotlightSchema.default(
       MemoryV3SpotlightSchema.parse({}),
@@ -148,8 +121,6 @@ export const MemoryV3ConfigSchema = z
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
   })
-  .describe(
-    "Memory v3 — section-grain lane retrieval with a carry-forward working set",
-  );
+  .describe("Memory v3 — section-grain lane retrieval");
 
 export type MemoryV3Config = z.infer<typeof MemoryV3ConfigSchema>;
