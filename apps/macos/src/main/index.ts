@@ -252,29 +252,11 @@ const forwardGatewayRequest = async (
   }
 };
 
-const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
-
-// `app://` is not a cookieable scheme, so the renderer can't read the CSRF
-// token via `document.cookie`. Main caches it here and injects it into
-// forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
-let cachedCsrfToken: string | null = null;
-handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
-
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
   platformUrl: resolvedConfig.platformUrl,
 }));
-
-const captureCsrfToken = (response: Response): void => {
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  for (const raw of setCookies) {
-    const match = CSRF_COOKIE_RE.exec(raw);
-    if (match?.[1]) {
-      cachedCsrfToken = match[1];
-    }
-  }
-};
 
 /**
  * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
@@ -293,17 +275,8 @@ const forwardPlatformRequest = async (
     return new Response(plan.message, { status: plan.status });
   }
 
-  if (
-    plan.shouldInjectCsrfToken &&
-    cachedCsrfToken &&
-    !plan.headers.has("X-CSRFToken")
-  ) {
-    plan.headers.set("X-CSRFToken", cachedCsrfToken);
-  }
-
-  let response: Response;
   try {
-    response = await net.fetch(plan.url, {
+    return await net.fetch(plan.url, {
       method: plan.method,
       headers: plan.headers,
       body: plan.hasBody ? request.body : undefined,
@@ -314,9 +287,6 @@ const forwardPlatformRequest = async (
     const message = err instanceof Error ? err.message : "Platform unreachable";
     return new Response(message, { status: 502 });
   }
-
-  captureCsrfToken(response);
-  return response;
 };
 
 // ---------------------------------------------------------------------------

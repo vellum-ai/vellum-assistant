@@ -16,7 +16,6 @@ export type PlatformForwardPlan =
       method: string;
       headers: Headers;
       hasBody: boolean;
-      shouldInjectCsrfToken: boolean;
     };
 
 export interface PlatformForwardRequest {
@@ -83,11 +82,9 @@ function getInitiatorTrust(
  *
  * On `forward`, the request's `Origin` is rewritten to the platform's own
  * origin. The renderer issues this request from `app://vellum.ai` but the
- * platform expects its own origin for CORS/CSRF purposes. Unsafe requests are
- * only forwarded when their browser-controlled `Origin` or `Referer` matches
- * the trusted renderer origin, and only those trusted requests are eligible for
- * main-process CSRF token injection. All other headers (Authorization,
- * X-CSRFToken, Content-Type, etc.) pass through unchanged.
+ * platform expects its own origin for CORS purposes. Unsafe requests are only
+ * forwarded when their browser-controlled `Origin` or `Referer` matches the
+ * trusted renderer origin. All other headers pass through unchanged.
  */
 export function planPlatformForward(
   request: PlatformForwardRequest,
@@ -122,6 +119,5 @@ export function planPlatformForward(
     method: request.method,
     headers,
     hasBody: request.method !== "GET" && request.method !== "HEAD",
-    shouldInjectCsrfToken: initiator.trusted,
   };
 }
