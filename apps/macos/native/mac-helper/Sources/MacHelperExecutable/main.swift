@@ -227,32 +227,10 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func requestSpeechRecognition() -> String {
-        if SFSpeechRecognizer.authorizationStatus() != .notDetermined {
-            return speechRecognitionStatus()
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            SFSpeechRecognizer.requestAuthorization { _ in }
         }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var requestedStatus = SFSpeechRecognizer.authorizationStatus()
-        SFSpeechRecognizer.requestAuthorization { status in
-            requestedStatus = status
-            semaphore.signal()
-        }
-        if semaphore.wait(timeout: .now() + 60) == .timedOut {
-            return "unknown"
-        }
-
-        switch requestedStatus {
-        case .authorized:
-            return "granted"
-        case .denied:
-            return "denied"
-        case .restricted:
-            return "restricted"
-        case .notDetermined:
-            return "not-determined"
-        @unknown default:
-            return "unknown"
-        }
+        return speechRecognitionStatus()
     }
 
     private func inputMonitoringStatus() -> String {

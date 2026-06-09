@@ -83,7 +83,6 @@ const makeClient = (): MacHelperClient =>
     resolveExecutablePath: getMacHelperPath,
     logger: log,
     platform: getPlatform(),
-    responseTimeoutMs: 60_000,
     ...supervisorOptionsForTesting,
   });
 

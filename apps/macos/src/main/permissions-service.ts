@@ -163,6 +163,9 @@ export class PermissionsService {
     }
 
     const item = await this.item(kind, sender);
+    if (item.status === "unknown" || item.status === "not-determined") {
+      this.startPolling(kind, sender);
+    }
     await this.refresh(sender);
     return item;
   }
@@ -303,9 +306,11 @@ export class PermissionsService {
 
   private startPolling(kind: PermissionKind, sender?: WebContents): void {
     this.stopPolling(kind);
+    let attempts = 0;
     const timer = setInterval(() => {
+      attempts += 1;
       void this.refresh(sender).then((state) => {
-        if (state[kind].status === "granted") {
+        if (state[kind].status === "granted" || attempts >= 150) {
           this.stopPolling(kind);
         }
       });

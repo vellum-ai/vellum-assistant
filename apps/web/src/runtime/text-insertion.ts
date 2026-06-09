@@ -24,7 +24,11 @@ export async function insertTextIntoFrontApp(
 }
 
 export async function openTextInsertionSettings(): Promise<void> {
-  if (await openSystemPermissionSettings("automation")) return;
+  try {
+    if (await openSystemPermissionSettings("automation")) return;
+  } catch {
+    // Fall through to the legacy bridge below.
+  }
   if (!isElectron() || !window.vellum?.text?.openAutomationSettings) return;
   try {
     await window.vellum.text.openAutomationSettings();
