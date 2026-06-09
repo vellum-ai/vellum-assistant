@@ -53,6 +53,14 @@ mock.module("@/utils/download-blob", () => ({
   },
 }));
 
+let captureErrorCalls: { error: unknown; context: string }[] = [];
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: (error: unknown, opts: { context: string }) => {
+    captureErrorCalls.push({ error, context: opts.context });
+  },
+}));
+
 let toastErrorCalls: string[] = [];
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -113,6 +121,7 @@ beforeEach(() => {
   downloadRetrieveCalls = 0;
   downloadRetrieveResult = async () => okDownloadResult();
   downloadBlobCalls = [];
+  captureErrorCalls = [];
   toastErrorCalls = [];
 });
 
@@ -156,6 +165,8 @@ describe("InvoicesModal download all", () => {
 
     expect(toastErrorCalls).toEqual(["Failed to download invoices."]);
     expect(downloadBlobCalls).toHaveLength(0);
+    expect(captureErrorCalls).toHaveLength(1);
+    expect(captureErrorCalls[0]!.context).toBe("download_all_invoices");
   });
 
   test("a thrown network error shows the error toast and saves nothing", async () => {
@@ -172,6 +183,8 @@ describe("InvoicesModal download all", () => {
 
     expect(toastErrorCalls).toEqual(["Failed to download invoices."]);
     expect(downloadBlobCalls).toHaveLength(0);
+    expect(captureErrorCalls).toHaveLength(1);
+    expect(captureErrorCalls[0]!.context).toBe("download_all_invoices");
   });
 
   test("the button is disabled while the request is in flight and re-enabled after", async () => {

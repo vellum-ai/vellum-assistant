@@ -9,6 +9,7 @@ import {
   organizationsBillingInvoicesRetrieve,
 } from "@/generated/api/sdk.gen";
 import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { downloadBlob } from "@/utils/download-blob";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
@@ -132,7 +133,8 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
         );
       }
       downloadBlob(data, "invoices.zip");
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "download_all_invoices" });
       toast.error("Failed to download invoices.");
     } finally {
       setIsDownloadingAll(false);
