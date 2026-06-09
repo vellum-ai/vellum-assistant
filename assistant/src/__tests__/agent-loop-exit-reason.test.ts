@@ -29,12 +29,13 @@ import {
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
 import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
+import {
+  ContextOverflowError,
+  type Message,
+  type Provider,
+  type ProviderResponse,
+  type SendMessageOptions,
+  type ToolDefinition,
 } from "../providers/types.js";
 
 // The agent loop invokes the default post-compaction re-injection hook directly
@@ -53,6 +54,77 @@ mock.module(
     }),
   }),
 );
+
+// The reactive context-overflow catch drives the compaction plugin's reduction
+// ladder (`reduceContextOverflow`). Stub it so these unit tests exercise the
+// loop's catch/continue seam without the real multi-tier reducer + summary LLM.
+// Tests assign `reduceImpl` to control the reduced output and ladder state.
+interface FakeReducerStep {
+  messages: Message[];
+  state: { exhausted: boolean; appliedTiers: string[]; injectionMode: string };
+}
+let reduceImpl: ((messages: Message[]) => FakeReducerStep) | null = null;
+let reduceCallCount = 0;
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      exhausted: false,
+      appliedTiers: [],
+      injectionMode: "full",
+    }),
+    reduceContextOverflow: async (
+      messages: Message[],
+    ): Promise<FakeReducerStep> => {
+      reduceCallCount++;
+      return (
+        reduceImpl?.(messages) ?? {
+          messages,
+          state: { exhausted: false, appliedTiers: [], injectionMode: "full" },
+        }
+      );
+    },
+  }),
+);
+
+/**
+ * A provider whose `sendMessage` throws on the first `throwCount` calls and
+ * returns `responses` thereafter, so a test can simulate a `context_too_large`
+ * rejection followed by a successful rerun.
+ */
+function createOverflowingProvider(
+  error: Error,
+  throwCount: number,
+  responses: ProviderResponse[],
+): { provider: Provider } {
+  let callIndex = 0;
+  const provider: Provider = {
+    name: "mock",
+    async sendMessage(): Promise<ProviderResponse> {
+      const i = callIndex++;
+      if (i < throwCount) throw error;
+      const r = responses[i - throwCount] ?? responses[responses.length - 1];
+      return r;
+    },
+  };
+  return { provider };
+}
+
+function overflowError(actualTokens: number): ContextOverflowError {
+  return new ContextOverflowError(
+    `prompt is too long: ${actualTokens} tokens > 200000 maximum`,
+    "mock",
+    { actualTokens, maxTokens: 200000 },
+  );
+}
+
+const fullOverflowRecovery = {
+  enabled: true as const,
+  safetyMarginRatio: 0.1,
+  maxAttempts: 4,
+  allowAutoCompressLatestTurn: false,
+  contextWindow: {} as unknown as ContextWindowConfig,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -399,7 +471,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+          contextWindow: {} as unknown as ContextWindowConfig,
+        },
       }),
     });
 
@@ -430,7 +508,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
-        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+        overflowRecovery: { enabled: false },
       }),
     });
 
@@ -469,7 +547,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
       },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+          contextWindow: {} as unknown as ContextWindowConfig,
+        },
       }),
       compactInPlace: true,
       ...fakeCompaction("test-conversation", {
@@ -514,7 +598,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
       onEvent: () => {},
       resolveContextWindow: () => ({
         maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+          contextWindow: {} as unknown as ContextWindowConfig,
+        },
       }),
       compactInPlace: true,
       ...fakeCompaction("test-conversation", {
@@ -616,5 +706,94 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_during_tools");
+  });
+
+  test("recovers from a provider context-overflow rejection and continues to a successful rerun", async () => {
+    // GIVEN the provider rejects the first call with `context_too_large`, then
+    // succeeds on the rerun against the reduced history.
+    postCompactImpl = null;
+    reduceCallCount = 0;
+    reduceImpl = (messages) => ({
+      messages,
+      state: {
+        exhausted: false,
+        appliedTiers: ["forced"],
+        injectionMode: "full",
+      },
+    });
+    const { provider } = createOverflowingProvider(overflowError(242201), 1, [
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with overflow recovery enabled
+    const events: AgentEvent[] = [];
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      resolveContextWindow: () => ({
+        maxInputTokens: 200000,
+        overflowRecovery: fullOverflowRecovery,
+      }),
+    });
+
+    // THEN the catch drives one reduction rung and the rerun completes
+    // normally — no error is surfaced.
+    expect(reduceCallCount).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "context_compacting")).toBe(true);
+    expect(lastExitEvent(events)?.reason).toBe("no_tool_calls");
+    reduceImpl = null;
+  });
+
+  test("surfaces the rejection as a turn error once the ladder is exhausted", async () => {
+    // GIVEN the provider always rejects with `context_too_large` and the
+    // reducer reports its ladder exhausted after the first rung.
+    postCompactImpl = null;
+    reduceCallCount = 0;
+    reduceImpl = (messages) => ({
+      messages,
+      state: {
+        exhausted: true,
+        appliedTiers: ["auto_compress_latest_turn"],
+        injectionMode: "full",
+      },
+    });
+    const { provider } = createOverflowingProvider(overflowError(242201), 10, [
+      textResponse("never reached"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with overflow recovery enabled
+    const events: AgentEvent[] = [];
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      resolveContextWindow: () => ({
+        maxInputTokens: 200000,
+        overflowRecovery: fullOverflowRecovery,
+      }),
+    });
+
+    // THEN recovery runs once; the next rejection skips recovery (exhausted)
+    // and surfaces as a turn error.
+    expect(reduceCallCount).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    expect(lastExitEvent(events)?.reason).toBe("error");
+    reduceImpl = null;
   });
 });

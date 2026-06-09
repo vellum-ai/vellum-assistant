@@ -460,14 +460,39 @@ export async function runAgentLoopImpl(
    */
   const resolveContextWindow = (): {
     maxInputTokens: number;
-    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+    overflowRecovery:
+      | { enabled: false }
+      | {
+          enabled: true;
+          safetyMarginRatio: number;
+          maxAttempts: number;
+          allowAutoCompressLatestTurn: boolean;
+          contextWindow: ContextWindowConfig;
+        };
   } => {
     refreshCurrentProfileState();
-    const { enabled, safetyMarginRatio } =
-      currentEffectiveContextWindow.overflowRecovery;
+    const overflowRecovery = currentEffectiveContextWindow.overflowRecovery;
+    const maxInputTokens = currentEffectiveContextWindow.maxInputTokens;
+    if (!overflowRecovery.enabled) {
+      return { maxInputTokens, overflowRecovery: { enabled: false } };
+    }
+    // The overflow policy (auto_compress vs fail_gracefully) is a UX decision
+    // that stays orchestrator-side; the loop's reactive ladder only needs the
+    // resolved boolean to know whether the terminal rung is permitted.
+    const allowAutoCompressLatestTurn =
+      resolveOverflowAction({
+        overflowRecovery,
+        isInteractive: isInteractiveResolved,
+      }) === "auto_compress_latest_turn";
     return {
-      maxInputTokens: currentEffectiveContextWindow.maxInputTokens,
-      overflowRecovery: { enabled, safetyMarginRatio },
+      maxInputTokens,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: overflowRecovery.safetyMarginRatio,
+        maxAttempts: overflowRecovery.maxAttempts,
+        allowAutoCompressLatestTurn,
+        contextWindow: currentContextWindowConfig,
+      },
     };
   };
 

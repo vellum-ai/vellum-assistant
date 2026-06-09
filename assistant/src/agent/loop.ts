@@ -3,8 +3,10 @@ import * as Sentry from "@sentry/node";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { ContextWindowConfig } from "../config/types.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
+  estimatePromptTokens,
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
   estimateToolsTokens,
@@ -12,6 +14,7 @@ import {
 } from "../context/token-estimator.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -22,6 +25,12 @@ import type {
   StopContext,
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  createInitialReducerState,
+  reduceContextOverflow,
+  type ReducerState,
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
+import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -36,6 +45,7 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
+import { isContextOverflowError } from "../providers/types.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -54,6 +64,26 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 /** In-context message count above which the budget gate raises the safety-margin floor. */
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
+
+/**
+ * The preflight token budget the loop reduces toward: the provider's
+ * max-input ceiling less a safety margin. The margin is raised to
+ * {@link LONG_HISTORY_SAFETY_MARGIN_FLOOR} once the in-context message count
+ * crosses {@link LONG_HISTORY_MESSAGE_THRESHOLD}, since the estimator's error
+ * grows with history length. Shared by the proactive budget gate and the
+ * reactive overflow reducer so both target the same budget.
+ */
+function computePreflightBudget(
+  maxInputTokens: number,
+  baseSafetyMarginRatio: number,
+  messageCount: number,
+): number {
+  const safetyMargin =
+    messageCount > LONG_HISTORY_MESSAGE_THRESHOLD
+      ? Math.max(baseSafetyMarginRatio, LONG_HISTORY_SAFETY_MARGIN_FLOOR)
+      : baseSafetyMarginRatio;
+  return Math.floor(maxInputTokens * (1 - safetyMargin));
+}
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -480,7 +510,32 @@ export interface AgentLoopRunOptions {
    */
   resolveContextWindow?: () => {
     maxInputTokens: number;
-    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+    overflowRecovery:
+      | { enabled: false }
+      | {
+          enabled: true;
+          safetyMarginRatio: number;
+          /**
+           * Middle-tier reduction attempt budget for the reactive ladder
+           * (forced compaction, tool-result truncation, media stubbing,
+           * injection downgrade) before escalating to the terminal
+           * auto-compress rung.
+           */
+          maxAttempts: number;
+          /**
+           * Whether the terminal auto-compress-latest-turn rung is permitted.
+           * The orchestrator resolves this from the overflow policy
+           * (`auto_compress` vs `fail_gracefully`); the ladder executes the
+           * rung but never makes the policy call itself.
+           */
+          allowAutoCompressLatestTurn: boolean;
+          /**
+           * The full context-window config the reactive overflow reducer
+           * threads into its summary call (model selection, keep-recent
+           * bounds, etc.).
+           */
+          contextWindow: ContextWindowConfig;
+        };
   };
   /**
    * When `true`, the loop owns turn-start and mid-loop compaction. The pre-call
@@ -781,6 +836,160 @@ export class AgentLoop {
     return injection.messages;
   }
 
+  /**
+   * Apply a single reduction rung in response to a provider
+   * `context_too_large` rejection, then re-inject runtime context so the
+   * caller can rerun the provider call against the reduced history.
+   *
+   * The provider's actual token count (parsed from the error) reveals how far
+   * the estimator under-counted, so the reducer targets a provider-corrected
+   * budget rather than the estimator's preflight budget (which would still be
+   * too high and re-reject). The compaction plugin's reduction ladder owns
+   * rung selection — emergency summarize, forced compaction, tool-result
+   * truncation, media stubbing, injection downgrade, and the policy-gated
+   * terminal auto-compress — escalating one rung per call. State is threaded
+   * back through the caller so successive rejections climb the ladder.
+   *
+   * Returns the reduced, re-injected history plus the updated reducer state.
+   * When the ladder reports exhaustion, the caller's next rejection skips
+   * recovery and surfaces the rejection as a turn error.
+   */
+  private async recoverFromContextOverflow(params: {
+    error: unknown;
+    history: Message[];
+    reducerState: ReducerState | undefined;
+    maxInputTokens: number;
+    contextWindowConfig: ContextWindowConfig;
+    safetyMarginRatio: number;
+    maxMiddleTierAttempts: number;
+    allowAutoCompressLatestTurn: boolean;
+    requestId: string | undefined;
+    trust: TrustContext;
+    signal: AbortSignal | undefined;
+    onEvent: (event: AgentEvent) => void | Promise<void>;
+    rlog: typeof log;
+    overrideProfile: string | null;
+    isNonInteractive: boolean;
+    modelProfile: string | null;
+    actorContext: InboundActorContext | null;
+  }): Promise<{ messages: Message[]; state: ReducerState }> {
+    const {
+      error,
+      history,
+      maxInputTokens,
+      contextWindowConfig,
+      safetyMarginRatio,
+      maxMiddleTierAttempts,
+      allowAutoCompressLatestTurn,
+      requestId,
+      trust,
+      signal,
+      onEvent,
+      rlog,
+      overrideProfile,
+      isNonInteractive,
+      modelProfile,
+      actorContext,
+    } = params;
+
+    await onEvent({ type: "context_compacting" });
+    // Strip runtime injections so the reducer operates on the raw persistent
+    // messages, then record the history-stripped marker before reducing.
+    const rawHistory = stripInjectionsForCompaction(history);
+    await onEvent({ type: "history_stripped" });
+
+    const providerName = getCalibrationProviderKey(this.provider);
+    const toolTokenBudget = this.getToolTokenBudget(rawHistory);
+    const estimatedTokensAtOverflow = estimatePromptTokens(
+      rawHistory,
+      this.systemPrompt,
+      { providerName, toolTokenBudget },
+    );
+    const actualTokens = parseActualTokensFromError(error);
+    const preflightBudget = computePreflightBudget(
+      maxInputTokens,
+      safetyMarginRatio,
+      rawHistory.length,
+    );
+    const { targetTokens, estimationErrorRatio } =
+      computeCorrectedOverflowTarget({
+        preflightBudget,
+        actualTokens,
+        estimatedTokens: estimatedTokensAtOverflow,
+      });
+    if (estimationErrorRatio != null) {
+      rlog.warn(
+        {
+          actualTokens,
+          estimatedTokens: estimatedTokensAtOverflow,
+          estimationErrorRatio: estimationErrorRatio.toFixed(2),
+          preflightBudget,
+          correctedTarget: targetTokens,
+        },
+        "Adjusting compaction target based on observed estimation error",
+      );
+    }
+
+    const reducerState = params.reducerState ?? createInitialReducerState();
+    const step = await reduceContextOverflow(
+      rawHistory,
+      {
+        providerName,
+        systemPrompt: this.systemPrompt,
+        contextWindow: contextWindowConfig,
+        targetTokens,
+        toolTokenBudget,
+        conversationId: this.conversationId,
+        overrideProfile,
+        actorTrustClass: trust.trustClass,
+        previousEstimatedInputTokens: estimatedTokensAtOverflow,
+        maxMiddleTierAttempts,
+        allowAutoCompressLatestTurn,
+      },
+      reducerState,
+      signal,
+    );
+
+    // Only record when the summary LLM actually ran — `summaryFailed
+    // === undefined` indicates a forced-compaction early-return path (or a
+    // non-compaction tier) that never called the summary LLM.
+    if (
+      step.compactionResult &&
+      step.compactionResult.summaryFailed !== undefined
+    ) {
+      await this.recordCompactionOutcome(
+        requestId,
+        step.compactionResult.summaryFailed,
+        onEvent,
+      );
+    }
+    // Commit the durable compacted base (DB-record fields, Slack provenance)
+    // only when a summarizing rung actually compacted. The non-compaction
+    // tiers (truncation, stubbing, downgrade) reduce only what is sent to the
+    // provider this rerun; they leave the durable history untouched.
+    if (step.compactionResult?.compacted) {
+      await onEvent({
+        type: "compaction_completed",
+        result: step.compactionResult,
+        basis: rawHistory,
+      });
+    }
+
+    // Re-inject onto the reduced messages, honoring the ladder's injection
+    // mode so the downgrade rung's minimal-volume re-injection takes effect.
+    const injection = await postCompact({
+      history: step.messages,
+      requestId,
+      conversationId: this.conversationId,
+      trust,
+      isNonInteractive,
+      mode: step.state.injectionMode,
+      modelProfile,
+      actorContext,
+    });
+    return { messages: injection.messages, state: step.state };
+  }
+
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
     const {
       messages,
@@ -817,6 +1026,12 @@ export class AgentLoop {
     // prior post-call placement, plus the first call when
     // `compactInPlace` is set (the primary run's turn-start compaction).
     let budgetGateArmed = compactInPlace;
+    // Reactive context-overflow recovery state, carried across provider-call
+    // retries within this run. A `context_too_large` rejection drives one
+    // reducer rung per catch; the loop's own next iteration is the rerun, so
+    // the ladder escalates rung-by-rung across successive rejections until the
+    // context fits or the ladder is exhausted.
+    let reducerState: ReducerState | undefined;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -883,17 +1098,12 @@ export class AgentLoop {
           // circuit breaker, matching the orchestrator's turn-start compaction.
           const isFirstCallGate = toolUseTurns === 0;
           const contextWindow = resolveContextWindow?.();
-          if (contextWindow?.overflowRecovery.enabled) {
-            const { maxInputTokens, overflowRecovery } = contextWindow;
-            const safetyMargin =
-              history.length > LONG_HISTORY_MESSAGE_THRESHOLD
-                ? Math.max(
-                    overflowRecovery.safetyMarginRatio,
-                    LONG_HISTORY_SAFETY_MARGIN_FLOOR,
-                  )
-                : overflowRecovery.safetyMarginRatio;
-            const preflightBudget = Math.floor(
-              maxInputTokens * (1 - safetyMargin),
+          const overflowRecovery = contextWindow?.overflowRecovery;
+          if (contextWindow && overflowRecovery?.enabled) {
+            const preflightBudget = computePreflightBudget(
+              contextWindow.maxInputTokens,
+              overflowRecovery.safetyMarginRatio,
+              history.length,
             );
             const midLoopThreshold =
               preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
@@ -1729,6 +1939,54 @@ export class AgentLoop {
           await emitExit("aborted_via_error");
           break;
         }
+
+        // ── Reactive context-overflow recovery ──────────────────────────
+        // A `context_too_large` rejection means the proactive estimator gate
+        // under-counted and the provider actually rejected the call. Drive
+        // one reduction rung toward the provider-corrected target, re-inject,
+        // and `continue` so the loop's next iteration is the rerun. The
+        // ladder escalates across successive rejections until the context fits
+        // or its tiers are exhausted, at which point the rejection falls
+        // through to the error path below.
+        const overflowContextWindow = resolveContextWindow?.();
+        const overflowRecovery = overflowContextWindow?.overflowRecovery;
+        if (
+          isContextOverflowError(error) &&
+          overflowContextWindow &&
+          overflowRecovery?.enabled &&
+          !(reducerState?.exhausted ?? false)
+        ) {
+          const recovered = await this.recoverFromContextOverflow({
+            error,
+            history,
+            reducerState,
+            maxInputTokens: overflowContextWindow.maxInputTokens,
+            contextWindowConfig: overflowRecovery.contextWindow,
+            safetyMarginRatio: overflowRecovery.safetyMarginRatio,
+            maxMiddleTierAttempts: overflowRecovery.maxAttempts,
+            allowAutoCompressLatestTurn:
+              overflowRecovery.allowAutoCompressLatestTurn,
+            requestId,
+            trust,
+            signal,
+            onEvent,
+            rlog,
+            overrideProfile: resolveEffectiveOverrideProfile() ?? null,
+            isNonInteractive,
+            modelProfile,
+            actorContext,
+          });
+          history = recovered.messages;
+          // The reduced, re-injected array is the new base; output produced
+          // after this point is what the orchestrator persists.
+          newMessagesStart = history.length;
+          reducerState = recovered.state;
+          // The reduction already brought the context down; don't re-run the
+          // proactive gate against the freshly compacted history.
+          budgetGateArmed = false;
+          continue;
+        }
+
         const err = error instanceof Error ? error : new Error(String(error));
         rlog.error(
           { err, turn: toolUseTurns, messageCount: history.length },

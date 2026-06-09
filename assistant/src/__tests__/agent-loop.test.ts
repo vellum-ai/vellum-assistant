@@ -200,7 +200,7 @@ describe("AgentLoop", () => {
       callSite: "mainAgent",
       resolveContextWindow: () => ({
         maxInputTokens,
-        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+        overflowRecovery: { enabled: false },
       }),
     });
 
