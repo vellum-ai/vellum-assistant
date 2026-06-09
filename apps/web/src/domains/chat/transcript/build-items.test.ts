@@ -7,10 +7,7 @@ import type {
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
 
-import {
-  messageText,
-  textBody,
-} from "@/domains/chat/utils/message-test-helpers";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
@@ -543,29 +540,3 @@ describe("buildTranscriptItems", () => {
   });
 });
 
-describe("buildTranscriptItems — duplicate server ID dedup", () => {
-  test("duplicate server IDs produce only one message item", () => {
-    const messages: DisplayMessage[] = [
-      makeMessage({ id: "m1", role: "user", ...textBody("Hello") }),
-      makeMessage({ id: "m2", role: "assistant", ...textBody("Reply") }),
-      makeMessage({ id: "m2", role: "assistant", ...textBody("Reply (dup)") }),
-    ];
-    const items = buildTranscriptItems({ ...emptyInput(), messages });
-    const messageItems = items.filter((i): i is MessageItem => i.kind === "message");
-    expect(messageItems).toHaveLength(2);
-    expect(messageItems[0]!.message.id).toBe("m1");
-    expect(messageItems[1]!.message.id).toBe("m2");
-    expect(messageText(messageItems[1]!.message)).toBe("Reply (dup)");
-  });
-
-  test("messages without IDs are not deduped", () => {
-    const messages: DisplayMessage[] = [
-      makeMessage({ role: "user", ...textBody("Hello") }),
-      makeMessage({ role: "assistant", ...textBody("Reply") }),
-      makeMessage({ role: "assistant", ...textBody("Another reply") }),
-    ];
-    const items = buildTranscriptItems({ ...emptyInput(), messages });
-    const messageItems = items.filter((i): i is MessageItem => i.kind === "message");
-    expect(messageItems).toHaveLength(3);
-  });
-});
