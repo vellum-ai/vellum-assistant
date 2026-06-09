@@ -1,12 +1,11 @@
 /**
- * Inline "Thought process" link rendered for a LONE thinking run — a
- * pure-thinking activity group with no adjacent renderable tool call. Unlike
- * the boxed {@link ThinkingBlock} card (used in the flag-off + legacy paths),
- * this is a minimal, container-less affordance rendered through the shared
- * {@link InlineActivityLink}: a leading glyph + label + a trailing chevron that
- * toggles the full reasoning in the shared tool-detail side drawer (the same
- * drawer the in-card thinking pill uses). Clicking the link while its drawer
- * is already open closes it (toggle).
+ * Inline "Thought process" link — the single affordance for an assistant
+ * reasoning run, in both the interleaved-tool-call path and the legacy
+ * pure-reasoning path. A minimal, container-less element rendered through the
+ * shared {@link InlineActivityLink}: a leading glyph + label + a trailing
+ * chevron that toggles the full reasoning in the shared tool-detail side drawer
+ * (the same drawer the in-card thinking pill uses). Clicking the link while its
+ * drawer is already open closes it (toggle).
  *
  * This link OWNS the streaming/loading state too: while reasoning streams in
  * it swaps the brain glyph for our shared {@link ThreeDotIndicator} and reads

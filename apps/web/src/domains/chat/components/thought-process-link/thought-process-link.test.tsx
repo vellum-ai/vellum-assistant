@@ -1,9 +1,10 @@
 /**
  * Tests for the inline `ThoughtProcessLink` — the minimal, container-less
- * affordance that replaces the boxed `ThinkingBlock` for a lone thinking run
- * in the flag-on path. Covers the label, the brain + chevron glyphs, the
- * drawer-open click contract, the streaming loading state (three-dot indicator
- * + "Thinking", still clickable), and the empty-content render rules.
+ * affordance that renders an assistant reasoning run (the single thinking
+ * affordance for both the interleaved and legacy pure-reasoning paths). Covers
+ * the label, the brain + chevron glyphs, the drawer-open click contract, the
+ * streaming loading state (three-dot indicator + "Thinking", still clickable),
+ * and the empty-content render rules.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
