@@ -898,9 +898,14 @@ export function handleToolUse(
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
-  state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
+  const startedAt = Date.now();
+  state.toolCallTimestamps.set(event.id, { startedAt });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
+  // Stamp the start time onto the already-durable tool_use block so a snapshot
+  // fetched mid-tool (refresh / reconnect) carries it and clients can render a
+  // running timer without having seen the live `tool_use_start` event.
+  recordToolStartOnPersistedMessage(state, event.id, startedAt);
   const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState("tool_running", "tool_use_start", {
     requestId: deps.reqId,
@@ -913,6 +918,7 @@ export function handleToolUse(
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
+    startedAt,
   });
   // `message_complete` always precedes tool events (see handleMessageComplete),
   // so this tool_use block is already durable in the assistant row. The
@@ -1294,8 +1300,9 @@ export async function handleToolResult(
   });
 
   // Record tool completion timestamp
+  const completedAt = Date.now();
   const ts = state.toolCallTimestamps.get(event.toolUseId);
-  if (ts) ts.completedAt = Date.now();
+  if (ts) ts.completedAt = completedAt;
   state.currentToolUseId = undefined;
 
   // Capture risk metadata when present. autoApproved is true when the tool
@@ -1414,6 +1421,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    completedAt,
   });
 
   // Capture the seq synchronously (before the persist await) so it reflects the
@@ -1428,6 +1436,44 @@ export async function handleToolResult(
       { err, conversationId: deps.ctx.conversationId },
       "Failed to persist tool result on arrival (non-fatal; retried at message_complete)",
     );
+  }
+}
+
+/**
+ * Stamp `_startedAt` onto the in-flight tool_use block in the persisted
+ * assistant message the moment the tool begins. The block is already durable
+ * (message_complete precedes tool events), so without this a `/messages`
+ * snapshot fetched mid-tool would carry no start time and clients could not
+ * render a running elapsed-time counter until the whole turn finished. The
+ * full timing + risk annotation still happens in
+ * `annotatePersistedAssistantMessage` once every tool in the turn completes.
+ */
+function recordToolStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  startedAt: number,
+): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    const rec = block as unknown as Record<string, unknown>;
+    if (rec.id !== toolUseId) continue;
+    if (rec._startedAt === startedAt) return;
+    rec._startedAt = startedAt;
+    updateMessageContent(messageId, JSON.stringify(content));
+    return;
   }
 }
 
