@@ -53,16 +53,31 @@ export function parseConfirmArgs(rawArgs: string[]): ParseResult {
   const jsonOutput = rawArgs.includes("--json");
   let args = rawArgs.filter((a) => a !== "--json");
 
+  const requestIdFlagPresent = args.includes("--request-id");
   const [requestId, afterRequestId] = extractFlag(args, "--request-id");
   args = afterRequestId;
 
+  const decisionFlagPresent = args.includes("--decision");
   const [decisionRaw, afterDecision] = extractFlag(args, "--decision");
   args = afterDecision;
 
+  // `extractFlag` strips a trailing value-less flag, which would otherwise let
+  // the next positional masquerade as the flag's value (or, for --decision,
+  // silently fall back to "allow" and approve a tool call the caller never
+  // meant to approve). Treat a flag supplied without a value as an error.
+  if (requestIdFlagPresent && requestId === undefined) {
+    return { ok: false, error: "--request-id requires a value." };
+  }
   if (!requestId) {
     return { ok: false, error: "--request-id is required." };
   }
 
+  if (decisionFlagPresent && decisionRaw === undefined) {
+    return {
+      ok: false,
+      error: '--decision requires a value ("allow" or "deny").',
+    };
+  }
   const decision = decisionRaw ?? "allow";
   if (decision !== "allow" && decision !== "deny") {
     return {

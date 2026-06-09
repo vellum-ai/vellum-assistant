@@ -49,6 +49,32 @@ describe("parseConfirmArgs", () => {
     });
   });
 
+  test("rejects a value-less --decision instead of defaulting to allow", () => {
+    // A trailing `--decision` with no value (e.g. an empty shell expansion)
+    // must not silently approve via the "allow" default.
+    const r = parseConfirmArgs(["--request-id", "req-1", "--decision"]);
+    expect(r).toEqual({
+      ok: false,
+      error: '--decision requires a value ("allow" or "deny").',
+    });
+  });
+
+  test("rejects an empty-string --decision value", () => {
+    const r = parseConfirmArgs(["--request-id", "req-1", "--decision", ""]);
+    expect(r).toEqual({
+      ok: false,
+      error: '--decision must be "allow" or "deny" (got "").',
+    });
+  });
+
+  test("rejects a value-less --request-id", () => {
+    const r = parseConfirmArgs(["--request-id"]);
+    expect(r).toEqual({
+      ok: false,
+      error: "--request-id requires a value.",
+    });
+  });
+
   test("preserves --json alongside the request id", () => {
     const r = parseConfirmArgs(["--json", "--request-id", "req-1"]);
     expect(r.ok).toBe(true);
