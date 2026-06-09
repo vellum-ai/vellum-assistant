@@ -577,8 +577,8 @@ describe("resolveRegisteredSchemes", () => {
     ]);
   });
 
-  test("unknown env falls back to production callback scheme without claiming vellum://", () => {
-    expect(resolveRegisteredSchemes("unknown")).toEqual(["vellum-assistant"]);
+  test("unknown env derives scheme from env name", () => {
+    expect(resolveRegisteredSchemes("test")).toEqual(["vellum-assistant-test"]);
   });
 });
 

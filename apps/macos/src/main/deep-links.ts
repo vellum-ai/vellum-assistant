@@ -55,29 +55,26 @@ export type DeepLink =
   | { kind: "authCallback"; state: string; code?: string; error?: string }
   | { kind: "unknown"; url: string };
 
-const SCHEME_BY_ENV: Record<string, string> = {
-  production: "vellum-assistant",
-  staging: "vellum-assistant-staging",
-  dev: "vellum-assistant-dev",
-  local: "vellum-assistant-local",
-};
+const PRODUCTION_SCHEME = "vellum-assistant";
+
+function schemeForEnv(env: string): string {
+  return env === "production" ? PRODUCTION_SCHEME : `${PRODUCTION_SCHEME}-${env}`;
+}
 
 // Schemes to REGISTER with the OS via `app.setAsDefaultProtocolClient`.
 // Production claims both `vellum` and `vellum-assistant`; non-production
 // claims only the env-specific scheme to avoid hijacking production.
 export function resolveRegisteredSchemes(env: string): string[] {
-  const envScheme = SCHEME_BY_ENV[env] ?? SCHEME_BY_ENV.production;
-  if (env === "production") return ["vellum", envScheme];
-  return [envScheme];
+  if (env === "production") return ["vellum", PRODUCTION_SCHEME];
+  return [schemeForEnv(env)];
 }
 
 // Schemes to ACCEPT when parsing inbound URLs. Superset of registered
 // schemes — always includes `vellum:` and `vellum-assistant:` so URLs
 // routed to this build still parse correctly.
 export function resolveAcceptedSchemes(env: string): string[] {
-  const envScheme = SCHEME_BY_ENV[env];
-  const accepted = new Set(["vellum:", "vellum-assistant:"]);
-  if (envScheme) accepted.add(`${envScheme}:`);
+  const accepted = new Set(["vellum:", `${PRODUCTION_SCHEME}:`]);
+  if (env !== "production") accepted.add(`${schemeForEnv(env)}:`);
   return [...accepted];
 }
 
