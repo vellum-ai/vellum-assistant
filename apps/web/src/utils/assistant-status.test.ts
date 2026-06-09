@@ -50,8 +50,6 @@ describe("deriveAssistantStatus", () => {
       "loading",
       "initializing",
       "cleaning_up",
-      "retired",
-      "platform_hosted",
       "self_hosted",
     ];
     for (const lifecycleKind of nonActive) {
