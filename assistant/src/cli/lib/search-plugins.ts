@@ -4,9 +4,9 @@
  * The catalog is the union of two sources, both fetched from the repo at the
  * configured git ref:
  *   1. First-party plugins — directories under
- *      `vellum-ai/vellum-assistant/experimental/plugins/`.
+ *      `vellum-ai/vellum-assistant/plugins/`.
  *   2. Whitelisted external ecosystem plugins — entries in the curated
- *      `experimental/plugins/marketplace.json` manifest (see
+ *      `plugins/marketplace.json` manifest (see
  *      {@link ./plugin-marketplace}).
  *
  * Entries are filtered by case-insensitive ECMAScript regex against the
@@ -33,7 +33,7 @@ export type { FetchLike } from "./install-from-github.js";
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
+const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 
 /** Entry shape returned by the GitHub Contents API for a directory listing. */
 interface GitHubContentEntry {
@@ -80,7 +80,7 @@ export interface PluginSearchMatch {
   readonly name: string;
   /**
    * Human-readable origin of the entry: the repo-relative path for
-   * first-party plugins (e.g. `experimental/plugins/<name>`) or a
+   * first-party plugins (e.g. `plugins/<name>`) or a
    * `github:owner/repo@ref` locator for external ones.
    */
   readonly path: string;
@@ -179,7 +179,7 @@ export interface PluginCatalog {
 
 /**
  * Build the full catalog at {@link opts.ref}: every first-party plugin
- * directory under `experimental/plugins/` merged with every whitelisted
+ * directory under `plugins/` merged with every whitelisted
  * external entry in the marketplace manifest.
  *
  * The result is **query-independent** — `searchPlugins` applies the regex
@@ -202,7 +202,7 @@ export async function loadPluginCatalog(
   const seen = new Set<string>();
 
   // Whitelisted external entries own their name. A same-named
-  // `experimental/plugins/<name>/` directory is that plugin's curated adapter
+  // `plugins/<name>/` directory is that plugin's curated adapter
   // stub (overlaid onto the clone at install time), not a standalone
   // first-party plugin — so it must surface once, as the external entry.
   for (const entry of marketplace) {

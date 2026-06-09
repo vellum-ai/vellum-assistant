@@ -501,7 +501,7 @@ marketplace entry. It supplies a `package.json` whose only job is to name the
 adapter renders:
 
 ```
-experimental/plugins/<name>/
+plugins/<name>/
 ├── package.json        # { "name": "<name>", "scripts": { "postinstall": "bun ./postinstall.ts" } }
 ├── postinstall.ts      # the adapter — runs with the staged clone as its cwd
 └── templates/          # hook/source templates the adapter interpolates
