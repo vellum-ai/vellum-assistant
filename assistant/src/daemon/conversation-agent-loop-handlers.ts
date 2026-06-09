@@ -283,6 +283,15 @@ export interface EventHandlerState {
    */
   currentMessageContent: ContentBlock[];
   /**
+   * Per-thinking-block timing for the in-flight LLM call, in stream order:
+   * entry `i` is the `i`-th thinking block mirrored into `currentMessageContent`.
+   * `startedAt` is stamped when a thinking block opens; `completedAt` is the
+   * last reasoning delta fused into it. Used to stamp `_startedAt`/`_completedAt`
+   * onto the authoritative thinking blocks at `message_complete`, mirroring how
+   * tool calls persist timing. Reset alongside `currentMessageContent`.
+   */
+  currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
+  /**
    * `seq` of the most recent streamed content delta mirrored into
    * `currentMessageContent`. Recorded as the conversation's persisted `seq`
    * after each flush commits (the debounced partial flushes and the
@@ -371,6 +380,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    currentThinkingTimestamps: [],
     lastPersistedContentSeq: undefined,
   };
 }
@@ -420,6 +430,37 @@ export function buildPersistedAssistantContent(
   });
 }
 
+/**
+ * Stamp `_startedAt`/`_completedAt` onto the content's thinking blocks from the
+ * per-block timing captured while streaming, matched by position: the `i`-th
+ * thinking block in `content` takes `timings[i]`. The `_`-prefixed fields are
+ * vellum-internal metadata (never sent to providers), mirroring how tool calls
+ * persist timing; `renderHistoryContent` reads them back onto the wire schema's
+ * `startedAt`/`completedAt`.
+ *
+ * Timing is only captured when reasoning is streamed (`streamThinking`), so a
+ * turn with thinking disabled — or any block without a matching entry — is left
+ * unstamped and the UI hides its duration, exactly as a tool call with no
+ * timing does.
+ */
+export function stampThinkingTiming(
+  content: ContentBlock[],
+  timings: ReadonlyArray<{ startedAt: number; completedAt: number }>,
+): ContentBlock[] {
+  if (timings.length === 0) return content;
+  let thinkingIdx = 0;
+  return content.map((block) => {
+    if (block.type !== "thinking") return block;
+    const timing = timings[thinkingIdx++];
+    if (!timing) return block;
+    return {
+      ...block,
+      _startedAt: timing.startedAt,
+      _completedAt: timing.completedAt,
+    } as ContentBlock;
+  });
+}
+
 /** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
 function appendTextToCurrentMessage(
   state: EventHandlerState,
@@ -446,15 +487,19 @@ function appendThinkingToCurrentMessage(
   thinking: string,
 ): void {
   if (thinking.length === 0) return;
+  const now = Date.now();
   const tail = state.currentMessageContent.at(-1);
   if (tail && tail.type === "thinking") {
     tail.thinking = tail.thinking + thinking;
+    const timing = state.currentThinkingTimestamps.at(-1);
+    if (timing) timing.completedAt = now;
   } else {
     state.currentMessageContent.push({
       type: "thinking",
       thinking,
       signature: "",
     });
+    state.currentThinkingTimestamps.push({ startedAt: now, completedAt: now });
   }
 }
 
@@ -465,6 +510,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
     state.pendingPartialFlushTimer = undefined;
   }
   state.currentMessageContent = [];
+  state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
 }
@@ -1730,10 +1776,13 @@ export async function handleMessageComplete(
   // redacted) via the shared helper. The partial-persist flush uses
   // the same helper with `surfaces=[]` so a mid-turn snapshot lands in
   // the same shape as the finalize.
-  const contentForPersistence = buildPersistedAssistantContent(
-    event.message.content as ContentBlock[],
-    deps.ctx.currentTurnSurfaces,
-    state.toolActivityMetadata,
+  const contentForPersistence = stampThinkingTiming(
+    buildPersistedAssistantContent(
+      event.message.content as ContentBlock[],
+      deps.ctx.currentTurnSurfaces,
+      state.toolActivityMetadata,
+    ),
+    state.currentThinkingTimestamps,
   );
 
   // The row was reserved at `llm_call_started` (with channel metadata
@@ -1766,6 +1815,7 @@ export async function handleMessageComplete(
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
   state.currentMessageContent = [];
+  state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
 
   // ── Indexing + attention projection ──

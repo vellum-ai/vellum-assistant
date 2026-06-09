@@ -16304,14 +16304,22 @@ paths:
                           type: array
                           items:
                             type: string
+                          deprecated: true
+                          description: "Deprecated: superseded by contentBlocks. Text segments split by tool-call boundaries."
                         thinkingSegments:
                           type: array
                           items:
                             type: string
+                          deprecated: true
+                          description: "Deprecated: superseded by contentBlocks. Reasoning text extracted from thinking blocks."
                         contentOrder:
                           type: array
                           items:
                             type: string
+                          deprecated: true
+                          description:
+                            'Deprecated: superseded by contentBlocks. Positional "<type>:<index>" content ordering (e.g. "text:0",
+                            "thinking:1").'
                         contentBlocks:
                           type: array
                           items:
