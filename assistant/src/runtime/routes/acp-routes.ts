@@ -253,7 +253,6 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
       .select({
         cwd: acpSessionHistory.cwd,
         agentId: acpSessionHistory.agentId,
-        acpSessionId: acpSessionHistory.acpSessionId,
         parentConversationId: acpSessionHistory.parentConversationId,
       })
       .from(acpSessionHistory)
@@ -273,7 +272,6 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
         instruction,
         agentId: resumable.agentId,
         cwd: resumable.cwd,
-        acpSessionId: resumable.acpSessionId,
         conversationId: resumable.parentConversationId,
       });
       return { acpSessionId: id, steered: false, approvalPending: true };
@@ -315,7 +313,6 @@ async function approveThenResume(args: {
   instruction: string;
   agentId: string;
   cwd: string;
-  acpSessionId: string;
   conversationId: string;
 }): Promise<void> {
   const decision = await awaitRouteApproval({
@@ -337,7 +334,12 @@ async function approveThenResume(args: {
     broadcastMessage(
       {
         type: "acp_session_error",
-        acpSessionId: args.acpSessionId,
+        // Key the error by the daemon session id (the value the steer route
+        // accepts and ACP SSE consumers index by — see registerSession, where
+        // state.id is the broadcast acpSessionId), NOT the persisted protocol
+        // id. A denied resume never emits acp_session_spawned to map the
+        // protocol id, so a protocol-keyed error would be dropped.
+        acpSessionId: args.id,
         error: "Resume was not approved.",
       },
       args.conversationId,
@@ -363,7 +365,8 @@ async function approveThenResume(args: {
     broadcastMessage(
       {
         type: "acp_session_error",
-        acpSessionId: args.acpSessionId,
+        // Daemon session id (route + SSE key), not the protocol id — see above.
+        acpSessionId: args.id,
         error: message,
       },
       args.conversationId,

@@ -756,8 +756,10 @@ describe("POST /v1/acp/:id/steer: resume approval gate", () => {
     // Denied before any host re-spawn, and the denial surfaces over SSE.
     expect(steerOrResumeMock).not.toHaveBeenCalled();
     expect(pendingInteractions.getAll()).toHaveLength(0);
+    // Keyed by the daemon/route id (what SSE consumers index by), not the
+    // persisted protocol id.
     const errEvent = broadcasts.find((m) => m.type === "acp_session_error");
-    expect(errEvent?.acpSessionId).toBe("proto-gone-2");
+    expect(errEvent?.acpSessionId).toBe("gone-2");
   });
 
   test("a legacy row without a persisted cwd is not resumable, so no prompt", async () => {
