@@ -6,17 +6,17 @@
  * most authoritative for each field:
  *   1. The locally installed copy under `<workspacePluginsDir>/<name>/`, when
  *      present — its `package.json` and `README.md` are read straight off disk.
- *   2. The curated `experimental/plugins/marketplace.json` entry, for external
+ *   2. The curated `plugins/marketplace.json` entry, for external
  *      ecosystem plugins (description / homepage / license / pinned source).
  *   3. The plugin's own repository at the pinned ref (first-party
- *      `experimental/plugins/<name>/` or the external `owner/repo[/path]`),
+ *      `plugins/<name>/` or the external `owner/repo[/path]`),
  *      fetched via the GitHub Contents API for the README and any
  *      `package.json` fields the manifest doesn't carry.
  *
  * Name-collision precedence matches {@link ./search-plugins} and
  * {@link ./install-from-github}: a marketplace entry owns its name, so the
  * detail page advertises the external source the catalog and installer use. A
- * same-named `experimental/plugins/<name>/` directory is that plugin's adapter
+ * same-named `plugins/<name>/` directory is that plugin's adapter
  * stub, not a standalone first-party plugin, so it does not override the claim.
  *
  * Designed for direct programmatic use with an injected `fetch`, mirroring the
@@ -40,7 +40,7 @@ import type { PluginMatchSource } from "./search-plugins.js";
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
+const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;

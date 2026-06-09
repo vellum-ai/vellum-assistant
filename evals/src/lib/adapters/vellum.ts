@@ -329,18 +329,14 @@ export class VellumAgent implements BaseAgent {
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.assistantContainerName,
         recordingDir: runArtifacts(this.id).runDir,
-        // Bind-mount the live repo's `experimental/plugins/` into the
+        // Bind-mount the live repo's `plugins/` into the
         // recording sidecar so the addon's mock-github handler can
         // serve `assistant plugins install` traffic from disk instead
         // of letting it egress to github.com. The runner always runs
         // inside the repo (`repoRootFromAdapter()` already drives the
         // hatch `--source` arg above), so the fixtures path is always
         // resolvable here.
-        pluginFixturesDir: resolve(
-          repoRootFromAdapter(),
-          "experimental",
-          "plugins",
-        ),
+        pluginFixturesDir: resolve(repoRootFromAdapter(), "plugins"),
       });
 
       // Apply species-default feature flags BEFORE setup commands.
