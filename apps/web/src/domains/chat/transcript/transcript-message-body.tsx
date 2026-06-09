@@ -15,7 +15,6 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
-import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ThoughtProcessLink } from "@/domains/chat/components/thought-process-link/thought-process-link";
 import { InlineToolLink } from "@/domains/chat/components/inline-activity-link/inline-tool-link";
 import { ActivityRunCard } from "@/domains/chat/components/activity-run-card/activity-run-card";
@@ -767,11 +766,12 @@ export function TranscriptMessageBody({
   if (message.contentOrder && message.contentOrder.length > 0) {
     const textSegmentsArr = message.textSegments ?? [];
     // Buffer consecutive `thinking` ids so a run of reasoning renders as a
-    // single block (matching the interleaved path and macOS grouping). The
-    // buffer is flushed before any non-thinking entry and once more after the
-    // loop. A trailing block reads as still-streaming only while the row is
-    // actually live; a completed turn that ends in reasoning (history reload,
-    // message_complete, cancellation) renders as a finished "Thought process".
+    // single `ThoughtProcessLink` (matching the interleaved path and macOS
+    // grouping). The buffer is flushed before any non-thinking entry and once
+    // more after the loop. A trailing run reads as still-streaming only while
+    // the row is actually live; a completed turn that ends in reasoning
+    // (history reload, message_complete, cancellation) renders as a finished
+    // "Thought process".
     let pendingThinkingIds: string[] = [];
     const flushThinking = (isStreaming: boolean) => {
       if (pendingThinkingIds.length === 0) {
@@ -780,17 +780,20 @@ export function TranscriptMessageBody({
       const ids = pendingThinkingIds;
       pendingThinkingIds = [];
       const thinkingContent = resolveThinkingContent(message, ids);
-      if (!thinkingContent) {
+      // While streaming, render even before reasoning text lands so the link is
+      // the single thinking affordance from the start; once settled an empty
+      // run has nothing to show. `ThoughtProcessLink` itself no-ops when
+      // `content` is empty and not streaming.
+      if (!thinkingContent && !isStreaming) {
         return;
       }
       contentEntries.push({
         type: "thinking",
         node: (
           <div key={`thinking-${ids[0]}`} className="w-full">
-            <ThinkingBlock
+            <ThoughtProcessLink
               content={thinkingContent}
               isStreaming={isStreaming}
-              expansionKey={`${message.id}-th${ids[0]}`}
             />
           </div>
         ),

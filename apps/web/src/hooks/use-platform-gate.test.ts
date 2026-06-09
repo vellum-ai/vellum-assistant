@@ -198,7 +198,6 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
       { kind: "cleaning_up" },
       { kind: "retired" },
       { kind: "platform_hosted" },
-      { kind: "awaiting_version_selection" },
       { kind: "error", message: "boom" },
     ];
     useAuthStore.setState({ platformSession: "present" });
@@ -254,7 +253,6 @@ describe("useActiveAssistantIsPlatformHosted", () => {
       { kind: "initializing" },
       { kind: "cleaning_up" },
       { kind: "retired" },
-      { kind: "awaiting_version_selection" },
       { kind: "error", message: "boom" },
     ];
     for (const assistantState of kinds) {
@@ -308,7 +306,6 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
     // resolving forever and stick on a spinner / disabled button.
     const kinds: AssistantState[] = [
       { kind: "retired" },
-      { kind: "awaiting_version_selection" },
       { kind: "error", message: "boom" },
     ];
     for (const assistantState of kinds) {

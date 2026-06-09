@@ -36,7 +36,7 @@ export function RecoveryModeControls({
   // permissive gate value with the lifecycle-loading signal so the
   // enter/exit-mutation buttons stay disabled during the deep-link
   // resolution race — but NOT in already-resolved non-hosted states
-  // (`retired`, `error`, `awaiting_version_selection`) where the parent
+  // (`retired`, `error`) where the parent
   // wouldn't render this panel anyway (`maintenanceMode` would be null).
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 

@@ -267,7 +267,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -284,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-09T13:43:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -451,7 +451,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-08T20:48:43.000Z"
+      "updatedAt": "2026-06-09T15:08:32.000Z"
     },
     {
       "id": "meet-join",

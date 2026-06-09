@@ -414,7 +414,7 @@ export function NotificationsPage() {
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   // Race-window indicator for UX (showLoading, pause-popover auto-close).
   // Narrow to the genuine lifecycle-loading window: in already-resolved
-  // non-hosted states (`retired`, `error`, `awaiting_version_selection`)
+  // non-hosted states (`retired`, `error`)
   // the query is disabled (above), `data` is undefined → notifications
   // = []; the empty-state branch should render, not a stuck spinner.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
@@ -457,7 +457,7 @@ export function NotificationsPage() {
 
   // The pause-alerts trigger is unmounted whenever `!isPlatformHosted`
   // (below) — that covers both the race window AND already-resolved
-  // non-hosted states like `retired` / `error` / `awaiting_version_selection`,
+  // non-hosted states like `retired` / `error`,
   // where the org-scoped pause-rules mutation has no valid target. Reset
   // `pauseOpen` on the same condition so the popover doesn't re-mount
   // with stale `open={true}` when `isPlatformHosted` flips back true
@@ -474,7 +474,7 @@ export function NotificationsPage() {
   // `refetch()` action all survive (and `refetch()` *bypasses* `enabled`
   // by design — manual triggers always fire). If the user loaded
   // notifications while hosted and the lifecycle then moved to a resolved
-  // non-hosted state (`retired`, `error`, `awaiting_version_selection`,
+  // non-hosted state (`retired`, `error`,
   // `self_hosted`) in the same session, ANY surviving query status can
   // render an interactive control whose handler fires an org-scoped
   // request against an org with no platform-hosted target:
@@ -611,8 +611,8 @@ export function NotificationsPage() {
           resolved as platform-hosted. The popover content fires
           `createRule` mutations against the organization — those have no
           valid target during the race window OR in already-resolved
-          non-hosted states (`retired`, `error`,
-          `awaiting_version_selection`). Re-renders when `isPlatformHosted`
+          non-hosted states (`retired`, `error`). Re-renders when
+          `isPlatformHosted`
           flips, so the control appears as soon as we know it's safe.
           (Other mutation-firing controls on this page — "Mark all as
           read", per-row ack, snooze — are gated by data-availability:

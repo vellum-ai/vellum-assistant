@@ -23,6 +23,7 @@ type StubWindow = {
   setMaximizable: ReturnType<typeof mock>;
   setFullScreenable: ReturnType<typeof mock>;
   setContentSize: ReturnType<typeof mock>;
+  setMinimumSize: ReturnType<typeof mock>;
   setBounds: ReturnType<typeof mock>;
   setPosition: ReturnType<typeof mock>;
   center: ReturnType<typeof mock>;
@@ -75,6 +76,7 @@ const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
     setMaximizable: mock(() => undefined),
     setFullScreenable: mock(() => undefined),
     setContentSize: mock(() => undefined),
+    setMinimumSize: mock(() => undefined),
     setBounds: mock(() => undefined),
     setPosition: mock(() => undefined),
     center: mock(() => undefined),
@@ -454,6 +456,10 @@ describe("onboarding window sizing", () => {
     expect(win.opts.width).toBe(440);
     expect(win.opts.height).toBe(630);
     expect(win.opts.useContentSize).toBe(true);
+    // The 440×630 default is also the floor (mirrors Swift `contentMinSize`),
+    // so the chrome-less flow can't be dragged below its content.
+    expect(win.opts.minWidth).toBe(440);
+    expect(win.opts.minHeight).toBe(630);
     // Onboarding is the default size only — the window stays resizable
     // (no `resizable: false` opt), so it inherits the Electron default.
     expect(win.opts.resizable).toBeUndefined();
@@ -468,6 +474,9 @@ describe("onboarding window sizing", () => {
     expect(win.opts.width).toBe(1280);
     expect(win.opts.height).toBe(800);
     expect(win.opts.useContentSize).toBeUndefined();
+    // The main app carries the 800×600 floor (mirrors Swift `MainWindow`).
+    expect(win.opts.minWidth).toBe(800);
+    expect(win.opts.minHeight).toBe(600);
     expect(win.opts.resizable).toBeUndefined();
     expect(win.stub.isResizable()).toBe(true);
   });
@@ -482,6 +491,8 @@ describe("onboarding window sizing", () => {
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
     expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
+    // Entering onboarding clamps the minimum to the compact content size.
+    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(440, 630);
     expect(win.stub.center).toHaveBeenCalled();
     // The window stays resizable across the transition — never locked.
     expect(win.stub.setResizable).not.toHaveBeenCalled();
@@ -497,6 +508,8 @@ describe("onboarding window sizing", () => {
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(false);
     expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1280, height: 800 });
+    // Leaving onboarding swaps the compact floor for the 800×600 main floor.
+    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(800, 600);
     expect(win.stub.setResizable).not.toHaveBeenCalled();
   });
 
@@ -511,6 +524,8 @@ describe("onboarding window sizing", () => {
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(false);
     expect(win.stub.setContentSize).not.toHaveBeenCalled();
     expect(win.stub.setBounds).not.toHaveBeenCalled();
+    // No transition → the minimum-size floor is left untouched.
+    expect(win.stub.setMinimumSize).not.toHaveBeenCalled();
   });
 
   test("persists the mode even when no window exists yet", () => {

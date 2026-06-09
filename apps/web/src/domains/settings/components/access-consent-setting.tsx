@@ -32,7 +32,7 @@ export function AccessConsentSetting() {
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   // Race-window indicator used for the spinner UX only. Narrow to
   // `kind: "loading"` so already-resolved non-hosted lifecycle states
-  // (`retired`, `error`, `awaiting_version_selection`) don't show a
+  // (`retired`, `error`) don't show a
   // permanent spinner — they should fall through to the disabled-toggle
   // empty state below.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
@@ -80,7 +80,7 @@ export function AccessConsentSetting() {
   // deep-link race AND already-resolved non-hosted states where the
   // mutation has no meaning. `isResolving` is narrowed to the genuine
   // lifecycle-loading window so the spinner doesn't get stuck in
-  // `retired` / `error` / `awaiting_version_selection`, where the
+  // `retired` / `error`, where the
   // toggle correctly stays disabled and the UI should look like the
   // empty/error state, not "we're still figuring this out."
   const isResolving = platformGate === "full" && isLifecycleLoading;

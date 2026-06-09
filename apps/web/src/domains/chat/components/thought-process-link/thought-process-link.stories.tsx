@@ -31,9 +31,26 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Streaming — the link owns the loading state: the brain glyph is swapped for
+ * the shared three-dot indicator and the label reads "Thinking". It stays
+ * clickable so the reasoning-so-far opens in the drawer mid-stream.
+ */
 export const Streaming: Story = {
   args: {
     content: REASONING,
+    isStreaming: true,
+  },
+};
+
+/**
+ * Streaming, before any reasoning text has landed. The link still renders (so
+ * it can be the single thinking affordance from the very start of the turn) —
+ * dots + "Thinking", with an empty drawer until content arrives.
+ */
+export const StreamingEmpty: Story = {
+  args: {
+    content: "",
     isStreaming: true,
   },
 };

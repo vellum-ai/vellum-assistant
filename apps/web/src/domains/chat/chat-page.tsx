@@ -27,7 +27,6 @@ import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
 import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen";
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { SetupScreen } from "@/domains/chat/components/setup-screen";
-import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen";
 
 export function ChatPage() {
   const isSessionInitializing = useIsSessionInitializing();
@@ -48,10 +47,6 @@ export function ChatPage() {
 
   const retryAssistant = useCallback(
     () => lifecycleService.retryAssistant(),
-    [],
-  );
-  const hatchVersion = useCallback(
-    (version?: string) => lifecycleService.hatchVersion(version),
     [],
   );
 
@@ -141,10 +136,6 @@ export function ChatPage() {
         </Button>
       </div>
     );
-  }
-
-  if (assistantState.kind === "awaiting_version_selection") {
-    return <VersionSelectionScreen onHatch={hatchVersion} />;
   }
 
   if (assistantState.kind === "retired") {
