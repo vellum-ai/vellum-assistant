@@ -43,6 +43,7 @@ function makeCtx(messages: Message[]): UserPromptSubmitContext {
     userMessageId: "msg-test",
     requestId: "req-test",
     modelProfileKey: null,
+    isNonInteractive: false,
     prompt: "",
     originalMessages: messages,
     latestMessages: messages,

@@ -154,6 +154,16 @@ export interface UserPromptSubmitContext {
    */
   readonly modelProfileKey: string | null;
   /**
+   * Whether the turn has no human present to answer clarification questions
+   * (e.g. a scheduled, background, or headless run). Resolved once at turn
+   * start from the run's interactivity option, falling back to live client
+   * presence — a single value the hook reads rather than re-deriving from
+   * mutable conversation state that can flip mid-turn. Hooks that assemble the
+   * turn's runtime injections forward it so the assembled context reflects the
+   * turn's interactivity.
+   */
+  readonly isNonInteractive: boolean;
+  /**
    * The text of the user prompt that triggered this turn — the resolved
    * user message (after slash-command expansion), independent of any
    * internal rewriting applied to the message that flows into the model.
