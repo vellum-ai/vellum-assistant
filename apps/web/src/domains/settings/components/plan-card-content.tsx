@@ -45,7 +45,6 @@ export interface PlanCardContentProps {
   proCurrentTotalCents: number | null;
   proLiveTotalCents: number | null;
   proTotalDelta: number | null;
-  proPickerShown: boolean;
   onboardingLoading: boolean;
   tierChangePending: boolean;
   machineChanged: boolean;
@@ -85,7 +84,6 @@ export function PlanCardContent({
   proCurrentTotalCents,
   proLiveTotalCents,
   proTotalDelta,
-  proPickerShown,
   onboardingLoading,
   tierChangePending,
   machineChanged,
@@ -103,6 +101,11 @@ export function PlanCardContent({
   const isBaseCard = plan.id === "base";
   const showCancellationOnPro =
     isProCard && onPro && cancelAtPeriodEnd && !isCanceled;
+  // Picker is shown for: (a) the Pro card when the user is upgrading from
+  // Base, or (b) the Pro card when the current Pro subscriber is in tier-
+  // change mode. Derived from existing props — no need for a parent relay.
+  const proPickerShown =
+    isProCard && (!isCurrent || (isCurrent && proTierChangeMode));
   const showProTierChange = isProCard && isCurrent && proTierChangeMode;
 
   return (

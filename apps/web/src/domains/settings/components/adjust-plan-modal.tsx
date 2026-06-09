@@ -26,7 +26,6 @@ import type {
     MachineTierEnum,
     ProPlan,
     StorageTierEnum,
-    SubscriptionStatusEnum,
 } from "@/generated/api/types.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
@@ -42,8 +41,6 @@ import {
 } from "./adjust-plan-utils";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanCardContent } from "./plan-card-content";
-
-export { resolveCreditTierSelection, resolveTierSelection } from "./adjust-plan-utils";
 
 export interface AdjustPlanModalProps {
   open: boolean;
@@ -122,9 +119,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const isCanceled = subscriptionQuery.data?.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscriptionQuery.data);
 
-  const tierChangeEligibleStatus = TIER_CHANGE_ELIGIBLE_STATUSES.has(
-    subscriptionQuery.data?.status as SubscriptionStatusEnum,
-  );
+  const subStatus = subscriptionQuery.data?.status;
+  const tierChangeEligibleStatus =
+    subStatus != null && TIER_CHANGE_ELIGIBLE_STATUSES.has(subStatus);
 
   const proTierChangeMode =
     onPro && tierChangeEligibleStatus && !cancelAtPeriodEnd && !isCanceled;
@@ -366,10 +363,17 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     void Promise.all(pending).then((results) => {
       invalidateBillingQueries();
 
-      const failures = results.filter((r) => !r.ok);
-      const resourceSucceeded = results.some(
-        (r) => r.ok && (r.dimension === "machine" || r.dimension === "storage"),
+      // A storage change is always an upgrade (downgrades are disabled in the
+      // picker). A machine change needs the explicit downgrade check.
+      const storageSucceeded = results.some(
+        (r) => r.ok && r.dimension === "storage",
       );
+      const machineUpgradeSucceeded = results.some(
+        (r) => r.ok && r.dimension === "machine",
+      ) && !isMachineDowngrade;
+      const needsResize = (storageSucceeded || machineUpgradeSucceeded) && !!onTierUpgraded;
+
+      const failures = results.filter((r) => !r.ok);
 
       if (failures.length > 0) {
         const msg = failures
@@ -385,24 +389,20 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
 
         // A resource tier change persisted server-side even though another
         // dimension failed — still open the resize flow so the assistant
-        // picks up the new entitlement. Skip for downgrades (smaller compute
-        // doesn't need an immediate resize prompt).
-        if (resourceSucceeded && !isMachineDowngrade && onTierUpgraded) {
+        // picks up the new entitlement.
+        if (needsResize) {
           onClose();
-          onTierUpgraded();
+          onTierUpgraded!();
         }
         return;
       }
 
-      // All succeeded — trigger the resize flow if resource tiers changed.
-      // Downgrades skip the resize modal (smaller compute doesn't need a prompt).
-      if (
-        (machineChanged || storageChanged) &&
-        !isMachineDowngrade &&
-        onTierUpgraded
-      ) {
+      // All succeeded — trigger the resize flow if a non-downgrade resource
+      // tier changed. Machine downgrades don't need an immediate resize
+      // prompt; storage changes are always upgrades (downgrades disabled).
+      if (needsResize) {
         onClose();
-        onTierUpgraded();
+        onTierUpgraded!();
       } else {
         toast.success(
           creditChanged && !machineChanged && !storageChanged
@@ -433,10 +433,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // ---------------------------------------------------------------------------
   // Derived display state for PlanCardContent
   // ---------------------------------------------------------------------------
-
-  const proPickerShown = (planId: string, planIsCurrent: boolean) =>
-    (!planIsCurrent && planId === "pro") ||
-    (planId === "pro" && planIsCurrent && proTierChangeMode);
 
   const proLiveTotalCents = (plan: ProPlan): number | null =>
     nextMachinePrice != null && nextStoragePrice != null
@@ -565,7 +561,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       {plansQuery.data!.plans.map((plan) => {
                         const planIsCurrent = plan.id === currentPlanId;
-                        const pickerShown = proPickerShown(plan.id, planIsCurrent);
                         const liveTotalCents =
                           plan.id === "pro" && proPlan
                             ? proLiveTotalCents(proPlan)
@@ -605,7 +600,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             proCurrentTotalCents={currentTotalCents}
                             proLiveTotalCents={liveTotalCents}
                             proTotalDelta={totalDelta}
-                            proPickerShown={pickerShown}
                             onboardingLoading={onboardingQuery.isLoading}
                             tierChangePending={tierChangePending}
                             machineChanged={machineChanged}
