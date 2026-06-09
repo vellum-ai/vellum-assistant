@@ -2,9 +2,13 @@
  * Shared seeding helper for tests that exercise the tool_invocations →
  * telemetry projection chain. Inserts raw audit rows (with PII-sentinel
  * input/result payloads) plus the FK-required conversation row.
+ *
+ * No source-module imports: per the test-machinery isolation rule
+ * (`assistant/AGENTS.md`), shared test helpers must not reach into
+ * `src/`. Callers pass in the real `getDb()` handle and schema table
+ * refs; the structural types below describe only the slice this helper
+ * uses.
  */
-import { getDb } from "../db-connection.js";
-import { conversations, toolInvocations } from "../schema.js";
 
 /**
  * Sentinel embedded in the seeded raw input/result payloads. Assert it
@@ -12,21 +16,40 @@ import { conversations, toolInvocations } from "../schema.js";
  */
 export const TOOL_INVOCATION_PII_SENTINEL = "must never leave the device";
 
+interface SeedStatement {
+  run(): unknown;
+}
+
+export interface ToolInvocationSeedDeps {
+  db: {
+    insert(table: unknown): {
+      values(row: Record<string, unknown>): SeedStatement & {
+        onConflictDoNothing(): SeedStatement;
+      };
+    };
+  };
+  conversations: unknown;
+  toolInvocations: unknown;
+}
+
 export interface SeedToolInvocationSpec {
   id: string;
   createdAt: number;
   conversationId: string;
   toolName?: string;
-  skillId?: string | null;
+  skillId?: string;
   decision?: string;
   riskLevel?: string;
   durationMs?: number;
 }
 
-export function seedToolInvocation(spec: SeedToolInvocationSpec): void {
-  const db = getDb();
+export function seedToolInvocation(
+  deps: ToolInvocationSeedDeps,
+  spec: SeedToolInvocationSpec,
+): void {
   // tool_invocations has an enforced FK to conversations.
-  db.insert(conversations)
+  deps.db
+    .insert(deps.conversations)
     .values({
       id: spec.conversationId,
       title: "test",
@@ -35,7 +58,8 @@ export function seedToolInvocation(spec: SeedToolInvocationSpec): void {
     })
     .onConflictDoNothing()
     .run();
-  db.insert(toolInvocations)
+  deps.db
+    .insert(deps.toolInvocations)
     .values({
       id: spec.id,
       conversationId: spec.conversationId,
