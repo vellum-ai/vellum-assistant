@@ -25,6 +25,9 @@ mock.module("../../../config/loader.js", () => ({
   loadRawConfig: () => structuredClone(rawConfigFixture),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRawConfig = raw;
+    // Round-trip support: subsequent loadRawConfig() calls (e.g. a GET
+    // /v1/config issued after a write) see the persisted state.
+    rawConfigFixture = structuredClone(raw);
   },
   deepMergeOverwrite: (
     target: Record<string, unknown>,
@@ -97,6 +100,8 @@ const conversationLlmContextRoute = ROUTES.find(
 const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
+
+const getConfigRoute = ROUTES.find((r) => r.operationId === "config_get")!;
 
 function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });
@@ -820,41 +825,50 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       };
     });
 
-    test("allows label edit on managed profile, preserving seed fields", async () => {
+    test("label edit lands in profileOverrides and round-trips through GET /v1/config", async () => {
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { label: "My Balanced" },
       });
 
       expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({
+        label: "My Balanced",
+      });
+      // The seeded transition-state entry under llm.profiles is untouched.
+      expect(savedLlm.profiles.balanced.label).toBe("Balanced");
 
-      expect(savedProfile.label).toBe("My Balanced");
-      // Seed fields preserved.
-      expect(savedProfile.provider).toBe("anthropic");
-      expect(savedProfile.model).toBe("claude-sonnet-4-6");
-      expect(savedProfile.source).toBe("managed");
+      // The effective config exposes the override on the merged entry.
+      const got = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      expect(got.llm.profiles.balanced.label).toBe("My Balanced");
     });
 
-    test("allows status edit on managed profile", async () => {
+    test("status edit lands in profileOverrides and round-trips through GET /v1/config", async () => {
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { status: "disabled" },
       });
 
       expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({
+        status: "disabled",
+      });
+      expect(savedLlm.profiles.balanced.status).toBe("active");
 
-      expect(savedProfile.status).toBe("disabled");
-      expect(savedProfile.provider).toBe("anthropic");
+      const got = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      expect(got.llm.profiles.balanced.status).toBe("disabled");
     });
 
     test("allows label+status edit together", async () => {
@@ -864,14 +878,42 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       });
 
       expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({
+        label: "Renamed",
+        status: "disabled",
+      });
+    });
 
-      expect(savedProfile.label).toBe("Renamed");
-      expect(savedProfile.status).toBe("disabled");
+    test("PUT { label: null } stores the null sentinel and clears the user label", async () => {
+      await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "My Balanced" },
+      });
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: null },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({ label: null });
+
+      // Effective view: the null sentinel masks both the previous override
+      // and the stale materialized label ("Balanced" on the seeded fixture
+      // entry), so the user-visible custom label is gone. Per the loader's
+      // null-as-cleared semantics the merged entry carries `label: null`;
+      // clients fall back to their default presentation for the profile.
+      const got = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      expect(got.llm.profiles.balanced.label).toBeNull();
     });
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
@@ -904,6 +946,49 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(initializeProvidersCalls).toBe(0);
       expect(invalidateConfigCacheCalls).toBe(0);
       expect(clearEmbeddingBackendCacheCalls).toBe(0);
+    });
+  });
+
+  describe("mix profile validation", () => {
+    test("a mix referencing a built-in validates against the effective profile set", async () => {
+      // The fixture has no "balanced" entry on disk — the arm can only
+      // resolve through the code-defined built-ins merged at load time.
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "my-mix" },
+        body: {
+          mix: [
+            { profile: "balanced", weight: 1 },
+            { profile: "custom", weight: 1 },
+          ],
+        },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedProfile = (
+        savedRawConfig?.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles["my-mix"];
+      expect(savedProfile.mix).toEqual([
+        { profile: "balanced", weight: 1 },
+        { profile: "custom", weight: 1 },
+      ]);
+    });
+
+    test("a mix referencing an undefined profile is rejected", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "my-mix" },
+          body: {
+            mix: [
+              { profile: "balanced", weight: 1 },
+              { profile: "no-such-profile", weight: 1 },
+            ],
+          },
+        }),
+      ).rejects.toThrow(
+        'references profile "no-such-profile" which is not defined',
+      );
     });
   });
 

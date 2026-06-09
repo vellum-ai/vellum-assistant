@@ -1,7 +1,15 @@
 /**
- * Tests that managed inference profiles ("quality-optimized", "balanced",
- * "cost-optimized") cannot be edited via the PUT profile route or deleted
- * via the PATCH config route.
+ * Tests that built-in (managed) inference profiles ("quality-optimized",
+ * "balanced", "cost-optimized", ...) cannot be reshaped or deleted via the
+ * config write routes:
+ *
+ * - PUT /v1/config/llm/profiles/:name allows only label/status, persisted as
+ *   sparse `llm.profileOverrides` entries (never under `llm.profiles`).
+ * - PATCH /v1/config re-routes built-in label/status edits into
+ *   `llm.profileOverrides` and drops every other built-in field, so clients
+ *   that round-trip `GET /v1/config` output (which contains the merged
+ *   built-in entries) keep working without materializing built-ins on disk.
+ * - POST /v1/config/set gets the same treatment with path-aware handling.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -98,6 +106,10 @@ const replaceRoute = ROUTES.find(
 
 const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
 
+const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+const getRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+
 beforeEach(() => {
   rawConfig = makeDefaultRawConfig();
   savedRaw = null;
@@ -159,14 +171,33 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Null-as-clear sentinel: clients send `{ label: null }` or
-  // `{ status: null }` to clear a managed profile's overrides back to the
-  // seed defaults. The Zod `ProfileEntry` schema accepts null for both
-  // fields, and the managed-profile guard / `patchManagedProfileFields`
-  // propagate the clear through to disk. These tests lock the round-trip.
+  // Built-in label/status edits persist as sparse `llm.profileOverrides`
+  // entries; nothing is ever written under `llm.profiles` for a built-in
+  // name. Null is the "explicitly cleared" sentinel: it is stored as-is so
+  // the merge layer masks any stale label/status still carried by a
+  // transition-state materialized entry. An absent key leaves the existing
+  // override key untouched.
   // -------------------------------------------------------------------------
 
-  test("PUT { label: null } on managed profile clears the label on disk", async () => {
+  test("PUT { label: 'X' } lands in profileOverrides, leaving llm.profiles untouched", async () => {
+    savedRaw = null;
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: "My Balanced" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      label: "My Balanced",
+    });
+    // The transition-state materialized entry is not the write target.
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+  });
+
+  test("PUT { label: null } stores the null sentinel in profileOverrides", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -178,6 +209,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
             source: "managed",
           },
         },
+        profileOverrides: { balanced: { label: "My Custom Name" } },
       },
     };
     const result = await replaceRoute.handler({
@@ -185,26 +217,28 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
-    // Label key removed; seed fields preserved.
-    expect("label" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-sonnet");
-    expect(profile.source).toBe("managed");
+    const saved = savedRaw as unknown as Record<string, any>;
+    // Key present with null — masks the stale materialized label at merge
+    // time instead of letting it resurface.
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: null });
+    // The materialized entry's fields are untouched by the PUT.
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+      label: "My Custom Name",
+      source: "managed",
+    });
   });
 
-  test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
+  test("PUT { status: null } clears status, leaving other override keys untouched", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
         profiles: {
-          "quality-optimized": {
-            provider: "anthropic",
-            model: "claude-opus",
-            status: "disabled",
-            source: "managed",
-          },
+          "quality-optimized": { provider: "anthropic", model: "claude-opus" },
+        },
+        profileOverrides: {
+          "quality-optimized": { label: "Keep Me", status: "disabled" },
         },
       },
     };
@@ -213,25 +247,21 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { status: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm
-      ?.profiles?.["quality-optimized"] as Record<string, unknown>;
-    expect("status" in profile).toBe(false);
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-opus");
+    const saved = savedRaw as unknown as Record<string, any>;
+    // status cleared to the null sentinel; the absent label key left the
+    // existing label override alone.
+    expect(saved.llm.profileOverrides["quality-optimized"]).toEqual({
+      label: "Keep Me",
+      status: null,
+    });
   });
 
   test("PUT { label: null, status: null } clears both in a single request", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
-        profiles: {
-          "cost-optimized": {
-            provider: "anthropic",
-            model: "claude-haiku",
-            label: "Speed (Custom)",
-            status: "disabled",
-            source: "managed",
-          },
+        profileOverrides: {
+          "cost-optimized": { label: "Speed (Custom)", status: "disabled" },
         },
       },
     };
@@ -240,26 +270,18 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null, status: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm
-      ?.profiles?.["cost-optimized"] as Record<string, unknown>;
-    expect("label" in profile).toBe(false);
-    expect(profile.status).toBeUndefined();
-    expect(profile.provider).toBe("anthropic");
-    expect(profile.model).toBe("claude-haiku");
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides["cost-optimized"]).toEqual({
+      label: null,
+      status: null,
+    });
   });
 
   test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
-        profiles: {
-          balanced: {
-            provider: "anthropic",
-            model: "claude-sonnet",
-            label: "Custom Label",
-            source: "managed",
-          },
-        },
+        profileOverrides: { balanced: { label: "Custom Label" } },
       },
     };
     const result = await replaceRoute.handler({
@@ -267,10 +289,11 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null, status: "disabled" },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
-      ?.balanced as Record<string, unknown>;
-    expect("label" in profile).toBe(false);
-    expect(profile.status).toBe("disabled");
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      label: null,
+      status: "disabled",
+    });
   });
 
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
@@ -362,16 +385,24 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     });
   });
 
-  test("allows patches that modify a managed profile (non-null)", async () => {
+  test("drops non-overridable fields from a managed profile patch instead of persisting them", async () => {
     savedRaw = null;
     const result = await patchRoute.handler({
       body: {
         llm: {
-          profiles: { "quality-optimized": { provider: "anthropic" } },
+          profiles: { "quality-optimized": { provider: "openai" } },
         },
       },
     });
     expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // The on-disk entry is exactly what the fixture had — the patched
+    // provider never landed, and no override store was created.
+    expect(saved.llm.profiles["quality-optimized"]).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+    expect(saved.llm.profileOverrides).toBeUndefined();
   });
 
   test("rejects nulling the entire profiles map", async () => {
@@ -380,5 +411,226 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
         body: { llm: { profiles: null } },
       }),
     ).rejects.toThrow("Cannot null llm.profiles");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /v1/config — built-in profile writes are re-routed to profileOverrides
+// ---------------------------------------------------------------------------
+
+describe("PATCH /v1/config — built-in profile sanitization", () => {
+  test("built-in label/status edits land in profileOverrides, not llm.profiles", async () => {
+    rawConfig = {
+      llm: {
+        profiles: { "my-custom": { provider: "openai", model: "gpt-4o" } },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: {
+        llm: { profiles: { balanced: { label: "X", status: "disabled" } } },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      label: "X",
+      status: "disabled",
+    });
+    // Custom profiles are untouched by the sanitizer.
+    expect(saved.llm.profiles["my-custom"]).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+  });
+
+  test("PATCH with { model: 'foo' } on a built-in drops the field from the write", async () => {
+    rawConfig = {
+      llm: {
+        profiles: { "my-custom": { provider: "openai", model: "gpt-4o" } },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { model: "foo" } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // Nothing of the built-in write survives: no materialized entry, no
+    // override entry.
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("explicit body profileOverrides win over values lifted from a merged profiles entry", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: { balanced: { label: "Lifted" } },
+          profileOverrides: { balanced: { label: "Explicit" } },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Explicit" });
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+  });
+
+  test("an unmodified GET → PATCH round trip creates no overrides and leaves raw profiles unchanged", async () => {
+    const got = (await getRoute.handler({})) as Record<string, any>;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: got.llm.profiles } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // No override materialized from round-tripping the merged template
+    // values, and the on-disk (transition-state) entry is exactly what was
+    // there before.
+    expect(saved.llm.profileOverrides).toBeUndefined();
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/config/set — built-in profile writes are re-routed to
+// profileOverrides with path-aware replace semantics
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/config/set — built-in profile sanitization", () => {
+  test("single-field set on a built-in routes to profileOverrides and leaves the materialized entry untouched", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.label", value: "Renamed" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Renamed" });
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+  });
+
+  test("set of a non-overridable built-in field is dropped", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.maxTokens", value: 999 },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("whole-entry set on a built-in lifts label/status and strips the entry from disk", async () => {
+    const result = await setRoute.handler({
+      body: {
+        path: "llm.profiles.balanced",
+        value: { label: "Mine", status: "disabled", model: "smuggled" },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      label: "Mine",
+      status: "disabled",
+    });
+  });
+
+  test("set llm.profiles replaces customs and converts built-ins to overrides", async () => {
+    const result = await setRoute.handler({
+      body: {
+        path: "llm.profiles",
+        value: {
+          balanced: { label: "B", model: "smuggled" },
+          "new-custom": { provider: "openai", model: "gpt-4o" },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profiles).toEqual({
+      "new-custom": { provider: "openai", model: "gpt-4o" },
+    });
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "B" });
+  });
+
+  test("an unmodified GET → set llm round trip persists no built-ins and creates no overrides", async () => {
+    const got = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm", value: got.llm },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    for (const name of [
+      "auto",
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "balanced-economy",
+    ]) {
+      expect(saved.llm.profiles[name]).toBeUndefined();
+    }
+    expect(saved.llm.profileOverrides).toBeUndefined();
+    expect(saved.llm.profiles["my-custom"]).toMatchObject({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+  });
+
+  test("a round-tripped GET body lifts a transition-state seeder status instead of losing it", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-drifted",
+            status: "disabled",
+            source: "managed",
+          },
+          "my-custom": { provider: "openai", model: "gpt-4o" },
+        },
+      },
+    };
+    const got = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm", value: got.llm },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+    // The materialized entry's status survived the strip as an override; the
+    // unmodified template label did not become one.
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      status: "disabled",
+    });
+    expect(saved.llm.profileOverrides["quality-optimized"]).toBeUndefined();
+  });
+
+  test("set llm.profiles.<builtin> to null is still rejected", async () => {
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced", value: null },
+      }),
+    ).rejects.toThrow('Cannot delete managed profile "balanced".');
+  });
+
+  test("set of an unrelated path leaves materialized built-in entries alone", async () => {
+    const result = await setRoute.handler({
+      body: { path: "heartbeat.enabled", value: true },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.heartbeat).toEqual({ enabled: true });
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
   });
 });
