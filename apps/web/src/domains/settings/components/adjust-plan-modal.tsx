@@ -367,6 +367,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       invalidateBillingQueries();
 
       const failures = results.filter((r) => !r.ok);
+      const resourceSucceeded = results.some(
+        (r) => r.ok && (r.dimension === "machine" || r.dimension === "storage"),
+      );
+
       if (failures.length > 0) {
         const msg = failures
           .map(
@@ -378,6 +382,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           )
           .join(" ");
         toast.error(msg, { id: "pro-tier-change-error" });
+
+        // A resource tier change persisted server-side even though another
+        // dimension failed — still open the resize flow so the assistant
+        // picks up the new entitlement.
+        if (resourceSucceeded && onTierUpgraded) {
+          onClose();
+          onTierUpgraded();
+        }
         return;
       }
 
