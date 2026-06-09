@@ -96,7 +96,10 @@ export function isPlatformDisabled(): boolean {
   if (config?.disablePlatform != null) return !!config.disablePlatform;
 
   const raw = import.meta.env.VITE_VELLUM_DISABLE_PLATFORM;
-  if (raw) return PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+  if (raw) {
+    const v = raw.toLowerCase();
+    return v === "true" || v === "1";
+  }
 
   return false;
 }
