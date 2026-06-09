@@ -57,6 +57,14 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}) as AssistantConfig,
 }));
 
+// The hook publishes `memory_recalled` (and forwards the sink into
+// `prepareMemory` for `memory_status`) through the shared `broadcastMessage`
+// hub. Stub it so tests can assert what the hook emits.
+const broadcastMessageMock = mock((_msg: unknown) => {});
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastMessageMock,
+}));
+
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -155,15 +163,14 @@ function makeHookCtx(
 
 /**
  * Install a fake live conversation for the hook to self-resolve by id: the
- * graph handle, abort signal, trust class, and client event sink all come from
- * here rather than the hook context.
+ * graph handle, abort signal, and trust class all come from here rather than
+ * the hook context.
  */
 function installConversation(
   graphMemory: ConversationGraphMemory,
   opts?: {
     trusted?: boolean;
     signal?: AbortSignal;
-    onEvent?: (msg: ServerMessage) => void;
   },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
@@ -171,7 +178,6 @@ function installConversation(
     graphMemory,
     trustContext: undefined,
     abortController: { signal: opts?.signal ?? new AbortController().signal },
-    sendToClient: opts?.onEvent ?? (() => {}),
   } as unknown as Conversation;
 }
 
@@ -180,6 +186,7 @@ beforeEach(() => {
   recordMemoryRecallLogMock.mockReset();
   applyRuntimeInjectionsMock.mockClear();
   findConversationOrSubagentMock.mockClear();
+  broadcastMessageMock.mockReset();
   currentConversation = undefined;
   currentTrustClass = "guardian";
 });
@@ -304,15 +311,11 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
   });
 
   test("persists injected block, recall log, and emits memory_recalled", async () => {
-    const received: ServerMessage[] = [];
     const { memory } = makeFakeGraphMemory({
       injectedBlockText: "injected-block",
       metrics: makeMetrics(),
     });
-    installConversation(memory, {
-      trusted: true,
-      onEvent: (msg) => received.push(msg),
-    });
+    installConversation(memory, { trusted: true });
     const ctx = makeHookCtx({
       userMessageId: "msg-42",
       conversationId: "conv-42",
@@ -330,8 +333,10 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     };
     expect(logEntry.conversationId).toBe("conv-42");
     expect(logEntry.reason).toBe("graph:none");
-    expect(received).toHaveLength(1);
-    expect(received[0]?.type).toBe("memory_recalled");
+    // The `memory_recalled` summary publishes through the shared broadcast hub.
+    expect(broadcastMessageMock).toHaveBeenCalledTimes(1);
+    const emitted = broadcastMessageMock.mock.calls[0]?.[0] as ServerMessage;
+    expect(emitted.type).toBe("memory_recalled");
   });
 
   test("skips metadata persist when no block text is injected", async () => {
