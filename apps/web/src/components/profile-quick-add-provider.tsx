@@ -43,7 +43,6 @@ import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { client } from "@/generated/api/client.gen";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
@@ -74,8 +73,6 @@ const ProfileQuickAddContext = createContext<ProfileQuickAddContextValue | null>
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const chatgptSubscriptionAuth =
-    useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
 
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
@@ -200,7 +197,6 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
           existingNames={existingNames}
           connections={connections}
           assistantId={assistantId}
-          chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
           onSave={handleSave}
           onCancel={() => setIsOpen(false)}
         />
