@@ -41,10 +41,14 @@ function toInvocationRecord(
         conversationId: event.conversationId,
         toolName: event.toolName,
         input: stringifyInput(event.input),
-        result: redactSecrets(event.result.content).slice(0, RESULT_PREVIEW_LIMIT),
+        result: redactSecrets(event.result.content).slice(
+          0,
+          RESULT_PREVIEW_LIMIT,
+        ),
         decision: event.decision,
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
+        skillId: event.skillId ?? null,
         durationMs: event.durationMs,
       };
     case "error":
@@ -56,6 +60,7 @@ function toInvocationRecord(
         decision: "error",
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
+        skillId: event.skillId ?? null,
         durationMs: event.durationMs,
       };
     case "permission_denied":
@@ -67,6 +72,7 @@ function toInvocationRecord(
         decision: "denied",
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
+        skillId: event.skillId ?? null,
         durationMs: event.durationMs,
       };
     case "start":

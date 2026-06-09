@@ -13,9 +13,9 @@ export interface UnreportedToolExecutionEvent {
   id: string;
   toolName: string;
   /**
-   * Triggering skill id. The `tool_invocations` table does not carry a
-   * skill column yet, so this is always null for now; the field exists so
-   * adding the column is a one-line change here.
+   * Id of the skill whose `skill_execute` dispatch triggered this tool
+   * call. Null for direct (non-skill) tool calls and for rows persisted
+   * before migration 275 added the column.
    */
   skillId: string | null;
   decision: string;
@@ -42,6 +42,7 @@ export function queryUnreportedToolExecutionEvents(
     .select({
       id: toolInvocations.id,
       toolName: toolInvocations.toolName,
+      skillId: toolInvocations.skillId,
       decision: toolInvocations.decision,
       riskLevel: toolInvocations.riskLevel,
       durationMs: toolInvocations.durationMs,
@@ -63,5 +64,5 @@ export function queryUnreportedToolExecutionEvents(
     .orderBy(asc(toolInvocations.createdAt), asc(toolInvocations.id))
     .limit(limit)
     .all();
-  return rows.map((r) => ({ ...r, skillId: null }));
+  return rows;
 }

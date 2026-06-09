@@ -14,6 +14,8 @@ export interface ToolInvocationRecord {
   decision: string;
   riskLevel: string;
   matchedTrustRuleId?: string;
+  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Null for direct tool calls. */
+  skillId?: string | null;
   durationMs: number;
 }
 
@@ -29,6 +31,7 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       decision: record.decision,
       riskLevel: record.riskLevel,
       matchedTrustRuleId: record.matchedTrustRuleId,
+      skillId: record.skillId ?? null,
       durationMs: record.durationMs,
       createdAt: Date.now(),
     })
@@ -65,9 +68,7 @@ export async function rotateToolInvocations(
 
   // Math.floor guarantees a plain integer literal in the inlined SQL
   // below; no decimal, no exponent, no surprise characters.
-  const cutoffMs = Math.floor(
-    Date.now() - retentionDays * 24 * 60 * 60 * 1000,
-  );
+  const cutoffMs = Math.floor(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
   const db = getDb();
 
   // Count before delete so we can return + log the affected row count

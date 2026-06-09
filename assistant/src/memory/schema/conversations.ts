@@ -91,6 +91,8 @@ export const toolInvocations = sqliteTable(
     decision: text("decision").notNull(),
     riskLevel: text("risk_level").notNull(),
     matchedTrustRuleId: text("matched_trust_rule_id"),
+    /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Null for direct tool calls. */
+    skillId: text("skill_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
   },

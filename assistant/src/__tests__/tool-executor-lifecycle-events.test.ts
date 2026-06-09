@@ -515,6 +515,77 @@ describe("ToolExecutor lifecycle events", () => {
     expect(executed.executionTarget).toBe("sandbox");
   });
 
+  test("stamps context.skillId on lifecycle events for skill-routed calls", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "skill_sandbox_tool",
+      { query: "test" },
+      makeContext(events, { skillId: "test-skill" }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
+    for (const event of events) {
+      expect(event.skillId).toBe("test-skill");
+    }
+  });
+
+  test("stamps context.skillId on error events", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "skill_sandbox_tool",
+      { query: "test" },
+      makeContext(events, { skillId: "test-skill" }),
+    );
+
+    const errorEvent = events.find((event) => event.type === "error");
+    expect(errorEvent?.skillId).toBe("test-skill");
+  });
+
+  test("stamps context.skillId on permission_denied events", async () => {
+    checkerDecision = "prompt";
+    checkerRisk = "medium";
+    promptDecision = "deny";
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "bash",
+      { command: "ls -la" },
+      makeContext(events, {
+        skillId: "test-skill",
+        forcePromptSideEffects: true,
+      }),
+    );
+
+    const deniedEvent = events.find(
+      (event) => event.type === "permission_denied",
+    );
+    expect(deniedEvent?.skillId).toBe("test-skill");
+  });
+
+  test("leaves skillId unset on lifecycle events for direct tool calls", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events),
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
+    for (const event of events) {
+      expect(event.skillId).toBeUndefined();
+    }
+  });
+
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());

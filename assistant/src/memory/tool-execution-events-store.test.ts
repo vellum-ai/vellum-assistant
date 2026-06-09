@@ -7,6 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
 import { conversations, toolInvocations } from "./schema.js";
@@ -20,6 +21,7 @@ interface InsertSpec {
   id: string;
   createdAt: number;
   toolName?: string;
+  skillId?: string | null;
   decision?: string;
   riskLevel?: string;
   durationMs?: number;
@@ -36,6 +38,7 @@ function insertInvocation(spec: InsertSpec): void {
       result: '{"secret":"raw tool output — must never leave the device"}',
       decision: spec.decision ?? "allow",
       riskLevel: spec.riskLevel ?? "low",
+      skillId: spec.skillId ?? null,
       durationMs: spec.durationMs ?? 12,
       createdAt: spec.createdAt,
     })
@@ -58,11 +61,12 @@ describe("tool-execution-events-store", () => {
       .run();
   });
 
-  test("returns rows in (createdAt, id) order with projected fields and null skillId", () => {
+  test("returns rows in (createdAt, id) order with projected fields", () => {
     insertInvocation({
       id: "ti-b",
       createdAt: 2000,
       toolName: "web_search",
+      skillId: "research-skill",
       decision: "denied",
       riskLevel: "high",
       durationMs: 7,
@@ -83,7 +87,7 @@ describe("tool-execution-events-store", () => {
     });
     expect(rows[1]).toMatchObject({
       toolName: "web_search",
-      skillId: null,
+      skillId: "research-skill",
       decision: "denied",
       riskLevel: "high",
       durationMs: 7,
@@ -123,6 +127,43 @@ describe("tool-execution-events-store", () => {
     expect(
       queryUnreportedToolExecutionEvents(last.createdAt, last.id, 100).length,
     ).toBe(0);
+  });
+
+  test("skill-routed lifecycle events persist skill_id end to end; direct calls stay null", () => {
+    // Default recorder = recordToolInvocation, so this exercises the full
+    // audit listener → tool_invocations → telemetry projection chain.
+    const listener = createToolAuditListener();
+
+    listener({
+      type: "executed",
+      toolName: "task_create",
+      input: { title: "t" },
+      workingDir: "/tmp",
+      conversationId: CONVERSATION_ID,
+      skillId: "tasks-skill",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input: { command: "ls" },
+      workingDir: "/tmp",
+      conversationId: CONVERSATION_ID,
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 2,
+      result: { content: "ok", isError: false },
+    });
+
+    const rows = queryUnreportedToolExecutionEvents(0, undefined, 100);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.toolName === "task_create")?.skillId).toBe(
+      "tasks-skill",
+    );
+    expect(rows.find((r) => r.toolName === "bash")?.skillId).toBeNull();
   });
 
   test("honors the limit", () => {
