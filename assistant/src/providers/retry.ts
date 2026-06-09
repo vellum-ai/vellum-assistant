@@ -418,15 +418,30 @@ function normalizeSendMessageOptions(
   //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
   //   models don't have this exact constraint).
   const isThinkingTemperatureConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    // Claude Fable always reasons in adaptive mode, so the `temperature: 1`
+    // constraint applies even when no explicit `thinking` config is present
+    // (a disabled config was already dropped above). For every other model
+    // the constraint only applies when thinking is actually enabled.
+    if (!isAdaptiveThinkingOnlyModel(model)) {
+      if (nextConfig.thinking == null) {
+        return false;
+      }
+      if (isThinkingConfigDisabled(nextConfig.thinking)) {
+        return false;
+      }
+    }
     const temp = nextConfig.temperature;
-    if (typeof temp !== "number") return false;
-    if (temp === 1) return false;
-    if (providerName === "anthropic") return true;
+    if (typeof temp !== "number") {
+      return false;
+    }
+    if (temp === 1) {
+      return false;
+    }
+    if (providerName === "anthropic") {
+      return true;
+    }
     if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
       return model.startsWith("anthropic/");
     }
     return false;

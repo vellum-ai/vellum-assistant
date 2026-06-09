@@ -169,4 +169,77 @@ describe("retry normalization: adaptive-only thinking models", () => {
     // THEN the disabled thinking config is preserved for Opus
     expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
   });
+
+  test("drops non-1 temperature for Fable when thinking is disabled", async () => {
+    // GIVEN a Fable profile that disables thinking and sets a non-1 temperature
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-fable-5",
+        thinking: { enabled: false },
+        temperature: 0.7,
+      },
+    });
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN a request resolves through the call-site config
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "memoryExtraction" },
+    });
+
+    // THEN the disabled thinking is dropped (Fable falls back to adaptive) AND
+    // the non-1 temperature is dropped, since adaptive mode requires
+    // temperature: 1 — leaving it would 400 the request
+    expect(lastConfig()?.thinking).toBeUndefined();
+    expect(lastConfig()?.temperature).toBeUndefined();
+  });
+
+  test("drops non-1 temperature for Fable with no explicit thinking config", async () => {
+    // GIVEN a pass-through caller that sets a non-1 temperature and no thinking
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN sending against a Fable model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-fable-5",
+        temperature: 0.5,
+      },
+    });
+
+    // THEN the temperature is dropped: Fable is always in adaptive mode, so the
+    // temperature: 1 constraint applies even without an explicit thinking config
+    expect(lastConfig()?.temperature).toBeUndefined();
+  });
+
+  test("drops non-1 temperature for OpenRouter-proxied Fable", async () => {
+    // GIVEN a pass-through caller on the OpenRouter-proxied Fable id
+    const { provider, lastConfig } = makePipeline("openrouter");
+
+    // WHEN sending with a non-1 temperature and no explicit thinking config
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "anthropic/claude-fable-5",
+        temperature: 0.2,
+      },
+    });
+
+    // THEN the temperature is dropped for the Anthropic-fronted Fable model
+    expect(lastConfig()?.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature: 1 for Fable", async () => {
+    // GIVEN a Fable profile with the only adaptive-mode-valid temperature
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN sending against a Fable model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-fable-5",
+        temperature: 1,
+      },
+    });
+
+    // THEN temperature: 1 is preserved (it is valid in adaptive mode)
+    expect(lastConfig()?.temperature).toBe(1);
+  });
 });
