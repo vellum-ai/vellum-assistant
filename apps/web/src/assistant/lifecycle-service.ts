@@ -343,9 +343,9 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
-    useResolvedAssistantsStore
-      .getState()
-      .setActiveAssistantId(result.data.id);
+    const store = useResolvedAssistantsStore.getState();
+    store.upsertFromApi(result.data);
+    store.setActiveAssistantId(result.data.id);
     this.transition({
       kind: "active",
       isLocal: result.data.is_local ?? false,
@@ -378,9 +378,9 @@ class AssistantLifecycleService {
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
     });
-    useResolvedAssistantsStore
-      .getState()
-      .setActiveAssistantId(result.data.id);
+    const store = useResolvedAssistantsStore.getState();
+    store.upsertFromApi(result.data);
+    store.setActiveAssistantId(result.data.id);
     this.transition({ kind: "self_hosted" });
   }
 
