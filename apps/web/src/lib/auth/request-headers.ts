@@ -23,6 +23,7 @@
  */
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { getSelfHostedActorToken } from "@/lib/self-hosted/connection";
+import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
@@ -62,6 +63,8 @@ export async function buildVellumMutatingHeaders(
 ): Promise<Record<string, string>> {
   const headers = buildVellumHeaders(extra);
   if (headers["Authorization"]) return headers;
+  // Electron authenticates via a token header - no CSRF needed.
+  if (isElectron()) return headers;
   await ensureCsrfCookie();
   const csrfToken = getCsrfToken();
   if (csrfToken) {

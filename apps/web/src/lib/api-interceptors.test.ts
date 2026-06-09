@@ -139,10 +139,10 @@ describe("api-interceptors / Electron session-token header", () => {
     expect(headers.get("X-Session-Token")).toBe("electron-sess-tok");
   });
 
-  test("rides alongside CSRF on mutations (additive)", async () => {
+  test("drops CSRF on mutations — header auth, not cookie auth", async () => {
     const headers = await intercept("POST");
     expect(headers.get("X-Session-Token")).toBe("electron-sess-tok");
-    expect(headers.get("X-CSRFToken")).toBe("test-csrf-token");
+    expect(headers.get("X-CSRFToken")).toBeNull();
   });
 });
 
