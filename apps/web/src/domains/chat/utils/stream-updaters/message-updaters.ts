@@ -46,33 +46,40 @@ export function createStreamingBubble(
 }
 
 /**
- * Append `text` into the message at `prev[idx]`, extending its trailing
- * text segment if the last `contentOrder` entry is text, otherwise opening
- * a new text segment.
+ * Append a streaming chunk into a segment array on the message at
+ * `prev[idx]`. If the last `contentOrder` entry matches `orderType`, the
+ * chunk extends the trailing segment (coalescing consecutive chunks into
+ * one block). Otherwise a new segment and order entry are opened.
+ *
+ * Parameterized over `segmentField`/`orderType` so text and thinking
+ * deltas share one implementation — a bug fix in segment coalescing
+ * applies uniformly.
  */
-function appendTextIntoRow(
+function appendSegmentIntoRow(
   prev: DisplayMessage[],
   idx: number,
-  text: string,
-  messageId?: string,
+  content: string,
+  messageId: string | undefined,
+  segmentField: "textSegments" | "thinkingSegments",
+  orderType: "text" | "thinking",
 ): DisplayMessage[] {
   const row = withMergedAlias(prev[idx]!, messageId);
-  const segments = [...(row.textSegments ?? [])];
+  const segments = [...(row[segmentField] ?? [])];
   const order = [...(row.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
 
-  if (lastOrderEntry?.type === "text" && segments.length > 0) {
-    segments[segments.length - 1] = segments[segments.length - 1]! + text;
+  if (lastOrderEntry?.type === orderType && segments.length > 0) {
+    segments[segments.length - 1] = segments[segments.length - 1]! + content;
   } else {
     const newIndex = segments.length;
-    segments.push(text);
-    order.push({ type: "text", id: String(newIndex) });
+    segments.push(content);
+    order.push({ type: orderType, id: String(newIndex) });
   }
 
   const next = [...prev];
   next[idx] = {
     ...row,
-    textSegments: segments,
+    [segmentField]: segments,
     contentOrder: order,
   };
   return next;
@@ -106,9 +113,10 @@ export function appendTextDelta(
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
-    if (idx >= 0) return appendTextIntoRow(prev, idx, text, messageId);
+    if (idx >= 0)
+      return appendSegmentIntoRow(prev, idx, text, messageId, "textSegments", "text");
     if (tailIsAssistant(prev)) {
-      return appendTextIntoRow(prev, prev.length - 1, text, messageId);
+      return appendSegmentIntoRow(prev, prev.length - 1, text, messageId, "textSegments", "text");
     }
     return createStreamingBubble(prev, text, messageId);
   }
@@ -116,7 +124,7 @@ export function appendTextDelta(
   if (!tailIsAssistant(prev)) {
     return createStreamingBubble(prev, text, messageId);
   }
-  return appendTextIntoRow(prev, prev.length - 1, text);
+  return appendSegmentIntoRow(prev, prev.length - 1, text, undefined, "textSegments", "text");
 }
 
 // ---------------------------------------------------------------------------
@@ -148,41 +156,6 @@ export function createStreamingThinkingBubble(
 }
 
 /**
- * Append `thinking` into the message at `prev[idx]`, extending its trailing
- * thinking segment when the last `contentOrder` entry is `thinking`,
- * otherwise opening a new thinking segment. Mirrors `appendTextIntoRow` so
- * consecutive reasoning chunks coalesce into one block while reasoning that
- * resumes after interleaved text/tool entries starts a fresh block.
- */
-function appendThinkingIntoRow(
-  prev: DisplayMessage[],
-  idx: number,
-  thinking: string,
-  messageId?: string,
-): DisplayMessage[] {
-  const row = withMergedAlias(prev[idx]!, messageId);
-  const segments = [...(row.thinkingSegments ?? [])];
-  const order = [...(row.contentOrder ?? [])];
-  const lastOrderEntry = order[order.length - 1];
-
-  if (lastOrderEntry?.type === "thinking" && segments.length > 0) {
-    segments[segments.length - 1] = segments[segments.length - 1]! + thinking;
-  } else {
-    const newIndex = segments.length;
-    segments.push(thinking);
-    order.push({ type: "thinking", id: String(newIndex) });
-  }
-
-  const next = [...prev];
-  next[idx] = {
-    ...row,
-    thinkingSegments: segments,
-    contentOrder: order,
-  };
-  return next;
-}
-
-/**
  * Apply an `assistant_thinking_delta` to the message array.
  *
  * Mirrors `appendTextDelta`'s identity resolution: identity-keyed on
@@ -198,9 +171,10 @@ export function appendThinkingDelta(
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
-    if (idx >= 0) return appendThinkingIntoRow(prev, idx, thinking, messageId);
+    if (idx >= 0)
+      return appendSegmentIntoRow(prev, idx, thinking, messageId, "thinkingSegments", "thinking");
     if (tailIsAssistant(prev)) {
-      return appendThinkingIntoRow(prev, prev.length - 1, thinking, messageId);
+      return appendSegmentIntoRow(prev, prev.length - 1, thinking, messageId, "thinkingSegments", "thinking");
     }
     return createStreamingThinkingBubble(prev, thinking, messageId);
   }
@@ -208,7 +182,7 @@ export function appendThinkingDelta(
   if (!tailIsAssistant(prev)) {
     return createStreamingThinkingBubble(prev, thinking, messageId);
   }
-  return appendThinkingIntoRow(prev, prev.length - 1, thinking);
+  return appendSegmentIntoRow(prev, prev.length - 1, thinking, undefined, "thinkingSegments", "thinking");
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +392,9 @@ export function handleConversationError(
   const finalized = finalizeRunningToolCalls(last.toolCalls);
   const hasContent =
     segmentsToPlainText(last.textSegments).trim().length > 0 ||
-    (last.toolCalls != null && last.toolCalls.length > 0);
+    (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||
+    (last.toolCalls != null && last.toolCalls.length > 0) ||
+    (last.surfaces != null && last.surfaces.length > 0);
 
   if (!hasContent) return prev.slice(0, -1);
 
