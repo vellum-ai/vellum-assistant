@@ -375,6 +375,9 @@ export function createMailgunWebhookHandler(
       }
 
       // ── Verification reply ──────────────────────────────────────
+      // Not gated by recordDenialReplyIfAllowed — verification success
+      // confirmations must always be delivered regardless of prior denial
+      // replies to this sender.
       if (result.verificationIntercepted && result.verificationReplyText) {
         const mailgunApiKeyForVerify = await resolveCredential(
           credentialKey("mailgun", "api_key"),
@@ -382,10 +385,7 @@ export function createMailgunWebhookHandler(
         if (mailgunApiKeyForVerify) {
           const senderAddress = gatewayEvent.actor.actorExternalId;
           const mailgunDomainForVerify = recipientAddress.split("@")[1];
-          if (
-            mailgunDomainForVerify &&
-            recordDenialReplyIfAllowed("email", senderAddress)
-          ) {
+          if (mailgunDomainForVerify) {
             try {
               const form = new URLSearchParams();
               form.set("from", recipientAddress);

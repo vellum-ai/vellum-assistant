@@ -447,55 +447,56 @@ export function createResendWebhookHandler(
       });
 
       // ── Verification reply ──────────────────────────────────────
+      // Not gated by recordDenialReplyIfAllowed — verification success
+      // confirmations must always be delivered regardless of prior denial
+      // replies to this sender.
       if (
         result.verificationIntercepted &&
         result.verificationReplyText &&
         apiKey
       ) {
         const senderAddress = gatewayEvent.actor.actorExternalId;
-        if (recordDenialReplyIfAllowed("email", senderAddress)) {
-          try {
-            const sendResponse = await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
+        try {
+          const sendResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: recipientAddress,
+              to: [senderAddress],
+              subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
+              text: result.verificationReplyText,
+              ...(vellumPayload.messageId
+                ? {
+                    headers: {
+                      "In-Reply-To": vellumPayload.messageId,
+                    },
+                  }
+                : {}),
+            }),
+          });
+          if (sendResponse.ok) {
+            tlog.info(
+              { from: recipientAddress, to: senderAddress },
+              "Sent verification reply via Resend",
+            );
+          } else {
+            tlog.warn(
+              {
+                status: sendResponse.status,
                 from: recipientAddress,
-                to: [senderAddress],
-                subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-                text: result.verificationReplyText,
-                ...(vellumPayload.messageId
-                  ? {
-                      headers: {
-                        "In-Reply-To": vellumPayload.messageId,
-                      },
-                    }
-                  : {}),
-              }),
-            });
-            if (sendResponse.ok) {
-              tlog.info(
-                { from: recipientAddress, to: senderAddress },
-                "Sent verification reply via Resend",
-              );
-            } else {
-              tlog.warn(
-                {
-                  status: sendResponse.status,
-                  from: recipientAddress,
-                  to: senderAddress,
-                },
-                "Failed to send verification reply via Resend",
-              );
-            }
-          } catch (err) {
-            tlog.error(
-              { err, from: recipientAddress, to: senderAddress },
-              "Error sending verification reply via Resend",
+                to: senderAddress,
+              },
+              "Failed to send verification reply via Resend",
             );
           }
+        } catch (err) {
+          tlog.error(
+            { err, from: recipientAddress, to: senderAddress },
+            "Error sending verification reply via Resend",
+          );
         }
         dedupCache.mark(messageId);
         return Response.json({ ok: true, verificationIntercepted: true });
