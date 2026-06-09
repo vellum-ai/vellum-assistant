@@ -23,7 +23,9 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompact, {
+  type PostCompactContext,
+} from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -767,7 +769,7 @@ export class AgentLoop {
     // Re-inject onto the same base the `compaction_completed` dispatch commits:
     // the compacted messages when the pipeline compacted, the stripped
     // pre-compaction history otherwise.
-    const injection = await postCompact({
+    const postCompactCtx: PostCompactContext = {
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       requestId,
       conversationId: this.conversationId,
@@ -777,8 +779,11 @@ export class AgentLoop {
       mode: "full",
       modelProfile,
       actorContext,
-    });
-    return injection.messages;
+    };
+    // The hook writes the re-injected history back onto the context; read it
+    // from there once the hook settles.
+    await postCompact(postCompactCtx);
+    return postCompactCtx.history;
   }
 
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
