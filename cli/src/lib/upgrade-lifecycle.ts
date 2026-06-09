@@ -17,7 +17,12 @@ import {
 } from "./docker.js";
 import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
-import { loadGuardianToken } from "./guardian-token.js";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+  seedGuardianTokenFromSiblingEnv,
+  type GuardianTokenData,
+} from "./guardian-token.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
@@ -59,10 +64,14 @@ export async function captureUpgradeFailureLogs(
         // stream (docker logs writes container stdout→stdout, stderr→stderr)
         // are preserved in a single file. spawnSync avoids the execOutput
         // limitation of returning only stdout on success.
-        const result = spawnSync("docker", ["logs", "--tail", "500", container], {
-          encoding: "utf8",
-          maxBuffer: 10 * 1024 * 1024, // 10 MB
-        });
+        const result = spawnSync(
+          "docker",
+          ["logs", "--tail", "500", container],
+          {
+            encoding: "utf8",
+            maxBuffer: 10 * 1024 * 1024, // 10 MB
+          },
+        );
         const output = [result.stdout, result.stderr].filter(Boolean).join("");
         if (output) writeFileSync(join(logDir, filename), output);
       } catch {
@@ -237,6 +246,59 @@ export async function fetchAssistantIngressUrl(
   return undefined;
 }
 
+function parseTokenTimestamp(
+  value: string | number | undefined,
+): number | null {
+  if (value === undefined) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function shouldRefreshGuardianToken(token: GuardianTokenData): boolean {
+  const now = Date.now();
+  const accessExpiresAt = parseTokenTimestamp(token.accessTokenExpiresAt);
+  if (accessExpiresAt === null || accessExpiresAt <= now + 30_000) return true;
+
+  const refreshAfter = parseTokenTimestamp(token.refreshAfter);
+  return refreshAfter !== null && refreshAfter <= now;
+}
+
+function hasUsableGuardianAccessToken(token: GuardianTokenData): boolean {
+  const accessExpiresAt = parseTokenTimestamp(token.accessTokenExpiresAt);
+  return (
+    Boolean(token.accessToken) &&
+    accessExpiresAt !== null &&
+    accessExpiresAt > Date.now() + 30_000
+  );
+}
+
+/**
+ * Resolve a bearer token for best-effort upgrade/rollback lifecycle calls.
+ *
+ * These calls are intentionally non-blocking, but sending them without auth only
+ * exercises the gateway's legacy loopback fallback. Recover what we can from a
+ * sibling env or refresh token; if no token is available, callers skip the
+ * best-effort request.
+ */
+export async function resolveLifecycleGuardianAccessToken(
+  gatewayUrl: string,
+  assistantId: string,
+): Promise<string | undefined> {
+  let token = loadGuardianToken(assistantId);
+  if (!token) {
+    seedGuardianTokenFromSiblingEnv(assistantId);
+    token = loadGuardianToken(assistantId);
+  }
+
+  if (!token) return undefined;
+
+  if (shouldRefreshGuardianToken(token)) {
+    token = (await refreshGuardianToken(gatewayUrl, assistantId)) ?? token;
+  }
+
+  return hasUsableGuardianAccessToken(token) ? token.accessToken : undefined;
+}
+
 /**
  * Determine the version that was running before the current one.
  *
@@ -330,13 +392,15 @@ export async function broadcastUpgradeEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const token = loadGuardianToken(assistantId);
+    const accessToken = await resolveLifecycleGuardianAccessToken(
+      gatewayUrl,
+      assistantId,
+    );
+    if (!accessToken) return;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
     };
-    if (token?.accessToken) {
-      headers["Authorization"] = `Bearer ${token.accessToken}`;
-    }
     await fetch(`${gatewayUrl}/v1/admin/upgrade-broadcast`, {
       method: "POST",
       headers,
@@ -359,13 +423,15 @@ export async function commitWorkspaceViaGateway(
   message: string,
 ): Promise<void> {
   try {
-    const token = loadGuardianToken(assistantId);
+    const accessToken = await resolveLifecycleGuardianAccessToken(
+      gatewayUrl,
+      assistantId,
+    );
+    if (!accessToken) return;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
     };
-    if (token?.accessToken) {
-      headers["Authorization"] = `Bearer ${token.accessToken}`;
-    }
     await fetch(`${gatewayUrl}/v1/admin/workspace-commit`, {
       method: "POST",
       headers,
@@ -396,13 +462,15 @@ export async function rollbackMigrations(
     return false;
   }
   try {
-    const token = loadGuardianToken(assistantId);
+    const accessToken = await resolveLifecycleGuardianAccessToken(
+      gatewayUrl,
+      assistantId,
+    );
+    if (!accessToken) return false;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
     };
-    if (token?.accessToken) {
-      headers["Authorization"] = `Bearer ${token.accessToken}`;
-    }
     const body: Record<string, unknown> = {};
     if (targetDbVersion !== undefined) body.targetDbVersion = targetDbVersion;
     if (targetWorkspaceMigrationId !== undefined)
@@ -761,7 +829,10 @@ export async function performDockerRollback(
     // Failure path — attempt auto-rollback to original version
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
-    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-rollback-failure`);
+    const logDir = await captureUpgradeFailureLogs(
+      res,
+      `${instanceName}-rollback-failure`,
+    );
     if (logDir) {
       console.log(`📋 Container logs saved to: ${logDir}`);
     }

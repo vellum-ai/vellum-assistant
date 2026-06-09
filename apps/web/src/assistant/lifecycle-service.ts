@@ -382,8 +382,8 @@ class AssistantLifecycleService {
    *     stays null and the platform's proxy view 404s cleanly.
    *   - `platform_actor_token`: brief window after hatch where
    *     `bootstrap_platform_actor_token` is still in-flight. The
-   *     request fires unauthenticated, the gateway responds 401,
-   *     and the chat surface lands on its error state.
+   *     request interceptor must not send tokenless gateway requests
+   *     in that window.
    */
   private projectSelfHosted(
     result: GetAssistantResult & { ok: true },

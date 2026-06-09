@@ -33,10 +33,8 @@ interface SelfHostedConnection {
   /**
    * The platform's actor token for this assistant (from
    * `AssistantSerializer.platform_actor_token`). May be null briefly
-   * after hatch while `bootstrap_platform_actor_token` runs — the
-   * interceptor sends the request without `Authorization` in that
-   * window and the gateway responds 401, which the chat surface
-   * renders as an error state.
+   * after hatch while `bootstrap_platform_actor_token` runs. In that
+   * window the interceptor must not send tokenless gateway requests.
    */
   token: string | null;
 }

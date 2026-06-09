@@ -12,13 +12,9 @@
  *
  * When `getSelfHostedIngressUrl()` returns a URL AND the request hits a
  * runtime-proxied per-assistant path, {@link rewriteForSelfHostedIngress}
- * takes over instead — the URL's origin is swapped to the ingress, the
- * platform-only headers are stripped, cookie credentials are omitted,
- * and an `Authorization: Bearer` is attached when
- * `getSelfHostedActorToken()` returns a value (it can briefly return
- * `null` while `bootstrap_platform_actor_token` is mid-flight on the
- * platform — the gateway then 401s and the chat surface lands on its
- * error state).
+ * takes over once an actor token is available — the URL's origin is swapped
+ * to the ingress, the platform-only headers are stripped, cookie credentials
+ * are omitted, and an `Authorization: Bearer` header is attached.
  *
  * Import this module for its side effects in the app entrypoint
  * (`main.tsx`) so interceptors are installed before any API call fires.
@@ -55,7 +51,11 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * Once all daemon endpoints are migrated to the daemon SDK, this list
  * becomes dead code and can be removed.
  */
-const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
+  "conversations",
+  "feature-flags",
+  "permissions",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
@@ -100,6 +100,17 @@ export async function rewriteForSelfHostedIngress(
     return null;
   }
 
+  const token = getSelfHostedActorToken();
+  if (!token) {
+    if (!isLocalMode()) return null;
+
+    const aborted = new AbortController();
+    aborted.abort(
+      new DOMException("Self-hosted gateway token is not ready", "AbortError"),
+    );
+    return new Request(request.url, { signal: aborted.signal });
+  }
+
   // Splice the platform's base out and the user's gateway in. Path and
   // query are preserved verbatim — the gateway exposes the same
   // `/v1/assistants/{id}/...` routes the platform's RuntimeProxyView
@@ -115,17 +126,7 @@ export async function rewriteForSelfHostedIngress(
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
-
-  const token = getSelfHostedActorToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else {
-    // Belt-and-braces — never forward a stale Authorization header that
-    // happened to be set by a caller. Without a token we want the
-    // gateway to respond 401 so the chat surface lands on its error
-    // state rather than spinning indefinitely.
-    headers.delete("Authorization");
-  }
+  headers.set("Authorization", `Bearer ${token}`);
 
   // In local mode the gateway proxy runs over plain HTTP, and Chrome
   // refuses to send a streaming (duplex: "half") body without TLS
