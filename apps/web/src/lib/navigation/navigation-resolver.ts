@@ -166,6 +166,13 @@ function resolveRouteGuard(
     if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.hosting };
     }
+    if (state.hasAssistants && !state.isLocalMode && path !== routes.onboarding.reviewTerms) {
+      if (!(state.tosAccepted && state.aiDataConsent)) {
+        const returnTo = encodeURIComponent(pathnameWithSearch);
+        return { action: "redirect", to: `${routes.onboarding.reviewTerms}?returnTo=${returnTo}` };
+      }
+      return { action: "redirect", to: routes.assistant };
+    }
     if (path === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
     }
