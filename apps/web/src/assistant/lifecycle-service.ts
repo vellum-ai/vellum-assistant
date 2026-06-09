@@ -438,12 +438,11 @@ class AssistantLifecycleService {
     this.cancelProbeTimer();
     const startedAt = Date.now();
     const tick = async () => {
-      if (this.state.kind !== "active") return;
-      if (this.state.reachable === true) return;
+      if (this.state.kind !== "active" || this.state.reachable === true) return;
       if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
       await this.probeReachability(assistantId);
-      if (this.state.kind !== "active") return;
-      if (this.state.reachable === true) return;
+      const s = this.state;
+      if (s.kind !== "active" || s.reachable === true) return;
       if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
       this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
     };
