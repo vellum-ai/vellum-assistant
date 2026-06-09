@@ -97,9 +97,11 @@ import * as pendingInteractions from "../../../runtime/pending-interactions.js";
 
 let approvalBehavior: "allow" | "deny" = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
+const broadcasts: Array<Record<string, unknown>> = [];
 
 mock.module("../../../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
+    broadcasts.push(msg as Record<string, unknown>);
     if (msg?.type !== "confirmation_request") return;
     confirmationRequests.push(msg as Record<string, unknown>);
     const interaction = pendingInteractions.resolve(
@@ -109,6 +111,9 @@ mock.module("../../../runtime/assistant-event-hub.js", () => ({
     interaction?.directResolve?.(approvalBehavior);
   },
 }));
+
+/** Drain pending micro/macrotasks so background resume work settles. */
+const flushAsync = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -122,11 +127,7 @@ import {
   AcpSessionNotFoundError,
 } from "../../../acp/session-manager.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import {
-  FailedDependencyError,
-  ForbiddenError,
-  NotFoundError,
-} from "../errors.js";
+import { FailedDependencyError, NotFoundError } from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");
 const { _resetAdapterInstallCacheForTests } =
@@ -173,6 +174,7 @@ beforeEach(() => {
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   approvalBehavior = "allow";
   confirmationRequests.length = 0;
+  broadcasts.length = 0;
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -691,7 +693,7 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/acp/:id/steer: resume approval gate", () => {
-  test("resuming a terminal session prompts and resumes once granted", async () => {
+  test("acks immediately with approvalPending, then resumes once granted", async () => {
     insertHistoryRow({
       id: "gone-1",
       agentId: "claude",
@@ -702,11 +704,19 @@ describe("POST /v1/acp/:id/steer: resume approval gate", () => {
     steerOrResumeImpl = async () => ({ resumed: true });
 
     const handler = getSteerHandler();
+    // The ack returns before the (async) resume completes, so a slow guardian
+    // approval can't trip the client's short ack timeout (ATL-822 / Codex P2).
     const body = await handler({
       pathParams: { id: "gone-1" },
       body: { instruction: "keep going" },
     });
+    expect(body).toEqual({
+      acpSessionId: "gone-1",
+      steered: false,
+      approvalPending: true,
+    });
 
+    // The high-risk prompt is surfaced for the resume.
     expect(confirmationRequests).toHaveLength(1);
     const prompt = confirmationRequests[0];
     expect(prompt.toolName).toBe("acp_steer");
@@ -714,33 +724,40 @@ describe("POST /v1/acp/:id/steer: resume approval gate", () => {
     expect(prompt.executionTarget).toBe("host");
     expect(prompt.conversationId).toBe("conv-z");
     expect((prompt.input as { cwd?: string }).cwd).toBe("/work/repo");
-    expect(body).toEqual({
-      acpSessionId: "gone-1",
-      steered: true,
-      resumed: true,
-    });
+
+    // After approval settles, the background worker performs the resume.
+    await flushAsync();
     expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+    expect(steerOrResumeMock.mock.calls[0][0]).toBe("gone-1");
   });
 
-  test("denied resume throws ForbiddenError and never resumes", async () => {
+  test("denied resume never reaches the session manager and reports an error event", async () => {
     approvalBehavior = "deny";
     insertHistoryRow({
       id: "gone-2",
+      acpSessionId: "proto-gone-2",
+      parentConversationId: "conv-z",
       status: "completed",
       cwd: "/work/repo",
     });
 
     const handler = getSteerHandler();
-    await expect(
-      handler({
-        pathParams: { id: "gone-2" },
-        body: { instruction: "do evil" },
-      }),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    const body = await handler({
+      pathParams: { id: "gone-2" },
+      body: { instruction: "do evil" },
+    });
+    expect(body).toEqual({
+      acpSessionId: "gone-2",
+      steered: false,
+      approvalPending: true,
+    });
 
-    // Gate blocked before reaching the session manager — no host re-spawn.
+    await flushAsync();
+    // Denied before any host re-spawn, and the denial surfaces over SSE.
     expect(steerOrResumeMock).not.toHaveBeenCalled();
     expect(pendingInteractions.getAll()).toHaveLength(0);
+    const errEvent = broadcasts.find((m) => m.type === "acp_session_error");
+    expect(errEvent?.acpSessionId).toBe("proto-gone-2");
   });
 
   test("a legacy row without a persisted cwd is not resumable, so no prompt", async () => {

@@ -227,7 +227,7 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   return { acpSessionId, protocolSessionId, agent };
 }
 
-async function steerSession({ pathParams, body, abortSignal }: RouteHandlerArgs) {
+async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
   const instruction = body?.instruction as string | undefined;
 
@@ -247,36 +247,36 @@ async function steerSession({ pathParams, body, abortSignal }: RouteHandlerArgs)
   // steer of a session still active in memory only redirects an
   // already-running, already-approved process, so it is left unprompted —
   // matching "gate before spawning". A resume only happens when the id is
-  // absent from memory AND a resumable history row (non-null cwd) exists; in
-  // that case prompt before steerOrResume reaches resumeFromHistory.
+  // absent from memory AND a resumable history row (non-null cwd) exists.
   if (!manager.getActiveAndPendingIds().includes(id)) {
     const resumable = getDb()
       .select({
         cwd: acpSessionHistory.cwd,
         agentId: acpSessionHistory.agentId,
+        acpSessionId: acpSessionHistory.acpSessionId,
         parentConversationId: acpSessionHistory.parentConversationId,
       })
       .from(acpSessionHistory)
       .where(eq(acpSessionHistory.id, id))
       .get();
     if (resumable?.cwd != null) {
-      const decision = await awaitRouteApproval({
-        toolName: "acp_steer",
-        input: {
-          acp_session_id: id,
-          instruction,
-          agent: resumable.agentId,
-          cwd: resumable.cwd,
-        },
+      // Guardian approval is an out-of-band human action that can take far
+      // longer than a client's ack timeout (the macOS client uses 10s; the
+      // approval window is permissionTimeoutSec, default 300s). Blocking the
+      // HTTP response here would surface as a client transport failure even
+      // on an eventual approval. Acknowledge immediately and run approval +
+      // resume in the background, streaming via SSE like any other ACP
+      // activity. The request abortSignal is deliberately NOT threaded into
+      // the wait — the request is already complete.
+      void approveThenResume({
+        id,
+        instruction,
+        agentId: resumable.agentId,
+        cwd: resumable.cwd,
+        acpSessionId: resumable.acpSessionId,
         conversationId: resumable.parentConversationId,
-        signal: abortSignal,
       });
-      if (decision !== "allow") {
-        throw new ForbiddenError(
-          "Resuming an ACP coding agent requires guardian approval, which " +
-            "was not granted.",
-        );
-      }
+      return { acpSessionId: id, steered: false, approvalPending: true };
     }
   }
 
@@ -298,6 +298,76 @@ async function steerSession({ pathParams, body, abortSignal }: RouteHandlerArgs)
     // Unknown ids (no in-memory session, no history row) and plain steer
     // failures both map to 404, as before.
     throw new NotFoundError("ACP session not found");
+  }
+}
+
+/**
+ * Background worker for an approval-gated ACP resume initiated over the steer
+ * route. Awaits the guardian decision (see `awaitRouteApproval`), then resumes
+ * via the session manager so the agent's output streams back over SSE. A
+ * denial, timeout, or resume failure is surfaced as an `acp_session_error` on
+ * the parent conversation so the client isn't left with an optimistic steer
+ * row and no follow-up. Never throws — it owns the request lifecycle after the
+ * route has already acked.
+ */
+async function approveThenResume(args: {
+  id: string;
+  instruction: string;
+  agentId: string;
+  cwd: string;
+  acpSessionId: string;
+  conversationId: string;
+}): Promise<void> {
+  const decision = await awaitRouteApproval({
+    toolName: "acp_steer",
+    input: {
+      acp_session_id: args.id,
+      instruction: args.instruction,
+      agent: args.agentId,
+      cwd: args.cwd,
+    },
+    conversationId: args.conversationId,
+  });
+
+  if (decision !== "allow") {
+    log.info(
+      { acpSessionId: args.id, conversationId: args.conversationId },
+      "ACP resume approval not granted — skipping resume",
+    );
+    broadcastMessage(
+      {
+        type: "acp_session_error",
+        acpSessionId: args.acpSessionId,
+        error: "Resume was not approved.",
+      },
+      args.conversationId,
+    );
+    return;
+  }
+
+  try {
+    await getAcpSessionManager().steerOrResume(
+      args.id,
+      args.instruction,
+      broadcastMessage,
+    );
+  } catch (err) {
+    const message =
+      err instanceof AcpResumeError || err instanceof Error
+        ? err.message
+        : String(err);
+    log.warn(
+      { acpSessionId: args.id, conversationId: args.conversationId, err },
+      "Approved ACP resume failed",
+    );
+    broadcastMessage(
+      {
+        type: "acp_session_error",
+        acpSessionId: args.acpSessionId,
+        error: message,
+      },
+      args.conversationId,
+    );
   }
 }
 
@@ -439,7 +509,10 @@ export const ROUTES: RouteDefinition[] = [
       "Send a steering instruction to an ACP session. Sessions no longer " +
       "in memory (completed, or lost to a daemon restart) are " +
       "transparently resumed from persisted history first, when the agent " +
-      "supports ACP session loading.",
+      "supports ACP session loading. Resuming a terminal session re-spawns " +
+      "the host agent, so it requires guardian approval: the route acks " +
+      "immediately with approvalPending=true and performs the resume in the " +
+      "background once approved, streaming results over SSE.",
     tags: ["acp"],
     requestBody: z.object({
       instruction: z.string(),
@@ -452,6 +525,13 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "True when the session was resumed from persisted history before steering.",
+        ),
+      approvalPending: z
+        .boolean()
+        .optional()
+        .describe(
+          "True when the steer triggered a guardian-approval-gated resume " +
+            "that will run asynchronously; watch SSE for the outcome.",
         ),
     }),
   },
