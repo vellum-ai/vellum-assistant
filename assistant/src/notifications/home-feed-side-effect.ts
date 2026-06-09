@@ -22,6 +22,7 @@ import { getConversation } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
+import { readPayloadString } from "./copy-composer.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
@@ -229,12 +230,6 @@ function resolveHomeFeedMirror(
     return { mirror: true, sourceConversationId };
   }
   return { mirror: false };
-}
-
-function readPayloadString(payload: unknown, key: string): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**

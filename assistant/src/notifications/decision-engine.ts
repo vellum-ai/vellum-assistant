@@ -35,6 +35,8 @@ import {
   deriveTitle,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
+  nonEmpty,
+  readPayloadString,
 } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
@@ -754,24 +756,15 @@ export async function evaluateSignal(
   // classifier entirely. The producer has already done the routing and
   // copy decisions — we just enforce the standard post-decision guards
   // and persist the result.
-  if (
-    signal.sourceChannel === "assistant_tool" &&
-    typeof signal.contextPayload === "object" &&
-    signal.contextPayload != null &&
-    typeof (signal.contextPayload as Record<string, unknown>)
-      .requestedMessage === "string" &&
-    (
-      (signal.contextPayload as Record<string, unknown>)
-        .requestedMessage as string
-    ).trim().length > 0
-  ) {
+  const requestedBody = nonEmpty(
+    readPayloadString(signal.contextPayload, "requestedMessage"),
+  );
+  if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const body = (payload.requestedMessage as string).trim();
+    const body = requestedBody;
     const title =
-      typeof payload.requestedTitle === "string" &&
-      payload.requestedTitle.trim().length > 0
-        ? (payload.requestedTitle as string).trim()
-        : deriveTitle(body);
+      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+      deriveTitle(body);
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";

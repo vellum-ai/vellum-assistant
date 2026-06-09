@@ -33,6 +33,20 @@ export function nonEmpty(value: string | undefined): string | undefined {
 }
 
 /**
+ * Safely read a string property from an unknown-typed payload object.
+ * Returns `undefined` when the payload is falsy, not an object, or the
+ * key does not hold a string value.
+ */
+export function readPayloadString(
+  payload: unknown,
+  key: string,
+): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * Derive a short notification title from a message body. Trims to the
  * first sentence terminator when present, then caps the result at
  * 60 characters with an ellipsis.
@@ -571,35 +585,24 @@ export function composeFallbackCopy(
   // pass-through handles the happy path (sourceChannel === "assistant_tool");
   // this catches the same payload fields when the LLM fallback fires for
   // any source channel.
-  if (
-    signal.contextPayload != null &&
-    typeof signal.contextPayload === "object"
-  ) {
-    const raw = signal.contextPayload as Record<string, unknown>;
-    const msg = nonEmpty(
-      typeof raw.requestedMessage === "string"
-        ? raw.requestedMessage
-        : undefined,
-    );
-    if (msg) {
-      const title =
-        nonEmpty(
-          typeof raw.requestedTitle === "string"
-            ? raw.requestedTitle
-            : undefined,
-        ) ?? deriveTitle(msg);
-      const baseCopy: RenderedChannelCopy = {
-        title,
-        body: msg,
-        conversationSeedMessage: msg,
-      };
-      const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> =
-        {};
-      for (const ch of channels) {
-        result[ch] = applyChannelDefaults(ch, baseCopy);
-      }
-      return result;
+  const msg = nonEmpty(
+    readPayloadString(signal.contextPayload, "requestedMessage"),
+  );
+  if (msg) {
+    const title =
+      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+      deriveTitle(msg);
+    const baseCopy: RenderedChannelCopy = {
+      title,
+      body: msg,
+      conversationSeedMessage: msg,
+    };
+    const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> =
+      {};
+    for (const ch of channels) {
+      result[ch] = applyChannelDefaults(ch, baseCopy);
     }
+    return result;
   }
 
   const template =
