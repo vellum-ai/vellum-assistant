@@ -20,7 +20,6 @@ import { LibraryGridSection } from "@/domains/library/components/library-grid-se
 import { useLibraryData } from "@/domains/library/use-library-data";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
@@ -46,7 +45,6 @@ export function LibraryView({
   onOpenApp,
 }: LibraryViewProps) {
   const queryClient = useQueryClient();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -244,7 +242,7 @@ export function LibraryView({
               onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
-              onDeploy={deployToVercel ? handleDeploy : undefined}
+              onDeploy={handleDeploy}
             />
             <LibraryGridSection
               title="Recents"
@@ -254,7 +252,7 @@ export function LibraryView({
               onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
-              onDeploy={deployToVercel ? handleDeploy : undefined}
+              onDeploy={handleDeploy}
             />
             {filteredDocuments.length > 0 ? (
               <section>
