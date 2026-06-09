@@ -496,12 +496,6 @@ export class ContextWindowManager {
   }
 
   /**
-   * The token budget overflow recovery compacts below, derived from the
-   * manager's configured max-input cap and overflow-recovery safety margin.
-   * Long histories (> 50 messages) get a wider margin so the reduced prompt
-   * keeps clearance under the provider's true ceiling.
-   */
-  /**
    * Tool-token budget for the current turn's overflow recovery. Prefers the
    * live tool set resolved for the turn — matching what the loop sends to the
    * provider — and falls back to the constructor-time snapshot when no
@@ -512,6 +506,12 @@ export class ContextWindowManager {
     return tools ? estimateToolsTokens(tools) : this.toolTokenBudget;
   }
 
+  /**
+   * The token budget overflow recovery compacts below, derived from the
+   * manager's configured max-input cap and overflow-recovery safety margin.
+   * Long histories (> 50 messages) get a wider margin so the reduced prompt
+   * keeps clearance under the provider's true ceiling.
+   */
   private resolveOverflowPreflightBudget(messageCount: number): number {
     const baseSafetyMargin = this.config.overflowRecovery.safetyMarginRatio;
     const safetyMargin =
