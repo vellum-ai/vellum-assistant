@@ -75,6 +75,7 @@ const steerOrResumeMock = mock(
 mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
+    getActiveAndPendingIds: () => fakeInMemorySessions.map((s) => s.id),
     spawn: spawnMock,
     steerOrResume: steerOrResumeMock,
   }),
@@ -86,21 +87,26 @@ mock.module("../../../acp/prepare-agent-env.js", () => ({
   prepareAgentEnv: async (agentConfig: unknown) => agentConfig,
 }));
 
-// The spawn route gates on a high-risk approval (ATL-822) before resolving /
-// installing the adapter. These tests pin the resolve/install flow, so the
-// hub mock auto-approves the freshly registered confirmation the same way
-// `POST /v1/confirm` would (resolve + directResolve). Other event types are
-// ignored.
+// The spawn route and steer's resume branch gate on a high-risk approval
+// (ATL-822) before starting the host agent. These tests pin the
+// resolve/install/resume flow, so the hub mock auto-resolves the freshly
+// registered confirmation the same way `POST /v1/confirm` would (resolve +
+// directResolve). `approvalBehavior` flips allow/deny; `confirmationRequests`
+// captures the prompts. Other event types are ignored.
 import * as pendingInteractions from "../../../runtime/pending-interactions.js";
+
+let approvalBehavior: "allow" | "deny" = "allow";
+const confirmationRequests: Array<Record<string, unknown>> = [];
 
 mock.module("../../../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     if (msg?.type !== "confirmation_request") return;
+    confirmationRequests.push(msg as Record<string, unknown>);
     const interaction = pendingInteractions.resolve(
       msg.requestId as string,
-      "approved",
+      approvalBehavior === "allow" ? "approved" : "rejected",
     );
-    interaction?.directResolve?.("allow");
+    interaction?.directResolve?.(approvalBehavior);
   },
 }));
 
@@ -116,7 +122,11 @@ import {
   AcpSessionNotFoundError,
 } from "../../../acp/session-manager.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { FailedDependencyError, NotFoundError } from "../errors.js";
+import {
+  FailedDependencyError,
+  ForbiddenError,
+  NotFoundError,
+} from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");
 const { _resetAdapterInstallCacheForTests } =
@@ -161,6 +171,8 @@ beforeEach(() => {
   _resetAdapterInstallCacheForTests();
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
+  approvalBehavior = "allow";
+  confirmationRequests.length = 0;
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -668,5 +680,107 @@ describe("POST /v1/acp/:id/steer: resume fallback", () => {
       body: { instruction: "go" },
     });
     await expect(promise).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/:id/steer: resume crosses the host-spawn boundary, so it is
+// gated by the same high-risk guardian approval as spawn (ATL-822). Steering
+// a session still active in memory only redirects an already-approved live
+// process and is NOT prompted.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/acp/:id/steer: resume approval gate", () => {
+  test("resuming a terminal session prompts and resumes once granted", async () => {
+    insertHistoryRow({
+      id: "gone-1",
+      agentId: "claude",
+      parentConversationId: "conv-z",
+      status: "completed",
+      cwd: "/work/repo",
+    });
+    steerOrResumeImpl = async () => ({ resumed: true });
+
+    const handler = getSteerHandler();
+    const body = await handler({
+      pathParams: { id: "gone-1" },
+      body: { instruction: "keep going" },
+    });
+
+    expect(confirmationRequests).toHaveLength(1);
+    const prompt = confirmationRequests[0];
+    expect(prompt.toolName).toBe("acp_steer");
+    expect(prompt.riskLevel).toBe("high");
+    expect(prompt.executionTarget).toBe("host");
+    expect(prompt.conversationId).toBe("conv-z");
+    expect((prompt.input as { cwd?: string }).cwd).toBe("/work/repo");
+    expect(body).toEqual({
+      acpSessionId: "gone-1",
+      steered: true,
+      resumed: true,
+    });
+    expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("denied resume throws ForbiddenError and never resumes", async () => {
+    approvalBehavior = "deny";
+    insertHistoryRow({
+      id: "gone-2",
+      status: "completed",
+      cwd: "/work/repo",
+    });
+
+    const handler = getSteerHandler();
+    await expect(
+      handler({
+        pathParams: { id: "gone-2" },
+        body: { instruction: "do evil" },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    // Gate blocked before reaching the session manager — no host re-spawn.
+    expect(steerOrResumeMock).not.toHaveBeenCalled();
+    expect(pendingInteractions.getAll()).toHaveLength(0);
+  });
+
+  test("a legacy row without a persisted cwd is not resumable, so no prompt", async () => {
+    insertHistoryRow({ id: "legacy-2", status: "completed", cwd: null });
+    steerOrResumeImpl = async (id) => {
+      throw new AcpResumeError(
+        new Error(`ACP session "${id}" cannot be resumed.`),
+      );
+    };
+
+    const handler = getSteerHandler();
+    await expect(
+      handler({ pathParams: { id: "legacy-2" }, body: { instruction: "go" } }),
+    ).rejects.toBeInstanceOf(FailedDependencyError);
+    // No spawn would occur, so the gate stays out of the way.
+    expect(confirmationRequests).toHaveLength(0);
+  });
+
+  test("steering a session active in memory is not prompted", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-2",
+        agentId: "claude",
+        acpSessionId: "proto-live-2",
+        parentConversationId: "conv-1",
+        status: "running",
+        startedAt: 1000,
+      },
+    ];
+    // A resumable row also exists, but the in-memory session wins → steer.
+    insertHistoryRow({ id: "live-2", status: "completed", cwd: "/work/repo" });
+
+    const handler = getSteerHandler();
+    const body = await handler({
+      pathParams: { id: "live-2" },
+      body: { instruction: "redirect" },
+    });
+
+    expect(confirmationRequests).toHaveLength(0);
+    expect(body).toEqual({ acpSessionId: "live-2", steered: true });
+    expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
   });
 });

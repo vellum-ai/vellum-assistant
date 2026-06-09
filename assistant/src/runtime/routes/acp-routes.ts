@@ -60,36 +60,36 @@ type SessionEntry = z.infer<typeof sessionEntrySchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Surface a high-risk confirmation for a direct `POST /v1/acp/spawn` request
- * and resolve to the guardian's decision.
+ * Surface a high-risk confirmation for an ACP route that starts a host agent
+ * subprocess (`POST /v1/acp/spawn`, and the resume branch of
+ * `POST /v1/acp/:id/steer`) and resolve to the guardian's decision.
  *
- * Unlike the `acp_spawn` skill tool (which is dispatched through
- * `ToolExecutor`/`PermissionChecker` and so inherits the descriptor's
- * `risk: "high"` approval prompt), this HTTP/IPC route reaches the ACP
+ * Unlike the `acp_spawn` / `acp_steer` skill tools (which are dispatched
+ * through `ToolExecutor`/`PermissionChecker` and so inherit the descriptors'
+ * `risk: "high"` approval prompt), these HTTP/IPC routes reach the ACP
  * session manager directly. A spawned ACP agent is a host subprocess with
  * advertised filesystem + terminal access whose in-session permission
- * requests are auto-allowed, so spawning it is exactly the high-risk action
- * the descriptor gates. Without this prompt a caller holding only
- * `chat.write` could start one in an arbitrary `cwd` with no human in the
- * loop (ATL-822).
+ * requests are auto-allowed, so starting one is exactly the high-risk action
+ * the descriptors gate. Without this prompt a caller holding only
+ * `chat.write` could start one with no human in the loop — directly via
+ * spawn (arbitrary `cwd`), or by resuming a terminal session via steer (its
+ * persisted `cwd`, enumerable through `GET /v1/acp/sessions`) (ATL-822).
  *
  * The confirmation is registered with `directResolve` so `POST /v1/confirm`
  * resolves it without a live `Conversation` object. That route requires the
  * bound guardian (`approval.write` + `requireGuardian`) — a strictly higher
- * bar than the `chat.write` this route demands — so the `chat.write` caller
+ * bar than the `chat.write` these routes demand — so the `chat.write` caller
  * cannot self-approve. Timeout and client disconnect both deny, matching the
  * tool path's "no interactive client → do not run" posture.
  */
-function awaitDirectSpawnApproval(args: {
-  agent: string;
-  task: string;
-  cwd: string;
+function awaitRouteApproval(args: {
+  toolName: string;
+  input: Record<string, unknown>;
   conversationId: string;
   signal?: AbortSignal;
 }): Promise<UserDecision> {
-  const { agent, task, cwd, conversationId, signal } = args;
+  const { toolName, input, conversationId, signal } = args;
   const requestId = randomUUID();
-  const input = { agent, task, cwd };
   // Mirror the interactive prompt timeout; fall back to the schema default
   // (300s) if the timeouts block is somehow absent so the gate never wedges.
   const timeoutMs = (getConfig().timeouts?.permissionTimeoutSec ?? 300) * 1000;
@@ -113,8 +113,8 @@ function awaitDirectSpawnApproval(args: {
 
     const timer = setTimeout(() => {
       log.warn(
-        { requestId, agent, conversationId },
-        "ACP spawn approval timed out — denying",
+        { requestId, toolName, conversationId },
+        "ACP route approval timed out — denying",
       );
       settle("deny", "cancelled");
     }, timeoutMs);
@@ -131,7 +131,7 @@ function awaitDirectSpawnApproval(args: {
       conversationId,
       kind: "confirmation",
       confirmationDetails: {
-        toolName: "acp_spawn",
+        toolName,
         input,
         riskLevel: "high",
         executionTarget: "host",
@@ -147,7 +147,7 @@ function awaitDirectSpawnApproval(args: {
       {
         type: "confirmation_request",
         requestId,
-        toolName: "acp_spawn",
+        toolName,
         input,
         riskLevel: "high",
         executionTarget: "host",
@@ -174,10 +174,9 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   // High-risk approval gate. Block BEFORE any side effects — resolution can
   // trigger a `bun` global install (auto-install.ts) and `manager.spawn`
   // launches the host subprocess — so an unapproved request mutates nothing.
-  const decision = await awaitDirectSpawnApproval({
-    agent,
-    task,
-    cwd,
+  const decision = await awaitRouteApproval({
+    toolName: "acp_spawn",
+    input: { agent, task, cwd },
     conversationId,
     signal: abortSignal,
   });
@@ -228,7 +227,7 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   return { acpSessionId, protocolSessionId, agent };
 }
 
-async function steerSession({ pathParams, body }: RouteHandlerArgs) {
+async function steerSession({ pathParams, body, abortSignal }: RouteHandlerArgs) {
   const id = pathParams?.id as string;
   const instruction = body?.instruction as string | undefined;
 
@@ -242,6 +241,45 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   // broadcastMessage plays the sender role spawnSession gives it, so
   // connected clients render the session.
   const manager = getAcpSessionManager();
+
+  // Resume re-spawns the host agent subprocess, so it crosses the same
+  // high-risk boundary as spawn and needs guardian approval (ATL-822). A
+  // steer of a session still active in memory only redirects an
+  // already-running, already-approved process, so it is left unprompted —
+  // matching "gate before spawning". A resume only happens when the id is
+  // absent from memory AND a resumable history row (non-null cwd) exists; in
+  // that case prompt before steerOrResume reaches resumeFromHistory.
+  if (!manager.getActiveAndPendingIds().includes(id)) {
+    const resumable = getDb()
+      .select({
+        cwd: acpSessionHistory.cwd,
+        agentId: acpSessionHistory.agentId,
+        parentConversationId: acpSessionHistory.parentConversationId,
+      })
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, id))
+      .get();
+    if (resumable?.cwd != null) {
+      const decision = await awaitRouteApproval({
+        toolName: "acp_steer",
+        input: {
+          acp_session_id: id,
+          instruction,
+          agent: resumable.agentId,
+          cwd: resumable.cwd,
+        },
+        conversationId: resumable.parentConversationId,
+        signal: abortSignal,
+      });
+      if (decision !== "allow") {
+        throw new ForbiddenError(
+          "Resuming an ACP coding agent requires guardian approval, which " +
+            "was not granted.",
+        );
+      }
+    }
+  }
+
   try {
     const { resumed } = await manager.steerOrResume(
       id,
