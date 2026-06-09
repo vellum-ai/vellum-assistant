@@ -511,15 +511,14 @@ export interface AgentLoopRunOptions {
    */
   isNonInteractive?: boolean;
   /**
-   * The `model_profile:` turn-context label resolved once by the orchestrator
-   * at turn start, or `null` when the active inference profile is unchanged
-   * since the last notified one. Forwarded to
-   * {@link postCompact} so post-compaction re-injection
-   * re-emits the turn-start value rather than re-deriving the change-detected
-   * label (which flips once the notification is persisted mid-turn). Defaults to
-   * `null` when omitted.
+   * The turn's resolved inference-profile key, or `null` when the active
+   * profile is unchanged since the last notified one. Forwarded to
+   * {@link postCompact}, which renders the `model_profile:` label from it so
+   * post-compaction re-injection re-emits the turn-start profile rather than
+   * re-deriving the change-detected value (which flips once the notification is
+   * persisted mid-turn). Defaults to `null` when omitted.
    */
-  modelProfile?: string | null;
+  modelProfileKey?: string | null;
   /**
    * Inbound actor identity and trust fields for the unified `<turn_context>`
    * block, or `null` on guardian turns. Resolved once by the orchestrator at
@@ -717,7 +716,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
     isNonInteractive: boolean,
-    modelProfile: string | null,
+    modelProfileKey: string | null,
     actorContext: InboundActorContext | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
@@ -775,9 +774,7 @@ export class AgentLoop {
       conversationId: this.conversationId,
       trust,
       isNonInteractive,
-      // Mid-loop re-injection always runs at full injection volume.
-      mode: "full",
-      modelProfile,
+      modelProfileKey,
       actorContext,
     };
     // The hook writes the re-injected history back onto the context; read it
@@ -800,7 +797,7 @@ export class AgentLoop {
       resolveContextWindow,
       compactInPlace = false,
       isNonInteractive = false,
-      modelProfile = null,
+      modelProfileKey = null,
       actorContext = null,
     } = options;
     let history = [...messages];
@@ -928,7 +925,7 @@ export class AgentLoop {
                   onEvent,
                   resolveEffectiveOverrideProfile() ?? null,
                   isNonInteractive,
-                  modelProfile,
+                  modelProfileKey,
                   actorContext,
                 );
                 if (compacted) {
