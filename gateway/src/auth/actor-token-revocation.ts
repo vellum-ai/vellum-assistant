@@ -74,6 +74,17 @@ function canonicalizeTokenForHash(rawToken: string): string {
 }
 
 /**
+ * Hash a caller-supplied actor token exactly as revocation lookups do.
+ *
+ * Use this for DB writes/reads that need to line up with
+ * `isActorTokenRevoked`, including token-mint paths that persist derived
+ * actor tokens for later device revocation.
+ */
+export function actorTokenRecordHash(rawToken: string): string {
+  return hashToken(canonicalizeTokenForHash(rawToken));
+}
+
+/**
  * True only when `rawToken` is an actor token with an explicitly revoked record.
  * Fail-open in every other case (non-actor, no record, DB error).
  */
@@ -86,7 +97,7 @@ export function isActorTokenRevoked(
     return false;
   }
 
-  const tokenHash = hashToken(canonicalizeTokenForHash(rawToken));
+  const tokenHash = actorTokenRecordHash(rawToken);
 
   try {
     const record = getGatewayDb()
