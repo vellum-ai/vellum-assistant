@@ -18,11 +18,11 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { haptic } from "@/utils/haptics";
-import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
+import { setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
     chooseSidebarOpenAppDestination,
@@ -33,11 +33,17 @@ import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
+import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
+import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+import {
+    navigateToConversation,
+    navigateToNewConversation,
+} from "@/domains/chat/utils/conversation-navigation";
+import { haptic } from "@/utils/haptics";
 import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
 import {
     useConversationGroupsQuery,
@@ -50,7 +56,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import type { Conversation } from "@/types/conversation-types";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { patchConversation } from "@/utils/conversation-cache";
 import { requestComposerFocus } from "./composer-focus";
 
@@ -61,7 +67,6 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ChatLayoutHeader } from "./chat-layout-header";
@@ -72,29 +77,17 @@ const CommandPalette = lazy(() =>
   })),
 );
 
-/**
- * LocalStorage key used to persist the collapsed state of the sidebar rail
- * across reloads.
- */
+import { getLocalBool, getLocalNumber } from "@/utils/local-settings";
+
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "vellum:sidebar:collapsed";
 export const SIDEBAR_WIDTH_STORAGE_KEY = "vellum:sidebar:width";
 const DEFAULT_SIDEBAR_WIDTH = 230;
-
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 400;
 
 export function readPersistedCollapsed(): boolean {
   return getLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, false);
 }
-
-const MIN_SIDEBAR_WIDTH = 220;
-const MAX_SIDEBAR_WIDTH = 400;
 
 export function readPersistedWidth(): number {
   const raw = getLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, DEFAULT_SIDEBAR_WIDTH);
@@ -102,40 +95,6 @@ export function readPersistedWidth(): number {
     return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, raw));
   }
   return DEFAULT_SIDEBAR_WIDTH;
-}
-
-export function shouldCloseDrawerOnViewportChange(isMobile: boolean): boolean {
-  return !isMobile;
-}
-
-/**
- * Returns `true` when the keyboard event matches Ctrl/Cmd + one of the given
- * keys and the active element is not an input surface.
- */
-export function shouldHandleShortcut(
-  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "key">,
-  activeElement: Element | null,
-  key: string | string[],
-): boolean {
-  const modifierPressed = event.metaKey || event.ctrlKey;
-  if (!modifierPressed) {
-    return false;
-  }
-  const keys = Array.isArray(key) ? key : [key];
-  if (!keys.includes(event.key)) {
-    return false;
-  }
-  if (!activeElement) {
-    return true;
-  }
-  const tag = activeElement.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-    return false;
-  }
-  if (activeElement.getAttribute("contenteditable") === "true") {
-    return false;
-  }
-  return true;
 }
 
 export type SideMenuVariant = "rail" | "overlay";
@@ -244,8 +203,9 @@ export function ChatLayout() {
   // and never set supplements, so they get an empty center as before.
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
-  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? <ChatConversationHeader /> : null);
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -269,12 +229,7 @@ export function ChatLayout() {
   const canGoForward = historyIndex < maxHistoryIndex;
 
   const handleStartNewConversation = useCallback(() => {
-    haptic.light();
-    useViewerStore.getState().setMainView("chat");
-    const draftConversationId = createDraftConversationId();
-    useConversationStore.getState().setActiveConversationId(draftConversationId);
-    void navigate(routes.conversation(draftConversationId));
-    requestComposerFocus();
+    navigateToNewConversation(navigate);
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -317,9 +272,7 @@ export function ChatLayout() {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    if (shouldCloseDrawerOnViewportChange(isMobile)) {
-      setDrawerOpen(false);
-    }
+    if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
 
   const drawerVisible = isMobile && drawerOpen;
@@ -333,123 +286,29 @@ export function ChatLayout() {
     }
   }, []);
 
-  // Ctrl/Cmd+\ shortcut to toggle sidebar
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, "\\")) {
-        return;
-      }
-      event.preventDefault();
-      toggleSidebar();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [toggleSidebar]);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  // Ctrl/Cmd+K shortcut for command palette
-  useEffect(() => {
-    const toggle = useCommandPaletteStore.getState().toggle;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
-      event.preventDefault();
-      toggle();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, []);
+  useChatLayoutShortcuts({
+    toggleSidebar,
+    onGoBack: handleGoBack,
+    onGoForward: handleGoForward,
+  });
 
-  // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, ["[", "]"])) {
-        return;
-      }
-      event.preventDefault();
-      if (event.key === "[") {
-        handleGoBack();
-      } else if (event.key === "]") {
-        handleGoForward();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [handleGoBack, handleGoForward]);
-
-  // Mobile drawer — focus trap, ESC to close, body-scroll-lock
-  const drawerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!drawerVisible) {
-      return;
-    }
-
-    drawerRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
-
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        drawerRef.current &&
-        !drawerRef.current.contains(document.activeElement)
-      ) {
-        return;
-      }
-
-      if (event.key === "Escape") {
-        setDrawerOpen(false);
-        return;
-      }
-      if (event.key !== "Tab" || !drawerRef.current) {
-        return;
-      }
-      const focusable =
-        drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) {
-        event.preventDefault();
-        return;
-      }
-      const active = document.activeElement as HTMLElement | null;
-      const isInDrawer = drawerRef.current.contains(active);
-
-      if (event.shiftKey) {
-        if (!isInDrawer || active === first) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else if (!isInDrawer || active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousBodyOverflow;
-    };
-  }, [drawerVisible]);
+  const drawerRef = useChatLayoutDrawer({
+    visible: drawerVisible,
+    onClose: closeDrawer,
+  });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
   const attentionConversationIds = useConversationStore.use.attentionConversationIds();
-  const setActiveConversationId = useConversationStore.use.setActiveConversationId();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
-      haptic.light();
-      useViewerStore.getState().setMainView("chat");
-      useSubagentStore.getState().reset();
-      setActiveConversationId(key);
-      navigate(routes.conversation(key));
+      navigateToConversation(navigate, key);
       setDrawerOpen(false);
     },
-    [setActiveConversationId, navigate],
+    [navigate],
   );
 
   // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
@@ -462,18 +321,9 @@ export function ChatLayout() {
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
-  // `useConversationActions.handleArchiveConversation` calls
-  // `startNewConversation({ silent: true })` when the active conversation
-  // is archived. Mirror the existing `handleStartNewConversation` shape but
-  // accept the silent opt so the haptic doesn't fire on a side-effect path.
   const startNewConversation = useCallback(
-    ({ silent }: { silent?: boolean } = {}) => {
-      if (!silent) haptic.light();
-      useViewerStore.getState().setMainView("chat");
-      const draftConversationId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftConversationId);
-      void navigate(routes.conversation(draftConversationId));
-      requestComposerFocus();
+    (opts?: { silent?: boolean }) => {
+      navigateToNewConversation(navigate, opts);
     },
     [navigate],
   );
@@ -497,6 +347,29 @@ export function ChatLayout() {
     startNewConversation,
     prePinGroupIdsRef,
   });
+
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
+    [conversations, activeConversationId],
+  );
+
+  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
+    <ChatConversationHeader
+      assistantId={assistantId}
+      activeConversation={activeConversation}
+      conversationGroups={conversationGroups}
+      headerSupplements={headerSupplements}
+      showLlmInspector={showLlmInspector}
+      onArchive={handleArchiveConversation}
+      onUnarchive={handleUnarchiveConversation}
+      onMarkUnread={handleMarkConversationUnread}
+      onMarkRead={handleMarkConversationRead}
+      onPinToggle={handleTogglePinConversation}
+      onMoveToGroup={handleMoveToGroup}
+      onRemoveFromGroup={handleRemoveFromGroup}
+      onRename={handleRenameConversation}
+    />
+  ) : null);
 
   // -------------------------------------------------------------------------
   // Command palette — sections, item dispatch
@@ -630,8 +503,6 @@ export function ChatLayout() {
   // transcript. The sidebar doesn't hold transcript state, so we navigate
   // with just the conversation path and let `InspectPage` resolve the
   // latest assistant message via `ResolveLatestMessage`.
-  const authUser = useAuthStore.use.user();
-  const showLlmInspector = canUseLlmInspector(authUser);
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       void navigate(routes.inspect(conversation.conversationId));
@@ -869,86 +740,47 @@ function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) 
 }
 
 // ---------------------------------------------------------------------------
-// ChatConversationHeader — self-contained header center content.
+// ChatConversationHeader — prop-driven header center content.
 //
 // Renders "New conversation" when no conversation is active, or the
 // ConversationActionsMenu dropdown with the conversation title trigger.
 //
-// Primary actions (archive, pin, rename, mark-read) come from
-// useConversationActions, which this component calls directly —
-// eliminating the duplicate call that previously lived in ChatPage.
-// Secondary actions (fork, analyze, inspect) come from the
-// headerSupplements that ChatPage writes to the slot store.
+// All data and action handlers are provided by the parent ChatLayout,
+// ensuring a single prePinGroupIdsRef and useConversationActions instance
+// is shared between the sidebar and the header.
 // ---------------------------------------------------------------------------
 
-function ChatConversationHeader() {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const activeConversationId = useConversationStore.use.activeConversationId();
-  const assistantState = useAssistantLifecycleStore.use.assistantState();
-  const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
-  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
-  const authUser = useAuthStore.use.user();
-  const showLlmInspector = canUseLlmInspector(authUser);
-  const navigate = useNavigate();
+interface ChatConversationHeaderProps {
+  assistantId: string | null;
+  activeConversation: Conversation | null;
+  conversationGroups: ConversationGroup[];
+  headerSupplements: ChatHeaderSupplements | null;
+  showLlmInspector: boolean;
+  onArchive: (c: Conversation) => void;
+  onUnarchive: (c: Conversation) => void;
+  onMarkUnread: (c: Conversation) => void;
+  onMarkRead: (c: Conversation) => void;
+  onPinToggle: (c: Conversation) => void;
+  onMoveToGroup: (c: Conversation, groupId: string) => void;
+  onRemoveFromGroup: (c: Conversation) => void;
+  onRename: (c: Conversation) => void;
+}
 
-  const shouldRenderChat =
-    assistantState.kind === "active" ||
-    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
-
-  const { conversations } = useConversationListQuery(assistantId, shouldRenderChat);
-  const { conversationGroups } = useConversationGroupsQuery(
-    assistantId,
-    shouldRenderChat && conversationGroupsUI,
-  );
-
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
-    [conversations, activeConversationId],
-  );
-
-  const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
-
-  const switchConversation = useCallback(
-    (key: string) => {
-      useSubagentStore.getState().reset();
-      void navigate(routes.conversation(key));
-    },
-    [navigate],
-  );
-
-  const startNewConversation = useCallback(
-    ({ silent }: { silent?: boolean } = {}) => {
-      if (!silent) haptic.light();
-      useViewerStore.getState().setMainView("chat");
-      useSubagentStore.getState().reset();
-      const draftId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftId);
-      void navigate(routes.conversation(draftId));
-      requestComposerFocus();
-    },
-    [navigate],
-  );
-
-  const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
-
-  const {
-    handleArchiveConversation,
-    handleUnarchiveConversation,
-    handleMarkConversationUnread,
-    handleMarkConversationRead,
-    handleTogglePinConversation,
-    handleMoveToGroup,
-    handleRemoveFromGroup,
-    handleRenameConversation,
-  } = useConversationActions({
-    assistantId,
-    activeConversationId,
-    conversations,
-    switchConversation,
-    startNewConversation,
-    prePinGroupIdsRef,
-  });
-
+function ChatConversationHeader({
+  assistantId,
+  activeConversation,
+  conversationGroups,
+  headerSupplements,
+  showLlmInspector,
+  onArchive,
+  onUnarchive,
+  onMarkUnread,
+  onMarkRead,
+  onPinToggle,
+  onMoveToGroup,
+  onRemoveFromGroup,
+  onRename,
+}: ChatConversationHeaderProps) {
   if (!activeConversation) {
     if (!assistantId) return null;
     return (
@@ -969,10 +801,10 @@ function ChatConversationHeader() {
       isPinned={isPinned}
       isArchived={isArchived}
       isReadonly={isReadonly}
-      onPinToggle={() => handleTogglePinConversation(activeConversation)}
-      onRename={() => handleRenameConversation(activeConversation)}
-      onArchive={() => handleArchiveConversation(activeConversation)}
-      onUnarchive={() => handleUnarchiveConversation(activeConversation)}
+      onPinToggle={() => onPinToggle(activeConversation)}
+      onRename={() => onRename(activeConversation)}
+      onArchive={() => onArchive(activeConversation)}
+      onUnarchive={() => onUnarchive(activeConversation)}
       onAnalyze={
         !isReadonly && headerSupplements?.onAnalyze && activeConversation.conversationId
           ? () => headerSupplements.onAnalyze!(activeConversation)
@@ -1000,20 +832,20 @@ function ChatConversationHeader() {
           : undefined
       }
       moveToGroups={moveToGroups}
-      onMoveToGroup={(groupId) => handleMoveToGroup(activeConversation, groupId)}
+      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
       onRemoveFromGroup={
         activeConversation.groupId && !activeConversation.groupId.startsWith("system:")
-          ? () => handleRemoveFromGroup(activeConversation)
+          ? () => onRemoveFromGroup(activeConversation)
           : undefined
       }
       onMarkUnread={
         !isReadonly && activeConversation.hasUnseenLatestAssistantMessage === false
-          ? () => handleMarkConversationUnread(activeConversation)
+          ? () => onMarkUnread(activeConversation)
           : undefined
       }
       onMarkRead={
         activeConversation.hasUnseenLatestAssistantMessage
-          ? () => handleMarkConversationRead(activeConversation)
+          ? () => onMarkRead(activeConversation)
           : undefined
       }
       side="bottom"
