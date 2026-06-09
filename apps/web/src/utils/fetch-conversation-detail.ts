@@ -56,9 +56,10 @@ export async function fetchConversationDetail(
     throw new ApiError(response.status, msg);
   }
   if (!data?.conversation) {
+    const bodyPreview = JSON.stringify(data).slice(0, 200);
     throw new ApiError(
       response.status,
-      "Conversation detail payload was malformed.",
+      `Conversation detail payload was malformed (status=${response.status}, body=${bodyPreview}).`,
     );
   }
   return detailToConversation(data.conversation);
