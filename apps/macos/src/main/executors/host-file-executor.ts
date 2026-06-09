@@ -78,6 +78,24 @@ function validateContentSize(content: string, filePath: string): { ok: true } | 
   return { ok: true };
 }
 
+function resolveSymlinkChain(startPath: string): string {
+  let current = startPath;
+  const seen = new Set<string>();
+  for (;;) {
+    if (seen.has(current)) return current;
+    seen.add(current);
+    let st: Stats;
+    try {
+      st = fs.lstatSync(current);
+    } catch {
+      return current;
+    }
+    if (!st.isSymbolicLink()) return current;
+    const target = fs.readlinkSync(current);
+    current = path.isAbsolute(target) ? target : path.resolve(path.dirname(current), target);
+  }
+}
+
 function validateWriteTarget(filePath: string): { ok: true } | { ok: false; content: string; isError: true } {
   let lstat: Stats;
   try {
@@ -87,8 +105,7 @@ function validateWriteTarget(filePath: string): { ok: true } | { ok: false; cont
   }
 
   if (lstat.isSymbolicLink()) {
-    const target = fs.readlinkSync(filePath);
-    const resolved = path.isAbsolute(target) ? target : path.resolve(path.dirname(filePath), target);
+    const resolved = resolveSymlinkChain(filePath);
     if (DENIED_BASENAMES.has(path.basename(resolved))) {
       return { content: `Access to "${path.basename(resolved)}" is denied`, isError: true, ok: false };
     }
