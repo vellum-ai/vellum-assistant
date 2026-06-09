@@ -498,16 +498,13 @@ struct SettingsGeneralTab: View {
 
     // MARK: - Danger Zone
 
-    /// Whether to render the Danger Zone (account deletion) section. Gated on
-    /// both the client-side `account-deletion` feature flag (mirroring the
-    /// server-side LaunchDarkly flag in `vellum-assistant-platform`) and a
+    /// Whether to render the Danger Zone (account deletion) section. Requires a
     /// signed-in session — without a `currentUser`, the POST would fail with
     /// notAuthenticated, so we don't expose the destructive button.
     nonisolated static func shouldShowDangerZone(
-        flagManager: MacOSClientFeatureFlagManager = .shared,
         isAuthenticated: Bool
     ) -> Bool {
-        flagManager.isEnabled("account-deletion") && isAuthenticated
+        isAuthenticated
     }
 
     private var dangerZoneSection: some View {
