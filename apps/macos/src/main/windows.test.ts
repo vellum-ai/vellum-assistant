@@ -15,6 +15,7 @@ let constructed: CapturedWindow[] = [];
 // the `devTools` gate, mirroring how the real `app.isPackaged` differs between
 // a dev run and a shipped build.
 const appState = { isPackaged: false };
+const DEBUG_DEVTOOLS_DEFINE = "__VELLUM_ENABLE_CHROME_DEVTOOLS__";
 
 mock.module("electron", () => ({
   app: appState,
@@ -49,6 +50,7 @@ const { createWindow, hardenedWebPreferences } = await import("./windows");
 beforeEach(() => {
   constructed = [];
   appState.isPackaged = false;
+  delete (globalThis as Record<string, unknown>)[DEBUG_DEVTOOLS_DEFINE];
 });
 
 describe("hardenedWebPreferences", () => {
@@ -72,6 +74,12 @@ describe("hardenedWebPreferences", () => {
     expect(hardenedWebPreferences().devTools).toBe(true);
     appState.isPackaged = true;
     expect(hardenedWebPreferences().devTools).toBe(false);
+  });
+
+  test("enables devTools in a packaged debug build", () => {
+    appState.isPackaged = true;
+    (globalThis as Record<string, unknown>)[DEBUG_DEVTOOLS_DEFINE] = true;
+    expect(hardenedWebPreferences().devTools).toBe(true);
   });
 });
 

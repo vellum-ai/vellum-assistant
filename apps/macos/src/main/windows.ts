@@ -6,6 +6,8 @@ import {
 } from "electron";
 import path from "node:path";
 
+import { areChromeDevToolsEnabled } from "./devtools";
+
 const preloadPath = (): string => path.join(__dirname, "../preload/index.js");
 
 /**
@@ -19,8 +21,9 @@ const preloadPath = (): string => path.join(__dirname, "../preload/index.js");
  * - `webSecurity` + `allowRunningInsecureContent:false` keep the same-origin
  *   policy enforced and block mixed (http-in-https) content.
  * - `experimentalFeatures:false` keeps unstable web-platform features off.
- * - `devTools` is enabled only in development; a packaged build ships with it
- *   disabled so the renderer can't be inspected on an end user's machine.
+ * - `devTools` is enabled only in development and explicit debug packages; a
+ *   normal packaged build ships with it disabled so the renderer can't be
+ *   inspected on an end user's machine.
  *
  * `preload` is deliberately excluded: it is role-specific (app windows load the
  * Vellum bridge, OAuth popups intentionally run without it), so each caller
@@ -34,7 +37,7 @@ export const hardenedWebPreferences = (): WebPreferences => ({
   webSecurity: true,
   allowRunningInsecureContent: false,
   experimentalFeatures: false,
-  devTools: !app.isPackaged,
+  devTools: areChromeDevToolsEnabled(),
 });
 
 /**
