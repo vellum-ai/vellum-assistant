@@ -598,7 +598,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
 async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
   if (!arePlatformFeaturesEnabled()) {
     log.debug(
-      "platform-features-in-local-mode is disabled — skipping platform owner display name fetch",
+      "Platform features disabled — skipping platform owner display name fetch",
     );
     return null;
   }

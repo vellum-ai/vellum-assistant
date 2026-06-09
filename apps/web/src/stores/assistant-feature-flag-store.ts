@@ -113,9 +113,6 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         }),
 
       setFlag: (key: string, value: boolean, assistantId: string | null) => {
-        // Fire the PATCH before updating local state: the platform-features
-        // interceptor reads this store synchronously, so toggling
-        // platformFeaturesInLocalMode OFF would block its own request.
         const requestId = ++nextFlagRequestId;
         const revertIfLatestRejectedRequest = () => {
           if (pendingFlagRequestIds[key] !== requestId) {
