@@ -267,9 +267,6 @@ export interface VellumBridge {
     insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
     openAutomationSettings(): Promise<void>;
   };
-  csrf: {
-    getToken(): string | null;
-  };
   auth: {
     startOAuth(options: {
       providerHint?: string;
@@ -594,10 +591,6 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:text:openAutomationSettings",
       ) as Promise<void>,
-  },
-  csrf: {
-    getToken: (): string | null =>
-      ipcRenderer.sendSync("vellum:csrf:getToken") as string | null,
   },
   auth: {
     startOAuth: (options: {
