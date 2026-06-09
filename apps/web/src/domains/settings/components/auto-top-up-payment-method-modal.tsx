@@ -1,4 +1,5 @@
 import {
+    AddressElement,
     Elements,
     PaymentElement,
     useElements,
@@ -54,8 +55,9 @@ export interface AutoTopUpPaymentMethodModalProps {
 
 /**
  * Modal that bootstraps a Stripe SetupIntent (via the heyapi mutation) and
- * mounts `<PaymentElement />` inside `<Elements>` so the user can save a
- * card on the org's Stripe customer to use for auto-top-up off-session
+ * mounts `<PaymentElement />` plus a billing-mode `<AddressElement />`
+ * inside `<Elements>` so the user can save a card — with a billing address
+ * for tax — on the org's Stripe customer to use for auto-top-up off-session
  * charges. The card is tagged via SetupIntent metadata so the webhook can
  * persist it onto AutoTopUpConfig. There is no separate auto-top-up Stripe
  * customer — auto-top-up uses the org's single Stripe customer (the same
@@ -211,10 +213,12 @@ function SetupCardForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elementReady, setElementReady] = useState(false);
+  const [addressElementReady, setAddressElementReady] = useState(false);
+  const ready = elementReady && addressElementReady;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!stripe || !elements || !elementReady) return;
+    if (!stripe || !elements || !ready) return;
 
     setSubmitting(true);
     setError(null);
@@ -249,6 +253,28 @@ function SetupCardForm({
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
           paymentMethodOrder: ["card", "us_bank_account"],
+          // The Address Element below owns the billing address (so the saved
+          // PM carries billing_details.address for tax); suppress the Payment
+          // Element's own address inputs to avoid a duplicate postal-code
+          // field. Name/email stay with the Payment Element where the chosen
+          // payment method needs them.
+          fields: { billingDetails: { address: "never" } },
+        }}
+      />
+      {/*
+        Billing address for tax: mounted in the same <Elements> group, the
+        Address Element's value is attached to the PaymentMethod's
+        billing_details automatically by `stripe.confirmSetup({ elements })` —
+        no manual plumbing. The Django webhook seeds `customer.address` from
+        it.
+      */}
+      <AddressElement
+        onReady={() => setAddressElementReady(true)}
+        options={{
+          mode: "billing",
+          // Full billing address is fine and more tax-complete, but country +
+          // postal code are the load-bearing fields the Django side requires.
+          fields: { phone: "never" },
         }}
       />
       {error && (
@@ -272,7 +298,8 @@ function SetupCardForm({
         <Button
           variant="primary"
           type="submit"
-          disabled={submitting || !stripe || !elements || !elementReady}
+          data-testid="auto-top-up-pm-save-button"
+          disabled={submitting || !stripe || !elements || !ready}
           leftIcon={submitting ? <Loader2 className="animate-spin" /> : undefined}
         >
           Save
