@@ -3,12 +3,15 @@
  * telemetry projection chain. Inserts raw audit rows (with PII-sentinel
  * input/result payloads) plus the FK-required conversation row.
  *
- * No source-module imports: per the test-machinery isolation rule
- * (`assistant/AGENTS.md`), shared test helpers must not reach into
- * `src/`. Callers pass in the real `getDb()` handle and schema table
- * refs; the structural types below describe only the slice this helper
- * uses.
+ * Zero runtime imports: per the test-machinery isolation rule
+ * (`assistant/AGENTS.md`), shared test helpers must not pull in source
+ * modules' import-time side effects. Production types are referenced via
+ * `import type` only (erased at compile time); callers pass in the real
+ * `getDb()` handle and schema table refs.
  */
+
+import type { DrizzleDb } from "../db-connection.js";
+import type { conversations, toolInvocations } from "../schema.js";
 
 /**
  * Sentinel embedded in the seeded raw input/result payloads. Assert it
@@ -16,20 +19,10 @@
  */
 export const TOOL_INVOCATION_PII_SENTINEL = "must never leave the device";
 
-interface SeedStatement {
-  run(): unknown;
-}
-
 export interface ToolInvocationSeedDeps {
-  db: {
-    insert(table: unknown): {
-      values(row: Record<string, unknown>): SeedStatement & {
-        onConflictDoNothing(): SeedStatement;
-      };
-    };
-  };
-  conversations: unknown;
-  toolInvocations: unknown;
+  db: DrizzleDb;
+  conversations: typeof conversations;
+  toolInvocations: typeof toolInvocations;
 }
 
 export interface SeedToolInvocationSpec {
