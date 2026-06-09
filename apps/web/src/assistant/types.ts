@@ -17,5 +17,5 @@ export type AssistantState =
   | { kind: "initializing" }
   | { kind: "cleaning_up" }
   | { kind: "self_hosted" }
-  | { kind: "active"; isLocal: boolean; maintenanceMode?: MaintenanceModeInfo }
+  | { kind: "active"; isLocal: boolean; maintenanceMode?: MaintenanceModeInfo; reachable?: boolean }
   | { kind: "error"; message: string };
