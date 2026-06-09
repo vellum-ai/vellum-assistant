@@ -6,9 +6,10 @@
  * memory-v2 static block, workspace top-level context, and Slack chronological
  * snapshot — onto the compacted history before the turn continues. This hook
  * is the memory system's home for that transform: it receives the message
- * history plus the resolved runtime-injection options and returns the edited
- * history (and the blocks it captured), with no dependency on the agent loop's
- * closure state.
+ * history plus the resolved runtime-injection options on a single context,
+ * writes the edited history back onto that context, and has no dependency on
+ * the agent loop's closure state. The injection blocks the transform captures
+ * are not needed by the re-injection caller, so only the messages propagate.
  *
  * It re-applies the runtime injections via {@link applyRuntimeInjections} and
  * re-tracks the memory graph's cached nodes against the re-injected history.
@@ -22,11 +23,12 @@
  * something the generic loop should carry.
  */
 
+import type { PluginHookFn } from "@vellumai/plugin-api";
+
 import {
   applyRuntimeInjections,
   type InboundActorContext,
   type InjectionMode,
-  type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import {
   resolveTrustClass,
@@ -50,7 +52,11 @@ import type { Message } from "../../../../providers/types.js";
  * {@link getLiveGraphMemory} rather than threaded in.
  */
 export interface PostCompactContext {
-  /** Compacted message history to re-inject onto. */
+  /**
+   * Compacted message history to re-inject onto. The hook writes the
+   * re-injected result back onto this field once the transform settles, and
+   * the loop reads it from there.
+   */
   history: Message[];
   /**
    * Stable ID for the current request, forwarded onto the injector turn
@@ -107,9 +113,7 @@ export interface PostCompactContext {
   actorContext: InboundActorContext | null;
 }
 
-export default async function postCompact(
-  ctx: PostCompactContext,
-): Promise<RuntimeInjectionResult> {
+const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
   const { history, requestId, conversationId, trust, ...options } = ctx;
   // The remaining `options` carry the non-identity injection inputs
   // (`isNonInteractive`, `mode`, `modelProfile`, `actorContext`). Forward the
@@ -123,6 +127,9 @@ export default async function postCompact(
     conversationId,
     trust,
   });
+  // Write the re-injected history back onto the threaded context; the loop
+  // reads it from there once the hook settles.
+  ctx.history = result.messages;
   // Re-track the nodes the memory graph last injected so they survive against
   // the re-injected history. Untrusted actors and minimal-mode turns never
   // received a memory-graph injection, so there is nothing to re-track. The
@@ -135,5 +142,6 @@ export default async function postCompact(
   if (isTrustedActor && options.mode !== "minimal") {
     getLiveGraphMemory(conversationId)?.retrackCachedNodes();
   }
-  return result;
-}
+};
+
+export default postCompact;
