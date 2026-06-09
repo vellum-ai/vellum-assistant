@@ -6,15 +6,6 @@
  * (real Stripe Elements need a live iframe) and mock the generated SDK's
  * SetupIntent create so the modal mounts the form synchronously without
  * network.
- *
- * Coverage:
- *  - a billing-mode AddressElement renders alongside the PaymentElement,
- *    with the PaymentElement's own name and address fields suppressed,
- *  - the Save button stays disabled until BOTH elements report `onReady`,
- *  - an element load failure surfaces an error instead of leaving Save
- *    silently disabled,
- *  - submitting calls `stripe.confirmSetup` with `elements` and
- *    `redirect: "if_required"`.
  */
 
 import {
@@ -56,7 +47,7 @@ mock.module("@stripe/react-stripe-js", () => ({
   Elements: ({ children }: { children: ReactNode }) => children,
   PaymentElement: (props: ElementProps) => {
     paymentElementProps = props;
-    return <div data-testid="stripe-payment-element" />;
+    return <div />;
   },
   AddressElement: (props: ElementProps) => {
     addressElementProps = props;
