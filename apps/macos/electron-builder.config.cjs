@@ -13,10 +13,10 @@ const appId =
     ? "com.vellum.vellum-assistant-electron"
     : `com.vellum.vellum-assistant-electron-${env}`;
 
-const schemes = ["vellum", "vellum-assistant"];
-if (env !== "production") {
-  schemes.push(`vellum-assistant-${env}`);
-}
+const schemes =
+  env === "production"
+    ? ["vellum", "vellum-assistant"]
+    : [`vellum-assistant-${env}`];
 
 const channel =
   env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
