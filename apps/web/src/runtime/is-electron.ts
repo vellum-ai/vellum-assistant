@@ -254,9 +254,6 @@ declare global {
         insertIntoFrontApp(text: string): Promise<ElectronTextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
-      csrf?: {
-        getToken(): string | null;
-      };
       // Optional: an older preload predates the hotkeys/featureFlags channels.
       // The macOS app and web bundle don't release together, so a newer
       // renderer can run against an older preload; callers must guard on
