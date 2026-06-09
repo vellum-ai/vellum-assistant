@@ -12,7 +12,6 @@ import {
 import {
     buildInspectorExportFilename,
     buildInspectorExportZipBlob,
-    downloadBlob,
 } from "@/domains/chat/inspector/inspector-export";
 import {
     llmLogPayloadQueryOptions,
@@ -20,6 +19,7 @@ import {
 } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
+import { downloadBlob } from "@/utils/download-blob";
 import { routes } from "@/utils/routes";
 import type {
   ConversationContentBlock,
