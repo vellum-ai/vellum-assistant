@@ -115,7 +115,9 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
     canPollOperationalStatus(assistantState);
 
   return useQuery({
-    queryKey: ["assistant-operational-status", assistantId],
+    // Keep disabled observers off the assistant-specific cache entry so
+    // stale unhealthy status cannot render after eligibility flips false.
+    queryKey: ["assistant-operational-status", enabled ? assistantId : null],
     queryFn: () => fetchAssistantOperationalStatus(assistantId!),
     enabled,
     retry: false,
