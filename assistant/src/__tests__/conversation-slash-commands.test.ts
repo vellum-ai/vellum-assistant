@@ -261,8 +261,10 @@ describe("resolveSlash /model — inference profile switcher", () => {
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("expected unknown kind");
     expect(result.message).toContain("Inference profiles:");
+    // The stale entry's "Balanced" label is a seed artifact, not an
+    // override, so the BYOK " (Managed)" default applies.
     expect(result.message).toContain(
-      "`balanced` (Balanced) **[current]** — Good balance of quality, cost, and speed",
+      "`balanced` (Balanced (Managed)) **[current]** — Good balance of quality, cost, and speed",
     );
     expect(result.message).toContain(
       "`cost-optimized` (Cost-optimized) — Fastest responses at lower cost",
@@ -321,7 +323,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
     const result = await resolveSlash("/model balanced");
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("expected unknown kind");
-    expect(result.message).toBe("Already using profile `balanced` (Balanced).");
+    expect(result.message).toBe(
+      "Already using profile `balanced` (Balanced (Managed)).",
+    );
   });
 
   test("`/model` with no profiles in raw config still lists the built-ins", async () => {

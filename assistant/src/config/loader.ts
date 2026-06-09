@@ -21,6 +21,7 @@ import {
 import {
   AUTO_PROFILE_KEY,
   type BuiltinProfileOverride,
+  isSeedDefaultBuiltinLabel,
   MANAGED_PROFILE_NAMES,
   resolveBuiltinProfiles,
 } from "./builtin-inference-profiles.js";
@@ -370,12 +371,15 @@ function deleteNestedKey(
  * - Template fields (provider/model/maxTokens/…) are always authoritative;
  *   user-ownable facets are `label` and `status` only.
  * - `llm.profileOverrides[name]` is the canonical override store.
- * - **Transition-state compatibility**: while the boot seeder still
- *   materializes full built-in entries into `config.json` (and for
- *   pre-migration installs that already carry them, including drifted
- *   shadow entries the assistant wrote on-platform), the materialized
- *   entry's `label`/`status` are honored as *lower*-precedence overrides
- *   (key-presence semantics) and every other field is discarded.
+ * - **Transition-state compatibility**: pre-migration installs still carry
+ *   full materialized built-in entries in `config.json` (including drifted
+ *   shadow entries the assistant wrote on-platform). Such an entry's
+ *   `label`/`status` are honored as *lower*-precedence overrides
+ *   (key-presence semantics) and every other field is discarded. A stale
+ *   label equal to a seed default (the bare template label or its BYOK
+ *   `" (Managed)"` form) is a seeder artifact, not user intent, and is not
+ *   lifted — the resolve-time default supplies the platform-appropriate
+ *   label instead.
  * - Built-in names are spliced into `llm.profileOrder` exactly as the
  *   seeder does (auto prepended if missing, managed names appended if
  *   missing); flag-disabled built-ins are removed from the in-memory order
@@ -395,6 +399,16 @@ export function applyBuiltinProfiles(raw: Record<string, unknown>): void {
     const entry: BuiltinProfileOverride = {};
     // Lower precedence: label/status carried on a still-materialized entry.
     collectBuiltinOverrideFields(profiles[name], entry);
+    // A stale label equal to a seed default is a seeder artifact, not user
+    // intent — drop it so the resolve-time default supplies the
+    // platform-appropriate label. Explicit `null` (cleared) and any other
+    // string remain honored.
+    if (
+      typeof entry.label === "string" &&
+      isSeedDefaultBuiltinLabel(name, entry.label)
+    ) {
+      delete entry.label;
+    }
     // Higher precedence: the sparse override store.
     collectBuiltinOverrideFields(profileOverrides[name], entry);
     if ("label" in entry || "status" in entry) overrides[name] = entry;
@@ -699,13 +713,35 @@ export type DefaultWorkspaceConfigMergeResult = {
   hadOverlay: boolean;
   providedLlmProfileNames: Set<string>;
   providedLlmActiveProfile: boolean;
+  /**
+   * Built-in profile names whose overlay entry carried provider-routing
+   * fields (`provider`, `model`, `provider_connection`, `mix`) that the
+   * conversion to `llm.profileOverrides` dropped. The overlay intended these
+   * names to route somewhere other than the code-defined template, so the
+   * seeder must not treat an `activeProfile` naming one of them as a genuine
+   * selection of the managed built-in.
+   */
+  builtinProfilesWithDroppedProviderConfig: Set<string>;
 };
+
+/**
+ * Provider-routing fields on an overlay profile entry. When one of these is
+ * dropped from a built-in-name entry, the overlay's routing intent for that
+ * profile is lost — tracked via `builtinProfilesWithDroppedProviderConfig`.
+ */
+const PROVIDER_ROUTING_PROFILE_KEYS = new Set([
+  "provider",
+  "model",
+  "provider_connection",
+  "mix",
+]);
 
 function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
   return {
     hadOverlay: false,
     providedLlmProfileNames: new Set(),
     providedLlmActiveProfile: false,
+    builtinProfilesWithDroppedProviderConfig: new Set(),
   };
 }
 
@@ -748,6 +784,53 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     (defaults as Record<string, unknown>).llm,
   );
   const providedProfiles = readPlainObject(llmDefaults?.profiles);
+
+  // Overlay entries for built-in profile names are converted to sparse
+  // `llm.profileOverrides` entries (label/status only) — built-in profile
+  // config is code-defined and never materialized into `llm.profiles` on
+  // disk. Non-override fields are dropped with a warning. The converted
+  // names are excluded from `providedLlmProfileNames` so the seeder treats
+  // only custom overlay names as overlay-owned.
+  const convertedBuiltinNames = new Set<string>();
+  const builtinProfilesWithDroppedProviderConfig = new Set<string>();
+  if (llmDefaults && providedProfiles) {
+    for (const name of Object.keys(providedProfiles)) {
+      if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+      convertedBuiltinNames.add(name);
+      const entry = readPlainObject(providedProfiles[name]);
+      delete providedProfiles[name];
+      if (!entry) continue;
+
+      const override: BuiltinProfileOverride = {};
+      collectBuiltinOverrideFields(entry, override);
+      const droppedKeys = Object.keys(entry).filter(
+        (key) => !(key in override),
+      );
+      if (droppedKeys.length > 0) {
+        log.warn(
+          { profile: name, droppedKeys },
+          "Default workspace config supplied non-override fields for built-in profile %s; dropping them (built-in profile config is code-defined)",
+          name,
+        );
+        if (droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))) {
+          builtinProfilesWithDroppedProviderConfig.add(name);
+        }
+      }
+      if (Object.keys(override).length > 0) {
+        const overridesStore = ensurePlainObjectAt(
+          llmDefaults,
+          "profileOverrides",
+        );
+        // An explicit `llm.profileOverrides.<name>` entry in the overlay is
+        // the canonical representation and wins over fields lifted from the
+        // legacy `llm.profiles.<name>` fragment; lifted fields only fill
+        // keys the explicit override does not set.
+        const existing = readPlainObject(overridesStore[name]);
+        overridesStore[name] = { ...override, ...existing };
+      }
+    }
+  }
+
   const mergeResult: DefaultWorkspaceConfigMergeResult = {
     hadOverlay: true,
     providedLlmProfileNames: new Set(
@@ -756,6 +839,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     providedLlmActiveProfile:
       llmDefaults != null &&
       Object.prototype.hasOwnProperty.call(llmDefaults, "activeProfile"),
+    builtinProfilesWithDroppedProviderConfig,
   };
 
   const configPath = getConfigPath();
@@ -770,14 +854,21 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     }
   }
 
-  if (mergeResult.providedLlmProfileNames.size > 0) {
+  const overlayProfileNames = new Set([
+    ...mergeResult.providedLlmProfileNames,
+    ...convertedBuiltinNames,
+  ]);
+  if (overlayProfileNames.size > 0) {
     // Default-config profile entries are authoritative fragments. Remove any
     // old same-name profile first so recursive merge does not leave stale
-    // provider-specific leaves behind.
+    // provider-specific leaves behind. Converted built-in names are removed
+    // too: the overlay owns the profile, and its entry now lives in
+    // `llm.profileOverrides` rather than `llm.profiles`, so a stale
+    // materialized entry must not survive as a shadow.
     const existingLlm = readPlainObject(existing.llm);
     const existingProfiles = readPlainObject(existingLlm?.profiles);
     if (existingProfiles) {
-      for (const name of mergeResult.providedLlmProfileNames) {
+      for (const name of overlayProfileNames) {
         delete existingProfiles[name];
       }
     }
