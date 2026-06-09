@@ -786,6 +786,82 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("rehydration order matches live assembly when memoryV2StaticBlock and memoryV3InjectedBlock co-occur", async () => {
+    // First-turn and first-post-compaction rows of a memory-v3-live
+    // conversation persist BOTH `memoryV2StaticBlock` and the v3 card block.
+    // Live assembly applies after-memory-prefix splices in ascending
+    // injector order (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+    // now-md 40, memory-v3-shadow 1000); each splice lands at the
+    // memory-prefix boundary (`countMemoryPrefixBlocks` counts `<memory>`
+    // AND `<info>` blocks), so the v3 block — spliced last and itself
+    // `<memory>`-wrapped — lands AFTER the `<info>` static block but before
+    // now-md's earlier splice:
+    //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
+    //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+    //    <system_reminder>, <knowledge_base>, ...original]
+    // Rehydration must reproduce this byte-for-byte or every daemon restart
+    // busts the provider prefix cache for the whole conversation history.
+    // (`memoryInjectedBlock` and the v3 key are mutually exclusive on real
+    // rows; both are included here to pin the relative order of all splices.)
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
+          turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder body\n</system_reminder>",
+          pkbContextBlock: "<knowledge_base>\nkb body\n</knowledge_base>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<workspace>\nworkspace body\n</workspace>" },
+      { type: "text", text: "<turn_context>\nctx payload\n</turn_context>" },
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      },
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb reminder body\n</system_reminder>",
+      },
+      { type: "text", text: "<knowledge_base>\nkb body\n</knowledge_base>" },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
   test("untrusted-actor view does not rehydrate memoryV2StaticBlock", async () => {
     mockConversation = defaultConv();
     // Rows with `trusted_contact` / `unknown` provenance survive the
