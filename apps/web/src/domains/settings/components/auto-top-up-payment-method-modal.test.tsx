@@ -1,25 +1,20 @@
 /**
  * Tests for the billing-address collection in `AutoTopUpPaymentMethodModal`
- * (auto-topup-billing-address plan, PR 1): the saved PaymentMethod must carry
- * `billing_details.address` so the Django webhook can seed `customer.address`
- * for tax.
+ * (auto-topup-billing-address plan, PR 1).
  *
  * Strategy: mock `@stripe/react-stripe-js` with prop-capturing stand-ins
  * (real Stripe Elements need a live iframe) and mock the generated SDK's
  * SetupIntent create so the modal mounts the form synchronously without
- * network. `STRIPE_PK` is read from `import.meta.env` at module load, so the
- * publishable key is set before the modal module is imported.
+ * network.
  *
  * Coverage:
- *  - a billing-mode AddressElement renders alongside the PaymentElement once
- *    the SetupIntent `client_secret` is loaded, and the PaymentElement's own
- *    name and address fields are suppressed (the billing AddressElement
- *    always collects a name; no duplicate "Full name" or postal-code input),
+ *  - a billing-mode AddressElement renders alongside the PaymentElement,
+ *    with the PaymentElement's own name and address fields suppressed,
  *  - the Save button stays disabled until BOTH elements report `onReady`,
  *  - an element load failure surfaces an error instead of leaving Save
  *    silently disabled,
  *  - submitting calls `stripe.confirmSetup` with `elements` and
- *    `redirect: "if_required"` (no manual billing_details plumbing).
+ *    `redirect: "if_required"`.
  */
 
 import {
@@ -135,6 +130,11 @@ function fireOnReady(props: ElementProps | null): void {
   act(() => props.onReady!());
 }
 
+function fireOnLoadError(props: ElementProps | null): void {
+  if (!props?.onLoadError) throw new Error("expected an onLoadError handler");
+  act(() => props.onLoadError!());
+}
+
 beforeEach(() => {
   paymentElementProps = null;
   addressElementProps = null;
@@ -152,9 +152,6 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
     await renderModalWithForm();
 
     expect(addressElementProps?.options?.mode).toBe("billing");
-    // The Payment Element's own name and address fields are suppressed, so
-    // the user never sees two "Full name" or postal-code inputs (a billing
-    // AddressElement always collects a name).
     expect(paymentElementProps?.options?.fields).toEqual({
       billingDetails: { name: "never", address: "never" },
     });
@@ -178,14 +175,15 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
   test("surfaces an error when an element fails to load", async () => {
     const { getByTestId } = await renderModalWithForm();
 
-    const onLoadError = paymentElementProps?.onLoadError;
-    if (!onLoadError) throw new Error("expected an onLoadError handler");
-    act(() => onLoadError());
-
+    fireOnLoadError(paymentElementProps);
     expect(
       getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
-    ).toContain("Failed to load");
-    expect(addressElementProps?.onLoadError).toBeDefined();
+    ).toContain("Failed to load the payment form");
+
+    fireOnLoadError(addressElementProps);
+    expect(
+      getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
+    ).toContain("Failed to load the billing address form");
   });
 
   test("submitting calls stripe.confirmSetup with elements and redirect: 'if_required'", async () => {
@@ -202,8 +200,7 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
     });
     expect(confirmSetupCalls).toHaveLength(1);
     const call = confirmSetupCalls[0]!;
-    // The Address Element's value flows through `elements` automatically —
-    // there must be no manual payment_method_data.billing_details plumbing.
+    // Address value flows via `elements`; no manual billing_details plumbing.
     expect(call.elements).toBe(fakeElements);
     expect(call.redirect).toBe("if_required");
     expect(

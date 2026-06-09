@@ -251,7 +251,9 @@ function SetupCardForm({
       <PaymentElement
         onReady={() => setElementReady(true)}
         onLoadError={() =>
-          setError("Failed to load the payment form. Please try again.")
+          setError(
+            "Failed to load the payment form. Please close and reopen this dialog.",
+          )
         }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
@@ -275,7 +277,9 @@ function SetupCardForm({
       <AddressElement
         onReady={() => setAddressElementReady(true)}
         onLoadError={() =>
-          setError("Failed to load the billing address form. Please try again.")
+          setError(
+            "Failed to load the billing address form. Please close and reopen this dialog.",
+          )
         }
         options={{
           mode: "billing",
