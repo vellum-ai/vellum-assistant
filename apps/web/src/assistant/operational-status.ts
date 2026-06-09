@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { client } from "@/generated/api/client.gen";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
   ApiError,
@@ -105,10 +106,12 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
   const platformHostedGate = usePlatformGate({ platformHostedOnly: true });
   const platformApiGate = usePlatformGate();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
+  const isOrgReady = useIsOrgReady();
   const enabled =
     Boolean(assistantId) &&
     platformHostedGate === "full" &&
     platformApiGate === "full" &&
+    isOrgReady &&
     canPollOperationalStatus(assistantState);
 
   return useQuery({
