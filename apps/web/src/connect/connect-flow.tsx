@@ -1,11 +1,12 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Send, Smartphone } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, Send, Smartphone } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import { defaultManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
@@ -105,10 +106,14 @@ function surfaceForTool(tool: Tool): Surface {
 // Conversation entries
 // ---------------------------------------------------------------------------
 
+type ConnectStatus = "connecting" | "connected" | "skipped";
+
 type Entry =
   | { id: string; kind: "msg"; message: DisplayMessage; turnStart?: boolean }
   | { id: string; kind: "tools"; resolved: boolean }
-  | { id: string; kind: "connect"; tools: Tool[]; connected: Record<string, boolean> }
+  // `auto` (single selection) drives the real OAuth popup itself; otherwise the
+  // user connects each via the real OAuthConnectSurface card.
+  | { id: string; kind: "connect"; auto: boolean; tools: Tool[]; status: Record<string, ConnectStatus> }
   | { id: string; kind: "take"; resolved: boolean; pickedId: string | null }
   | { id: string; kind: "close" };
 
@@ -169,16 +174,16 @@ const tileClass = (selected: boolean, dimmed: boolean) =>
 function ToolGrid({
   resolved,
   onContinue,
-  onSkip,
 }: {
   resolved: boolean;
   onContinue: (tools: Tool[]) => void;
-  onSkip: () => void;
 }) {
   const [sel, setSel] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
   const selected = TOOLS.filter((t) => sel.has(t.id));
-  const visible = showAll || resolved ? TOOLS : TOOLS.slice(0, PRIMARY_TOOL_COUNT);
+  // Keep the grid at whatever was shown when Continue was clicked (don't expand
+  // on resolve).
+  const visible = showAll ? TOOLS : TOOLS.slice(0, PRIMARY_TOOL_COUNT);
 
   function toggle(id: string) {
     if (resolved) return;
@@ -218,28 +223,25 @@ function ToolGrid({
       {!resolved && TOOLS.length > PRIMARY_TOOL_COUNT && (
         <button
           type="button"
-          className="self-center text-body-small-default text-[var(--content-secondary)] hover:text-[var(--content-default)]"
+          aria-label={showAll ? "Show less" : "Show more"}
+          className="flex items-center justify-center self-center rounded-md p-1 text-[var(--content-tertiary)] hover:text-[var(--content-default)]"
           onClick={() => setShowAll((s) => !s)}
         >
-          {showAll ? "Show less" : "Show more"}
+          <ChevronDown size={18} className={`transition-transform ${showAll ? "rotate-180" : ""}`} />
         </button>
       )}
 
       {!resolved && (
-        <div className="flex items-center gap-3 border-t border-[var(--border-subtle)] pt-3.5">
+        <div className="flex justify-end">
           <Button
             variant="primary"
             size="regular"
             disabled={selected.length === 0}
+            className="disabled:!bg-[var(--surface-active)] disabled:!text-[var(--content-tertiary)]"
             onClick={() => onContinue(selected)}
           >
             {`Continue${selected.length ? ` · ${selected.length}` : ""}`}
           </Button>
-          {selected.length === 0 && (
-            <Button variant="ghost" size="regular" onClick={onSkip}>
-              Skip for now
-            </Button>
-          )}
         </div>
       )}
     </div>
@@ -282,6 +284,37 @@ function TakeTiles({
   );
 }
 
+/** Read-only status card for the single-select auto-connect (the OAuth popup
+ *  is driven directly, so there's no "Connect" button to click). */
+function ConnectStatusCard({ tool, status }: { tool: Tool; status: ConnectStatus }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-4">
+      <div className="flex h-10 w-10 flex-none items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)]">
+        <IntegrationIcon providerKey={tool.providerKey} displayName={tool.name} logoUrl={null} size={26} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-body-medium-default text-[var(--content-default)]">Connect {tool.name}</div>
+        <div className="text-body-small-default text-[var(--content-tertiary)]">{tool.benefit}</div>
+      </div>
+      <div className="flex flex-none items-center gap-1.5 text-body-small-default">
+        {status === "connecting" && (
+          <>
+            <Loader2 size={15} className="animate-spin text-[var(--content-secondary)]" />
+            <span className="text-[var(--content-secondary)]">Connecting…</span>
+          </>
+        )}
+        {status === "connected" && (
+          <>
+            <CheckCircle2 size={15} className="text-[var(--system-positive-strong)]" />
+            <span className="text-[var(--system-positive-strong)]">Connected</span>
+          </>
+        )}
+        {status === "skipped" && <span className="text-[var(--content-tertiary)]">Skipped</span>}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
@@ -289,7 +322,6 @@ function TakeTiles({
 export function ConnectFlow() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [streaming, setStreaming] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [toolsDone, setToolsDone] = useState(false);
   const [takeDone, setTakeDone] = useState(false);
 
@@ -301,10 +333,23 @@ export function ConnectFlow() {
   const anchorRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const spacerRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const startedRef = useRef(false);
   const connectedRef = useRef(false);
   const takeStartedRef = useRef(false);
   const closedRef = useRef(false);
+
+  // Progress bar tracks ~2/3 of the (responsive) title width.
+  const [progressW, setProgressW] = useState(0);
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    const measure = () => setProgressW(Math.round(el.getBoundingClientRect().width * 0.66));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const sleep = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -364,7 +409,7 @@ export function ConnectFlow() {
     }
     if (anchor && end && sectionH <= sc.clientHeight) return;
     end?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [entries, connecting]);
+  }, [entries]);
 
   // ---- flow ----
 
@@ -405,7 +450,21 @@ export function ConnectFlow() {
   }, [toolsDone, takeDone]);
 
   // Grid Continue: lock it, then drop the real connect cards. Skip: straight on.
-  async function finishToolsGrid(gridId: string, selected: Tool[]) {
+  function setConnectStatus(connectId: string, toolId: string, status: ConnectStatus): boolean {
+    let allResolved = false;
+    setEntries((prev) =>
+      prev.map((e) => {
+        if (e.kind !== "connect" || e.id !== connectId) return e;
+        const next = { ...e.status, [toolId]: status };
+        allResolved = e.tools.every((t) => next[t.id] && next[t.id] !== "connecting");
+        return { ...e, status: next };
+      }),
+    );
+    return allResolved;
+  }
+
+  // Grid Continue: lock the grid (no expand), then drive the real connect.
+  function finishToolsGrid(gridId: string, selected: Tool[]) {
     setEntries((prev) =>
       prev.map((e) => (e.kind === "tools" && e.id === gridId ? { ...e, resolved: true } : e)),
     );
@@ -413,34 +472,62 @@ export function ConnectFlow() {
       setToolsDone(true);
       return;
     }
-    setConnecting(true);
+    // A single pick auto-starts its OAuth popup (kept inside this click gesture);
+    // multiple picks each connect via their card.
+    if (selected.length === 1 && assistantId) {
+      autoConnectSingle(selected[0], assistantId);
+    } else {
+      void startCardConnect(selected);
+    }
+  }
+
+  // Single selection: open the real OAuth popup immediately (no extra click),
+  // react on success, and auto-advance once it closes (connected or cancelled).
+  function autoConnectSingle(tool: Tool, aid: string) {
+    const promise = defaultManagedOAuthConnectClient.connect({
+      assistantId: aid,
+      providerKey: tool.providerKey,
+      providerLabel: tool.name,
+    });
+    const cid = nid();
+    setEntries((prev) => [
+      ...prev,
+      { id: cid, kind: "connect", auto: true, tools: [tool], status: { [tool.id]: "connecting" } },
+    ]);
+    void (async () => {
+      const result = await promise;
+      const ok = result.status === "connected";
+      setConnectStatus(cid, tool.id, ok ? "connected" : "skipped");
+      if (ok) {
+        connectedRef.current = true;
+        await streamAssistant(tool.signal);
+      }
+      finishConnect();
+    })();
+  }
+
+  // Multiple selections: a real connect card per tool. Each "connect"/"cancel"
+  // resolves that tool; once all are resolved we auto-advance.
+  async function startCardConnect(selected: Tool[]) {
     await streamAssistant(CONNECT_INTRO);
     setEntries((prev) => [
       ...prev,
-      { id: nid(), kind: "connect", tools: selected, connected: {} },
+      { id: nid(), kind: "connect", auto: false, tools: selected, status: {} },
     ]);
   }
 
-  // A real OAuth connect succeeded: react with the tool's signal line, and
-  // auto-advance once every selected tool in the block is connected.
-  async function onToolConnected(connectId: string, tool: Tool) {
-    connectedRef.current = true;
-    let allConnected = false;
-    setEntries((prev) =>
-      prev.map((e) => {
-        if (e.kind !== "connect" || e.id !== connectId) return e;
-        const connected = { ...e.connected, [tool.id]: true };
-        allConnected = e.tools.every((t) => connected[t.id]);
-        return { ...e, connected };
-      }),
-    );
-    await streamAssistant(tool.signal);
-    if (allConnected) finishConnect();
+  function onCardAction(connectId: string, tool: Tool, actionId: string) {
+    const ok = actionId === "connect";
+    const allResolved = setConnectStatus(connectId, tool.id, ok ? "connected" : "skipped");
+    if (ok) {
+      connectedRef.current = true;
+      void streamAssistant(tool.signal);
+    }
+    if (allResolved) finishConnect();
   }
 
-  // Advance past the connect step (manually or once all are connected).
+  // Auto-advance past the connect step.
   function finishConnect() {
-    setConnecting(false);
     setToolsDone(true);
   }
 
@@ -473,10 +560,13 @@ export function ConnectFlow() {
   return (
     <div className="fixed inset-0 z-10 flex flex-col bg-[var(--surface-base)] text-[var(--content-default)]">
       <header className="flex flex-none flex-col items-center gap-4 px-6 pb-5 pt-7">
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--content-default)]">
+        <h1
+          ref={titleRef}
+          className="text-3xl font-semibold tracking-tight text-[var(--content-default)]"
+        >
           Show me around
         </h1>
-        <div className="flex items-center gap-2" style={{ width: "clamp(200px, 26vw, 320px)" }}>
+        <div className="flex items-center gap-2" style={{ width: progressW || undefined }}>
           {[0, 1, 2].map((i) => (
             <div
               key={i}
@@ -504,11 +594,18 @@ export function ConnectFlow() {
                   key={e.id}
                   resolved={e.resolved}
                   onContinue={(sel) => finishToolsGrid(e.id, sel)}
-                  onSkip={() => finishToolsGrid(e.id, [])}
                 />
               );
             }
             if (e.kind === "connect") {
+              if (e.auto) {
+                const tool = e.tools[0];
+                return (
+                  <div key={e.id}>
+                    <ConnectStatusCard tool={tool} status={e.status[tool.id] ?? "connecting"} />
+                  </div>
+                );
+              }
               return (
                 <div key={e.id} className="flex flex-col gap-2.5">
                   {e.tools.map((tool) => (
@@ -517,9 +614,7 @@ export function ConnectFlow() {
                       surface={surfaceForTool(tool)}
                       assistantId={assistantId}
                       assistantDisplayName={ASSISTANT_NAME}
-                      onAction={(_sid, actionId) => {
-                        if (actionId === "connect") void onToolConnected(e.id, tool);
-                      }}
+                      onAction={(_sid, actionId) => onCardAction(e.id, tool, actionId)}
                     />
                   ))}
                 </div>
@@ -554,15 +649,6 @@ export function ConnectFlow() {
               transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
               dangerouslySetInnerHTML={{ __html: DUDE_SVG }}
             />
-          )}
-
-          {/* Advance past the connect step (also auto-advances once all connect). */}
-          {connecting && (
-            <div className="flex self-start">
-              <Button variant="primary" size="regular" onClick={finishConnect}>
-                Continue
-              </Button>
-            </div>
           )}
 
           <div ref={endRef} />
