@@ -1,7 +1,7 @@
 /**
  * Animated right-hand drawer split — a drop-in for the tool-detail / thought-
- * process side panel that opens by ANIMATING THE DRAWER WIDTH (0 → target)
- * instead of reserving the full pane instantly.
+ * process side panel that opens AND closes by ANIMATING THE DRAWER WIDTH
+ * (0 ⇄ target) instead of reserving the full pane instantly.
  *
  * Why not `ResizablePanel`: that component sizes the left pane to a fixed width
  * and lets the right pane fill the rest (`flex-1`), so the moment it mounts the
@@ -12,7 +12,14 @@
  * width eases 0 → target, the chat reflows in lockstep and the panel content —
  * pinned to the right edge at its final width — is revealed by a left-moving
  * wipe. Drag-to-resize + width persistence are preserved (ported from
- * `ResizablePanel`), so only the open transition changes.
+ * `ResizablePanel`).
+ *
+ * Open/close is driven by the `open` prop, NOT by mounting/unmounting the
+ * component. The drawer stays mounted around the chat so that (a) closing can
+ * animate the width back to 0 — an unmount would skip the exit — and (b) the
+ * chat (`left`) keeps the same tree position across open/close and never
+ * remounts, preserving its scroll position. The drawer content is kept mounted
+ * through the close animation and torn down only once the width reaches 0.
  */
 
 import {
@@ -48,9 +55,15 @@ function readStoredWidth(
 }
 
 export interface AnimatedRightDrawerProps {
+  /** Whether the drawer is open. Drives the width animation in both directions. */
+  open: boolean;
   /** Left (chat) content — fills the remaining space via `flex-1`. */
   left: ReactNode;
-  /** Right (drawer) content — rendered at the resolved width. */
+  /**
+   * Right (drawer) content — rendered at the resolved width. May be `null`
+   * once `open` flips to `false`; the last non-null value is retained so it
+   * stays visible through the close animation.
+   */
   right: ReactNode;
   /** Initial drawer width in px (default 400). */
   defaultWidth?: number;
@@ -63,6 +76,7 @@ export interface AnimatedRightDrawerProps {
 }
 
 export function AnimatedRightDrawer({
+  open,
   left,
   right,
   defaultWidth = 400,
@@ -77,6 +91,20 @@ export function AnimatedRightDrawer({
   );
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Keep the drawer pane (content + drag handle) mounted while open and through
+  // the close animation. `mounted` flips on synchronously when opening, and off
+  // only once the collapse-to-0 animation completes (see onAnimationComplete).
+  const [mounted, setMounted] = useState(open);
+  // Retain the last non-null content so it stays visible while the width eases
+  // back to 0 — `right` typically becomes null the moment `open` flips false.
+  const [retainedRight, setRetainedRight] = useState<ReactNode>(right);
+  useEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
+  useEffect(() => {
+    if (right != null) setRetainedRight(right);
+  }, [right]);
 
   const clamp = useCallback(
     (next: number) => {
@@ -149,50 +177,63 @@ export function AnimatedRightDrawer({
       className="flex h-full w-full overflow-hidden"
     >
       {/* Chat — fills whatever the drawer doesn't, reflowing as the drawer
-          animates open so there's no early snap to the narrow width. */}
-      <div className="h-full min-w-0 flex-1 overflow-hidden">{left}</div>
+          animates open/closed so there's no early snap to the narrow width.
+          `flex flex-col` gives the chat body (`flex-1`) a bounded height so its
+          transcript can scroll — a plain block parent would let the body grow
+          to content height and kill the scroll. */}
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">{left}</div>
 
-      {/* Drag handle (matches ResizablePanel's hidden-divider look). */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        className={cn(
-          "group relative z-10 flex h-full w-2 shrink-0 cursor-col-resize items-center justify-center",
-          isDragging && "select-none",
-        )}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      >
-        <div className="h-full w-px bg-transparent" />
+      {/* Drag handle (matches ResizablePanel's hidden-divider look). Only
+          present while the drawer is mounted so a closed drawer leaves no
+          stray hit-area or grab handle over the full-width chat. */}
+      {mounted && (
         <div
+          role="separator"
+          aria-orientation="vertical"
           className={cn(
-            "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",
-            "group-hover:opacity-100",
-            isDragging && "opacity-100",
+            "group relative z-10 flex h-full w-2 shrink-0 cursor-col-resize items-center justify-center",
+            isDragging && "select-none",
           )}
-        />
-      </div>
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div className="h-full w-px bg-transparent" />
+          <div
+            className={cn(
+              "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",
+              "group-hover:opacity-100",
+              isDragging && "opacity-100",
+            )}
+          />
+        </div>
+      )}
 
-      {/* Drawer — its width is the animated dimension. The content sits in an
-          absolutely-positioned layer pinned to the right edge at the final
-          width, so growing the (overflow-hidden) wrapper reveals it with a
-          left-moving wipe rather than reflowing the content mid-animation.
-          Reduced motion: skip the enter (`initial={false}`) so it just appears. */}
+      {/* Drawer — its width is the animated dimension, eased 0 ⇄ target by the
+          `open` prop. The content sits in an absolutely-positioned layer pinned
+          to the right edge at the final width, so changing the (overflow-hidden)
+          wrapper width reveals/hides it with a left-moving wipe rather than
+          reflowing the content mid-animation. Reduced motion: snap instead of
+          ease. Content unmounts only once a close animation reaches width 0. */}
       <motion.div
         className="relative h-full shrink-0 overflow-hidden"
         initial={reduce ? false : { width: 0 }}
-        animate={{ width }}
+        animate={{ width: open ? width : 0 }}
         transition={
           isDragging || reduce
             ? { duration: 0 }
             : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
         }
+        onAnimationComplete={() => {
+          if (!open) setMounted(false);
+        }}
       >
-        <div className="absolute right-0 top-0 h-full" style={{ width }}>
-          {right}
-        </div>
+        {mounted && (
+          <div className="absolute right-0 top-0 h-full" style={{ width }}>
+            {retainedRight}
+          </div>
+        )}
       </motion.div>
     </div>
   );
