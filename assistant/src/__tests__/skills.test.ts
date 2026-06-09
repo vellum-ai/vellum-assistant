@@ -304,7 +304,7 @@ describe("plugin-resident skills", () => {
     const skill = loadSkillCatalog().find((s) => s.id === "caveman");
     expect(skill).toBeDefined();
     expect(skill!.source).toBe("plugin");
-    expect(skill!.pluginName).toBe("caveman");
+    expect(skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
   });
 
   test("loadSkillBySelector loads a plugin-resident skill body", () => {
@@ -321,7 +321,7 @@ describe("plugin-resident skills", () => {
     expect(result.skill).toBeDefined();
     expect(result.skill!.source).toBe("plugin");
     expect(result.skill!.body).toBe("Full plugin skill body");
-    expect(result.skill!.pluginName).toBe("caveman");
+    expect(result.skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
   });
 
   test("ignores plugin directories without a package.json (staging/stray dirs)", () => {
