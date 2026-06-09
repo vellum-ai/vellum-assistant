@@ -83,6 +83,15 @@ export type SeedInferenceProfilesOptions = {
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
+  /**
+   * Built-in profile names whose overlay entry carried provider-routing
+   * fields that `mergeDefaultWorkspaceConfig` dropped during the conversion
+   * to `llm.profileOverrides`. An `activeProfile` naming one of these meant
+   * "this name, routed to my own provider" — not the code-defined managed
+   * built-in — so the seeder remaps it to the equivalent personal `custom-*`
+   * profile instead of preserving it.
+   */
+  builtinProfilesWithDroppedProviderConfig?: Iterable<string>;
   /** True when a hatch overlay was consumed this startup. */
   isHatch?: boolean;
   /** DB handle for creating user provider connections at hatch time. */
@@ -133,6 +142,36 @@ export function seedInferenceProfiles(
   // API key).
   const isByokMode = !isPlatform;
 
+  // The personal connection a BYOK hatch will create (step 2), determined up
+  // front because the status-override and activeProfile steps both depend on
+  // whether one exists.
+  const hatchProvider =
+    options.isHatch && isByokMode
+      ? readString(readObject(llm.default)?.provider)
+      : undefined;
+  const userConnectionName =
+    hatchProvider &&
+    hatchProvider !== "ollama" &&
+    !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
+      ? `${hatchProvider}-personal`
+      : undefined;
+
+  // A hatch overlay activeProfile naming a built-in whose provider-routing
+  // fields were dropped by `mergeDefaultWorkspaceConfig` did not select the
+  // code-defined managed built-in — it asked for that name routed through
+  // the user's own provider. With a personal connection available, the
+  // nearest equivalent is the matching `custom-*` profile; the built-in name
+  // is remapped rather than preserved.
+  const droppedProviderConfigNames = new Set(
+    options.builtinProfilesWithDroppedProviderConfig ?? [],
+  );
+  const requestedActiveProfile = readString(llm.activeProfile);
+  const remapActiveToCustomProfile =
+    options.isHatch === true &&
+    userConnectionName !== undefined &&
+    requestedActiveProfile !== undefined &&
+    droppedProviderConfigNames.has(requestedActiveProfile);
+
   // 1. BYOK hatch status overrides. A fresh BYOK hatch has no platform auth,
   //    so built-ins whose managed connection isn't the hatch-selected one
   //    must not surface as enabled in the picker on day one. The disable is
@@ -142,11 +181,12 @@ export function seedInferenceProfiles(
   //    feature-flag state — an override for a flag-off profile is harmless
   //    and correct if the flag later enables.
   if (options.isHatch && isByokMode) {
-    const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
-      llm,
-      profiles,
-      options,
-    );
+    // A remapped activeProfile is not a genuine managed-connection selection
+    // — the hatch routes through the personal connection, so every managed
+    // profile gets the disable override.
+    const hatchSelectedManagedConnection = remapActiveToCustomProfile
+      ? undefined
+      : getHatchSelectedManagedConnection(llm, profiles, options);
     let profileOverrides = readObject(llm.profileOverrides);
     if (!profileOverrides) {
       profileOverrides = {};
@@ -161,51 +201,43 @@ export function seedInferenceProfiles(
   }
 
   // 2. User profiles — only at hatch time for off-platform installations.
-  let userConnectionName: string | undefined;
-  if (options.isHatch && !isPlatform) {
-    const hatchProvider = readString(readObject(llm.default)?.provider);
-    if (
-      hatchProvider &&
-      hatchProvider !== "ollama" &&
-      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
-    ) {
-      userConnectionName = `${hatchProvider}-personal`;
-
-      if (options.db) {
-        if (!getConnection(options.db, userConnectionName)) {
-          const credName = credentialKey(hatchProvider, "api_key");
-          const result = createConnection(options.db, {
-            name: userConnectionName,
-            provider: hatchProvider,
-            auth: { type: "api_key", credential: credName },
-            label: personalConnectionLabel(hatchProvider),
-          });
-          if (!result.ok) {
-            log.warn(
-              { provider: hatchProvider, error: result.error },
-              "Failed to create personal connection during hatch seeding",
-            );
-          }
+  if (hatchProvider && userConnectionName) {
+    if (options.db) {
+      if (!getConnection(options.db, userConnectionName)) {
+        const credName = credentialKey(hatchProvider, "api_key");
+        const result = createConnection(options.db, {
+          name: userConnectionName,
+          provider: hatchProvider,
+          auth: { type: "api_key", credential: credName },
+          label: personalConnectionLabel(hatchProvider),
+        });
+        if (!result.ok) {
+          log.warn(
+            { provider: hatchProvider, error: result.error },
+            "Failed to create personal connection during hatch seeding",
+          );
         }
       }
+    }
 
-      const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
-      for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
-        if (preservedProfileNames.has(name)) continue;
-        profiles[name] = materializeProfile(
-          template,
-          provider,
-          userConnectionName,
-        );
-      }
+    const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
+    for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+      if (preservedProfileNames.has(name)) continue;
+      profiles[name] = materializeProfile(
+        template,
+        provider,
+        userConnectionName,
+      );
     }
   }
 
   // Active profile resolution. Built-in names count as present even though
   // they are never materialized into `profiles` — the loader resolves them
-  // from code at every read.
-  const requestedActiveProfile = readString(llm.activeProfile);
+  // from code at every read. A remapped built-in name is deliberately
+  // treated as absent so preservation can't keep the hatch on a managed
+  // profile its BYOK credential can't use.
   const requestedActiveExists =
+    !remapActiveToCustomProfile &&
     requestedActiveProfile !== undefined &&
     (MANAGED_PROFILE_NAMES.has(requestedActiveProfile) ||
       readObject(profiles[requestedActiveProfile]) !== null);
@@ -214,8 +246,13 @@ export function seedInferenceProfiles(
 
   if (!shouldPreserveActiveProfile) {
     if (options.isHatch) {
-      // Hatch = fresh setup. Pick the right default based on platform mode.
-      llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+      // Hatch = fresh setup. Pick the right default based on platform mode;
+      // a remapped built-in lands on the custom profile with the same intent.
+      llm.activeProfile = userConnectionName
+        ? customProfileForBuiltin(
+            remapActiveToCustomProfile ? requestedActiveProfile : undefined,
+          )
+        : "balanced";
     } else if (!requestedActiveExists) {
       llm.activeProfile = "balanced";
     }
@@ -251,6 +288,24 @@ export function seedInferenceProfiles(
   }
 
   saveRawConfig(config);
+}
+
+/**
+ * The personal `custom-*` profile that matches a built-in's model intent —
+ * the landing spot for a hatch whose overlay built-in activeProfile had its
+ * provider routing dropped. Unknown or absent names (and intents without a
+ * user template, e.g. `auto`) fall back to `custom-balanced`.
+ */
+function customProfileForBuiltin(builtinName: string | undefined): string {
+  const intent = builtinName
+    ? MANAGED_PROFILE_TEMPLATES[builtinName]?.intent
+    : undefined;
+  if (intent) {
+    for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+      if (template.intent === intent) return name;
+    }
+  }
+  return "custom-balanced";
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

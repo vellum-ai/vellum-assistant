@@ -698,13 +698,35 @@ export type DefaultWorkspaceConfigMergeResult = {
   hadOverlay: boolean;
   providedLlmProfileNames: Set<string>;
   providedLlmActiveProfile: boolean;
+  /**
+   * Built-in profile names whose overlay entry carried provider-routing
+   * fields (`provider`, `model`, `provider_connection`, `mix`) that the
+   * conversion to `llm.profileOverrides` dropped. The overlay intended these
+   * names to route somewhere other than the code-defined template, so the
+   * seeder must not treat an `activeProfile` naming one of them as a genuine
+   * selection of the managed built-in.
+   */
+  builtinProfilesWithDroppedProviderConfig: Set<string>;
 };
+
+/**
+ * Provider-routing fields on an overlay profile entry. When one of these is
+ * dropped from a built-in-name entry, the overlay's routing intent for that
+ * profile is lost — tracked via `builtinProfilesWithDroppedProviderConfig`.
+ */
+const PROVIDER_ROUTING_PROFILE_KEYS = new Set([
+  "provider",
+  "model",
+  "provider_connection",
+  "mix",
+]);
 
 function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
   return {
     hadOverlay: false,
     providedLlmProfileNames: new Set(),
     providedLlmActiveProfile: false,
+    builtinProfilesWithDroppedProviderConfig: new Set(),
   };
 }
 
@@ -755,6 +777,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   // names are excluded from `providedLlmProfileNames` so the seeder treats
   // only custom overlay names as overlay-owned.
   const convertedBuiltinNames = new Set<string>();
+  const builtinProfilesWithDroppedProviderConfig = new Set<string>();
   if (llmDefaults && providedProfiles) {
     for (const name of Object.keys(providedProfiles)) {
       if (!MANAGED_PROFILE_NAMES.has(name)) continue;
@@ -774,6 +797,9 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
           "Default workspace config supplied non-override fields for built-in profile %s; dropping them (built-in profile config is code-defined)",
           name,
         );
+        if (droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))) {
+          builtinProfilesWithDroppedProviderConfig.add(name);
+        }
       }
       if (Object.keys(override).length > 0) {
         const overridesStore = ensurePlainObjectAt(
@@ -794,6 +820,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     providedLlmActiveProfile:
       llmDefaults != null &&
       Object.prototype.hasOwnProperty.call(llmDefaults, "activeProfile"),
+    builtinProfilesWithDroppedProviderConfig,
   };
 
   const configPath = getConfigPath();

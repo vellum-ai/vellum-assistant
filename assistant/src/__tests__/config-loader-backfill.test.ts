@@ -97,6 +97,8 @@ function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   seedInferenceProfiles({
     preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+    builtinProfilesWithDroppedProviderConfig:
+      defaultConfigMerge.builtinProfilesWithDroppedProviderConfig,
     isHatch: defaultConfigMerge.hadOverlay,
     db,
   });
@@ -1102,7 +1104,10 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     // An overlay supplying a full `balanced` entry must not produce a shadow
     // entry in llm.profiles: label/status are lifted into profileOverrides
     // and everything else (provider/connection/model) is dropped — the code
-    // template is authoritative for built-in profile config.
+    // template is authoritative for built-in profile config. Because the
+    // dropped fields carried provider routing, the activeProfile naming the
+    // built-in did not select the managed route: it remaps to the personal
+    // custom profile backed by the hatch connection.
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -1132,10 +1137,13 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     mergeDefaultConfigAndSeedInferenceProfiles(db);
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
     expect(raw.llm.profiles.balanced).toBeUndefined();
+    // No managed connection was genuinely selected, so the managed built-in
+    // gets the hatch-disable status alongside the lifted overlay label.
     expect(raw.llm.profileOverrides.balanced).toEqual({
       label: "Hatch Balanced",
+      status: "disabled",
     });
 
     // Connection routing comes from the template, not the dropped overlay
@@ -1145,7 +1153,154 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
       "anthropic-managed",
     );
     expect(config.llm.profiles.balanced?.label).toBe("Hatch Balanced");
+    expect(config.llm.profiles["custom-balanced"]?.provider_connection).toBe(
+      "anthropic-personal",
+    );
     expect(getConnection(db, "anthropic-managed")).not.toBeNull();
+    expect(getConnection(db, "anthropic-personal")).not.toBeNull();
+  });
+
+  test("hatch overlay activeProfile naming a built-in with dropped provider routing remaps to the matching custom profile", () => {
+    // Pre-PR semantics let a hatch overlay back `balanced` with openai; that
+    // representation no longer exists. The hatch collected an openai BYOK
+    // key (CLI seeds llm.default.provider from the active profile body), so
+    // booting active on the code-defined managed Anthropic `balanced` would
+    // break first-run routing/auth. The nearest equivalent is the personal
+    // custom profile with the same intent.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "openai" },
+            profiles: {
+              balanced: { provider: "openai", label: "My Balanced" },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    // No built-in entries are materialized into llm.profiles.
+    expect(Object.keys(raw.llm.profiles).sort()).toEqual([
+      "custom-balanced",
+      "custom-cost-optimized",
+      "custom-quality-optimized",
+    ]);
+    // No managed connection was genuinely selected, so every managed
+    // profile gets the hatch-disable override; the overlay label is still
+    // lifted into the override store.
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: "My Balanced",
+      status: "disabled",
+    });
+    expect(raw.llm.profileOverrides["quality-optimized"]).toEqual({
+      status: "disabled",
+    });
+    expect(raw.llm.profileOverrides["cost-optimized"]).toEqual({
+      status: "disabled",
+    });
+    expect(raw.llm.profileOverrides["balanced-economy"]).toEqual({
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(config.llm.profiles["custom-balanced"]?.provider).toBe("openai");
+    expect(config.llm.profiles["custom-balanced"]?.provider_connection).toBe(
+      "openai-personal",
+    );
+    expect(getConnection(db, "openai-personal")).not.toBeNull();
+  });
+
+  test("hatch overlay activeProfile=quality-optimized with dropped gemini routing remaps by intent", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "gemini" },
+            profiles: {
+              "quality-optimized": { provider: "gemini" },
+            },
+            activeProfile: "quality-optimized",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("custom-quality-optimized");
+    expect(raw.llm.profileOverrides["quality-optimized"]).toEqual({
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(
+      config.llm.profiles["custom-quality-optimized"]?.provider_connection,
+    ).toBe("gemini-personal");
+    expect(getConnection(db, "gemini-personal")).not.toBeNull();
+  });
+
+  test("hatch overlay activeProfile naming a built-in with a label-only body stays preserved", () => {
+    // A label-only fragment carries no provider routing, so the overlay
+    // genuinely selected the managed route: the built-in name is preserved
+    // as active and its managed connection's profiles stay enabled.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: { label: "Renamed Balanced" },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    // Profiles sharing the hatch-selected anthropic-managed connection stay
+    // enabled; only built-ins on other managed connections are disabled.
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: "Renamed Balanced",
+    });
+    expect(raw.llm.profileOverrides["quality-optimized"]).toBeUndefined();
+    expect(raw.llm.profileOverrides["cost-optimized"]).toBeUndefined();
+    expect(raw.llm.profileOverrides["balanced-economy"]).toEqual({
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.label).toBe("Renamed Balanced");
+    expect(config.llm.profiles.balanced?.status).toBeUndefined();
   });
 
   test("non-hatch off-platform boot does NOT auto-disable built-in profiles", () => {
