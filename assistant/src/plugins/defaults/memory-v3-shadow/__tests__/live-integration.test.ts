@@ -235,6 +235,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: [],
     hotSlugs: [],
+    prefixCards: new Map(),
   });
   const active = getActiveSlugs(conversationId);
   const netNew = result.selections
