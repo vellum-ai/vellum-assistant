@@ -20,7 +20,6 @@ import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -56,7 +55,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const isMobile = useIsMobile();
@@ -136,7 +134,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
             isSharing={isSharing}
-            onDeploy={deployToVercel ? handleDeployApp : undefined}
+            onDeploy={handleDeployApp}
             isDeploying={isDeploying}
             isEditing
           />
@@ -165,7 +163,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         onEdit={handleEditApp}
         onShare={handleShareApp}
         isSharing={isSharing}
-        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        onDeploy={handleDeployApp}
         isDeploying={isDeploying}
       />
     );
