@@ -7,12 +7,44 @@ describe("MemoryV3ConfigSchema", () => {
     const parsed = MemoryV3ConfigSchema.parse({});
     expect(parsed).toEqual({
       workingSet: { maxPages: 150, evictWindow: 5 },
+      prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
       hotSet: { k: 40, halfLifeDays: 14 },
       spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
+  });
+
+  test("prune: accepts partial overrides and enforces target < max", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      prune: { maxResidentBytes: 500000 },
+    });
+    expect(parsed.prune).toEqual({
+      maxResidentBytes: 500000,
+      targetResidentBytes: 262144,
+    });
+    // target must be strictly below max (defaults included in the check).
+    expect(() =>
+      MemoryV3ConfigSchema.parse({
+        prune: { maxResidentBytes: 100000 },
+      }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({
+        prune: { maxResidentBytes: 1000, targetResidentBytes: 1000 },
+      }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({
+        prune: { maxResidentBytes: 0 },
+      }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({
+        prune: { targetResidentBytes: 1.5 },
+      }),
+    ).toThrow();
   });
 
   test("accepts a partial spotlight override and rejects invalid knobs", () => {

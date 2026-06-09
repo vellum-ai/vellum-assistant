@@ -68,7 +68,11 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import {
+  getPrunedSlugs,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/prune.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -813,6 +817,24 @@ export class Conversation {
       sourceChannel: this.trustContext?.sourceChannel,
       isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
     });
+    // Pruned v3 card slugs, read lazily on the first row that carries a v3
+    // block (most conversations carry none, so most loads never query). The
+    // prune valve marks cards pruned in the everInjected store instead of
+    // rewriting the persisted metadata, so the v3 rehydration splice below
+    // re-applies the filter on every load — that is what makes a prune
+    // survive daemon restarts. Defensive catch: a store failure degrades to
+    // an unfiltered (pre-prune) rehydration rather than a failed load.
+    let v3PrunedSlugsMemo: Set<string> | null = null;
+    const v3PrunedSlugs = (): Set<string> => {
+      if (v3PrunedSlugsMemo === null) {
+        try {
+          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+        } catch {
+          v3PrunedSlugsMemo = new Set();
+        }
+      }
+      return v3PrunedSlugsMemo;
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
@@ -924,6 +946,10 @@ export class Conversation {
           // be back in history byte-identical for the dedup (and the provider
           // prefix cache) to hold. A row carries at most one of the two keys
           // (the user-prompt-submit hook persists them mutually exclusively).
+          // Pruned slugs' card sections are filtered out here (the metadata
+          // itself is never rewritten — auditable and reversible); an
+          // all-pruned block is skipped entirely, matching the live strip in
+          // `memory-v3-shadow/prune.ts`.
           if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
@@ -933,13 +959,19 @@ export class Conversation {
               v3Block.endsWith("\n</memory>")
                 ? v3Block.slice("<memory>\n".length, -"\n</memory>".length)
                 : v3Block;
-            content = [
-              {
-                type: "text" as const,
-                text: `<memory>\n${v3Inner}\n</memory>`,
-              },
-              ...content,
-            ];
+            const v3Resident = filterPrunedCardSections(
+              v3Inner,
+              v3PrunedSlugs(),
+            );
+            if (v3Resident.length > 0) {
+              content = [
+                {
+                  type: "text" as const,
+                  text: `<memory>\n${v3Resident}\n</memory>`,
+                },
+                ...content,
+              ];
+            }
           }
 
           if (!isTail && typeof meta.turnContextBlock === "string") {

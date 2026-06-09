@@ -57,6 +57,7 @@ import { cardBytes } from "./card.js";
 import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { renderV3CardContent } from "./page-content.js";
+import { schedulePruneValve } from "./prune.js";
 import {
   renderCardsBlockInner,
   renderSpotlightInner,
@@ -254,6 +255,14 @@ export const memoryV3Injector: Injector = {
       }
 
       recordInjected(ctx.conversationId, entries);
+
+      // Prune valve: deferred (never delays this turn's assembly) and fired
+      // after `recordInjected` so the resident accounting includes this
+      // turn's cards. Core/hot lane members are exempt — the selector's
+      // stable prefix must never be pruned out from under it.
+      schedulePruneValve(ctx.conversationId, {
+        exemptSlugs: new Set<Slug>([...result.lanes.core, ...result.lanes.hot]),
+      });
 
       // Empty net-new → empty-text block: assembly attaches no content
       // (`applyInjectionBlock` no-ops empty text) but the block's presence
