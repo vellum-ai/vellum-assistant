@@ -11,6 +11,7 @@ import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import {
   seedToolInvocation,
   type SeedToolInvocationSpec,
+  TOOL_INVOCATION_PII_SENTINEL,
 } from "./__tests__/tool-invocation-test-helpers.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
@@ -24,23 +25,15 @@ const CONVERSATION_ID = "conv-tool-exec-store-test";
 function insertInvocation(
   spec: Omit<SeedToolInvocationSpec, "conversationId">,
 ): void {
-  seedToolInvocation({ ...spec, conversationId: CONVERSATION_ID });
+  seedToolInvocation(
+    { db: getDb(), conversations, toolInvocations },
+    { ...spec, conversationId: CONVERSATION_ID },
+  );
 }
 
 describe("tool-execution-events-store", () => {
   beforeEach(() => {
-    const db = getDb();
-    db.delete(toolInvocations).run();
-    // tool_invocations has an enforced FK to conversations.
-    db.insert(conversations)
-      .values({
-        id: CONVERSATION_ID,
-        title: "test",
-        createdAt: 1000,
-        updatedAt: 1000,
-      })
-      .onConflictDoNothing()
-      .run();
+    getDb().delete(toolInvocations).run();
   });
 
   test("returns rows in (createdAt, id) order with projected fields", () => {
@@ -76,10 +69,7 @@ describe("tool-execution-events-store", () => {
     });
     // Raw tool args/outputs are potentially PII — the projection must
     // never include them.
-    for (const row of rows) {
-      expect(Object.keys(row)).not.toContain("input");
-      expect(Object.keys(row)).not.toContain("result");
-    }
+    expect(JSON.stringify(rows)).not.toContain(TOOL_INVOCATION_PII_SENTINEL);
   });
 
   test("query advances past the compound (createdAt, id) cursor", () => {
@@ -112,6 +102,19 @@ describe("tool-execution-events-store", () => {
   });
 
   test("skill-routed lifecycle events persist skill_id end to end; direct calls stay null", () => {
+    // The audit listener writes through recordToolInvocation, which (unlike
+    // seedToolInvocation) does not seed the FK-required conversation row.
+    getDb()
+      .insert(conversations)
+      .values({
+        id: CONVERSATION_ID,
+        title: "test",
+        createdAt: 1000,
+        updatedAt: 1000,
+      })
+      .onConflictDoNothing()
+      .run();
+
     // Default recorder = recordToolInvocation, so this exercises the full
     // audit listener → tool_invocations → telemetry projection chain.
     const listener = createToolAuditListener();

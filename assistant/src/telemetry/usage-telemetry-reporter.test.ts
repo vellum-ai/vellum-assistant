@@ -154,14 +154,18 @@ mock.module("../memory/onboarding-events-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  seedToolInvocation as seedToolInvocationRow,
+  seedToolInvocation,
   type SeedToolInvocationSpec,
   TOOL_INVOCATION_PII_SENTINEL,
 } from "../memory/__tests__/tool-invocation-test-helpers.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { authFallbackEvents, toolInvocations } from "../memory/schema.js";
+import {
+  authFallbackEvents,
+  conversations,
+  toolInvocations,
+} from "../memory/schema.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
@@ -246,13 +250,13 @@ function makeOnboardingEvent(
 
 const TOOL_EXEC_CONVERSATION_ID = "conv-tool-exec-reporter-test";
 
-function seedToolInvocation(
+function insertInvocation(
   spec: Omit<SeedToolInvocationSpec, "conversationId">,
 ): void {
-  seedToolInvocationRow({
-    ...spec,
-    conversationId: TOOL_EXEC_CONVERSATION_ID,
-  });
+  seedToolInvocation(
+    { db: getDb(), conversations, toolInvocations },
+    { ...spec, conversationId: TOOL_EXEC_CONVERSATION_ID },
+  );
 }
 
 const originalFetch = globalThis.fetch;
@@ -974,7 +978,7 @@ describe("UsageTelemetryReporter", () => {
     mockCollectUsageData = false;
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    seedToolInvocation({ id: "ti-opt-out", createdAt: 1700000000000 });
+    insertInvocation({ id: "ti-opt-out", createdAt: 1700000000000 });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -1248,7 +1252,7 @@ describe("UsageTelemetryReporter", () => {
 
   test("tool_invocations rows flush as tool_execution events with mapped fields and no raw input/result", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    seedToolInvocation({
+    insertInvocation({
       id: "ti-flush-direct",
       createdAt: 1700000900000,
       toolName: "calendar_list_events",
@@ -1256,7 +1260,7 @@ describe("UsageTelemetryReporter", () => {
       riskLevel: "high",
       durationMs: 137,
     });
-    seedToolInvocation({
+    insertInvocation({
       id: "ti-flush-skill",
       createdAt: 1700000950000,
       toolName: "task_create",
@@ -1312,8 +1316,8 @@ describe("UsageTelemetryReporter", () => {
 
   test("tool_execution watermark advances to the last reported row on success", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    seedToolInvocation({ id: "ti-wm-1", createdAt: 1700001000000 });
-    seedToolInvocation({ id: "ti-wm-2", createdAt: 1700001001000 });
+    insertInvocation({ id: "ti-wm-1", createdAt: 1700001000000 });
+    insertInvocation({ id: "ti-wm-2", createdAt: 1700001001000 });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
@@ -1338,7 +1342,7 @@ describe("UsageTelemetryReporter", () => {
 
   test("tool_execution watermark stays on failed upload", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    seedToolInvocation({ id: "ti-fail-1", createdAt: 1700001100000 });
+    insertInvocation({ id: "ti-fail-1", createdAt: 1700001100000 });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response("error", { status: 500 })),
     );
