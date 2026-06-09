@@ -87,8 +87,10 @@ describe("computeToolCallCardData — step kinds", () => {
       status: "completed",
     });
     expect(data.state).toBe("complete");
-    // `currentStepTitle` / `currentStepInfo` mirror the tool step.
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // The collapsed header suppresses the redundant "Working (bash)" label,
+    // promoting the command into the (otherwise subtext) info slot. The
+    // underlying step keeps its "Working (bash)" title for phase grouping.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("echo hello");
   });
 
@@ -349,8 +351,8 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
     // Header derivation also ignores the filtered spawn so the carousel
-    // reflects only the bash call.
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // reflects only the bash call — whose title is suppressed in the header.
+    expect(data.currentStepTitle).toBe("");
   });
 });
 
@@ -450,7 +452,8 @@ describe("computeToolCallCardDataFromItems — header reflects the latest step",
     ];
     const data = computeToolCallCardDataFromItems(items, {});
     expect(data.currentStepKind).toBe("tool");
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // Bash title suppressed in the collapsed header; command promoted to info.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("echo hi");
   });
 });
@@ -557,8 +560,9 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.steps[1]!.kind).toBe("tool");
-    // currentStepTitle reflects the latest call (the bash tool).
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // currentStepTitle reflects the latest call (the bash tool), whose
+    // redundant label is suppressed in the collapsed header.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("ls");
   });
 });

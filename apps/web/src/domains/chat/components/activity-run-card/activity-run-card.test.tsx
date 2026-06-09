@@ -102,10 +102,11 @@ describe("ActivityRunCard — non-web tool group", () => {
     const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
     // The unified card mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // Title comes from `deriveStepLabel("bash")`, info from the `command`
-    // input. The expanded body is hidden by default, so only the header
-    // content is present on mount.
-    expect(getByText("Working (bash)")).toBeTruthy();
+    // The redundant "Working (bash)" label is suppressed in the collapsed
+    // header; the `command` input is promoted to the header's primary slot.
+    // The expanded body is hidden by default, so only the header content is
+    // present on mount.
+    expect(queryByText("Working (bash)")).toBeNull();
     expect(getByText("git status")).toBeTruthy();
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
     expect(queryByTestId("tool-step-pill")).toBeNull();
@@ -806,7 +807,9 @@ describe("ActivityRunCard — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    expect(getByText("Working (bash)")).toBeTruthy();
+    // Bash label suppressed in the collapsed header; command promoted to the
+    // primary slot.
+    expect(queryByText("Working (bash)")).toBeNull();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a body
     // step only).
