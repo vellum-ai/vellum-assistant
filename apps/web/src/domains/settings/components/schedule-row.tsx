@@ -28,11 +28,11 @@ export function ScheduleRow({
   onOpenUsage: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
+    <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
-        className="min-w-0 flex-1 text-left"
+        className="min-w-0 flex-1 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="flex items-center gap-2">
           <span className="truncate text-body-medium-default text-[var(--content-default)]">

@@ -433,6 +433,39 @@ describe("ScheduleRow", () => {
     expect(detailClicks).toBe(0);
   });
 
+  test("one-time rows use the shared clickable row affordance", () => {
+    const { container } = render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          description: "One-time",
+          isOneShot: true,
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    const row = container.firstElementChild;
+    expect(row?.className).toContain("rounded-md");
+    expect(row?.className).toContain("hover:bg-[var(--surface-hover)]");
+
+    const detailButton = screen.getByText("Daily summary").closest("button");
+    expect(detailButton?.className).toContain("cursor-pointer");
+    expect(detailButton?.className).toContain(
+      "focus-visible:ring-[var(--ring)]",
+    );
+  });
+
   test("renders loading placeholders and unavailable error stats", () => {
     const { rerender } = render(
       createElement(ScheduleRow, {
