@@ -8,10 +8,27 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed).toEqual({
       workingSet: { maxPages: 150, evictWindow: 5 },
       hotSet: { k: 40, halfLifeDays: 14 },
+      spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
+  });
+
+  test("accepts a partial spotlight override and rejects invalid knobs", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ spotlight: { n: 3 } });
+    expect(parsed.spotlight).toEqual({ n: 3, windowTurns: 2 });
+    // windowTurns: 0 is valid — current turn only, no carried window.
+    expect(
+      MemoryV3ConfigSchema.parse({ spotlight: { windowTurns: 0 } }).spotlight,
+    ).toEqual({ n: 6, windowTurns: 0 });
+    expect(() => MemoryV3ConfigSchema.parse({ spotlight: { n: 0 } })).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ spotlight: { windowTurns: -1 } }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ spotlight: { n: 1.5 } }),
+    ).toThrow();
   });
 
   test("accepts explicit lane-K overrides", () => {

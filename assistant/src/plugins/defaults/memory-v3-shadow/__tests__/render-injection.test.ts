@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { wrapMemoryBlock } from "../../../../memory/memory-marker.js";
-import { renderMemoryBlock } from "../render-injection.js";
+import {
+  renderCardsBlockInner,
+  renderMemoryBlock,
+  renderSpotlightInner,
+  V3_CARDS_INJECTION_HEADER,
+} from "../render-injection.js";
 import type { Section, Slug } from "../types.js";
 
 function section(article: Slug, text: string): Section {
@@ -16,6 +21,38 @@ const resolver =
   (fullBodies: Record<Slug, string>) =>
   async (slug: Slug, sec: Section | undefined): Promise<string> =>
     sec ? sec.text : (fullBodies[slug] ?? "");
+
+describe("renderCardsBlockInner", () => {
+  test("prefixes the v2 read-affordance header and joins cards with blank lines", () => {
+    const inner = renderCardsBlockInner([
+      "# memory/concepts/page-a.md\nhead a",
+      "# memory/concepts/page-b.md\nhead b",
+    ]);
+    expect(inner).toBe(
+      `${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b`,
+    );
+  });
+
+  test("empty card list renders the empty string (no header-only block)", () => {
+    expect(renderCardsBlockInner([])).toBe("");
+  });
+});
+
+describe("renderSpotlightInner", () => {
+  test("renders each entry as a § header plus section text", () => {
+    const inner = renderSpotlightInner([
+      { slug: "page-a", title: "Alpha", text: "alpha text" },
+      { slug: "page-b", title: "Beta", text: "beta text" },
+    ]);
+    expect(inner).toBe(
+      "## memory/concepts/page-a.md § Alpha\nalpha text\n\n## memory/concepts/page-b.md § Beta\nbeta text",
+    );
+  });
+
+  test("empty window renders the empty string", () => {
+    expect(renderSpotlightInner([])).toBe("");
+  });
+});
 
 describe("renderMemoryBlock", () => {
   test("renders the matched section (not the full body) for each slug", async () => {

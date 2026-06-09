@@ -138,6 +138,9 @@ export const messageMetadataSchema = z
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
+    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
+    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

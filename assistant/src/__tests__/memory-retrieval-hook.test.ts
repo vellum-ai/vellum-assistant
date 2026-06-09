@@ -341,6 +341,54 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     expect(emitted.type).toBe("memory_recalled");
   });
 
+  test("memory-v3 active → skips v2's memoryInjectedBlock and persists the v3 card block", async () => {
+    // Assembly reports memoryV3Active when v3 superseded (stripped) v2's tail
+    // block this turn — persisting v2's bytes would rehydrate a block that is
+    // not in the live history.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: {
+          memoryV3Active: true,
+          memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+        },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-43" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-43", {
+      memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+    });
+  });
+
+  test("memory-v3 active with EMPTY net-new → no memory metadata persisted at all", async () => {
+    // All-repeat turn: v2 was stripped (superseded) and v3 attached nothing
+    // new — the row must rehydrate with no memory block, matching live state.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: { memoryV3Active: true },
+      }),
+    );
+    const ctx = makeHookCtx();
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock).not.toHaveBeenCalled();
+  });
+
   test("skips metadata persist when no block text is injected", async () => {
     const { memory } = makeFakeGraphMemory({ injectedBlockText: null });
     installConversation(memory, { trusted: true });

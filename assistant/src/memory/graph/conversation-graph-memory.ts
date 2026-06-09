@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { clearConversation as clearV3EverInjected } from "../../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -281,6 +282,19 @@ export class ConversationGraphMemory {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         "Failed to evict v2 activation state on compaction (non-fatal)",
+      );
+    }
+
+    // Memory-v3's frozen-card dedup record resets at the same trigger: the
+    // cached card blocks those slugs rode were just stripped by compaction, so
+    // every slug must become re-injectable. Cleared unconditionally for the
+    // same crash-drift reason as v2's `everInjected` above.
+    try {
+      clearV3EverInjected(this.conversationId);
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to clear memory-v3 everInjected on compaction (non-fatal)",
       );
     }
 
@@ -970,36 +984,17 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
 /**
  * Strip the memory-injected prefix from a single user message. Returns the
  * same message reference unchanged when it is not a user message or carries no
- * injected prefix, so callers can cheaply detect no-ops. Shared by
- * `stripExistingMemoryInjections` (last message only) and
- * `stripAllMemoryInjections` (every user message).
+ * injected prefix, so callers can cheaply detect no-ops. Used by
+ * `stripExistingMemoryInjections` (last message only) — memory-v3's frozen
+ * card carry means historical `<memory>` blocks are never bulk-stripped
+ * anymore (the old whole-layer `stripAllMemoryInjections` is gone): runtime
+ * assembly strips only the TAIL's fresh v2 prefix when v3 supersedes it.
  */
 function stripMemoryPrefixFromUserMessage(message: Message): Message {
   if (message.role !== "user") return message;
   const firstNonMemory = countMemoryPrefixBlocks(message.content);
   if (firstNonMemory === 0) return message;
   return { ...message, content: message.content.slice(firstNonMemory) };
-}
-
-/**
- * Remove memory-injected blocks from EVERY user message, not just the last.
- *
- * memory-v3 live mode strips the injected `<memory>` block from all historical
- * user messages each turn: it keeps the prompt lean and makes history
- * byte-stable for prompt caching (v2 strips only the last user message — see
- * `stripExistingMemoryInjections`). Reuses the same per-message block
- * recognition as the last-message strip. Wired into the runtime-assembly
- * suppression step (`conversation-runtime-assembly.ts`), which calls it when
- * `memory-v3-live` is on and the v3 injector produced a block this turn.
- */
-export function stripAllMemoryInjections(messages: Message[]): Message[] {
-  let changed = false;
-  const result = messages.map((message) => {
-    const stripped = stripMemoryPrefixFromUserMessage(message);
-    if (stripped !== message) changed = true;
-    return stripped;
-  });
-  return changed ? result : messages;
 }
 
 /**

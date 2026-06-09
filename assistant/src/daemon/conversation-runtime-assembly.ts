@@ -13,7 +13,10 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
-import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
+import {
+  stripSpotlightInjections,
+  stripUserTextBlocksByPrefix,
+} from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
@@ -29,8 +32,9 @@ import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
-  stripAllMemoryInjections,
+  stripExistingMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
+import { unwrapMemoryBlock } from "../memory/memory-marker.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -1524,6 +1528,24 @@ export interface RuntimeInjectionBlocks {
   pkbContextBlock?: string;
   memoryV2StaticBlock?: string;
   /**
+   * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
+   * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
+   * contract (rehydration re-wraps on use). Undefined when v3 attached no new
+   * cards (all-repeat turn, v3 off, or v3 failure). Persisted by the
+   * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
+   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
+   */
+  memoryV3InjectedBlock?: string;
+  /**
+   * True when memory-v3 superseded v2 as this turn's `<memory>` source — the
+   * `memory-v3-live` flag is on AND the v3 injector produced a block (possibly
+   * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
+   * v2's fresh tail block. The user-prompt-submit hook keys v2's
+   * `memoryInjectedBlock` metadata persist off this so a stripped v2 block is
+   * never rehydrated back into history on reload.
+   */
+  memoryV3Active?: boolean;
+  /**
    * Composed output of every plugin-registered {@link Injector}, concatenated
    * in ascending `order`. Empty string when every injector opted out (returned
    * `null`). Today the default injectors (`default-injectors` plugin)
@@ -2028,6 +2050,7 @@ export async function applyRuntimeInjections(
   let pkbContextCaptured: string | undefined;
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
+  let memoryV3Captured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2051,6 +2074,15 @@ export async function applyRuntimeInjections(
         case "memory-v2-static":
           memoryV2StaticCaptured = block.text;
           break;
+        case MEMORY_V3_BLOCK_ID:
+          // The v3 frozen card block is persisted UNWRAPPED (the v2
+          // `memoryInjectedBlock` contract — rehydration re-wraps on use).
+          // An empty-text block (all-repeat turn) attaches no content, so
+          // nothing is captured for persistence either.
+          if (block.text.length > 0) {
+            memoryV3Captured = unwrapMemoryBlock(block.text);
+          }
+          break;
       }
     }
   }
@@ -2067,15 +2099,26 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3-live v2 suppression ──
-  // When the `memory-v3-live` flag is on AND the v3 injector actually produced
-  // a block this turn, v3 is the sole `<memory>` source. v2's `prepareMemory`
-  // already prepended its own `<memory>` block to the tail user message (and
-  // historical turns may carry v2 blocks from earlier turns). Strip every user
-  // message's memory prefix here so:
-  //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
-  //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
-  //   2. History is byte-stable across turns for prompt caching.
+  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  //
+  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
+  // ephemeral by contract — re-rendered at the current tail each turn — so any
+  // spotlight riding history from a previous turn is stale and is removed
+  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
+  // card blocks on historical messages are untouched (the cache contract).
+  // With the v3 flag off no spotlight blocks exist and this is a content
+  // no-op, keeping the v2 path bit-for-bit identical.
+  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+
+  // v2 suppression: when the `memory-v3-live` flag is on AND the v3 injector
+  // produced a block this turn (possibly empty-text on an all-repeat turn), v3
+  // owns the `<memory>` layer. v2's `prepareMemory` already prepended its own
+  // fresh `<memory>` block to the tail user message — strip the TAIL's memory
+  // prefix only, so the v3 `after-memory-prefix` block (Step 2) lands at the
+  // top of the tail with no v2 prefix ahead of it. Historical user messages
+  // keep their memory blocks byte-identical: frozen v3 card blocks from prior
+  // turns AND pre-cutover v2 blocks both ride the cached prefix (the old
+  // whole-layer `stripAllMemoryInjections` replace is gone).
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
@@ -2085,9 +2128,11 @@ export async function applyRuntimeInjections(
     getConfig(),
   );
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
-  let runMessagesForAssembly = runMessages;
-  if (suppressV2MemoryForV3 && v3ProducedBlock) {
-    runMessagesForAssembly = stripAllMemoryInjections(runMessages);
+  const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
+  if (memoryV3Active) {
+    runMessagesForAssembly = stripExistingMemoryInjections(
+      runMessagesForAssembly,
+    );
   }
 
   let result = runMessagesForAssembly;
@@ -2252,6 +2297,8 @@ export async function applyRuntimeInjections(
       nowScratchpadBlock: nowScratchpadCaptured,
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
+      memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3Active,
       injectorChainBlock,
     },
   };
