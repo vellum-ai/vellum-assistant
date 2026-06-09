@@ -5,11 +5,6 @@ on:
     # Every hour on the hour
     - cron: '0 * * * *'
   workflow_dispatch:
-    inputs:
-      no_compile:
-        description: 'Build macOS with --no-compile (raw source + production node_modules instead of compiled bun binaries). Skips the binaries step. Only affects the build-macos job.'
-        type: boolean
-        default: false
 
 concurrency:
   group: dev-release
@@ -1557,10 +1552,6 @@ jobs:
           done
 
       - name: Build binaries
-        # Skipped under --no-compile: the no-compile path materializes raw
-        # source + production node_modules instead of compiled bun binaries,
-        # so there's nothing for `./build.sh binaries` to produce.
-        if: ${{ !inputs.no_compile }}
         run: |
           DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1575,11 +1566,6 @@ jobs:
 
       - name: Build macOS app
         timeout-minutes: 20
-        env:
-          # Threaded into ./build.sh release when no_compile=true. Otherwise
-          # empty (the original --compile path is preserved for scheduled
-          # runs and for dispatches with the input unchecked).
-          NO_COMPILE_FLAG: ${{ inputs.no_compile == true && '--no-compile' || '' }}
         run: |
           set -o pipefail
           SKIP_BUN_REBUILD=1 \
@@ -1592,7 +1578,7 @@ jobs:
           SU_FEED_URL="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/appcast.xml" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
-          ./build.sh release $NO_COMPILE_FLAG 2>&1 | while IFS= read -r line; do
+          ./build.sh release 2>&1 | while IFS= read -r line; do
             echo "[$(date -u '+%H:%M:%S')] $line"
           done
 
