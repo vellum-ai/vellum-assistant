@@ -29,7 +29,6 @@ mock.module("@/stores/resolved-assistants-store", () => {
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    openAICompatibleEndpoints: () => false,
     chatgptSubscriptionAuth: () => false,
   };
   return { useAssistantFeatureFlagStore: store };

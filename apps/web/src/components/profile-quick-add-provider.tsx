@@ -40,7 +40,6 @@ import {
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { client } from "@/generated/api/client.gen";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
@@ -75,8 +74,6 @@ const ProfileQuickAddContext = createContext<ProfileQuickAddContextValue | null>
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const openAICompatibleEndpoints =
-    useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const chatgptSubscriptionAuth =
     useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
 
@@ -104,16 +101,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
     }),
     enabled: isOpen && !!assistantId,
   });
-  const connections = useMemo(
-    () =>
-      connectionsData
-        ? filterFlaggedConnections(
-            connectionsData.connections,
-            openAICompatibleEndpoints,
-          )
-        : undefined,
-    [connectionsData, openAICompatibleEndpoints],
-  );
+  const connections = connectionsData?.connections;
 
   // Persist a freshly-created profile, then hand the name back to the caller.
   // Writes `llm.profiles[name]` plus an appended `profileOrder` in a single
@@ -211,7 +199,6 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
           mode="create"
           existingNames={existingNames}
           connections={connections}
-          openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
           assistantId={assistantId}
           chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
           onSave={handleSave}
