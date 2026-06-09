@@ -267,6 +267,22 @@ async function connectLocalAssistant(
 
 // -- Cloud assistant connection ---------------------------------------------
 
+async function fetchOrganizationId(
+  runtimeUrl: string,
+  sessionToken: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${runtimeUrl}/v1/organizations/`, {
+      headers: { "X-Session-Token": sessionToken },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { results?: Array<{ id: string }> };
+    return data.results?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function connectCloudAssistant(
   assistantId: string,
   runtimeUrl: string,
@@ -280,9 +296,18 @@ async function connectCloudAssistant(
   }
 
   const baseUrl = runtimeUrl.replace(/\/$/, "");
-  const authHeaders = () => {
+
+  const organizationId = await fetchOrganizationId(baseUrl, sessionToken);
+  if (organizationId) {
+    log.info("[host-proxy-router] resolved organization for cloud assistant", { assistantId, organizationId });
+  }
+
+  const authHeaders = (): Record<string, string> => {
     const token = getSessionToken();
-    return token ? { "X-Session-Token": token } : {};
+    if (!token) return {};
+    const headers: Record<string, string> = { "X-Session-Token": token };
+    if (organizationId) headers["Vellum-Organization-Id"] = organizationId;
+    return headers;
   };
 
   const eventsUrl = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/events`;

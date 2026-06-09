@@ -71,12 +71,18 @@ async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-// Mock globalThis.fetch for the /auth/token exchange used by connectLocalAssistant.
+// Mock globalThis.fetch for /auth/token exchange (local) and /v1/organizations/ (cloud).
 const originalFetch = globalThis.fetch;
 const mockGatewayTokenFetch = async (input: string | URL | Request) => {
   const url = String(input);
   if (url.includes("/auth/token")) {
     return new Response(JSON.stringify({ token: "gateway-jwt", expiresAt: Date.now() + 60_000 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (url.includes("/v1/organizations/")) {
+    return new Response(JSON.stringify({ results: [{ id: "org-test-123" }] }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
