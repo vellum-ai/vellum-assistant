@@ -11,14 +11,29 @@
  *
  * ## Surface today
  *
- * The public package is intentionally **declarative**: a plugin is a
- * directory whose `package.json` is the manifest and whose `hooks/` /
- * `tools/` / `skills/` / `routes/` subdirectories are the contributions.
- * The host introspects the directory at load time and wires it into the
- * runtime — plugin authors never call a runtime registration function.
+ * The primary authoring model is **declarative**: a plugin is a directory
+ * whose `package.json` is the manifest and whose `hooks/` / `tools/` /
+ * `skills/` / `routes/` subdirectories are the contributions. The host
+ * introspects the directory at load time and wires it into the runtime.
  *
- * What this module exposes is therefore types-only: the context shapes
+ * Most of what this module exposes is therefore types: the context shapes
  * the host hands to plugin hooks, and the logger shape they include.
+ *
+ * Alongside those types, the module exposes a small set of **runtime
+ * handles** for plugins that need to register imperatively from their
+ * module body or reach the daemon's live singletons (subscribe to runtime
+ * events, read secrets). These resolve to the daemon's own instances: the
+ * host parks the loaded plugin-api namespace on `globalThis` at boot, and
+ * the workspace-level shim re-binds each runtime export from there — so a
+ * plugin's `import { assistantEventHub } from "@vellumai/plugin-api"` lands
+ * on the same singleton the daemon uses, even when the daemon is a
+ * `bun --compile` binary where an absolute-path import would load a
+ * disjoint module copy.
+ *
+ * - {@link registerPlugin} — imperatively register a {@link Plugin} from a
+ *   workspace-local plugin's module body
+ * - {@link assistantEventHub} — the daemon's pub/sub hub for runtime events
+ * - {@link getSecureKeyAsync} — read a secret from secure storage
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
@@ -58,3 +73,20 @@ export type {
   UserPromptSubmitContext,
 } from "./types.js";
 export { RiskLevel } from "./types.js";
+
+// ─── Runtime handles ─────────────────────────────────────────────────────────
+// Values (not just types) that plugins consume at module-load / init time.
+// Workspace-local plugins resolve these via the boot-time shim, which
+// re-binds each from the daemon's globalThis-parked namespace so they share
+// module identity with the daemon's own singletons.
+export { registerPlugin } from "../plugins/registry.js";
+export type { Plugin, PluginHooks, PluginManifest } from "../plugins/types.js";
+export type { AssistantEvent } from "../runtime/assistant-event.js";
+export type {
+  AssistantEventCallback,
+  AssistantEventFilter,
+  AssistantEventHub,
+  AssistantEventSubscription,
+} from "../runtime/assistant-event-hub.js";
+export { assistantEventHub } from "../runtime/assistant-event-hub.js";
+export { getSecureKeyAsync } from "../security/secure-keys.js";
