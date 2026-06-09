@@ -58,6 +58,11 @@ const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
   routes.selectAssistant,
 ]);
 
+const MID_HATCH_ONBOARDING_PATHS: Set<string> = new Set([
+  routes.onboarding.hatching,
+  routes.onboarding.prechat,
+]);
+
 function isOnboardingPath(pathname: string): boolean {
   return pathname.startsWith(`${ONBOARDING_PREFIX}/`) || pathname === ONBOARDING_PREFIX;
 }
@@ -182,7 +187,7 @@ function resolveRouteGuard(
     if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
     }
-    if (state.hasAssistants && !state.isLocalMode) {
+    if (state.hasAssistants && !state.isLocalMode && !MID_HATCH_ONBOARDING_PATHS.has(path)) {
       if (!(state.tosAccepted && state.aiDataConsent)) {
         const returnTo = encodeURIComponent(pathnameWithSearch);
         return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };

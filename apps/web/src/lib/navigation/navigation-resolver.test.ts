@@ -153,13 +153,19 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant" });
     });
 
-    test("redirects non-local user with assistants from shared onboarding screens", () => {
+    test("redirects non-local user with assistants from entry onboarding screens", () => {
       expect(
         guard(s({ isLocalMode: false }), "/assistant/onboarding/privacy"),
       ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("allows non-local user with assistants on mid-hatch onboarding paths", () => {
+      expect(
+        guard(s({ isLocalMode: false }), "/assistant/onboarding/hatching"),
+      ).toEqual(ALLOW);
       expect(
         guard(s({ isLocalMode: false }), "/assistant/onboarding/prechat"),
-      ).toEqual({ action: "redirect", to: "/assistant" });
+      ).toEqual(ALLOW);
     });
 
     test("allows non-local user without assistants on shared onboarding screens", () => {
@@ -171,31 +177,31 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
-    test("redirects user with assistants from hatching to review-terms when consent missing", () => {
+    test("redirects user from hatching to privacy when consent missing", () => {
       expect(
         guard(
           s({ tosAccepted: false, aiDataConsent: false }),
           "/assistant/onboarding/hatching",
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant%2Fonboarding%2Fhatching" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });
 
-    test("redirects user with assistants from hatching to /assistant when consent present", () => {
+    test("allows user on hatching when consent present", () => {
       expect(
         guard(
           s({ tosAccepted: true, aiDataConsent: true }),
           "/assistant/onboarding/hatching",
         ),
-      ).toEqual({ action: "redirect", to: "/assistant" });
+      ).toEqual(ALLOW);
     });
 
-    test("redirects user with assistants from hatching to review-terms with partial consent", () => {
+    test("redirects user from hatching to privacy with partial consent", () => {
       expect(
         guard(
           s({ tosAccepted: true, aiDataConsent: false }),
           "/assistant/onboarding/hatching",
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant%2Fonboarding%2Fhatching" });
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });
 
     test("redirects from hatching without consent to privacy when no assistants", () => {
