@@ -201,6 +201,7 @@ import {
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
+  migrateToolInvocationsCreatedAtIdIndex,
   migrateToolInvocationsMatchedRuleId,
   migrateToolInvocationsSkillId,
   migrateTraceEventsCreatedAtIndex,
@@ -486,6 +487,7 @@ export function initializeDb(): void {
     migrateOnboardingEventsFunnelColumns,
     createActivationSessionsTable,
     migrateToolInvocationsSkillId,
+    migrateToolInvocationsCreatedAtIdIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

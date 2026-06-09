@@ -98,6 +98,7 @@ export const toolInvocations = sqliteTable(
   },
   (table) => [
     index("idx_tool_invocations_conversation_id").on(table.conversationId),
+    index("idx_tool_invocations_created_at_id").on(table.createdAt, table.id),
   ],
 );
 
