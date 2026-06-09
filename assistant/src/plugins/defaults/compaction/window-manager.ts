@@ -33,6 +33,14 @@ import type {
 } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
+import {
+  createInitialReducerState,
+  reduceContextOverflow,
+  type ReducerConfig,
+  type ReducerState,
+  type ReducerStepResult,
+} from "./context-overflow-reducer.js";
+import { computeCorrectedOverflowTarget } from "./corrected-target.js";
 
 const log = getLogger("context-window");
 
@@ -135,6 +143,33 @@ export interface EmergencyCompactOptions {
   overrideProfile?: string | null;
 }
 
+/**
+ * Turn-specific inputs for {@link ContextWindowManager.reduceOverflowOneRung}.
+ * The manager owns everything the reduction ladder derives from its own state
+ * (provider, system prompt, token budgets, conversation id, config, and the
+ * running reducer state); the caller supplies only what is specific to the
+ * overflow that triggered recovery.
+ */
+export interface OverflowRecoveryRungOptions {
+  /**
+   * Provider-reported token count from the overflow rejection, or `null` when
+   * it could not be parsed. Lowers the compaction target in proportion to the
+   * estimator's under-count so the reduced history lands under the provider's
+   * true ceiling rather than the under-counted estimate.
+   */
+  actualTokens: number | null;
+  /**
+   * Whether the terminal auto-compress-latest-turn rung is permitted. The
+   * caller resolves this from the overflow policy; the manager never makes the
+   * policy call itself.
+   */
+  allowAutoCompressLatestTurn: boolean;
+  /** Per-conversation inference-profile override for the summary call. */
+  overrideProfile?: string | null;
+  /** Trust class of the actor whose turn triggered overflow recovery. */
+  actorTrustClass?: TrustClass;
+}
+
 export interface ContextWindowManagerOptions {
   provider: Provider;
   systemPrompt: string | (() => string);
@@ -218,6 +253,14 @@ export class ContextWindowManager {
    */
   private _nonPersistedPrefixCount = 0;
   private _resolvedSystemPrompt: string | undefined;
+  /**
+   * Reducer state for the in-progress overflow-recovery ladder, held across
+   * the successive {@link reduceOverflowOneRung} calls of a single turn so the
+   * ladder advances one rung per call. Reset to `undefined` at each turn
+   * boundary via {@link resetOverflowRecovery} so a new turn starts the ladder
+   * from the emergency rung.
+   */
+  private _overflowReducerState: ReducerState | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
@@ -230,6 +273,15 @@ export class ContextWindowManager {
 
   updateConfig(config: ContextWindowConfig): void {
     this.config = config;
+  }
+
+  /**
+   * Clear the overflow-recovery ladder so the next {@link reduceOverflowOneRung}
+   * call starts a fresh ladder from the emergency rung. Called at the turn
+   * boundary.
+   */
+  resetOverflowRecovery(): void {
+    this._overflowReducerState = undefined;
   }
 
   /** Leading non-persisted inherited-context messages the compactor preserves. */
@@ -323,6 +375,90 @@ export class ContextWindowManager {
     } finally {
       this.clearSystemPromptCache();
     }
+  }
+
+  /**
+   * Advance the context-overflow reduction ladder by one rung against
+   * `messages`, holding the reducer state across the successive calls of a
+   * single turn (reset via {@link resetOverflowRecovery}). The compaction
+   * target is the manager's overflow preflight budget, lowered in proportion
+   * to the estimator error the provider's actual token count reveals, so the
+   * reduced history lands under the provider's true ceiling rather than the
+   * under-counted estimate.
+   */
+  async reduceOverflowOneRung(
+    messages: Message[],
+    options: OverflowRecoveryRungOptions,
+    signal?: AbortSignal,
+  ): Promise<ReducerStepResult> {
+    try {
+      return await this._reduceOverflowOneRung(messages, options, signal);
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
+  private async _reduceOverflowOneRung(
+    messages: Message[],
+    options: OverflowRecoveryRungOptions,
+    signal?: AbortSignal,
+  ): Promise<ReducerStepResult> {
+    if (this.conversationId == null) {
+      throw new Error(
+        "ContextWindowManager has no conversationId — cannot run overflow recovery",
+      );
+    }
+    this._overflowReducerState ??= createInitialReducerState();
+
+    const estimatedTokensAtOverflow = estimatePromptTokens(
+      messages,
+      this.systemPrompt,
+      {
+        providerName: this.estimationProviderName,
+        toolTokenBudget: this.toolTokenBudget,
+      },
+    );
+    const { targetTokens } = computeCorrectedOverflowTarget({
+      preflightBudget: this.resolveOverflowPreflightBudget(messages.length),
+      actualTokens: options.actualTokens,
+      estimatedTokens: estimatedTokensAtOverflow,
+    });
+
+    const config: ReducerConfig = {
+      providerName: this.estimationProviderName,
+      systemPrompt: this.systemPrompt,
+      contextWindow: this.config,
+      targetTokens,
+      toolTokenBudget: this.toolTokenBudget,
+      conversationId: this.conversationId,
+      overrideProfile: options.overrideProfile ?? null,
+      actorTrustClass: options.actorTrustClass,
+      previousEstimatedInputTokens: estimatedTokensAtOverflow,
+      maxMiddleTierAttempts: this.config.overflowRecovery.maxAttempts,
+      allowAutoCompressLatestTurn: options.allowAutoCompressLatestTurn,
+    };
+
+    const step = await reduceContextOverflow(
+      messages,
+      config,
+      this._overflowReducerState,
+      signal,
+    );
+    this._overflowReducerState = step.state;
+    return step;
+  }
+
+  /**
+   * The token budget overflow recovery compacts below, derived from the
+   * manager's configured max-input cap and overflow-recovery safety margin.
+   * Long histories (> 50 messages) get a wider margin so the reduced prompt
+   * keeps clearance under the provider's true ceiling.
+   */
+  private resolveOverflowPreflightBudget(messageCount: number): number {
+    const baseSafetyMargin = this.config.overflowRecovery.safetyMarginRatio;
+    const safetyMargin =
+      messageCount > 50 ? Math.max(baseSafetyMargin, 0.15) : baseSafetyMargin;
+    return Math.floor(this.config.maxInputTokens * (1 - safetyMargin));
   }
 
   private async _maybeCompact(
