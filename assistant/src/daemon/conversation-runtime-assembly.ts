@@ -672,9 +672,7 @@ function injectVoiceCallControlContext(
 
 /** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    ...NOW_SCRATCHPAD_STRIP_PREFIXES,
-  ]);
+  return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
 /**

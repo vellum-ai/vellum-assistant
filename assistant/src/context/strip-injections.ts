@@ -56,19 +56,13 @@ export function stripUserTextBlocksByPrefix(
     );
 }
 
-/** Matchers stripped by the pipeline (order doesn't matter — single pass). */
-/**
- * Prefixes identifying `<NOW.md>` scratchpad blocks injected by the `now-md`
- * default injector. The shared prefix catches both the current tag and any
- * pre-line-limit variant that may linger in in-flight histories during a
- * rolling deploy; the legacy tag covers pre-rename history. Shared with
- * `stripNowScratchpad` so the two strip paths can never drift.
- */
-export const NOW_SCRATCHPAD_STRIP_PREFIXES: readonly string[] = [
+/** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
+export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
   "<NOW.md Always keep this up to date",
   "<now_scratchpad>",
 ];
 
+/** Matchers stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<channel_capabilities>",
   "<channel_command_context>",
