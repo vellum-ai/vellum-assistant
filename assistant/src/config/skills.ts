@@ -23,6 +23,7 @@ import type { InlineCommandExpansion } from "../skills/inline-command-expansions
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import type { OwnerInfo } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   getWorkspaceDirDisplay,
@@ -66,7 +67,7 @@ const SkillMetadataSchema = z
  *   `extraDirs` argument (primarily for tests).
  * - `plugin`: shipped on disk inside an installed plugin at
  *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, attributed back to
- *   the owning plugin via `pluginName`.
+ *   the owning plugin via its `owner` descriptor.
  */
 export type SkillSource =
   | "bundled"
@@ -89,11 +90,12 @@ export interface SkillSummary {
   emoji?: string;
   source: SkillSource;
   /**
-   * Name of the plugin that ships this skill on disk. Set only for
-   * `source: "plugin"` skills, attributing them to the installed plugin
-   * directory under `<workspaceDir>/plugins/`.
+   * Ownership descriptor identifying the extension that ships this skill,
+   * reusing the same {@link OwnerInfo} model the tool registry uses. Set only
+   * for `source: "plugin"` skills — `{ kind: "plugin", id: <plugin dir name> }`
+   * — attributing them to the installed plugin under `<workspaceDir>/plugins/`.
    */
-  pluginName?: string;
+  owner?: OwnerInfo;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
   /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
@@ -680,7 +682,8 @@ function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
  * Discover skills shipped on disk inside installed plugins. Each installed
  * plugin — a directory under `<workspaceDir>/plugins/` recognized by
  * {@link isRecognizedPluginDir} — may ship skills at `skills/<id>/SKILL.md`.
- * Returned summaries are attributed to the owning plugin via `pluginName`.
+ * Returned summaries are attributed to the owning plugin via their `owner`
+ * descriptor (`{ kind: "plugin", id: <plugin dir name> }`).
  */
 function discoverPluginResidentSkills(): SkillSummary[] {
   const pluginsDir = getWorkspacePluginsDir();
@@ -717,7 +720,7 @@ function discoverPluginResidentSkills(): SkillSummary[] {
       if (!skill) continue;
       summaries.push({
         ...skillSummaryFromDefinition(skill, "plugin"),
-        pluginName: entry.name,
+        owner: { kind: "plugin", id: entry.name },
       });
     }
   }
@@ -847,14 +850,14 @@ export function loadSkillCatalog(
           catalog[existingIndex].source === "extra")
       ) {
         log.info(
-          { id: skill.id, pluginName: skill.pluginName },
+          { id: skill.id, pluginName: skill.owner?.id },
           "Plugin skill overrides bundled/extra skill",
         );
         catalog[existingIndex] = skill;
         continue;
       }
       log.warn(
-        { id: skill.id, pluginName: skill.pluginName },
+        { id: skill.id, pluginName: skill.owner?.id },
         "Skipping duplicate plugin skill id (already present in catalog)",
       );
       continue;
@@ -1092,7 +1095,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
-  loaded.pluginName = skill.pluginName;
+  loaded.owner = skill.owner;
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
   // Replace {workspaceDir} placeholders with the runtime workspace display path
