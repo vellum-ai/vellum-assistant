@@ -42,6 +42,12 @@ function validateHostPath(rawPath: string): { ok: true; path: string } | { ok: f
 }
 
 function validateRegularFile(filePath: string): { ok: true; stat: Stats } | { ok: false; content: string; isError: true } {
+  const resolved = fs.realpathSync(filePath);
+  const resolvedBasename = path.basename(resolved);
+  if (DENIED_BASENAMES.has(resolvedBasename)) {
+    return { content: `Access to "${resolvedBasename}" is denied`, isError: true, ok: false };
+  }
+
   const stat = fs.statSync(filePath);
   if (!stat.isFile()) {
     return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
@@ -227,17 +233,21 @@ function executeEdit(fields: EditFields): { content?: string; isError?: boolean 
     return { content: `old_string not found in ${filePath}`, isError: true };
   }
 
+  let updated: string;
   if (!replace_all) {
     const secondIdx = existing.indexOf(old_string, firstIdx + 1);
     if (secondIdx !== -1) {
       return { content: `old_string is not unique in ${filePath} (use replace_all to replace all occurrences)`, isError: true };
     }
-    const updated = existing.slice(0, firstIdx) + new_string + existing.slice(firstIdx + old_string.length);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    updated = existing.slice(0, firstIdx) + new_string + existing.slice(firstIdx + old_string.length);
   } else {
-    const updated = existing.split(old_string).join(new_string);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    updated = existing.split(old_string).join(new_string);
   }
+
+  const outputSizeCheck = validateContentSize(updated, filePath);
+  if (!outputSizeCheck.ok) return outputSizeCheck;
+
+  fs.writeFileSync(filePath, updated, "utf-8");
 
   return { content: `Edited ${filePath}` };
 }
