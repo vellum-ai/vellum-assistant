@@ -38,6 +38,7 @@ import { findConversationOrSubagent } from "../../../../daemon/conversation-regi
 import {
   applyRuntimeInjections,
   resolveTurnInboundActorContext,
+  resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
@@ -84,11 +85,12 @@ export interface MemoryRetrievalHookContext {
    */
   readonly isNonInteractive: boolean;
   /**
-   * The `model_profile:` turn-context label, or `null` when the active
-   * inference profile is unchanged since the last notified one. Resolved once
-   * at turn start, so it is threaded in rather than re-derived.
+   * Active inference profile key to announce in this turn's context, or `null`
+   * when the profile is unchanged since the one last delivered to the model.
+   * The hook renders the `model_profile` label (and model id) from this key
+   * via the workspace LLM config rather than receiving the rendered string.
    */
-  readonly modelProfile: string | null;
+  readonly modelProfileKey: string | null;
 }
 
 /**
@@ -250,6 +252,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // threaded in, mirroring how `applyRuntimeInjections` self-resolves its
   // per-turn inputs.
   const conversation = findConversationOrSubagent(ctx.conversationId);
+  const config = getConfig();
   const abortSignal = conversation?.abortController?.signal;
   const isTrustedActor =
     resolveTrustClass(conversation?.trustContext) === "guardian";
@@ -261,7 +264,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   if (conversation && isTrustedActor && abortSignal) {
     const graphResult = await conversation.graphMemory.prepareMemory(
       ctx.latestMessages,
-      getConfig(),
+      config,
       abortSignal,
       ctx.onEvent,
     );
@@ -300,14 +303,21 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // input — the Slack chronological transcript, the unified `<turn_context>`
   // block, channel/voice/transport hints, and the turn's trust/index/call-site
   // — from the live conversation, so we hand in only the request id and
-  // conversation id plus the fields resolved once at turn start
-  // (`isNonInteractive`, `modelProfile`). The unified `<turn_context>` actor
-  // input is self-resolved from the live conversation's trust context. This
-  // first-call assembly always runs at `"full"` volume; overflow reduction only
-  // downgrades the mode on later re-injection.
+  // conversation id plus the field resolved once at turn start
+  // (`isNonInteractive`). The `model_profile` label is rendered here from the
+  // turn's resolved profile key, using the call site self-resolved from the
+  // live conversation. The unified `<turn_context>` actor input is
+  // self-resolved from the live conversation's trust context. This first-call
+  // assembly always runs at `"full"` volume; overflow reduction only downgrades
+  // the mode on later re-injection.
+  const modelProfile = resolveTurnModelProfileLabel(
+    ctx.modelProfileKey,
+    conversation?.currentCallSite ?? "mainAgent",
+    config.llm,
+  );
   const injection = await applyRuntimeInjections(ctx.latestMessages, {
     isNonInteractive: ctx.isNonInteractive,
-    modelProfile: ctx.modelProfile,
+    modelProfile,
     actorContext,
     mode: "full",
     requestId: ctx.requestId,

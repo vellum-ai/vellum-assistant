@@ -145,6 +145,15 @@ export interface UserPromptSubmitContext {
    */
   readonly requestId: string;
   /**
+   * Active inference profile key to surface in this turn's context, or `null`
+   * when the profile is unchanged since the one last announced to the model.
+   * Hooks that emit the `model_profile` grounding line resolve the
+   * human-readable label (and model id) from this key via the workspace LLM
+   * config rather than receiving the rendered string — the key is the minimal
+   * turn input the message arrays cannot carry.
+   */
+  readonly modelProfileKey: string | null;
+  /**
    * The text of the user prompt that triggered this turn — the resolved
    * user message (after slash-command expansion), independent of any
    * internal rewriting applied to the message that flows into the model.
