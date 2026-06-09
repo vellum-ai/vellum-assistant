@@ -370,11 +370,10 @@ function deleteNestedKey(
  * - Template fields (provider/model/maxTokens/…) are always authoritative;
  *   user-ownable facets are `label` and `status` only.
  * - `llm.profileOverrides[name]` is the canonical override store.
- * - **Transition-state compatibility**: while the boot seeder still
- *   materializes full built-in entries into `config.json` (and for
- *   pre-migration installs that already carry them, including drifted
- *   shadow entries the assistant wrote on-platform), the materialized
- *   entry's `label`/`status` are honored as *lower*-precedence overrides
+ * - **Transition-state compatibility**: pre-migration installs still carry
+ *   full materialized built-in entries in `config.json` (including drifted
+ *   shadow entries the assistant wrote on-platform). Such an entry's
+ *   `label`/`status` are honored as *lower*-precedence overrides
  *   (key-presence semantics) and every other field is discarded.
  * - Built-in names are spliced into `llm.profileOrder` exactly as the
  *   seeder does (auto prepended if missing, managed names appended if
@@ -748,6 +747,45 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     (defaults as Record<string, unknown>).llm,
   );
   const providedProfiles = readPlainObject(llmDefaults?.profiles);
+
+  // Overlay entries for built-in profile names are converted to sparse
+  // `llm.profileOverrides` entries (label/status only) — built-in profile
+  // config is code-defined and never materialized into `llm.profiles` on
+  // disk. Non-override fields are dropped with a warning. The converted
+  // names are excluded from `providedLlmProfileNames` so the seeder treats
+  // only custom overlay names as overlay-owned.
+  const convertedBuiltinNames = new Set<string>();
+  if (llmDefaults && providedProfiles) {
+    for (const name of Object.keys(providedProfiles)) {
+      if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+      convertedBuiltinNames.add(name);
+      const entry = readPlainObject(providedProfiles[name]);
+      delete providedProfiles[name];
+      if (!entry) continue;
+
+      const override: BuiltinProfileOverride = {};
+      collectBuiltinOverrideFields(entry, override);
+      const droppedKeys = Object.keys(entry).filter(
+        (key) => !(key in override),
+      );
+      if (droppedKeys.length > 0) {
+        log.warn(
+          { profile: name, droppedKeys },
+          "Default workspace config supplied non-override fields for built-in profile %s; dropping them (built-in profile config is code-defined)",
+          name,
+        );
+      }
+      if (Object.keys(override).length > 0) {
+        const overridesStore = ensurePlainObjectAt(
+          llmDefaults,
+          "profileOverrides",
+        );
+        const existing = readPlainObject(overridesStore[name]);
+        overridesStore[name] = { ...existing, ...override };
+      }
+    }
+  }
+
   const mergeResult: DefaultWorkspaceConfigMergeResult = {
     hadOverlay: true,
     providedLlmProfileNames: new Set(
@@ -770,14 +808,21 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     }
   }
 
-  if (mergeResult.providedLlmProfileNames.size > 0) {
+  const overlayProfileNames = new Set([
+    ...mergeResult.providedLlmProfileNames,
+    ...convertedBuiltinNames,
+  ]);
+  if (overlayProfileNames.size > 0) {
     // Default-config profile entries are authoritative fragments. Remove any
     // old same-name profile first so recursive merge does not leave stale
-    // provider-specific leaves behind.
+    // provider-specific leaves behind. Converted built-in names are removed
+    // too: the overlay owns the profile, and its entry now lives in
+    // `llm.profileOverrides` rather than `llm.profiles`, so a stale
+    // materialized entry must not survive as a shadow.
     const existingLlm = readPlainObject(existing.llm);
     const existingProfiles = readPlainObject(existingLlm?.profiles);
     if (existingProfiles) {
-      for (const name of mergeResult.providedLlmProfileNames) {
+      for (const name of overlayProfileNames) {
         delete existingProfiles[name];
       }
     }

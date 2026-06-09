@@ -97,7 +97,6 @@ import {
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
-import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
@@ -570,10 +569,13 @@ export async function runDaemon(): Promise<void> {
     // seeder and persisted alongside schema defaults.
     const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-    // Seed inference profiles into the workspace config. Managed Anthropic
-    // profiles are overwritten on every boot so Vellum can push updates.
-    // Off-platform hatches additionally create user profiles + a personal
-    // provider connection for the hatch provider.
+    // Seed inference profiles into the workspace config. Built-in (managed)
+    // profiles are code-resolved at config load time and never written to
+    // disk; the seeder handles hatch-time user (`custom-*`) profiles + the
+    // personal provider connection, BYOK hatch status overrides, and the
+    // activeProfile default. `preserveProfileNames` carries only custom
+    // overlay names — built-in overlay entries were converted to
+    // `llm.profileOverrides` by mergeDefaultWorkspaceConfig above.
     try {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
@@ -587,26 +589,6 @@ export async function runDaemon(): Promise<void> {
         { err },
         "Inference profile seeding failed — continuing startup",
       );
-    }
-
-    // Re-run the adaptive thinking repair after overlay merge + profile seeding.
-    // Workspace migration 097 enables adaptive thinking on managed profiles, but
-    // it runs before mergeDefaultWorkspaceConfig() which can overwrite the fix
-    // with overlay profiles that have thinking disabled or absent. On-platform
-    // instances where the overlay supplies "balanced" / "quality-optimized"
-    // profiles without thinking enabled would be stuck permanently because the
-    // migration is already checkpointed as completed. This idempotent repair
-    // ensures thinking is enabled regardless of overlay ordering.
-    if (defaultConfigMerge.hadOverlay) {
-      try {
-        repairAdaptiveThinkingOnManagedProfiles(getWorkspaceDir());
-        log.info("Post-overlay adaptive thinking repair complete");
-      } catch (err) {
-        log.warn(
-          { err },
-          "Post-overlay adaptive thinking repair failed — continuing startup",
-        );
-      }
     }
 
     log.info("Daemon startup: loading config");

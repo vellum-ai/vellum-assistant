@@ -11,7 +11,6 @@ import { getLogger } from "../util/logger.js";
 import {
   AUTO_PROFILE_KEY,
   type BuiltinProfileDefinition,
-  createAutoProfileEntry,
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
   materializeProfile,
@@ -76,8 +75,11 @@ const USER_PROFILE_TEMPLATES: Record<string, BuiltinProfileDefinition> = {
 
 export type SeedInferenceProfilesOptions = {
   /**
-   * Profile names supplied by the platform/default overlay for this startup.
-   * Those entries are already on disk and should remain authoritative.
+   * Custom profile names supplied by the platform/default overlay for this
+   * startup. Those entries are already on disk and should remain
+   * authoritative. Built-in names never appear here —
+   * `mergeDefaultWorkspaceConfig` converts overlay built-in entries to
+   * `llm.profileOverrides` before seeding runs.
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
@@ -90,18 +92,23 @@ export type SeedInferenceProfilesOptions = {
 /**
  * Seed inference profiles into the workspace config.
  *
- * Runs on every daemon startup. Two responsibilities:
+ * Runs on every daemon startup. Built-in (managed + auto) profiles are
+ * code-resolved at config load time (`applyBuiltinProfiles` in `loader.ts`)
+ * and never written to `config.json` — the only persisted built-in state is
+ * the sparse `llm.profileOverrides` store. The seeder's responsibilities:
  *
- * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`):
- *    overwritten on every boot so Vellum can push model/config updates to
- *    customers. Each carries `provider_connection: "anthropic-managed"`.
- *    Platform overlays (`preserveProfileNames`) take precedence.
- *
- * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
+ * 1. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
  *    off-platform installations. Each points at a personal provider
  *    connection backed by the user's API key in CES. Subsequent boots
  *    leave these untouched — the user owns them.
+ *
+ * 2. **BYOK hatch status overrides**: a fresh off-platform hatch writes
+ *    `status: "disabled"` overrides for built-ins whose managed connection
+ *    isn't the hatch-selected one, so the picker doesn't offer unusable
+ *    platform-auth options on day one.
+ *
+ * 3. **activeProfile defaults** and source-tagging of custom profiles.
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -122,106 +129,35 @@ export function seedInferenceProfiles(
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
 
-  // BYOK mode = off-platform installs. The user is bringing their own provider
-  // API key; managed profile labels get a " (Managed)" suffix to disambiguate
-  // from the personal "custom-*" profiles that share base labels. Managed
-  // profile + connection status is initially "disabled" for true BYOK hatches
-  // so the picker doesn't offer an unusable platform-auth option on day one.
-  // When the hatch overlay explicitly selects a managed profile, the matching
-  // managed connection stays active so the first post-onboarding message can
-  // use the user's chosen managed route. Post-hatch user toggles survive every
-  // subsequent boot.
+  // BYOK mode = off-platform installs (the user brings their own provider
+  // API key).
   const isByokMode = !isPlatform;
 
-  // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
-  //    push model/config updates in new releases. On-platform: insert only if
-  //    absent — the platform controls profiles through overlays, and the
-  //    overlay fragment is authoritative even when it omits fields the local
-  //    template carries (e.g. an overlay supplying only provider/model/label
-  //    must not get its maxTokens/thinking polluted from the template). The
-  //    legacy migration-052 backfill that seeds label-less Anthropic
-  //    defaults is healed by workspace migration 082
-  //    (`backfill-managed-profile-labels`) rather than the seeder, so
-  //    this skip path stays simple.
-  //
-  //    Two user-editable fields survive the overwrite: `label` (display
-  //    rename) and `status` (active/disabled toggle). The PUT route
-  //    `/v1/config/llm/profiles/:name` lets users patch these on managed
-  //    profiles without duplicating; we have to honor those edits across
-  //    reseeds or they'd silently revert on every boot. Carry by
-  //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too. Codex P1 finding on PR #30362.
-  //
-  //    BYOK seed defaults (off-platform only):
-  //      • label: " (Managed)" suffix disambiguates managed profile labels
-  //        from personal "custom-*" profiles that share base labels.
-  //        Upgrade migration: existing installs that already have the bare
-  //        template label ("Balanced" / "Quality" / "Speed") on disk get
-  //        rewritten to the suffixed form. Any other previous label value
-  //        (user-set custom string, explicit null, already-suffixed) is
-  //        preserved as-is.
-  //      • status: "disabled" on fresh materialization at BYOK hatch only —
-  //        gated on (isHatch && !previous) and skipped for any managed
-  //        connection explicitly selected by the hatch overlay. Post-hatch
-  //        boots and existing installs are never auto-disabled. A user
-  //        re-enable persists across boots via the key-presence preservation
-  //        below.
-  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
-    llm,
-    profiles,
-    options,
-  );
-
-  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
-    if (preservedProfileNames.has(name)) continue;
-    if (isPlatform && readObject(profiles[name]) !== null) continue;
-
-    const previous = readObject(profiles[name]);
-    const effectiveTemplate: BuiltinProfileDefinition = isByokMode
-      ? { ...template, label: `${template.label} (Managed)` }
-      : template;
-    const next = materializeProfile(
-      effectiveTemplate,
-      template.provider,
-      template.connectionName,
-    ) as Record<string, unknown>;
-    if (
-      isByokMode &&
-      options.isHatch &&
-      !previous &&
-      template.connectionName !== hatchSelectedManagedConnection
-    ) {
-      next.status = "disabled";
+  // 1. BYOK hatch status overrides. A fresh BYOK hatch has no platform auth,
+  //    so built-ins whose managed connection isn't the hatch-selected one
+  //    must not surface as enabled in the picker on day one. The disable is
+  //    persisted as a sparse `llm.profileOverrides` status entry; a
+  //    pre-existing status override key (e.g. from a prior hatch or a user
+  //    toggle) is never clobbered. Applied to every definition regardless of
+  //    feature-flag state — an override for a flag-off profile is harmless
+  //    and correct if the flag later enables.
+  if (options.isHatch && isByokMode) {
+    const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
+      llm,
+      profiles,
+      options,
+    );
+    let profileOverrides = readObject(llm.profileOverrides);
+    if (!profileOverrides) {
+      profileOverrides = {};
+      llm.profileOverrides = profileOverrides;
     }
-    if (previous) {
-      // Preserve user overrides on these whitelisted fields. The label path
-      // also runs the BYOK upgrade migration described above: if the on-disk
-      // label exactly equals the bare template default and we're in BYOK
-      // mode, rewrite to the suffixed effective label so existing installs
-      // get the disambiguation, not just fresh hatches.
-      if ("label" in previous) {
-        next.label =
-          isByokMode && previous.label === template.label
-            ? effectiveTemplate.label
-            : previous.label;
-      }
-      if ("status" in previous) next.status = previous.status;
+    for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
+      if (template.connectionName === hatchSelectedManagedConnection) continue;
+      const existing = readObject(profileOverrides[name]);
+      if (existing && "status" in existing) continue;
+      profileOverrides[name] = { ...existing, status: "disabled" };
     }
-    profiles[name] = next as ProfileEntry;
-  }
-
-  // 1b. Auto profile — a metadata-only profile with no provider/model. When
-  //     the user selects "Auto", the resolver falls through to the call-site
-  //     default (balanced or custom-balanced), and the agent loop injects the
-  //     switch_inference_profile tool so the model can self-select per query.
-  if (!preservedProfileNames.has(AUTO_PROFILE_KEY)) {
-    const previousAuto = readObject(profiles[AUTO_PROFILE_KEY]);
-    const autoEntry = createAutoProfileEntry() as Record<string, unknown>;
-    if (previousAuto) {
-      if ("label" in previousAuto) autoEntry.label = previousAuto.label;
-      if ("status" in previousAuto) autoEntry.status = previousAuto.status;
-    }
-    profiles[AUTO_PROFILE_KEY] = autoEntry as ProfileEntry;
   }
 
   // 2. User profiles — only at hatch time for off-platform installations.
@@ -265,13 +201,14 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Active profile resolution.
+  // Active profile resolution. Built-in names count as present even though
+  // they are never materialized into `profiles` — the loader resolves them
+  // from code at every read.
   const requestedActiveProfile = readString(llm.activeProfile);
-  const requestedActiveEntry =
-    requestedActiveProfile !== undefined
-      ? readObject(profiles[requestedActiveProfile])
-      : null;
-  const requestedActiveExists = requestedActiveEntry !== null;
+  const requestedActiveExists =
+    requestedActiveProfile !== undefined &&
+    (MANAGED_PROFILE_NAMES.has(requestedActiveProfile) ||
+      readObject(profiles[requestedActiveProfile]) !== null);
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
@@ -284,31 +221,22 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Profile ordering — ensure all seeded profiles appear in the order array.
-  // "auto" is prepended so it appears first in the picker.
-  const profileOrder = Array.isArray(llm.profileOrder)
-    ? (llm.profileOrder as string[])
-    : [];
-  const orderSet = new Set(profileOrder);
-  if (!orderSet.has(AUTO_PROFILE_KEY)) {
-    profileOrder.unshift(AUTO_PROFILE_KEY);
-    orderSet.add(AUTO_PROFILE_KEY);
-  }
-  for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
-    if (!orderSet.has(name)) {
-      profileOrder.push(name);
-      orderSet.add(name);
-    }
-  }
+  // Profile ordering — ensure hatch-seeded custom profiles appear in the
+  // order array. Built-in names are spliced into the in-memory order by the
+  // config loader, never persisted here.
   if (userConnectionName) {
+    const profileOrder = Array.isArray(llm.profileOrder)
+      ? (llm.profileOrder as string[])
+      : [];
+    const orderSet = new Set(profileOrder);
     for (const name of Object.keys(USER_PROFILE_TEMPLATES)) {
       if (!orderSet.has(name)) {
         profileOrder.push(name);
         orderSet.add(name);
       }
     }
+    llm.profileOrder = profileOrder;
   }
-  llm.profileOrder = profileOrder;
 
   // Tag any remaining profiles without a source as user-created.
   for (const [name, profile] of Object.entries(profiles)) {
@@ -347,27 +275,23 @@ function getHatchSelectedManagedConnection(
   const activeProfile = readString(llm.activeProfile);
   if (!activeProfile) return undefined;
 
-  const activeProfileEntry = readObject(profiles[activeProfile]);
-  if (
-    activeProfileEntry &&
-    Object.prototype.hasOwnProperty.call(
-      activeProfileEntry,
-      "provider_connection",
-    )
-  ) {
-    const explicitConnection = readString(
-      activeProfileEntry.provider_connection,
-    );
-    return explicitConnection &&
-      MANAGED_CONNECTION_NAMES.has(explicitConnection)
-      ? explicitConnection
+  // Built-in active profiles resolve their connection from the code
+  // template — built-ins are never materialized into `profiles`, and the
+  // template is authoritative for connection routing.
+  const templateConnection =
+    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
+  if (templateConnection) {
+    return MANAGED_CONNECTION_NAMES.has(templateConnection)
+      ? templateConnection
       : undefined;
   }
 
-  const templateConnection =
-    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
-  return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
-    ? templateConnection
+  const activeProfileEntry = readObject(profiles[activeProfile]);
+  const explicitConnection = activeProfileEntry
+    ? readString(activeProfileEntry.provider_connection)
+    : undefined;
+  return explicitConnection && MANAGED_CONNECTION_NAMES.has(explicitConnection)
+    ? explicitConnection
     : undefined;
 }
 
