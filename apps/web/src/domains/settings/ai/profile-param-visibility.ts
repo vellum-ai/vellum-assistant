@@ -37,6 +37,20 @@ function isOpenRouterAnthropicModel(modelId: string): boolean {
   return modelId.startsWith("anthropic/");
 }
 
+/**
+ * Models flagged `adaptiveThinkingOnly` in the catalog always reason with
+ * adaptive (always-on) thinking and reject an explicit "disable thinking"
+ * request, so the enable/disable toggle must not be shown — effort stays
+ * adjustable. Mirrors the daemon's `isAdaptiveThinkingOnlyModel` in
+ * `assistant/src/providers/model-catalog.ts`.
+ */
+function isAdaptiveThinkingOnlyModel(provider: string, modelId: string): boolean {
+  return (
+    getModelsForProvider(provider).find((m) => m.id === modelId)
+      ?.adaptiveThinkingOnly === true
+  );
+}
+
 function knownOpenRouterReasoningModel(modelId: string): boolean {
   return (
     isOpenRouterAnthropicModel(modelId) ||
@@ -118,7 +132,10 @@ export function resolveProfileParamVisibility(
     speed: providerId === "anthropic" && modelId.includes("opus"),
     verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
     temperature: usesAnthropicWire,
-    thinking: (providerId === "anthropic" || providerId === "openrouter") && supportsThinkingResult,
+    thinking:
+      (providerId === "anthropic" || providerId === "openrouter") &&
+      supportsThinkingResult &&
+      !isAdaptiveThinkingOnlyModel(providerId, modelId),
     thinkingLevel: providerId === "gemini" && supportsThinkingResult,
   };
 }
