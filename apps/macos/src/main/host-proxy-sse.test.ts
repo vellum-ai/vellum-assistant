@@ -84,8 +84,8 @@ describe("HostProxySseClient", () => {
     ]);
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: mockFetch(body),
     });
     client.setMessageCallback((m) => messages.push(m));
@@ -107,8 +107,8 @@ describe("HostProxySseClient", () => {
     ]);
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: mockFetch(body),
     });
     client.setMessageCallback((m) => messages.push(m));
@@ -128,8 +128,8 @@ describe("HostProxySseClient", () => {
     ]);
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: mockFetch(body),
     });
     client.setMessageCallback((m) => messages.push(m));
@@ -146,8 +146,8 @@ describe("HostProxySseClient", () => {
   test("isConnected reflects stream state", async () => {
     const { stream, close } = controllableStream();
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: mockFetch(stream),
     });
 
@@ -184,8 +184,8 @@ describe("HostProxySseClient", () => {
     }) as unknown as typeof globalThis.fetch;
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: fakeFetch,
     });
     client.setMessageCallback((m) => messages.push(m));
@@ -213,8 +213,8 @@ describe("HostProxySseClient", () => {
 
     const messages: HostProxySseMessage[] = [];
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: fakeFetch,
     });
     client.setMessageCallback((m) => messages.push(m));
@@ -249,8 +249,8 @@ describe("HostProxySseClient", () => {
 
     const messages: HostProxySseMessage[] = [];
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: fakeFetch,
       idleTimeoutMs: 200,
       idleCheckIntervalMs: 100,
@@ -285,8 +285,8 @@ describe("HostProxySseClient", () => {
     }) as unknown as typeof globalThis.fetch;
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: fakeFetch,
     });
     client.connect();
@@ -303,7 +303,7 @@ describe("HostProxySseClient", () => {
 
   // -- Request headers ----------------------------------------------------
 
-  test("sends correct headers", async () => {
+  test("sends correct headers for local connection", async () => {
     let capturedUrl = "";
     let capturedHeaders: Record<string, string> = {};
 
@@ -321,8 +321,8 @@ describe("HostProxySseClient", () => {
     }) as unknown as typeof globalThis.fetch;
 
     client = new HostProxySseClient({
-      gatewayPort: 8080,
-      authToken: "my-token",
+      eventsUrl: "http://127.0.0.1:8080/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer my-token" }),
       fetch: fakeFetch,
     });
     client.connect();
@@ -338,6 +338,38 @@ describe("HostProxySseClient", () => {
     expect(capturedHeaders["X-Vellum-Machine-Name"]).toBeTruthy();
   });
 
+  test("sends correct headers for cloud connection", async () => {
+    let capturedUrl = "";
+    let capturedHeaders: Record<string, string> = {};
+
+    const fakeFetch: typeof globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      capturedUrl = String(input);
+      const h = init?.headers as Record<string, string> | undefined;
+      if (h) capturedHeaders = { ...h };
+      return new Response(sseStream([]), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    client = new HostProxySseClient({
+      eventsUrl: "https://platform.vellum.ai/v1/assistants/asst-123/events",
+      authHeaders: () => ({ "X-Session-Token": "session-tok-abc" }),
+      fetch: fakeFetch,
+    });
+    client.connect();
+    await flush(50);
+
+    expect(capturedUrl).toBe("https://platform.vellum.ai/v1/assistants/asst-123/events");
+    expect(capturedHeaders["X-Session-Token"]).toBe("session-tok-abc");
+    expect(capturedHeaders["Authorization"]).toBeUndefined();
+    expect(capturedHeaders["X-Vellum-Client-Id"]).toBe(MOCK_DEVICE_ID);
+    expect(capturedHeaders["X-Vellum-Interface-Id"]).toBe("macos");
+  });
+
   // -- Chunked data handling ----------------------------------------------
 
   test("handles data split across multiple chunks", async () => {
@@ -349,8 +381,8 @@ describe("HostProxySseClient", () => {
     ]);
 
     client = new HostProxySseClient({
-      gatewayPort: 9999,
-      authToken: "tok",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: mockFetch(body),
     });
     client.setMessageCallback((m) => messages.push(m));

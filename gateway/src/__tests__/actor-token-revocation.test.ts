@@ -8,6 +8,8 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { eq } from "drizzle-orm";
+
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import type { TokenClaims } from "../auth/types.js";
@@ -18,7 +20,7 @@ const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
 const { actorTokenRecords } = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
-const { isActorTokenRevoked } =
+const { isActorTokenRevoked, actorTokenRecordHash } =
   await import("../auth/actor-token-revocation.js");
 const { createRuntimeProxyHandler } =
   await import("../http/routes/runtime-proxy.js");
@@ -230,6 +232,47 @@ describe("/auth/token revocation", () => {
     );
 
     expect(res.status).toBe(401);
+  });
+
+  test("records a derived token so device revocation invalidates it", async () => {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+    const { revokeActorTokensByDevice } =
+      await import("../auth/guardian-bootstrap.js");
+    const sourceJwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+    insertTokenRecord(sourceJwt, "active");
+
+    const res = await handleCreateToken(
+      new Request("http://127.0.0.1:7830/auth/token", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${sourceJwt}`,
+          origin: "http://localhost:3000",
+        },
+      }),
+      makeLoopbackServer(),
+    );
+
+    expect(res.status).toBe(200);
+    const { token: derivedJwt } = (await res.json()) as { token: string };
+    const derivedRecord = getGatewayDb()
+      .select({ status: actorTokenRecords.status })
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.tokenHash, actorTokenRecordHash(derivedJwt)))
+      .get();
+
+    expect(derivedRecord?.status).toBe("derived");
+    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(false);
+
+    revokeActorTokensByDevice("guardian-001", hashToken("device-A"));
+
+    expect(isActorTokenRevoked(sourceJwt, actorClaims)).toBe(true);
+    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
   });
 });
 
