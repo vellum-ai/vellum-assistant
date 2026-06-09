@@ -46,6 +46,7 @@ import {
 } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
+import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
@@ -91,6 +92,10 @@ export interface ShadowLanes {
   /** Frecency hot set in score order: core excluded, filtered to pages in the
    *  section index. */
   hotSlugs: string[];
+  /** Pre-rendered FULL cards for the stable-prefix (core+hot) slugs, keyed by
+   *  slug. Frozen at lane build so the selector's stable prefix is
+   *  byte-identical across turns until the next invalidation. */
+  prefixCards: Map<Slug, string>;
 }
 
 /** Milliseconds per day — converts `hotSet.halfLifeDays` config to ms. */
@@ -184,6 +189,21 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
+  // Pre-render the stable-prefix cards ONCE per lane build: the selector's
+  // stable prefix must be byte-identical across turns to ride the provider KV
+  // cache, so the cards are frozen here (lane invalidation at consolidation is
+  // the recompute point) instead of being re-read per turn. Capability slugs
+  // render their capability content; disk pages render raw (frontmatter +
+  // body) so `kind: index` pages surface their `links:` map in the card TOC.
+  const prefixCards = new Map<Slug, string>();
+  for (const slug of [...coreSlugs, ...hotSlugs]) {
+    const raw = await capabilityOrDiskBody(
+      slug,
+      async (s) => (await loadPage(s))?.raw ?? "",
+    );
+    prefixCards.set(slug, renderCard(slug, raw));
+  }
+
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
@@ -210,6 +230,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     edgeGraph,
     coreSlugs,
     hotSlugs,
+    prefixCards,
   };
 }
 
@@ -374,6 +395,7 @@ export async function observeTurn(
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
+      prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
       edgeSeeds: v3.edge.seedCount,

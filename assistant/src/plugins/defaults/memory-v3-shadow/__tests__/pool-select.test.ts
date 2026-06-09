@@ -1,18 +1,25 @@
 /**
- * Tests for `pool-select.ts` — the single forced-tool selector over the unified
- * candidate pool.
+ * Tests for `pool-select.ts` — the single forced-tool selector over the
+ * two-segment candidate pool (stable-prefix cards + dynamic finder tail).
  *
  * Coverage matrix:
- *   - Numbered candidates render with their descriptors (truncated).
- *   - Returned IDs map to the right candidate slugs by 1-based index, with
- *     `pinned` driven by `pinned_ids`.
- *   - Omitted `ids` → keep ALL candidates (recall-safe).
+ *   - Segment ordering: the stable prefix (full cards, `[1]…[m]`) renders as
+ *     its own content block carrying the `cache_control` breakpoint; the
+ *     dynamic tail (finder lines `[m+1]…` + per-turn context) follows in an
+ *     un-cached block.
+ *   - Numbering stability: for identical stable lanes the rendered prefix
+ *     block is byte-identical across renders; only the tail varies.
+ *   - Returned IDs map over the CONCATENATED numbering, with `pinned` driven
+ *     by `pinned_ids`; out-of-range IDs dropped; selections deduped by slug
+ *     (a page can appear as both a card and a finder line; pinned flags OR).
+ *   - Omitted `ids` → keep ALL candidates (recall-safe, slug-deduped).
  *   - Explicit `ids: []` → keep none (deliberate abstention).
- *   - Out-of-range / duplicate IDs ignored without throwing.
+ *   - Finder snippets are whitespace-collapsed and truncated (~300 chars).
  *   - No provider / missing tool_use / schema mismatch / throw → keep none
  *     (degrade to deterministic lanes), the last three after a re-prompt retry.
- *   - One forced-tool `select_pages` call on the v3 L2 call site, with NO cache
- *     breakpoint (the pool is dynamic per turn).
+ *   - One forced-tool `select_pages` call on the v3 L2 call site with
+ *     `disableTurnStartCache` (the tail varies per turn — the provider's
+ *     auto-anchor would never hit).
  *
  * The provider is stubbed so no network calls fire; mirrors selector.test.ts.
  */
@@ -55,7 +62,7 @@ mock.module("../../../../util/logger.js", () => ({
 }));
 
 const { selectPool } = await import("../pool-select.js");
-type PoolCandidate = Parameters<typeof selectPool>[0][number];
+type SelectorPool = Parameters<typeof selectPool>[0];
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -118,12 +125,23 @@ function makeThrowingProvider(): Provider {
   };
 }
 
-function makePool(): PoolCandidate[] {
-  return [
-    { slug: "page-a", descriptor: "section: the alpha rollout plan" },
-    { slug: "page-b", descriptor: "section: beta metrics dashboard" },
-    { slug: "topic-x", descriptor: "linked page about topic x" },
-  ];
+const CARD_A =
+  "# memory/concepts/page-a.md\nlead for page a\n\n[sections: §Alpha · §Beta]";
+const CARD_B = "# memory/concepts/page-b.md\nlead for page b";
+
+/** Two stable-prefix cards (`[1] page-a`, `[2] page-b`) and two finder lines
+ * (`[3] topic-x`, `[4] page-a` — a finder hit on a stable-prefix page). */
+function makePool(): SelectorPool {
+  return {
+    stable: [
+      { slug: "page-a", card: CARD_A },
+      { slug: "page-b", card: CARD_B },
+    ],
+    finder: [
+      { slug: "topic-x", descriptor: "section: about topic x" },
+      { slug: "page-a", descriptor: "section: the alpha rollout plan" },
+    ],
+  };
 }
 
 function makeTurn(currentMessage: string): MemoryRoutingTurn {
@@ -135,17 +153,28 @@ function makeTurn(currentMessage: string): MemoryRoutingTurn {
   };
 }
 
+interface RenderedBlock {
+  type: string;
+  text: string;
+  cache_control?: { type: string; ttl?: string };
+}
+
+function sentBlocks(callIndex = 0): RenderedBlock[] {
+  return providerCalls[callIndex]!.messages[0]!
+    .content as unknown as RenderedBlock[];
+}
+
 beforeEach(() => {
   providerStub = null;
   providerCalls.length = 0;
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — id mapping.
+// selectPool — id mapping over the concatenated numbering.
 // ---------------------------------------------------------------------------
 
 describe("selectPool — id mapping", () => {
-  test("returned IDs map to candidate slugs, pinned driven by pinned_ids", async () => {
+  test("IDs map over cards then finder lines, pinned driven by pinned_ids", async () => {
     providerStub = makeProvider(
       toolUseResponse({ ids: [3, 1], pinned_ids: [1] }),
     );
@@ -156,7 +185,17 @@ describe("selectPool — id mapping", () => {
     ]);
   });
 
-  test("omitted ids keeps ALL candidates (recall-safe)", async () => {
+  test("a page selected as both card and finder line dedupes to one slug, pinned ORed", async () => {
+    // page-a is id 1 (card) AND id 4 (finder line); pinned only via the
+    // finder-line id.
+    providerStub = makeProvider(
+      toolUseResponse({ ids: [1, 4], pinned_ids: [4] }),
+    );
+    const result = await selectPool(makePool(), makeTurn("the alpha plan"));
+    expect(result).toEqual([{ slug: "page-a", pinned: true }]);
+  });
+
+  test("omitted ids keeps ALL candidates, deduped by slug (recall-safe)", async () => {
     providerStub = makeProvider(toolUseResponse({}));
     const result = await selectPool(makePool(), makeTurn("anything"));
     expect(result).toEqual([
@@ -180,7 +219,7 @@ describe("selectPool — id mapping", () => {
 
   test("empty pool returns no pages and never calls the provider", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
-    const result = await selectPool([], makeTurn("hi"));
+    const result = await selectPool({ stable: [], finder: [] }, makeTurn("hi"));
     expect(result).toEqual([]);
     expect(providerCalls).toHaveLength(0);
   });
@@ -231,11 +270,12 @@ describe("selectPool — degradation on failure", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — request shape (no cache breakpoint; pool is dynamic per turn).
+// selectPool — request shape: stable-prefix cards block with the cache
+// breakpoint, dynamic tail block without.
 // ---------------------------------------------------------------------------
 
 describe("selectPool — request shape", () => {
-  test("forces tool_choice to select_pages with the v3 L2 call site", async () => {
+  test("forces tool_choice to select_pages on the v3 L2 call site with disableTurnStartCache", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), makeTurn("rollout?"));
 
@@ -244,63 +284,115 @@ describe("selectPool — request shape", () => {
     const cfg = call.options?.config as Record<string, unknown>;
     expect(cfg?.callSite).toBe("memoryV3SelectL2");
     expect(cfg?.tool_choice).toEqual({ type: "tool", name: "select_pages" });
+    expect(cfg?.disableTurnStartCache).toBe(true);
     expect(call.options?.tools?.[0]?.name).toBe("select_pages");
   });
 
-  test("renders numbered candidates with descriptors and NO cache breakpoint", async () => {
+  test("stable prefix renders full cards in its own block carrying cache_control", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), makeTurn("rollout?"));
 
-    const content = providerCalls[0].messages[0].content as Array<{
-      type: string;
-      text: string;
-      cache_control?: unknown;
-    }>;
-    // A single text block — the dynamic pool has no static prefix to cache.
-    expect(content).toHaveLength(1);
-    const [block] = content;
-    expect(block.type).toBe("text");
-    expect(block.text).toContain(
-      "[1] page-a — section: the alpha rollout plan",
-    );
-    expect(block.text).toContain(
-      "[2] page-b — section: beta metrics dashboard",
-    );
-    expect(block.text).toContain("[3] topic-x — linked page about topic x");
-    expect(block.text).toContain("<current_message>rollout?</current_message>");
-    expect(block.text).toContain("<recent_context>");
-    expect(block.cache_control).toBeUndefined();
+    const blocks = sentBlocks();
+    expect(blocks).toHaveLength(2);
+
+    const [prefix, tail] = blocks;
+    expect(prefix.type).toBe("text");
+    // FULL cards, numbered in pool order, inside the cards segment.
+    expect(prefix.text).toContain(`[1] ${CARD_A}`);
+    expect(prefix.text).toContain(`[2] ${CARD_B}`);
+    expect(prefix.text.startsWith("<candidate_cards>\n")).toBe(true);
+    expect(prefix.text.endsWith("\n</candidate_cards>")).toBe(true);
+    // The breakpoint rides THIS block (preserved by toAnthropicBlockSafe).
+    expect(prefix.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // The tail continues the numbering after the cards and is NOT cached.
+    expect(tail.type).toBe("text");
+    expect(tail.text).toContain("[3] topic-x — section: about topic x");
+    expect(tail.text).toContain("[4] page-a — section: the alpha rollout plan");
+    expect(tail.text).toContain("<current_message>rollout?</current_message>");
+    expect(tail.text).toContain("<recent_context>");
+    expect(tail.cache_control).toBeUndefined();
+    // No cards leak into the tail.
+    expect(tail.text).not.toContain("<candidate_cards>");
   });
 
-  test("long descriptors are truncated in the candidate list", async () => {
+  test("the rendered prefix is byte-identical across turns; only the tail varies", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
-    const longDescriptor = "z".repeat(1000);
+    await selectPool(makePool(), makeTurn("first question"));
+
+    // Same stable lanes, different finder hits + message (a new turn).
+    const pool2 = makePool();
+    pool2.finder = [{ slug: "page-c", descriptor: "section: something else" }];
+    await selectPool(pool2, makeTurn("second question"));
+
+    const [prefix1, tail1] = sentBlocks(0);
+    const [prefix2, tail2] = sentBlocks(1);
+    expect(prefix2.text).toBe(prefix1.text);
+    expect(prefix2.cache_control).toEqual(prefix1.cache_control!);
+    expect(tail2.text).not.toBe(tail1.text);
+  });
+
+  test("an empty stable prefix renders a single un-cached block", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(
-      [{ slug: "page-a", descriptor: longDescriptor }],
+      { stable: [], finder: [{ slug: "page-a", descriptor: "d" }] },
       makeTurn("x"),
     );
-    const text = (providerCalls[0].messages[0].content[0] as { text: string })
-      .text;
-    expect(text).toContain("...");
-    expect(text).not.toContain("z".repeat(1000));
+    const blocks = sentBlocks();
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toContain("[1] page-a — d");
+    expect(blocks[0].cache_control).toBeUndefined();
   });
 
-  test("situational context renders in the user message when present", async () => {
+  test("long finder snippets are whitespace-collapsed and truncated (~300 chars)", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    const longDescriptor = `padded   ${"z".repeat(1000)}`;
+    await selectPool(
+      { stable: [], finder: [{ slug: "page-a", descriptor: longDescriptor }] },
+      makeTurn("x"),
+    );
+    const [block] = sentBlocks();
+    const line = block.text
+      .split("\n")
+      .find((l) => l.startsWith("[1] page-a — "))!;
+    expect(line).toContain("...");
+    expect(line).not.toContain("z".repeat(1000));
+    // snippet cap (300) + the `[1] page-a — ` prefix.
+    expect(line.length).toBeLessThanOrEqual(300 + "[1] page-a — ".length);
+  });
+
+  test("a finder candidate with an empty descriptor renders without a dangling dash", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+    await selectPool(
+      { stable: [], finder: [{ slug: "page-a", descriptor: "   " }] },
+      makeTurn("x"),
+    );
+    const [block] = sentBlocks();
+    expect(block.text).toContain("[1] page-a\n");
+    expect(block.text).not.toContain("[1] page-a — ");
+  });
+
+  test("situational context renders in the tail when present", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), {
       ...makeTurn("rollout?"),
       situationalContext: "Today is Saturday. The launch is today.",
     });
-    const text = (providerCalls[0].messages[0].content[0] as { text: string })
-      .text;
-    expect(text).toContain(
+    const blocks = sentBlocks();
+    expect(blocks[1].text).toContain(
       "<situation>Today is Saturday. The launch is today.</situation>",
     );
   });
 
-  test("system prompt mentions pinned (locks the pinning commitment)", async () => {
+  test("system prompt is carry-aware and generous (persistence + pinned + no limit)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), makeTurn("x"));
-    expect(providerCalls[0].options?.systemPrompt).toMatch(/pinned/);
+    const prompt = providerCalls[0].options?.systemPrompt ?? "";
+    // Carry-aware: previously selected pages persist automatically.
+    expect(prompt).toMatch(/persist/);
+    // Generous: explicitly no selection limit.
+    expect(prompt).toMatch(/no limit/i);
+    // Pinning commitment.
+    expect(prompt).toMatch(/pinned/);
   });
 });
