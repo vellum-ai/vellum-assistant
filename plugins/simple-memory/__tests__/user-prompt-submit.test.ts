@@ -11,7 +11,7 @@
  * CI glob today):
  *
  *   cd assistant && bun test \
- *     ../experimental/plugins/simple-memory/__tests__/user-prompt-submit.test.ts
+ *     ../plugins/simple-memory/__tests__/user-prompt-submit.test.ts
  */
 
 import { describe, expect, test } from "bun:test";

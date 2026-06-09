@@ -329,7 +329,7 @@ export class VellumAgent implements BaseAgent {
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.assistantContainerName,
         recordingDir: runArtifacts(this.id).runDir,
-        // Bind-mount the live repo's `experimental/plugins/` into the
+        // Bind-mount the live repo's `plugins/` into the
         // recording sidecar so the addon's mock-github handler can
         // serve `assistant plugins install` traffic from disk instead
         // of letting it egress to github.com. The runner always runs

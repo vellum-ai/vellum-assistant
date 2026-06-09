@@ -16,7 +16,7 @@ import {
 } from "../plugin-marketplace.js";
 
 const MANIFEST_URL_PREFIX =
-  "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
+  "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins/marketplace.json";
 
 // External marketplace refs must be full commit SHAs (immutable). Fixtures use
 // realistic 40-char hex object names rather than tags/branches.

@@ -16,8 +16,8 @@ to eyeball which hooks fire during a conversation.
 
 For the full plugin authoring guide — manifest shape, every contribution
 surface, hook patterns, and conventions — see
-[`experimental/plugins/README.md`](../../../../experimental/plugins/README.md).
-[`simple-memory`](../../../../experimental/plugins/simple-memory/) is the
+[`plugins/README.md`](../../../../plugins/README.md).
+[`simple-memory`](../../../../plugins/simple-memory/) is the
 canonical reference implementation that exercises every wired surface.
 
 ## What it does
@@ -115,7 +115,7 @@ vellum restart
 
 ## Next steps
 
-- Read [`experimental/plugins/README.md`](../../../../experimental/plugins/README.md)
+- Read [`plugins/README.md`](../../../../plugins/README.md)
   for the full plugin authoring guide: manifest shape, every contribution
   surface, hook patterns (observe / transform), tool contributions, and
   conventions.
