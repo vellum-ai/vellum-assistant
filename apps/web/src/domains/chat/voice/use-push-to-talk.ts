@@ -138,7 +138,7 @@ export function usePushToTalk(
       return;
     }
 
-    let nativeFnAvailable = supportsFnPushToTalk();
+    const nativeFnAvailable = supportsFnPushToTalk();
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
