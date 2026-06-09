@@ -185,21 +185,25 @@
   transform-style: preserve-3d;
 }
 
-/* grid tiles replay their signature move on hover; the detail view reuses the
-   same moves on hover too */
+/* grid tiles replay their signature move on hover; the detail view + starter
+   cards reuse the same moves on hover too */
 .cast-cell:hover .cast-hover[data-anim="jump"],
+.cast-roster__card:hover .cast-hover[data-anim="jump"],
 .cast-hero__body:hover .cast-hover[data-anim="jump"] {
   animation: cast-jump 0.6s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="flip"],
+.cast-roster__card:hover .cast-hover[data-anim="flip"],
 .cast-hero__body:hover .cast-hover[data-anim="flip"] {
   animation: cast-flip 0.7s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="wiggle"],
+.cast-roster__card:hover .cast-hover[data-anim="wiggle"],
 .cast-hero__body:hover .cast-hover[data-anim="wiggle"] {
   animation: cast-wiggle 0.6s ease;
 }
 .cast-cell:hover .cast-hover[data-anim="spin"],
+.cast-roster__card:hover .cast-hover[data-anim="spin"],
 .cast-hero__body:hover .cast-hover[data-anim="spin"] {
   animation: cast-spin 0.7s ease;
 }
@@ -348,6 +352,357 @@
 }
 .cast-zzz--hero {
   font-size: 18px;
+}
+
+/* ---- Beat 1: starter line-up + customization (replaces the crowd) ---- */
+
+.cast-starter {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+.cast-starter__view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cast-starter__header {
+  padding: var(--app-spacing-xl) var(--app-spacing-xl) 6px;
+  text-align: center;
+  z-index: 2;
+}
+
+/* the Pokémon-style line-up: one card per body shape, on a lit pedestal —
+   exactly two rows of five, centered in the remaining space (no scroll) */
+.cast-roster {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  align-content: center;
+  justify-items: center;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cast-roster::-webkit-scrollbar {
+  display: none;
+}
+
+.cast-roster__card {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 14px 6px 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--radius-xl);
+  outline: none;
+  transition: transform 160ms ease, background 160ms ease;
+}
+.cast-roster__card:hover,
+.cast-roster__card:focus-visible {
+  transform: translateY(-6px);
+  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
+}
+.cast-roster__disc {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  width: 66%;
+  aspect-ratio: 2 / 1;
+  transform: translateX(-50%);
+  border-radius: var(--radius-pill);
+  background: radial-gradient(ellipse at center, rgba(255, 240, 214, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cast-roster__avatar {
+  display: block;
+  position: relative;
+  z-index: 1;
+  width: 124px;
+  height: 124px;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+}
+.cast-roster__avatar .cast-hover {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* the card overlays the line-up (which stays visible behind a scrim) rather
+   than replacing it with a new page */
+.cast-customize__layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.cast-customize__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* the chosen starter sits in a contained card — the same controls the avatar
+   modal uses, but a focused panel rather than a full-page takeover */
+.cast-customize {
+  position: relative;
+  z-index: 1;
+  width: min(380px, calc(100% - 40px));
+  max-height: calc(100dvh - 96px);
+  padding: 22px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cast-customize::-webkit-scrollbar {
+  display: none;
+}
+.cast-customize__back {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  appearance: none;
+  border: none;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.cast-customize__back:hover {
+  background: var(--surface-active);
+}
+.cast-customize__stage {
+  position: relative;
+  align-self: center;
+  flex: none;
+  width: 188px;
+  height: 188px;
+  margin-top: 6px;
+  display: grid;
+  place-items: center;
+}
+.cast-customize__disc {
+  position: absolute;
+  bottom: 4%;
+  left: 50%;
+  width: 78%;
+  aspect-ratio: 2 / 1;
+  transform: translateX(-50%);
+  border-radius: var(--radius-pill);
+  background: radial-gradient(ellipse at center, rgba(255, 240, 214, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cast-customize__avatar {
+  display: block;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.5));
+}
+/* inline composed SVGs fill their box (these spans aren't .cast-avatar) */
+.cast-roster__avatar svg,
+.cast-customize__avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* inline name editor — name with the pencil to its right */
+.cast-customize__name {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-default);
+  cursor: pointer;
+  padding: 2px 6px;
+  outline: none;
+}
+.cast-customize__name-text {
+  font-size: 22px;
+  font-weight: 660;
+  letter-spacing: -0.01em;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 140ms ease;
+}
+.cast-customize__name-pencil {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  opacity: 0.5;
+  transition: opacity 140ms ease;
+}
+.cast-customize__name:hover .cast-customize__name-text,
+.cast-customize__name:focus-visible .cast-customize__name-text {
+  text-decoration-color: var(--content-secondary);
+}
+.cast-customize__name:hover .cast-customize__name-pencil,
+.cast-customize__name:focus-visible .cast-customize__name-pencil {
+  opacity: 0.95;
+}
+.cast-customize__name-input {
+  align-self: center;
+  width: 72%;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 660;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-element);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  outline: none;
+}
+
+.cast-controls {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cast-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-hover);
+  border-radius: var(--radius-lg);
+}
+.cast-control__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--content-tertiary);
+}
+.cast-control__cycle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cast-control__btn {
+  appearance: none;
+  border: none;
+  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--content-tertiary);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-control__btn:hover {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+.cast-control__chev {
+  width: 16px;
+  height: 16px;
+}
+.cast-control__value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 96px;
+  font-size: 14px;
+  font-weight: 560;
+  text-transform: capitalize;
+  color: var(--content-default);
+}
+.cast-control__swatch {
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-element);
+}
+.cast-customize__actions {
+  display: flex;
+  gap: 10px;
+}
+.cast-randomize {
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid var(--border-base);
+  background: var(--surface-lift);
+  color: var(--content-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-randomize:hover {
+  background: var(--surface-hover);
+  color: var(--content-default);
+}
+.cast-randomize__icon {
+  width: 16px;
+  height: 16px;
+}
+.cast-customize__continue {
+  flex: 1;
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 15px;
+  font-weight: 640;
+  padding: 13px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.cast-customize__continue:hover {
+  background: var(--primary-hover);
+}
+
+@media (max-width: 560px) {
+  .cast-roster {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 /* ---- Beats 3 & 4: prompt + choice tiles + card ---- */
@@ -1479,4 +1834,386 @@
   .cast-cell:hover .cast-hover {
     animation: none !important;
   }
+}
+
+/* ---- Onboarding chat: focus mode ----
+   The REAL conversation UI (TranscriptMessageBody in the product's centered
+   --chat-max-width column) with the app chrome stripped: no side nav, no
+   composer. Just a title, a slim journey-milestone stepper, one focused turn at
+   a time, and a "lil dude" avatar under the most recent response. */
+.cast-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cast-focus__header {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 26px 24px 22px;
+  z-index: 2;
+}
+
+/* Journey milestones — a horizontal stepper (replaces the side nav). */
+.cast-focus__journey {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.cast-focus__step {
+  appearance: none;
+  background: var(--surface-lift);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--content-secondary);
+  cursor: pointer;
+}
+.cast-focus__step:hover:not(:disabled) {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+.cast-focus__step:disabled {
+  cursor: default;
+}
+.cast-focus__step.is-done {
+  border-color: color-mix(in srgb, #3ad17a 55%, transparent);
+  color: #46c178;
+}
+.cast-focus__step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 9px;
+  line-height: 1;
+}
+.cast-focus__step.is-done .cast-focus__step-dot {
+  background: #3ad17a;
+  border-color: #3ad17a;
+  color: #0b1f12;
+}
+.cast-focus__step-credits {
+  color: #46c178;
+}
+.cast-focus__credits {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--content-tertiary);
+}
+.cast-focus__title {
+  margin: 0;
+  font-size: clamp(30px, 3.6vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--content-default);
+  text-align: center;
+}
+
+/* Conversation: the product's centered column, scaled up a touch so each turn
+   reads big and focused. */
+.cast-focus__scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  justify-content: center;
+}
+.cast-focus__scroll::-webkit-scrollbar {
+  display: none;
+}
+.cast-focus__col {
+  width: 100%;
+  max-width: var(--chat-max-width);
+  padding: 20px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.cast-focus__turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* watch-only: suppress the real component's hover action bar (copy/fork/inspect
+   + timestamp) so it reads as the assistant working, not an editable thread. */
+.cast-focus__turn .h-6.opacity-0 {
+  display: none !important;
+}
+
+/* The real Google-connect surface, anchored as an assistant-side card. */
+.cast-focus__surface {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 560px;
+}
+
+/* The "lil dude" under the most recent response — mirrors the product's own
+   latest-assistant-avatar slot (flex, left-aligned, sat just below the turn). */
+.cast-focus__avatar {
+  align-self: flex-start;
+  width: 52px;
+  height: 52px;
+  margin-top: 2px;
+}
+
+/* Journey pills pinned to the bottom (the only input until a grid appears). */
+.cast-focus__footer {
+  flex: none;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--border-subtle);
+  /* opaque so scroll content never bleeds through behind the pills */
+  background: var(--surface-base);
+  z-index: 2;
+}
+
+/* ---- inline beat widgets (tool grid, handoff tiles, sim-connect, close) ---- */
+.cast-block {
+  display: flex;
+  flex-direction: column;
+}
+/* The connections picker — tiles + Continue grouped in one card so the action
+   reads as part of the grid, not a bottom-pinned bar. */
+.cast-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  background: var(--surface-sunken);
+}
+.cast-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.cast-tile {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  text-align: left;
+  padding: 13px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.cast-tile:hover:not(:disabled) {
+  background: var(--surface-active);
+}
+.cast-tile.is-selected {
+  border-color: var(--primary-base);
+  box-shadow: inset 0 0 0 1px var(--primary-base);
+}
+.cast-tile:disabled {
+  cursor: default;
+}
+.cast-tile:disabled:not(.is-selected) {
+  opacity: 0.5;
+}
+.cast-tile__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--content-secondary);
+}
+.cast-tile__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cast-tile__name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--content-default);
+}
+.cast-tile__benefit {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--content-secondary);
+}
+.cast-tile__reward {
+  flex: none;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  color: #46c178;
+  background: color-mix(in srgb, #3ad17a 16%, transparent);
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+}
+/* Namespaced under the picker — distinct from the legacy absolute-positioned
+   `.cast-continue` used by the original two-panel beats (cast-job, etc.). */
+.cast-picker__continue {
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 650;
+  padding: 10px 22px;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-picker__continue:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.cast-picker__continue:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cast-picker__skip {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.cast-picker__skip:hover {
+  color: var(--content-secondary);
+}
+
+/* Standalone This/That page — completion panel. */
+.cast-style-done {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
+.cast-style-done__title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+}
+.cast-style-done__sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--content-secondary);
+  text-transform: capitalize;
+}
+.cast-style-done__btn {
+  margin-top: 8px;
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 14px;
+  font-weight: 650;
+  padding: 10px 22px;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-style-done__btn:hover {
+  background: var(--primary-hover);
+}
+
+/* Simulated connect card — assistant-side, capped width like a real surface. */
+.cast-sim-card {
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-lift);
+}
+.cast-sim-card__icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cast-sim-card__body {
+  flex: 1;
+  min-width: 0;
+}
+.cast-sim-card__title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--content-default);
+}
+.cast-sim-card__desc {
+  font-size: 12px;
+  color: var(--content-secondary);
+}
+.cast-sim-card__status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cast-sim-card__status.is-connecting {
+  color: var(--content-secondary);
+}
+.cast-sim-card__status.is-connected {
+  color: #46c178;
+}
+
+.cast-close__btn {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  background: var(--primary-base);
+  color: var(--content-inset);
+  font-size: 15px;
+  font-weight: 680;
+  padding: 12px 26px;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+}
+.cast-close__btn:hover {
+  background: var(--primary-hover);
 }

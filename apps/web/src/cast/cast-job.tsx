@@ -8,6 +8,8 @@ import type { CastCharacter } from "@/cast/cast-roster";
 /**
  * Beat 3 — "What will I be doing for you?" Multi-select: every chosen job's
  * prop arcs in and clusters around the character, which keeps idling with them.
+ * Lives in the LEFT panel of the two-panel layout; picks assemble the
+ * locked-input draft on the right, Send fires it, Continue advances to Rather.
  */
 export function CastJob({
   character,

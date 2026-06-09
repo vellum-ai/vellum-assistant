@@ -117,3 +117,27 @@ export const CAST: CastCharacter[] = Array.from({ length: COUNT }, (_, i) => {
     reaction: REACTION_BY_EYES[eyeStyle] ?? "sway",
   };
 });
+
+/**
+ * Build a single character from an explicit body + eyes + color triple — the
+ * output of the starter-select / customization flow. Name, reaction, and hover
+ * are derived the same way the generated roster derives them, so a hand-built
+ * character reads identically to one plucked from the crowd.
+ */
+export function buildCharacter(
+  bodyShape: string,
+  eyeStyle: string,
+  color: string,
+): CastCharacter {
+  const bodyIdx = Math.max(0, BODIES.indexOf(bodyShape));
+  const eyeIdx = Math.max(0, EYES.indexOf(eyeStyle));
+  return {
+    id: `cast-pick-${bodyShape}-${eyeStyle}-${color}`,
+    name: NAMES[(bodyIdx * EYES.length + eyeIdx) % NAMES.length],
+    bodyShape,
+    eyeStyle,
+    color,
+    hover: HOVERS[(bodyIdx + eyeIdx) % HOVERS.length],
+    reaction: REACTION_BY_EYES[eyeStyle] ?? "sway",
+  };
+}

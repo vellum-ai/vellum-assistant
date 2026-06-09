@@ -1,52 +1,36 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 
-import { CastAvatar } from "@/cast/cast-avatar";
 import {
+  assembleJobMessage,
+  assembleRatherMessage,
   EDGES,
   RATHERS,
   type Edge,
   type JobKey,
   type RatherKey,
 } from "@/cast/cast-content";
-import { HeroCharacter, type MimeState, type Rect } from "@/cast/cast-hero";
+import { type MimeState, type Rect } from "@/cast/cast-hero";
 import {
   kickoffJobContext,
   kickoffRatherContext,
   type StyleProfile,
 } from "@/cast/cast-hooks";
 import { CastChat } from "@/cast/cast-chat";
+import { CastConversationView, useCastConversation } from "@/cast/cast-conversation";
 import { CastJob } from "@/cast/cast-job";
 import { CastProof } from "@/cast/cast-proof-view";
 import { CastRather } from "@/cast/cast-rather";
+import { CastStarter, type StarterResume } from "@/cast/cast-starter";
 import { CastStyle } from "@/cast/cast-style";
+import { jobTurn, ratherTurn, styleTurn } from "@/cast/cast-templates";
+import { CastTwoPanel } from "@/cast/cast-two-panel";
 import type { CastCharacter } from "@/cast/cast-roster";
-import { CAST } from "@/cast/cast-roster";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import "@/cast/cast.css";
 
-type Phase = "grid" | "flying" | "focus" | "job" | "rather" | "style" | "done" | "chat" | "boost";
+type Phase = "starter" | "job" | "rather" | "style" | "done" | "chat" | "boost";
 
-/** The crowd floor spans wider than the viewport so characters bleed off both
- * edges ("already outside the window"). The cell is a FIXED pixel size, so
- * resizing only adds/removes whole columns of same-size characters — the dudes
- * never scale; the window just reveals more. */
-const FLOOR_W = 1.7; // floor over-extends to this fraction of the viewport
-const CELL = 132; // fixed on-screen cell size (px) — constant across resizes
-const GAP = 2;
-function colsFor(width: number): number {
-  return Math.max(6, Math.min(40, Math.ceil((width * FLOOR_W) / CELL)));
-}
-function rowsFor(height: number): number {
-  return Math.max(10, Math.min(30, Math.ceil(height / 70) + 1));
-}
-
-/** Beat 2 hero box: centered, large. */
-function focusBoxFor(w: number, h: number): Rect {
-  const size = Math.max(220, Math.min(360, Math.min(w, h) * 0.34));
-  return { left: w / 2 - size / 2, top: h * 0.26, size };
-}
-/** Beats 3/4 hero box: smaller, near the top. */
+/** Hero box for the composing beats: small, near the top of the LEFT panel. */
 function topBoxFor(w: number, h: number): Rect {
   const size = Math.max(120, Math.min(176, Math.min(w, h) * 0.2));
   return { left: w / 2 - size / 2, top: h * 0.05, size };
@@ -59,37 +43,27 @@ const win = () => ({
 
 export function CastPage() {
   const panelRef = useRef<HTMLDivElement>(null);
-  const spotlightRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef(0);
 
-  const [phase, setPhase] = useState<Phase>("grid");
+  const [phase, setPhase] = useState<Phase>("starter");
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [flyFrom, setFlyFrom] = useState<Rect | null>(null);
-  const [buildOpen, setBuildOpen] = useState(false);
 
   const [boxes, setBoxes] = useState(() => {
     const { w, h } = win();
-    return { focus: focusBoxFor(w, h), top: topBoxFor(w, h), w };
-  });
-  const [grid, setGrid] = useState(() => {
-    const { w, h } = win();
-    return { cols: colsFor(w), rows: rowsFor(h) };
+    return { top: topBoxFor(w, h), w };
   });
 
-  // Treatment fork (demo): ?arm=b swaps Job+Rather for the This/That rounds.
-  const arm = useRef<"a" | "b">(
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("arm") === "b"
-      ? "b"
-      : "a",
-  ).current;
-
+  // The live (mocked) conversation shown in the right panel of every beat.
+  const convo = useCastConversation();
   // Picks (persisted in component state for later beats).
   const [jobs, setJobs] = useState<JobKey[]>([]); // multi-select
   const [jobEdges, setJobEdges] = useState<Record<string, Edge>>({});
-  const [rathers, setRathers] = useState<RatherKey[]>([]); // single-select
+  const [rathers, setRathers] = useState<RatherKey[]>([]); // multi-select
   const [style, setStyle] = useState<StyleProfile>({});
   const [mime, setMime] = useState<MimeState | null>(null);
+  // Flips true once a rather message is Sent, so the conversation panel can
+  // show the "boring stuff" offer after that turn finishes streaming.
+  const [ratherSent, setRatherSent] = useState(false);
   const tapRef = useRef(0);
   const mimeTimer = useRef<number | undefined>(undefined);
   const clearBeatTimers = () => {
@@ -99,8 +73,7 @@ export function CastPage() {
   useEffect(() => {
     const onResize = () => {
       const { w, h } = win();
-      setGrid({ cols: colsFor(w), rows: rowsFor(h) });
-      setBoxes({ focus: focusBoxFor(w, h), top: topBoxFor(w, h), w });
+      setBoxes({ top: topBoxFor(w, h), w });
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -109,64 +82,48 @@ export function CastPage() {
     };
   }, []);
 
-  const { cols, rows } = grid;
-  const visible = CAST.slice(0, Math.min(cols * rows, 600));
-  const inGrid = phase === "grid";
   const name = selected ? (names[selected.id] ?? selected.name) : "";
-  // Single-surface: the hero is centered in the full width for every beat.
-  const heroBox: Rect = boxes.top;
+  // Hero box centered in the LEFT half for the two-panel composing beats.
+  const leftPanelBox: Rect = { ...boxes.top, left: boxes.w / 4 - boxes.top.size / 2 };
   // Nullable on this public route (no ActiveAssistantGate); the proof beat's
   // model calls fall back to local generation when it's absent.
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
-  function moveSpotlight(e: React.PointerEvent) {
-    const panel = panelRef.current;
-    const spot = spotlightRef.current;
-    if (!panel || !spot) return;
-    const r = panel.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => {
-      spot.style.setProperty("--mx", `${x}px`);
-      spot.style.setProperty("--my", `${y}px`);
-    });
+  // The chosen character, packaged so the starter modal can reopen on Back.
+  const resume: StarterResume | null = selected
+    ? {
+        bodyShape: selected.bodyShape,
+        eyeStyle: selected.eyeStyle,
+        color: selected.color,
+        name,
+      }
+    : null;
+
+  // Beat 1 → Beat 3: a starter was built + named right in the card. Seed a
+  // settled greeting so the conversation panel is never empty, then compose.
+  function chooseStarter(char: CastCharacter, chosenName: string) {
+    setSelected(char);
+    setNames((prev) => ({ ...prev, [char.id]: chosenName }));
+    convo.seedGreeting(chosenName);
+    setPhase("job");
   }
 
-  const pick = useCallback((char: CastCharacter, el: HTMLElement) => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const p = panel.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    const size = Math.min(r.width, r.height);
-    setFlyFrom({
-      left: r.left - p.left + (r.width - size) / 2,
-      top: r.top - p.top + (r.height - size) / 2,
-      size,
-    });
-    setSelected(char);
-    setPhase("flying");
-  }, []);
-
-  function backToGrid() {
+  // Back from a composing beat reopens the customization card (keeps the pick).
+  function reopenCustomize() {
     clearBeatTimers();
-    setPhase("grid");
-    setSelected(null);
-    setFlyFrom(null);
+    convo.reset();
     setJobs([]);
     setJobEdges({});
     setRathers([]);
     setStyle({});
     setMime(null);
-  }
-
-  // Beat 2 → first composition beat (Job for Arm A, This/That for Arm B).
-  function startComposing() {
-    setPhase(arm === "b" ? "style" : "job");
+    setRatherSent(false);
+    setPhase("starter");
   }
 
   // Job (multi-select): each newly-added job keeps a stable fly-in edge so its
-  // prop arcs in once and then stays clustered around the character.
+  // prop arcs in once and then stays clustered around the character. Taps
+  // assemble the locked-input draft on the right; Send fires it.
   function toggleJob(key: JobKey) {
     const adding = !jobs.includes(key);
     const next = adding ? [...jobs, key] : jobs.filter((k) => k !== key);
@@ -175,19 +132,24 @@ export function CastPage() {
       prev[key] ? prev : { ...prev, [key]: EDGES[tapRef.current++ % EDGES.length] },
     );
     void kickoffJobContext(next);
+    convo.setDraft(assembleJobMessage(next));
   }
 
-  // Rather (single-select): tapping selects one (re-tapping clears it) and arcs
-  // its prop onto the character via the transient mime.
-  function selectRather(key: RatherKey) {
-    const isOn = rathers[0] === key;
-    const next: RatherKey[] = isOn ? [] : [key];
+  // Job Send: commit the assembled draft + stream the demo response.
+  function sendJobs() {
+    if (jobs.length === 0) return;
+    convo.commit(jobTurn(jobs[0])); // first pick's script drives the demo response
+  }
+
+  // Rather (multi-select): adding one plays its mime (transient) and assembles
+  // the locked-input draft. Send fires it.
+  function toggleRather(key: RatherKey) {
+    const has = rathers.includes(key);
+    const next = has ? rathers.filter((k) => k !== key) : [...rathers, key];
     setRathers(next);
     void kickoffRatherContext(next);
-    if (isOn) {
-      setMime(null);
-      return;
-    }
+    convo.setDraft(assembleRatherMessage(next));
+    if (has) return;
     const choice = RATHERS.find((r) => r.key === key)!;
     const nonce = (tapRef.current += 1);
     setMime({ rather: choice, edge: EDGES[nonce % EDGES.length], nonce });
@@ -195,7 +157,22 @@ export function CastPage() {
     mimeTimer.current = window.setTimeout(() => setMime(null), 1500);
   }
 
-  // This/That (Arm B): persist each round's pick; the final round → Proof.
+  // Rather Send: commit the draft + arm the post-stream "boring stuff" offer.
+  function sendRathers() {
+    if (rathers.length === 0) return;
+    const choice = RATHERS.find((r) => r.key === rathers[0])!;
+    convo.commit(ratherTurn(rathers[0], choice.label));
+    setRatherSent(true);
+  }
+
+  // Offer "Let's go!" → advance to the This/That rounds.
+  function acceptOffer() {
+    clearBeatTimers();
+    setMime(null);
+    setPhase("style");
+  }
+
+  // This/That: persist each round's pick; the final round → Proof.
   function onStyleRound(next: StyleProfile) {
     setStyle(next);
   }
@@ -210,147 +187,110 @@ export function CastPage() {
     // this subtree, giving the "cave" palette regardless of the app theme.
     <div className="cast-stage" data-theme="dark">
       <div className="cast-panel" ref={panelRef}>
-        {inGrid && (
-          <header className="cast-panel__header">
-            <h1 className="cast-panel__title">Meet the Cast</h1>
-            <p className="cast-panel__subtitle">Pick the one that feels like yours.</p>
-          </header>
-        )}
+        {/* Beat 1 — starter line-up + in-card customization & naming */}
+        {phase === "starter" && <CastStarter resume={resume} onChoose={chooseStarter} />}
 
-        {/* Beat 1 — the crowd on a tilted ground plane */}
-        <div
-          className="cast-stage3d"
-          style={{ pointerEvents: inGrid ? "auto" : "none" }}
-          onPointerMove={inGrid ? moveSpotlight : undefined}
-        >
-          <motion.div
-            className="cast-floor"
-            style={{
-              // fixed-px tracks → constant dude size; width is the exact sum so
-              // the centered floor overflows the viewport rather than stretching
-              width: `${cols * CELL + (cols - 1) * GAP}px`,
-              gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
-              columnGap: `${GAP}px`,
-            }}
-          >
-            {visible.map((c) => (
-              <Billboard
-                key={c.id}
-                character={c}
-                dimmed={!inGrid && selected?.id === c.id}
-                onPick={pick}
-              />
-            ))}
-          </motion.div>
-
-          <div className="cast-spotlight" ref={spotlightRef} />
-
-          {/* Veil — fades over the crowd on selection instead of fading the
-              crowd's own opacity (opacity<1 on the preserve-3d floor would
-              flatten the 3D mid-fade). Crowd stays full-opacity underneath. */}
-          <motion.div
-            className="cast-veil"
-            initial={false}
-            animate={{ opacity: inGrid ? 0 : 1 }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-          />
-        </div>
-
-        {/* Flying clone — screen-space FLIP from tapped tile to center */}
-        <AnimatePresence>
-          {phase === "flying" && flyFrom && selected && (
-            <motion.div
-              className="cast-fly"
-              initial={{ left: flyFrom.left, top: flyFrom.top, width: flyFrom.size, height: flyFrom.size }}
-              animate={{ left: boxes.focus.left, top: boxes.focus.top, width: boxes.focus.size, height: boxes.focus.size }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              onAnimationComplete={() => setPhase("focus")}
-            >
-              <CastAvatar character={selected} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Beat 2 — named */}
-        {phase === "focus" && selected && (
-          <CastFocus
-            character={selected}
-            name={name}
-            box={boxes.focus}
-            onRename={(next) => setNames((prev) => ({ ...prev, [selected.id]: next }))}
-            onContinue={startComposing}
-            onBack={backToGrid}
-          />
-        )}
-
-        {/* Job — multi-select; props arc onto the character (Arm A) */}
+        {/* Beat 3 — what will I be doing for you? (two-panel: options | chat) */}
         {phase === "job" && selected && (
-          <CastJob
-            character={selected}
-            heroBox={heroBox}
-            jobs={jobs}
-            jobEdges={jobEdges}
-            onToggle={toggleJob}
-            onContinue={() => setPhase("rather")}
-            onBack={() => setPhase("focus")}
+          <CastTwoPanel
+            left={
+              <CastJob
+                character={selected}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                jobEdges={jobEdges}
+                onToggle={toggleJob}
+                onContinue={() => setPhase("rather")}
+                onBack={reopenCustomize}
+              />
+            }
+            right={
+              <CastConversationView
+                messages={convo.messages}
+                assistantName={name}
+                input={{ value: convo.draft, canSend: jobs.length > 0, onSend: sendJobs }}
+              />
+            }
           />
         )}
 
-        {/* Rather — single-select; prop arcs onto the character (Arm A) */}
+        {/* Beat 4 — rather (two-panel: options | chat) */}
         {phase === "rather" && selected && (
-          <CastRather
-            character={selected}
-            heroBox={heroBox}
-            jobs={jobs}
-            rathers={rathers}
-            mime={mime}
-            onToggle={selectRather}
-            onContinue={() => setPhase("done")}
-            onBack={() => {
-              clearBeatTimers();
-              setMime(null);
-              setPhase("job");
-            }}
+          <CastTwoPanel
+            left={
+              <CastRather
+                character={selected}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                rathers={rathers}
+                mime={mime}
+                onToggle={toggleRather}
+                onBack={() => {
+                  clearBeatTimers();
+                  setMime(null);
+                  setPhase("job");
+                }}
+              />
+            }
+            right={
+              <CastConversationView
+                messages={convo.messages}
+                assistantName={name}
+                input={{ value: convo.draft, canSend: rathers.length > 0, onSend: sendRathers }}
+                offer={ratherSent && !convo.streaming ? { onAccept: acceptOffer } : undefined}
+              />
+            }
           />
         )}
 
-        {/* This/That — three rounds replacing Job+Rather (Arm B) */}
+        {/* Beat 5 — this or that (two-panel: options | chat) */}
         {phase === "style" && selected && (
-          <CastStyle
-            character={selected}
-            name={name}
-            heroBox={heroBox}
-            jobs={jobs}
-            ascended={false}
-            onRoundPicked={onStyleRound}
-            onDone={onStyleDone}
-            onBack={() => setPhase("focus")}
+          <CastTwoPanel
+            left={
+              <CastStyle
+                character={selected}
+                name={name}
+                heroBox={leftPanelBox}
+                jobs={jobs}
+                ascended={rathers.length === RATHERS.length}
+                onChoose={(value) => convo.send(styleTurn(value))}
+                onRoundPicked={onStyleRound}
+                onDone={onStyleDone}
+                onBack={() => setPhase("rather")}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
-        {/* Proof — artifact + endpoint CTAs (single surface, centered). Hero sits
-            a little lower so juggling props have headroom above without clipping. */}
+        {/* Beat 6 — proof (two-panel). Hero sits a little lower so juggling props
+            have headroom above without clipping. */}
         {phase === "done" && selected && (
-          <CastProof
-            character={selected}
-            box={{ ...heroBox, top: heroBox.top + Math.round(heroBox.size * 0.7) }}
-            jobs={jobs}
-            rathers={rathers}
-            style={style}
-            ascended={false}
-            assistantId={assistantId}
-            onAction={(which) => {
-              console.log("[Cast] proof action", {
-                which,
-                character: selected.id,
-                name,
-                jobs,
-                rathers,
-                style,
-              });
-            }}
-            onEndpoint={(which) => setPhase(which)}
-            onBack={() => setPhase(arm === "b" ? "style" : "rather")}
+          <CastTwoPanel
+            left={
+              <CastProof
+                character={selected}
+                box={{ ...leftPanelBox, top: leftPanelBox.top + Math.round(leftPanelBox.size * 0.7) }}
+                jobs={jobs}
+                rathers={rathers}
+                style={style}
+                ascended={rathers.length === RATHERS.length}
+                assistantId={assistantId}
+                onAction={(which) => {
+                  console.log("[Cast] proof action", {
+                    which,
+                    character: selected.id,
+                    name,
+                    jobs,
+                    rathers,
+                    style,
+                  });
+                }}
+                onEndpoint={(which) => setPhase(which)}
+                onBack={() => setPhase("style")}
+              />
+            }
+            right={<CastConversationView messages={convo.messages} assistantName={name} />}
           />
         )}
 
@@ -363,166 +303,7 @@ export function CastPage() {
             onBack={() => setPhase("done")}
           />
         )}
-
-        {inGrid && (
-          <button className="cast-build-link" onClick={() => setBuildOpen(true)}>
-            ＋ Build your own
-          </button>
-        )}
-
-        <AnimatePresence>
-          {buildOpen && <BuildModal onClose={() => setBuildOpen(false)} />}
-        </AnimatePresence>
       </div>
     </div>
-  );
-}
-
-/* ---------------- Beat 1: a standing billboard on the floor ---------------- */
-
-/** Per-dude idle bob phase + speed so the crowd bobs out of sync (otherwise the
- * whole grid appears to move up and down as one). Negative delay starts each
- * mid-cycle, so they're already desynced at first paint. */
-function bobStyle(id: string): React.CSSProperties {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return {
-    animationDelay: `${-((h % 3200) / 1000)}s`,
-    animationDuration: `${2.8 + ((h >>> 5) % 1500) / 1000}s`,
-  };
-}
-
-const Billboard = memo(function Billboard({
-  character,
-  dimmed,
-  onPick,
-}: {
-  character: CastCharacter;
-  dimmed: boolean;
-  onPick: (c: CastCharacter, el: HTMLElement) => void;
-}) {
-  if (dimmed) {
-    return <div className="cast-cell" style={{ visibility: "hidden" }} aria-hidden />;
-  }
-  return (
-    <button
-      type="button"
-      className="cast-cell"
-      aria-label={`Choose ${character.name}`}
-      onClick={(e) => onPick(character, e.currentTarget)}
-    >
-      <span className="cast-cell__stand">
-        <span className="cast-idle" style={bobStyle(character.id)}>
-          <span className="cast-hover" data-anim={character.hover}>
-            <CastAvatar character={character} />
-          </span>
-        </span>
-      </span>
-    </button>
-  );
-});
-
-/* ---------------- Beat 2: focus / named ---------------- */
-
-function CastFocus({
-  character,
-  name,
-  box,
-  onRename,
-  onContinue,
-  onBack,
-}: {
-  character: CastCharacter;
-  name: string;
-  box: Rect;
-  onRename: (next: string) => void;
-  onContinue: () => void;
-  onBack: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-
-  return (
-    <motion.div className="cast-focus">
-      <button className="cast-back" onClick={onBack} aria-label="Back to grid">
-        ‹
-      </button>
-
-      <HeroCharacter character={character} box={box} interactive autoReact />
-
-      <motion.div
-        className="cast-name"
-        style={{ top: box.top + box.size + 28 }}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.4, ease: "easeOut" }}
-      >
-        {editing ? (
-          <input
-            className="cast-name__input"
-            autoFocus
-            defaultValue={name}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v) onRename(v);
-              setEditing(false);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              if (e.key === "Escape") setEditing(false);
-            }}
-          />
-        ) : (
-          <button
-            className="cast-name__edit"
-            onClick={() => setEditing(true)}
-            aria-label={`Rename ${name}`}
-          >
-            <span className="cast-name__text">{name}</span>
-            <svg className="cast-name__pencil" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-              />
-            </svg>
-          </button>
-        )}
-      </motion.div>
-
-      <button className="cast-continue" onClick={onContinue}>
-        Continue
-      </button>
-    </motion.div>
-  );
-}
-
-/* ---------------- Placeholder "Build your own" modal ---------------- */
-
-function BuildModal({ onClose }: { onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  return (
-    <motion.div
-      className="cast-modal__scrim"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose();
-      }}
-      ref={ref}
-    >
-      <motion.div
-        className="cast-modal"
-        initial={{ opacity: 0, y: 16, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 16, scale: 0.96 }}
-      >
-        <h2>Build your own</h2>
-        <p>
-          This is where the existing avatar customization panel (body, eyes,
-          color) will open. Placeholder for the prototype.
-        </p>
-        <button onClick={onClose}>Got it</button>
-      </motion.div>
-    </motion.div>
   );
 }

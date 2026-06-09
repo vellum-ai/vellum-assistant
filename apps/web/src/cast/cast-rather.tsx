@@ -7,9 +7,11 @@ import { Tile, TileGrid } from "@/cast/cast-tiles";
 import type { CastCharacter } from "@/cast/cast-roster";
 
 /**
- * Rather — "What would you rather be doing right now?" Single-select: the
- * character keeps the chosen job props in hand and mimes the picked rather,
- * arcing its prop onto the character. Continue advances to Proof.
+ * Beat 4 — "What would you rather be doing right now?" Multi-select: the
+ * character keeps the chosen job props in hand and mimes each rather as it's
+ * tapped. Picks assemble the locked-input draft on the right; Send fires the
+ * message and, once it streams, the conversation panel shows the "boring stuff"
+ * offer that advances to Beat 5.
  */
 export function CastRather({
   character,
@@ -18,7 +20,6 @@ export function CastRather({
   rathers,
   mime,
   onToggle,
-  onContinue,
   onBack,
 }: {
   character: CastCharacter;
@@ -27,7 +28,6 @@ export function CastRather({
   rathers: RatherKey[];
   mime: MimeState | null;
   onToggle: (key: RatherKey) => void;
-  onContinue: () => void;
   onBack: () => void;
 }) {
   const heldProps: HeldProp[] = jobs.map((k) => {
@@ -71,10 +71,6 @@ export function CastRather({
           />
         ))}
       </TileGrid>
-
-      <button className="cast-continue" onClick={onContinue}>
-        Continue
-      </button>
     </motion.div>
   );
 }

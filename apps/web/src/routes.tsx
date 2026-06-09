@@ -104,6 +104,11 @@ export const routeTree = [
     // `/assistant/cast`. Slated to fold into onboarding later.
     { path: "/assistant/cast", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/cast-page-route").then((m) => m.CastPageRoute) } },
 
+    // This/That — standalone & public (same sibling-of-`/assistant` pattern as
+    // Cast), so the "This or That" selections (`cast-style.tsx`) can be iterated
+    // in isolation at `/assistant/this-that` without auth or app chrome.
+    { path: "/assistant/this-that", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/this-that-route").then((m) => m.ThisThatRoute) } },
+
     // About — standalone metadata page rendered inside the Electron
     // About BrowserWindow. Declared as a sibling of `/assistant` (not
     // a child) so React Router's most-specific matcher picks it for
@@ -147,6 +152,14 @@ export const routeTree = [
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
+        // Onboarding chat sandbox — authed (gets `authMiddleware` + RootLayout
+        // + all app providers/stores like the rest of the app) but sits outside
+        // ChatLayout, so no chat sidebar. Its own `position:fixed` stage covers
+        // RootLayout, keeping the focus-mode look. NOTE: deliberately NOT under
+        // the `/assistant/onboarding/*` prefix — `navigation-resolver`'s
+        // `isOnboardingPath` redirects already-onboarded users off that prefix.
+        { path: "focus-chat", lazy: { Component: () => import("@/onboarding-chat-route").then((m) => m.OnboardingChatRoute) } },
+
         // Onboarding routes — redirect to /assistant when onboarding is
         // already completed (unless ?replay is present).
         {
