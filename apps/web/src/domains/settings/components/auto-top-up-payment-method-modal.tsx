@@ -185,7 +185,7 @@ export function AutoTopUpPaymentMethodModal({
 function MissingStripeKeyNotice() {
   useEffect(() => {
     console.warn(
-      "[AutoTopUpPaymentMethodModal] NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set; the payment-method modal cannot mount Stripe Elements.",
+      "[AutoTopUpPaymentMethodModal] VITE_STRIPE_PUBLISHABLE_KEY is not set; the payment-method modal cannot mount Stripe Elements.",
     );
   }, []);
   return (
