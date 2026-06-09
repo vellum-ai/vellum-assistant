@@ -257,6 +257,10 @@ const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
   platformUrl: resolvedConfig.platformUrl,
+  disablePlatform:
+    ["true", "1"].includes(
+      (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
+    ) || undefined,
 }));
 
 /**
