@@ -140,7 +140,6 @@ function makeHookCtx(
   overrides: Partial<MemoryRetrievalHookContext> = {},
 ): MemoryRetrievalHookContext {
   return {
-    onEvent: () => {},
     conversationId: "conv-test",
     userMessageId: "msg-test",
     logger: {
@@ -156,18 +155,23 @@ function makeHookCtx(
 
 /**
  * Install a fake live conversation for the hook to self-resolve by id: the
- * graph handle, abort signal, and trust class all come from here rather than
- * the hook context.
+ * graph handle, abort signal, trust class, and client event sink all come from
+ * here rather than the hook context.
  */
 function installConversation(
   graphMemory: ConversationGraphMemory,
-  opts?: { trusted?: boolean; signal?: AbortSignal },
+  opts?: {
+    trusted?: boolean;
+    signal?: AbortSignal;
+    onEvent?: (msg: ServerMessage) => void;
+  },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
   currentConversation = {
     graphMemory,
     trustContext: undefined,
     abortController: { signal: opts?.signal ?? new AbortController().signal },
+    sendToClient: opts?.onEvent ?? (() => {}),
   } as unknown as Conversation;
 }
 
@@ -305,9 +309,11 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
       injectedBlockText: "injected-block",
       metrics: makeMetrics(),
     });
-    installConversation(memory, { trusted: true });
-    const ctx = makeHookCtx({
+    installConversation(memory, {
+      trusted: true,
       onEvent: (msg) => received.push(msg),
+    });
+    const ctx = makeHookCtx({
       userMessageId: "msg-42",
       conversationId: "conv-42",
     });

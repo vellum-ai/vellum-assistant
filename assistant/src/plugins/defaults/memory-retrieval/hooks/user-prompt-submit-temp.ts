@@ -34,6 +34,7 @@ import type { PluginHookFn } from "@vellumai/plugin-api";
 import type { Logger } from "pino";
 
 import { getConfig } from "../../../../config/loader.js";
+import type { Conversation } from "../../../../daemon/conversation.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
@@ -41,7 +42,6 @@ import {
   resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
@@ -52,14 +52,12 @@ import type { GraphMemoryResult } from "../../../types.js";
 /**
  * Context threaded through the `user-prompt-submit-temp` hook. The
  * conversation-scoped retrieval state (graph handle, abort signal, trust
- * class) is self-resolved from the live conversation by id; the readonly
- * fields here carry the event sink and the turn-start injection snapshot,
- * while `latestMessages` straddles input and output — the loop seeds it with
- * the pre-injection array and the hook overwrites it with the injected result.
+ * class, client event sink) is self-resolved from the live conversation by id;
+ * the readonly fields here carry the turn-start injection snapshot, while
+ * `latestMessages` straddles input and output — the loop seeds it with the
+ * pre-injection array and the hook overwrites it with the injected result.
  */
 export interface MemoryRetrievalHookContext {
-  /** Event sink used by the graph retriever and `memory_recalled` emission. */
-  readonly onEvent: (msg: ServerMessage) => void;
   /** Conversation the turn belongs to — keys the recall-log row. */
   readonly conversationId: string;
   /** User message the injected memory block is persisted onto. */
@@ -102,6 +100,7 @@ export interface MemoryRetrievalHookContext {
 function recordRecallSideEffects(
   graphResult: GraphMemoryResult,
   ctx: MemoryRetrievalHookContext,
+  emitEvent: Conversation["sendToClient"],
 ): void {
   // Persist the injected block text in message metadata so it survives
   // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -176,7 +175,7 @@ function recordRecallSideEffects(
         recency: c.recencyBoost,
       })),
     };
-    ctx.onEvent(memoryRecalledEvent);
+    emitEvent(memoryRecalledEvent);
   }
 }
 
@@ -262,14 +261,21 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   );
 
   if (conversation && isTrustedActor && abortSignal) {
+    // The turn's client event sink is the live conversation's `sendToClient`,
+    // resolved here rather than threaded in. It is the same per-conversation
+    // sink the loop would otherwise hand over: `broadcastMessage` for client
+    // turns, the `subagent_event` envelope for subagents, the voice handler
+    // for voice turns. Resolving it internally keeps any raw emission
+    // capability off the public hook contract.
+    const emitEvent = conversation.sendToClient;
     const graphResult = await conversation.graphMemory.prepareMemory(
       ctx.latestMessages,
       config,
       abortSignal,
-      ctx.onEvent,
+      emitEvent,
     );
 
-    recordRecallSideEffects(graphResult, ctx);
+    recordRecallSideEffects(graphResult, ctx, emitEvent);
 
     ctx.latestMessages = graphResult.runMessages;
     // Select dense+sparse as a matched pair so RRF fusion combines two signals
