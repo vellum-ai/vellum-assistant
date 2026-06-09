@@ -41,6 +41,11 @@ export const ConceptPageFrontmatterSchema = z
     ref_urls: z.array(z.string().url()).default([]),
     summary: z.string().optional(),
     leaves: z.array(z.string()).optional(),
+    // Optional authored `"<target-slug> — <why>"` cross-links. Curated, first-class
+    // edges for the memory-v3 edge lane. Declared here so `.strict()` does not
+    // reject a page that uses `links:`, and so `renderPageContent` round-trips the
+    // field (the edge graph reads it back from the rendered frontmatter).
+    links: z.array(z.string()).optional(),
   })
   .strict();
 

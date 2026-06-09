@@ -186,6 +186,28 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.body).toBe(page.body);
   });
 
+  test("round-trips authored links: frontmatter (memory-v3 edge lane)", async () => {
+    const page = makePage({
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        links: ["bob-handoff — the partner this hands off to"],
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    // A page using the optional `links:` frontmatter must NOT be rejected by the
+    // strict schema (it would otherwise be dropped from memory-v3 entirely), and
+    // the curated links must survive the render → read round-trip so the edge
+    // graph can parse them back from the rendered frontmatter.
+    const read = await readPage(workspaceDir, page.slug);
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.links).toEqual([
+      "bob-handoff — the partner this hands off to",
+    ]);
+  });
+
   test("renders frontmatter at the top with --- delimiters", async () => {
     const page = makePage();
     await writePage(workspaceDir, page);
