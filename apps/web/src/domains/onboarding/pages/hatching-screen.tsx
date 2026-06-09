@@ -1,5 +1,6 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import * as Sentry from "@sentry/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -20,6 +21,7 @@ import {
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
@@ -89,6 +91,7 @@ export function decideHatchGate(): HatchGateDecision {
 
 export function HatchingScreen() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
@@ -180,6 +183,32 @@ export function HatchingScreen() {
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
 
+    // Persist the randomized hatch avatar (only when the assistant has none
+    // yet) and invalidate the avatar query so the macOS Dock + menu-bar icons,
+    // the browser favicon, and the in-app avatar all refetch it on first
+    // landing. Awaited before completing the hatch so the avatar query's first
+    // fetch — which fires only once the lifecycle resolves the active assistant
+    // (~`COMPLETION_NAVIGATE_DELAY_MS` later) — sees the persisted traits. The
+    // post-save invalidate closes the race if that first fetch has already
+    // cached an avatar-less result, since the query holds results with
+    // `staleTime: Infinity` and never refetches on its own. Resilient:
+    // `fetchCharacterTraits`/`saveCharacterTraits` swallow their own errors, so
+    // a failed save returns rather than throwing and never blocks navigation;
+    // any unexpected throw is reported without interrupting onboarding.
+    const persistHatchAvatar = async (assistantId: string): Promise<void> => {
+      try {
+        const existing = await fetchCharacterTraits(assistantId);
+        if (!existing) {
+          await saveCharacterTraits(assistantId, hatchTraits);
+        }
+        void queryClient.invalidateQueries({
+          queryKey: avatarQueryKey(assistantId),
+        });
+      } catch (err) {
+        captureError(err, { context: "onboarding_avatar_sync" });
+      }
+    };
+
     const startHatch = async () => {
       transitionPhase("provisioning");
 
@@ -199,6 +228,8 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
+            await persistHatchAvatar(existing.data.id);
+            if (cancelled) return;
             handleHatchReady();
             return;
           }
@@ -283,6 +314,8 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            await persistHatchAvatar(result.assistantId);
+            if (cancelled) return;
           }
 
           handleHatchReady();
@@ -359,12 +392,8 @@ export function HatchingScreen() {
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
-            fetchCharacterTraits(assistantId).then((existing) => {
-              if (existing) return;
-              return saveCharacterTraits(assistantId, hatchTraits);
-            }).catch((err) => {
-              captureError(err, { context: "onboarding_avatar_sync" });
-            });
+            await persistHatchAvatar(assistantId);
+            if (cancelled) return;
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
@@ -406,6 +435,7 @@ export function HatchingScreen() {
     hatchTraits,
     sessionStatus,
     navigate,
+    queryClient,
     transitionPhase,
     useLocalHatch,
   ]);

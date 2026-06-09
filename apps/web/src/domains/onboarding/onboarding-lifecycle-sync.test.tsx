@@ -47,8 +47,14 @@ const getAssistantMock = mock(async () => ({
   },
 }));
 
-const fetchCharacterTraitsMock = mock(async () => null);
+let fetchTraitsImpl: () => Promise<unknown> = async () => null;
+const fetchCharacterTraitsMock = mock(() => fetchTraitsImpl());
 const saveCharacterTraitsMock = mock(async () => undefined);
+const invalidateQueriesMock = mock(() => {});
+const queryClientMock = {
+  fetchQuery: mock(async () => []),
+  invalidateQueries: invalidateQueriesMock,
+};
 const writeSelectedVersionMock = mock(() => {});
 
 type TestOnboardingRecipe = {
@@ -94,6 +100,10 @@ mock.module("@/assistant/api", () => ({
 mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterTraits: fetchCharacterTraitsMock,
   saveCharacterTraits: saveCharacterTraitsMock,
+}));
+
+mock.module("@/lib/sync/query-tags", () => ({
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 mock.module("@/utils/avatar-bundled-components", () => ({
@@ -273,7 +283,7 @@ mock.module("@tanstack/react-query", () => ({
     return isRecipeQuery ? state : { data: { id: "asst-1" } };
   },
   useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
-  useQueryClient: () => ({ fetchQuery: mock(async () => []) }),
+  useQueryClient: () => queryClientMock,
 }));
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
@@ -357,6 +367,7 @@ const { PreChatFlow } =
 beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
+  fetchTraitsImpl = async () => null;
   preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = "control";
   selfIntroGreeting = true;
@@ -376,6 +387,7 @@ beforeEach(() => {
   getAssistantMock.mockClear();
   fetchCharacterTraitsMock.mockClear();
   saveCharacterTraitsMock.mockClear();
+  invalidateQueriesMock.mockClear();
   writeSelectedVersionMock.mockClear();
   fetchOnboardingRecipeMock.mockClear();
 });
@@ -624,5 +636,57 @@ describe("onboarding lifecycle sync", () => {
 
     expect(await screen.findByTestId("prior-continue")).toBeTruthy();
     expect(checkAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("hatching persists the random avatar and invalidates the avatar query before leaving onboarding", async () => {
+    let resolveLifecycle!: () => void;
+    checkAssistantImpl = () =>
+      new Promise<void>((resolve) => {
+        resolveLifecycle = resolve;
+      });
+
+    render(<HatchingScreen />);
+
+    // The randomized avatar is saved (no existing traits) before completing.
+    await waitFor(() =>
+      expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", {
+        bodyShape: "round",
+        eyeStyle: "dot",
+        color: "green",
+      }),
+    );
+    // The avatar query is invalidated so the Dock/menu-bar icons, favicon, and
+    // in-app avatar refetch the freshly persisted traits at first landing.
+    await waitFor(() =>
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: ["assistantAvatar", "asst-1"],
+      }),
+    );
+
+    // Persisting the avatar must not block the lifecycle hand-off.
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    resolveLifecycle();
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat, {
+        replace: true,
+      }),
+    );
+  });
+
+  test("hatching skips the avatar save when the assistant already has traits but still invalidates", async () => {
+    fetchTraitsImpl = async () => ({
+      bodyShape: "square",
+      eyeStyle: "line",
+      color: "blue",
+    });
+
+    render(<HatchingScreen />);
+
+    await waitFor(() =>
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: ["assistantAvatar", "asst-1"],
+      }),
+    );
+    expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
   });
 });
