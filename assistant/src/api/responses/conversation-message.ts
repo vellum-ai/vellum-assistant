@@ -370,10 +370,42 @@ export const ConversationMessageSchema = z.object({
   attachments: z.array(ConversationMessageAttachmentSchema),
   toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
   surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
-  textSegments: z.array(z.string()).optional(),
-  thinkingSegments: z.array(z.string()).optional(),
-  /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
-  contentOrder: z.array(z.string()).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Text split by tool-call
+   * boundaries; positional sibling of `contentOrder`.
+   */
+  textSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Text segments split by tool-call boundaries.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Reasoning text extracted from
+   * thinking blocks; positional sibling of `contentOrder`.
+   */
+  thinkingSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Reasoning text extracted from thinking blocks.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Positional
+   * `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`).
+   */
+  contentOrder: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        'Deprecated: superseded by contentBlocks. Positional "<type>:<index>" content ordering (e.g. "text:0", "thinking:1").',
+    })
+    .optional(),
   /**
    * Unified ordered content blocks — the display-ready projection of the
    * row's model-native content. Ships alongside the positional

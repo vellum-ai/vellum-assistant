@@ -428,7 +428,15 @@ export function renderHistoryContent(
       finalizeSegment();
       thinkingSegments.push(block.thinking);
       contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
-      contentBlocks.push({ type: "thinking", thinking: block.thinking });
+      const thinkingBlock: Extract<
+        ConversationContentBlock,
+        { type: "thinking" }
+      > = { type: "thinking", thinking: block.thinking };
+      if (typeof block._startedAt === "number")
+        thinkingBlock.startedAt = block._startedAt;
+      if (typeof block._completedAt === "number")
+        thinkingBlock.completedAt = block._completedAt;
+      contentBlocks.push(thinkingBlock);
       continue;
     }
 
