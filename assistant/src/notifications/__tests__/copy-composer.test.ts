@@ -131,7 +131,7 @@ describe("composeFallbackCopy honors requestedMessage / requestedTitle", () => {
     });
     const copy = composeFallbackCopy(signal, CHANNELS);
 
-    expect(copy.vellum?.title).toBe("Reminder");
+    expect(copy.vellum?.title).toBe("Daily Standup");
     expect(copy.vellum?.body).toBe("Standup time");
   });
 

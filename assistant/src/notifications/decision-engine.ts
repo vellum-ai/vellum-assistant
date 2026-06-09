@@ -24,17 +24,19 @@ import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
+  buildAccessRequestContractText,
+  buildAccessRequestInviteDirective,
+  hasAccessRequestInstructions,
+  hasInviteFlowDirective,
+} from "./access-request-copy.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
 import {
-  buildAccessRequestContractText,
-  buildAccessRequestInviteDirective,
   composeFallbackCopy,
   deriveTitle,
-  hasAccessRequestInstructions,
-  hasInviteFlowDirective,
   nonEmpty,
   readPayloadString,
 } from "./copy-composer.js";

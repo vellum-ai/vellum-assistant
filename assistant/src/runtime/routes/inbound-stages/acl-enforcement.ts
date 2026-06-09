@@ -23,7 +23,7 @@ import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
 } from "../../../memory/invite-store.js";
-import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/copy-composer.js";
+import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/access-request-copy.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
@@ -332,12 +332,12 @@ export async function enforceIngressAcl(
 
             return {
               resolvedMember: null,
-              earlyResponse: ({
+              earlyResponse: {
                 accepted: true,
                 denied: true,
                 reason: "verification_challenge_sent",
                 verificationSessionId: slackVerifyResult.sessionId,
-              }),
+              },
             };
           }
         }
@@ -375,12 +375,12 @@ export async function enforceIngressAcl(
 
             return {
               resolvedMember: null,
-              earlyResponse: ({
+              earlyResponse: {
                 accepted: true,
                 denied: true,
                 reason: "verification_challenge_sent",
                 verificationSessionId: emailVerifyResult.sessionId,
-              }),
+              },
             };
           }
         }
@@ -438,14 +438,14 @@ export async function enforceIngressAcl(
 
         return {
           resolvedMember: null,
-          earlyResponse: ({
+          earlyResponse: {
             accepted: true,
             denied: true,
             reason: "not_a_member",
             // Include reply text so the gateway can deliver directly when
             // callback delivery failed (e.g. signing-key mismatch → 401).
             ...(!replyDelivered && { replyText }),
-          }),
+          },
         };
       }
     }
@@ -610,12 +610,12 @@ export async function enforceIngressAcl(
 
               return {
                 resolvedMember,
-                earlyResponse: ({
+                earlyResponse: {
                   accepted: true,
                   denied: true,
                   reason: "verification_challenge_sent",
                   verificationSessionId: slackVerifyResult.sessionId,
-                }),
+                },
               };
             }
           }
@@ -682,12 +682,12 @@ export async function enforceIngressAcl(
           }
           return {
             resolvedMember,
-            earlyResponse: ({
+            earlyResponse: {
               accepted: true,
               denied: true,
               reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
               ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
-            }),
+            },
           };
         }
       }
@@ -722,15 +722,14 @@ export async function enforceIngressAcl(
         }
         return {
           resolvedMember,
-          earlyResponse: ({
+          earlyResponse: {
             accepted: true,
             denied: true,
             reason: "policy_deny",
             ...(!denyReplyDelivered && { replyText: denyReplyText }),
-          }),
+          },
         };
       }
-
     }
   }
 
@@ -786,11 +785,11 @@ async function handleInviteTokenIntercept(params: {
   );
 
   if (dedupResult.duplicate) {
-    return ({
+    return {
       accepted: true,
       duplicate: true,
       eventId: dedupResult.eventId,
-    });
+    };
   }
 
   const outcome = redeemInvite({
@@ -835,11 +834,11 @@ async function handleInviteTokenIntercept(params: {
       }
     }
     markProcessed(dedupResult.eventId);
-    return ({
+    return {
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "already_member",
-    });
+    };
   }
 
   const replyText = getInviteRedemptionReply(outcome);
@@ -861,22 +860,22 @@ async function handleInviteTokenIntercept(params: {
 
   if (outcome.ok && outcome.type === "redeemed") {
     markProcessed(dedupResult.eventId);
-    return ({
+    return {
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "redeemed",
       memberId: outcome.memberId,
-    });
+    };
   }
 
   // Failed redemption — inform the user and deny
   markProcessed(dedupResult.eventId);
-  return ({
+  return {
     accepted: true,
     eventId: dedupResult.eventId,
     denied: true,
     inviteRedemption: outcome.reason,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -942,11 +941,11 @@ async function handleInviteCodeIntercept(params: {
       );
 
       if (dedupResult.duplicate) {
-        return ({
+        return {
           accepted: true,
           duplicate: true,
           eventId: dedupResult.eventId,
-        });
+        };
       }
 
       const mismatchReply = "This invite is not valid for this channel.";
@@ -965,12 +964,12 @@ async function handleInviteCodeIntercept(params: {
         }
       }
       markProcessed(dedupResult.eventId);
-      return ({
+      return {
         accepted: true,
         eventId: dedupResult.eventId,
         denied: true,
         inviteRedemption: "channel_mismatch",
-      });
+      };
     }
     return null;
   }
@@ -988,11 +987,11 @@ async function handleInviteCodeIntercept(params: {
   );
 
   if (dedupResult.duplicate) {
-    return ({
+    return {
       accepted: true,
       duplicate: true,
       eventId: dedupResult.eventId,
-    });
+    };
   }
 
   let outcome: ReturnType<typeof redeemInviteByCode>;
@@ -1046,11 +1045,11 @@ async function handleInviteCodeIntercept(params: {
       }
     }
     markProcessed(dedupResult.eventId);
-    return ({
+    return {
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "already_member",
-    });
+    };
   }
 
   const replyText = getInviteRedemptionReply(outcome);
@@ -1072,22 +1071,22 @@ async function handleInviteCodeIntercept(params: {
 
   if (outcome.ok && outcome.type === "redeemed") {
     markProcessed(dedupResult.eventId);
-    return ({
+    return {
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "redeemed",
       memberId: outcome.memberId,
-    });
+    };
   }
 
   // Failed redemption (expired, revoked, etc.) — inform and deny
   markProcessed(dedupResult.eventId);
-  return ({
+  return {
     accepted: true,
     eventId: dedupResult.eventId,
     denied: true,
     inviteRedemption: !outcome.ok ? outcome.reason : undefined,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
