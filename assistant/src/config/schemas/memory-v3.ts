@@ -67,11 +67,36 @@ export const MemoryV3EdgeSchema = z
   })
   .describe("Memory v3 edge-lane (link-graph expansion) tuning.");
 
+/**
+ * Hot-set lane tuning: the top-K pages by exponentially-decayed selection
+ * frequency (frecency) folded into the candidate pool as a stable lane.
+ */
+export const MemoryV3HotSetSchema = z
+  .object({
+    k: z
+      .number({ error: "memory.v3.hotSet.k must be a number" })
+      .int("memory.v3.hotSet.k must be an integer")
+      .positive("memory.v3.hotSet.k must be a positive integer")
+      .default(40)
+      .describe(
+        "Number of top frecency-scored pages included in the hot-set lane.",
+      ),
+    halfLifeDays: z
+      .number({ error: "memory.v3.hotSet.halfLifeDays must be a number" })
+      .positive("memory.v3.hotSet.halfLifeDays must be a positive number")
+      .default(14)
+      .describe(
+        "Frecency decay half-life in days: a selection this old contributes half the weight of one made now.",
+      ),
+  })
+  .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
+
 export const MemoryV3ConfigSchema = z
   .object({
     workingSet: MemoryV3WorkingSetSchema.default(
       MemoryV3WorkingSetSchema.parse({}),
     ),
+    hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })
       .int("memory.v3.needleK must be an integer")
