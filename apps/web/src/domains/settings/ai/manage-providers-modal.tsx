@@ -14,7 +14,6 @@ import {
 import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 
 import {
-    filterFlaggedConnections,
     PROVIDER_DISPLAY_NAMES,
     type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
@@ -55,7 +54,6 @@ export function ManageProvidersModal({
   assistantId,
   onClose,
 }: ManageProvidersModalProps) {
-  const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ProviderConnection | null>(null);
@@ -70,8 +68,8 @@ export function ManageProvidersModal({
   });
 
   const connections = useMemo(
-    () => filterFlaggedConnections(data?.connections ?? [], openAICompatibleEndpoints),
-    [data, openAICompatibleEndpoints],
+    () => data?.connections ?? [],
+    [data],
   );
 
   function handleEditorSave(_saved: ProviderConnection) {
@@ -124,7 +122,6 @@ export function ManageProvidersModal({
             connection={editingConnection ?? undefined}
             assistantId={assistantId}
             existingNames={existingNames}
-            openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
             chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
             onSave={handleEditorSave}
             onCancel={cancelEditor}

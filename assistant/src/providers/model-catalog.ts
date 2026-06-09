@@ -1212,7 +1212,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupHint:
       "Enter the base URL of your endpoint and at least one model identifier.",
     apiKeyPlaceholder: "Your provider's API key",
-    featureFlag: "openai-compatible-endpoints",
     models: [],
     defaultModel: "",
   },

@@ -60,7 +60,6 @@ export interface ProviderEditorContentProps {
   connection?: ProviderConnection;
   assistantId: string;
   existingNames: string[];
-  openAICompatibleEndpointsEnabled?: boolean;
   chatgptSubscriptionEnabled?: boolean;
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
@@ -71,7 +70,6 @@ export function ProviderEditorContent({
   connection,
   assistantId,
   existingNames,
-  openAICompatibleEndpointsEnabled = false,
   chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
@@ -123,14 +121,11 @@ export function ProviderEditorContent({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const connectionProviderOptions = useMemo(() => {
-    const options = openAICompatibleEndpointsEnabled
-      ? CONNECTION_PROVIDERS
-      : CONNECTION_PROVIDERS.filter((p) => p !== "openai-compatible");
-    if (provider && !options.includes(provider)) {
-      return [...options, provider];
+    if (provider && !CONNECTION_PROVIDERS.includes(provider)) {
+      return [...CONNECTION_PROVIDERS, provider];
     }
-    return options;
-  }, [openAICompatibleEndpointsEnabled, provider]);
+    return CONNECTION_PROVIDERS;
+  }, [provider]);
 
   const { handleLabelChange, resetDirty } =
     useLabelKeySync(effectiveMode, setLabel, setName);
@@ -360,7 +355,6 @@ export function ProviderEditorContent({
         variant="modal"
         assistantId={assistantId}
         existingNames={existingNames}
-        openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
         chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
         defaultProviderType={provider}
         defaultAuthType={createAuthTypeSeed}
