@@ -52,6 +52,24 @@ export function textBody(
 }
 
 /**
+ * Build a settled reasoning row's `thinkingSegments`, `contentOrder`, and
+ * `contentBlocks` all in lockstep — the shape the ingest boundary
+ * (`normalizeContentBlocks`) materializes for a row whose body is a run of
+ * reasoning blocks. The i-th thinking block carries the same text as
+ * `thinkingSegments[i]`, so the block-first thinking reader resolves each
+ * `thinking:i` id from the block rather than the positional fallback.
+ */
+export function thinkingBodyWithBlocks(
+  ...segments: string[]
+): Pick<DisplayMessage, "thinkingSegments" | "contentOrder" | "contentBlocks"> {
+  return {
+    thinkingSegments: segments,
+    contentOrder: segments.map((_, i) => ({ type: "thinking", id: String(i) })),
+    contentBlocks: segments.map((thinking) => ({ type: "thinking", thinking })),
+  };
+}
+
+/**
  * Build the wire-shape `textSegments` + `contentOrder` for a server message
  * whose body is a single text block. The wire contract encodes segments as
  * plain strings and content order as positional `"<type>:<index>"` strings.
