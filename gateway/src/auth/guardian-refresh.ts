@@ -5,7 +5,7 @@
 
 import { randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import { actorRefreshTokenRecords, actorTokenRecords } from "../db/schema.js";
@@ -81,7 +81,7 @@ function revokeFamily(familyId: string): void {
     .run();
 }
 
-function revokeActorTokensByDevice(
+function revokeActiveActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
@@ -94,6 +94,24 @@ function revokeActorTokensByDevice(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
         eq(actorTokenRecords.status, "active"),
+      ),
+    )
+    .run();
+}
+
+function revokeAllActorTokensByDevice(
+  guardianPrincipalId: string,
+  hashedDeviceId: string,
+): void {
+  const now = Date.now();
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+        inArray(actorTokenRecords.status, ["active", "derived"]),
       ),
     )
     .run();
@@ -232,7 +250,7 @@ export function rotateCredentials(params: {
       "Refresh token reuse detected — revoking entire family",
     );
     revokeFamily(record.familyId);
-    revokeActorTokensByDevice(
+    revokeAllActorTokensByDevice(
       record.guardianPrincipalId,
       record.hashedDeviceId,
     );
@@ -261,7 +279,7 @@ export function rotateCredentials(params: {
       return { ok: false as const, error: "refresh_reuse_detected" as const };
     }
 
-    revokeActorTokensByDevice(
+    revokeActiveActorTokensByDevice(
       record.guardianPrincipalId,
       record.hashedDeviceId,
     );
