@@ -4,6 +4,8 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
+import { randomUUID } from "node:crypto";
+
 import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -13,16 +15,20 @@ import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { AcpResumeError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
+import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
+import type { UserDecision } from "../../permissions/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
   ConflictError,
   FailedDependencyError,
+  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -53,7 +59,109 @@ type SessionEntry = z.infer<typeof sessionEntrySchema>;
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function spawnSession({ body }: RouteHandlerArgs) {
+/**
+ * Surface a high-risk confirmation for a direct `POST /v1/acp/spawn` request
+ * and resolve to the guardian's decision.
+ *
+ * Unlike the `acp_spawn` skill tool (which is dispatched through
+ * `ToolExecutor`/`PermissionChecker` and so inherits the descriptor's
+ * `risk: "high"` approval prompt), this HTTP/IPC route reaches the ACP
+ * session manager directly. A spawned ACP agent is a host subprocess with
+ * advertised filesystem + terminal access whose in-session permission
+ * requests are auto-allowed, so spawning it is exactly the high-risk action
+ * the descriptor gates. Without this prompt a caller holding only
+ * `chat.write` could start one in an arbitrary `cwd` with no human in the
+ * loop (ATL-822).
+ *
+ * The confirmation is registered with `directResolve` so `POST /v1/confirm`
+ * resolves it without a live `Conversation` object. That route requires the
+ * bound guardian (`approval.write` + `requireGuardian`) — a strictly higher
+ * bar than the `chat.write` this route demands — so the `chat.write` caller
+ * cannot self-approve. Timeout and client disconnect both deny, matching the
+ * tool path's "no interactive client → do not run" posture.
+ */
+function awaitDirectSpawnApproval(args: {
+  agent: string;
+  task: string;
+  cwd: string;
+  conversationId: string;
+  signal?: AbortSignal;
+}): Promise<UserDecision> {
+  const { agent, task, cwd, conversationId, signal } = args;
+  const requestId = randomUUID();
+  const input = { agent, task, cwd };
+  // Mirror the interactive prompt timeout; fall back to the schema default
+  // (300s) if the timeouts block is somehow absent so the gate never wedges.
+  const timeoutMs = (getConfig().timeouts?.permissionTimeoutSec ?? 300) * 1000;
+
+  return new Promise<UserDecision>((resolve) => {
+    let settled = false;
+    const settle = (
+      decision: UserDecision,
+      state: "approved" | "rejected" | "cancelled",
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      // Idempotent: the `/v1/confirm` directResolve path already removed the
+      // entry before invoking us, so this is a no-op there and only fires
+      // `interaction_resolved` for the timeout/abort paths.
+      pendingInteractions.resolve(requestId, state);
+      resolve(decision);
+    };
+
+    const timer = setTimeout(() => {
+      log.warn(
+        { requestId, agent, conversationId },
+        "ACP spawn approval timed out — denying",
+      );
+      settle("deny", "cancelled");
+    }, timeoutMs);
+
+    const onAbort = () => settle("deny", "cancelled");
+    if (signal?.aborted) {
+      clearTimeout(timer);
+      resolve("deny");
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingInteractions.register(requestId, {
+      conversationId,
+      kind: "confirmation",
+      confirmationDetails: {
+        toolName: "acp_spawn",
+        input,
+        riskLevel: "high",
+        executionTarget: "host",
+        allowlistOptions: [],
+        scopeOptions: [],
+        persistentDecisionsAllowed: false,
+      },
+      directResolve: (decision) =>
+        settle(decision, decision === "allow" ? "approved" : "rejected"),
+    });
+
+    broadcastMessage(
+      {
+        type: "confirmation_request",
+        requestId,
+        toolName: "acp_spawn",
+        input,
+        riskLevel: "high",
+        executionTarget: "host",
+        allowlistOptions: [],
+        scopeOptions: [],
+        conversationId,
+        persistentDecisionsAllowed: false,
+      },
+      conversationId,
+    );
+  });
+}
+
+async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   const agent = body?.agent as string | undefined;
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
@@ -61,6 +169,23 @@ async function spawnSession({ body }: RouteHandlerArgs) {
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
+  }
+
+  // High-risk approval gate. Block BEFORE any side effects — resolution can
+  // trigger a `bun` global install (auto-install.ts) and `manager.spawn`
+  // launches the host subprocess — so an unapproved request mutates nothing.
+  const decision = await awaitDirectSpawnApproval({
+    agent,
+    task,
+    cwd,
+    conversationId,
+    signal: abortSignal,
+  });
+  if (decision !== "allow") {
+    throw new ForbiddenError(
+      "Spawning an ACP coding agent requires guardian approval, which was " +
+        "not granted.",
+    );
   }
 
   // Resolve the agent, silently auto-installing a missing allowlisted

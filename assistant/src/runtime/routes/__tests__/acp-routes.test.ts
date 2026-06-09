@@ -86,6 +86,24 @@ mock.module("../../../acp/prepare-agent-env.js", () => ({
   prepareAgentEnv: async (agentConfig: unknown) => agentConfig,
 }));
 
+// The spawn route gates on a high-risk approval (ATL-822) before resolving /
+// installing the adapter. These tests pin the resolve/install flow, so the
+// hub mock auto-approves the freshly registered confirmation the same way
+// `POST /v1/confirm` would (resolve + directResolve). Other event types are
+// ignored.
+import * as pendingInteractions from "../../../runtime/pending-interactions.js";
+
+mock.module("../../../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: { type?: string; requestId?: string }) => {
+    if (msg?.type !== "confirmation_request") return;
+    const interaction = pendingInteractions.resolve(
+      msg.requestId as string,
+      "approved",
+    );
+    interaction?.directResolve?.("allow");
+  },
+}));
+
 const config = await installAcpConfigStub();
 const which = installWhichStub();
 
