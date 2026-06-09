@@ -206,7 +206,7 @@ const setHelperRegistration = async (
 const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
   if (helperRegistrationSync) return helperRegistrationSync;
 
-  const sync = (async () => {
+  const sync = (async (): Promise<FnPushToTalkResult> => {
     while (helperRegistered !== shouldRegisterHelper()) {
       const shouldRegister = shouldRegisterHelper();
       const result = await setHelperRegistration(shouldRegister);
@@ -221,7 +221,7 @@ const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
     }
   });
 
-  return helperRegistrationSync;
+  return sync;
 };
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
