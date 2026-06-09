@@ -191,6 +191,62 @@ export interface UserPromptSubmitContext {
   readonly logger: PluginLogger;
 }
 
+// ─── Post-compact hook context ───────────────────────────────────────────────
+
+/**
+ * Context passed to the `post-compact` hook. Fires after the agent loop
+ * compacts a conversation mid-turn — once the running history has been
+ * summarized down to fit the context window, and before the turn resumes.
+ *
+ * Compaction strips the turn's runtime injections (scratchpad, retrieved
+ * memory, workspace context, transcript snapshots) along with the raw messages
+ * it summarizes. This hook's job is to re-apply whatever injected context must
+ * survive onto the freshly compacted history before the next provider call.
+ * The default memory-retrieval plugin contributes a hook here that re-injects
+ * its memory blocks and re-tracks the memory graph; user hooks can re-apply
+ * their own injected context the same way.
+ *
+ * The hook re-injects by mutating `history` in place (or returning a new
+ * context with a replacement `history`) — see {@link PluginHookFn}'s
+ * polymorphic return shape. The agent loop reads the settled `history` back off
+ * the context and resumes the turn from it. Multiple plugins' hooks chain in
+ * registration order, each seeing the previous plugin's edits.
+ */
+export interface PostCompactContext {
+  /**
+   * The compacted message history to re-inject onto. Hooks mutate this in
+   * place (or return a new context with a replacement) to re-apply context
+   * that compaction stripped; the loop resumes the turn from the settled
+   * value.
+   */
+  history: Message[];
+  /**
+   * Stable ID for the request that drives this turn. Hooks that perform
+   * runtime injection forward it onto the injector turn context so the
+   * re-applied blocks are attributed to the originating request; it is fixed
+   * for the turn and cannot be recovered from the message history.
+   */
+  readonly requestId: string | undefined;
+  /** Conversation ID the turn being compacted is scoped to. */
+  readonly conversationId: string;
+  /**
+   * Whether the turn has no human present to answer clarification questions
+   * (e.g. a scheduled, background, or headless run). Mirrors the field of the
+   * same name on {@link UserPromptSubmitContext}: resolved once at turn start
+   * so re-injection reflects the turn's interactivity rather than mutable
+   * client-presence state that can flip mid-turn.
+   */
+  readonly isNonInteractive: boolean;
+  /**
+   * Active inference profile key to surface in the re-injected context, or
+   * `null` when the profile is unchanged since the one last announced to the
+   * model. Mirrors {@link UserPromptSubmitContext.modelProfileKey}: hooks that
+   * emit the `model_profile` grounding line resolve the human-readable label
+   * from this key rather than receiving the rendered string.
+   */
+  readonly modelProfileKey: string | null;
+}
+
 // ─── Post-tool-use hook context ──────────────────────────────────────────────
 
 /**

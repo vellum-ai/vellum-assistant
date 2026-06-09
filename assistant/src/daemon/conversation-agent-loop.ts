@@ -798,10 +798,9 @@ export async function runAgentLoopImpl(
 
     // Unified `<turn_context>` actor input for this turn (model-facing grounding
     // metadata; the conversation runtime context remains the source for policy
-    // gating). Resolved once at turn start and threaded per call site (like
-    // `modelProfileKey`) so post-compaction re-injection receives it as an
-    // explicit hook input rather than re-deriving it from live state that can
-    // flip mid-turn.
+    // gating). Resolved once at turn start and reused by the orchestrator's
+    // post-rejection convergence re-injection rather than re-derived from live
+    // state that can flip mid-turn.
     const actorContext = resolveTurnInboundActorContext(
       ctx.trustContext,
       ctx.assistantId,
@@ -988,7 +987,6 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
-          actorContext,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;

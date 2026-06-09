@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { PostCompactContext } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
@@ -108,9 +109,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import postCompact, {
-  type PostCompactContext,
-} from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -1030,16 +1029,15 @@ describe("applyRuntimeInjections — injection mode", () => {
     // GIVEN the seeded live conversation `injection-mode-conv` whose
     // conversation-scoped blocks (`<active_workspace>`, `<channel_capabilities>`)
     // only resolve when `applyRuntimeInjections` finds it by conversation id
-    // AND the agent loop hands the post-compaction hook the turn-identity fields
-    // flat (`requestId`, `conversationId`, `trust`)
+    // AND the agent loop hands the post-compaction hook the irreducible
+    // turn-identity fields flat (`requestId`, `conversationId`), with trust and
+    // actor identity self-resolved by the hook from the live conversation
     const postCompactCtx: PostCompactContext = {
       history: baseMessages,
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",
-      trust: { sourceChannel: "vellum", trustClass: "guardian" },
       isNonInteractive: false,
       modelProfileKey: null,
-      actorContext: null,
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;

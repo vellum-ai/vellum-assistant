@@ -10,12 +10,12 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
+  PostCompactContext,
   PostModelCallContext,
   PostToolUseContext,
   PreModelCallContext,
@@ -23,7 +23,6 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -455,8 +454,8 @@ export interface AgentLoopRunOptions {
    * Trust classification and channel identity for the turn's inbound actor,
    * supplied by the caller as the turn-start snapshot. Read only on the
    * mid-loop in-place compaction path — to scope the compactor's image
-   * manifest (guardian-only attachments are excluded for untrusted actors) and
-   * forwarded to the post-compaction hook. Callers without a meaningful actor (agent
+   * manifest (guardian-only attachments are excluded for untrusted actors).
+   * Callers without a meaningful actor (agent
    * wakes, standalone unit tests) pass an `unknown`-class snapshot so the
    * compactor fail-closes to excluding guardian-only attachments.
    */
@@ -517,16 +516,6 @@ export interface AgentLoopRunOptions {
    * persisted mid-turn). Defaults to `null` when omitted.
    */
   modelProfileKey?: string | null;
-  /**
-   * Inbound actor identity and trust fields for the unified `<turn_context>`
-   * block, or `null` on guardian turns. Resolved once by the orchestrator at
-   * turn start via the actor-trust resolver, whose contact/member registry
-   * inputs can be mutated mid-turn by contact tools, and forwarded to
-   * the post-compaction hook so post-compaction
-   * re-injection re-emits the turn-start value rather than re-resolving it.
-   * Defaults to `null` when omitted.
-   */
-  actorContext?: InboundActorContext | null;
 }
 
 /**
@@ -715,7 +704,6 @@ export class AgentLoop {
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfileKey: string | null,
-    actorContext: InboundActorContext | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -770,10 +758,8 @@ export class AgentLoop {
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       requestId,
       conversationId: this.conversationId,
-      trust,
       isNonInteractive,
       modelProfileKey,
-      actorContext,
     };
     // The hook chain writes the re-injected history back onto the context;
     // read it from there once the chain settles.
@@ -799,7 +785,6 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
-      actorContext = null,
     } = options;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -927,7 +912,6 @@ export class AgentLoop {
                   resolveEffectiveOverrideProfile() ?? null,
                   isNonInteractive,
                   modelProfileKey,
-                  actorContext,
                 );
                 if (compacted) {
                   history = compacted;

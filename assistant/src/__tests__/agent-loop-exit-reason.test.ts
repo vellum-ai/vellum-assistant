@@ -15,6 +15,8 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { PostCompactContext } from "@vellumai/plugin-api";
+
 import type {
   AgentEvent,
   CheckpointDecision,
@@ -29,7 +31,6 @@ import {
   disposeContextWindowManager,
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
-import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { registerPlugin } from "../plugins/registry.js";
 import type {
   Message,
