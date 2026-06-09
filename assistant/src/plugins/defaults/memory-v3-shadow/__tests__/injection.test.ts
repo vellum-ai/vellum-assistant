@@ -25,6 +25,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -47,6 +48,12 @@ let injectionMockActive = false;
 let liveEnabled = false;
 let shadowEnabled = false;
 let spotlightConfig = { n: 6, windowTurns: 2 };
+/** `null` disables the prune valve (the default for tests not exercising it —
+ *  `runPruneValve` bails when the config block is absent). */
+let pruneConfig: {
+  maxResidentBytes: number;
+  targetResidentBytes: number;
+} | null = null;
 /** Canned orchestrate result per turnIndex; `null` simulates a failed turn. */
 let turnResults = new Map<number, OrchestrateResult | null>();
 const observeTurnSpy = mock(
@@ -72,6 +79,8 @@ function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
+  // The prune valve's recency ranking reads `memory_v3_selections`.
+  migrateAddMemoryV3Selections(db);
   return db;
 }
 
@@ -90,8 +99,23 @@ mock.module("../../../../config/loader.js", () => ({
   ...realConfigLoader,
   getConfig: () =>
     injectionMockActive
-      ? { memory: { v3: { spotlight: spotlightConfig } } }
+      ? {
+          memory: {
+            v3: {
+              spotlight: spotlightConfig,
+              prune: pruneConfig ?? undefined,
+            },
+          },
+        }
       : realConfigLoader.getConfig(),
+}));
+
+// The prune valve resolves the live conversation through the daemon registry
+// (dynamically imported). Stub it so the deferred valve never drags the heavy
+// daemon module graph into this test process; `undefined` = "conversation not
+// live" (the valve skips the live strip).
+mock.module("../../../../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: () => undefined,
 }));
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
@@ -137,9 +161,15 @@ const {
   memoryV3SpotlightInjector,
   resetMemoryV3InjectorStateForTests,
 } = await import("../injector.js");
-const { getActiveSlugs, getInjected, markPruned, recordInjected } =
-  await import("../ever-injected-store.js");
+const {
+  getActiveSlugs,
+  getInjected,
+  getPrunedSlugs,
+  markPruned,
+  recordInjected,
+} = await import("../ever-injected-store.js");
 const { V3_CARDS_INJECTION_HEADER } = await import("../render-injection.js");
+const { flushPruneValveForTests } = await import("../prune.js");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -186,11 +216,15 @@ function produceSpotlight(conversationId: string, turnIndex: number) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Drain any prune-valve work the previous test's live injection deferred,
+  // so it lands against that test's DB instead of bleeding into this one.
+  await flushPruneValveForTests();
   injectionMockActive = true;
   liveEnabled = false;
   shadowEnabled = false;
   spotlightConfig = { n: 6, windowTurns: 2 };
+  pruneConfig = null;
   turnResults = new Map();
   observeTurnSpy.mockClear();
   logCalls.length = 0;
@@ -198,7 +232,9 @@ beforeEach(() => {
   resetMemoryV3InjectorStateForTests();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // Deferred valve work must finish while the mocks are still active.
+  await flushPruneValveForTests();
   injectionMockActive = false;
 });
 
@@ -267,6 +303,30 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     const t2 = await produceCards("conv-1", 1);
     expect(t2!.text).toContain("# memory/concepts/page-a.md");
     expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+  });
+
+  test("end-of-turn prune valve: fires deferred after live injection, exempting core/hot lanes", async () => {
+    liveEnabled = true;
+    // Each stubbed card is ~47 bytes; cap so the second turn tips over and
+    // one prune reaches the target.
+    pruneConfig = { maxResidentBytes: 60, targetResidentBytes: 50 };
+    const t0 = result(["page-a"]);
+    t0.lanes.core = ["page-a"]; // page-a is a core-lane member this turn…
+    turnResults.set(0, t0);
+    turnResults.set(1, result(["page-b"])); // …but not on turn 1's lanes.
+
+    await produceCards("conv-1", 0);
+    await flushPruneValveForTests();
+    // Turn 0 is within the cap — nothing pruned.
+    expect(getPrunedSlugs("conv-1").size).toBe(0);
+
+    await produceCards("conv-1", 1);
+    // The valve is DEFERRED: nothing pruned synchronously at produce time.
+    expect(getPrunedSlugs("conv-1").size).toBe(0);
+    await flushPruneValveForTests();
+    // Over the cap, page-a (oldest, and no longer lane-exempt) is pruned.
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-b"]));
   });
 
   test("slugs whose card renders empty are neither attached nor recorded", async () => {

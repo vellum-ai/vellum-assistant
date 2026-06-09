@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Stub out heavy dependencies before importing Conversation
 mock.module("../util/logger.js", () => ({
@@ -110,7 +110,37 @@ mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
+// `loadFromDb` reads the conversation's pruned v3 card slugs (prune valve)
+// when a row carries a `memoryV3InjectedBlock`. Stub the store read so these
+// tests never touch a real DB; the stub DELEGATES to the real implementation
+// unless this file is actively running (`mock.module` is process-global and
+// would otherwise leak into sibling files that use the real store).
+const realEverInjectedStore = {
+  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+};
+let lifecycleStoreMockActive = false;
+let mockPrunedSlugs = new Set<string>();
+mock.module(
+  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
+  () => ({
+    ...realEverInjectedStore,
+    getPrunedSlugs: (conversationId: string) =>
+      lifecycleStoreMockActive
+        ? mockPrunedSlugs
+        : realEverInjectedStore.getPrunedSlugs(conversationId),
+  }),
+);
+
 import { Conversation } from "../daemon/conversation.js";
+
+beforeEach(() => {
+  lifecycleStoreMockActive = true;
+  mockPrunedSlugs = new Set();
+});
+
+afterAll(() => {
+  lifecycleStoreMockActive = false;
+});
 
 function makeConversation(): Conversation {
   const provider = {
@@ -397,6 +427,71 @@ describe("loadFromDb metadata injection rehydration", () => {
       },
       { type: "text", text: "Tail turn" },
     ]);
+  });
+
+  test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {
+    // The prune valve marks cards pruned in the everInjected store instead of
+    // rewriting the persisted metadata; the rehydration splice re-filters on
+    // every load, which is what makes a prune survive restarts.
+    mockConversation = defaultConv();
+    mockPrunedSlugs = new Set(["page-a"]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
+    mockConversation = defaultConv();
+    mockPrunedSlugs = new Set(["page-a"]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    // No memory block at all — an instruction header with zero cards carries
+    // no content (matches the live strip, which removes the emptied block).
+    expect(messages[0].content).toEqual([{ type: "text", text: "First turn" }]);
   });
 
   test("defensively-wrapped memoryV3InjectedBlock rehydrates singly-wrapped", async () => {
