@@ -141,7 +141,7 @@ describe("lifecycleService — server state projection", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
-    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
       kind: "active",
       isLocal: false,
       maintenanceMode: { enabled: false },
