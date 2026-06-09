@@ -14,7 +14,7 @@
  * 2. Walks {@link getRegisteredPlugins} in registration order.
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
- *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
+ *    the plugin is skipped wholesale — no `init()`, no tool/route
  *    contributions, no entry in the shutdown hook, and the plugin is also
  *    dropped from the registry via {@link unregisterPlugin} so none of its
  *    hooks participate in the turn lifecycle. This is the primary mechanism for
@@ -29,23 +29,21 @@
  *    through untouched).
  * 6. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 7. For each surviving plugin, registers its contributed tools, routes,
- *    and skills into their global registries via
- *    {@link registerPluginTools}, {@link registerSkillRoute}, and
- *    {@link registerPluginSkills}. Contributions land BEFORE `init()` so
+ * 7. For each surviving plugin, registers its contributed tools and routes
+ *    into their global registries via {@link registerPluginTools} and
+ *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
  *    the plugin's hook can observe a registry where its own model-visible
  *    surface is already wired — useful for plugins that want to attach
  *    metadata, warm caches, or otherwise interact with their own
  *    contributions during initialization.
  * 8. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
- *    the offending plugin: its already-registered tools, routes, and skills
- *    are rolled back, it is dropped from the registry, the failure is logged,
- *    and bootstrap continues with the remaining plugins. A single plugin's
- *    failure never deregisters plugins that already initialized — in
- *    particular the first-party defaults, which carry core turn behavior
- *    (memory retrieval, history repair, title generation) — so the daemon
- *    comes up with the failing plugin absent rather than blacking out the
- *    whole plugin layer.
+ *    the offending plugin: its already-registered tools and routes are rolled
+ *    back, it is dropped from the registry, the failure is logged, and
+ *    bootstrap continues with the remaining plugins. A single plugin's failure
+ *    never deregisters plugins that already initialized — in particular the
+ *    first-party defaults, which carry core turn behavior (memory retrieval,
+ *    history repair, title generation) — so the daemon comes up with the
+ *    failing plugin absent rather than blacking out the whole plugin layer.
  *
  * A single shutdown hook is registered via
  * {@link registerShutdownHook} that walks the plugin list in **reverse
@@ -69,10 +67,6 @@ import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import { installPluginRuntime } from "../plugins/external-api.js";
 import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
 import {
-  registerPluginSkills,
-  unregisterPluginSkills,
-} from "../plugins/plugin-skill-contributions.js";
-import {
   getRegisteredPlugin,
   getRegisteredPlugins,
   setRegisteredPlugin,
@@ -82,7 +76,6 @@ import {
   type Plugin,
   PluginExecutionError,
   type PluginShutdownContext,
-  type PluginSkillRegistration,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
@@ -285,7 +278,7 @@ export async function bootstrapPlugins(): Promise<void> {
       activePlugins.push(await initializePlugin(plugin, assistantConfig));
     } catch (err) {
       // Contain the failure to this plugin. `initializePlugin` already rolled
-      // back its own partial tool/route/skill contributions, so we just drop
+      // back its own partial tool/route contributions, so we just drop
       // it from the registry and move on. A single plugin's init failure must
       // never deregister the plugins that already came up — above all the
       // first-party defaults, which carry core turn behavior. The daemon stays
@@ -313,12 +306,6 @@ export async function bootstrapPlugins(): Promise<void> {
   //   3. Call `onShutdown()` (if defined) so the plugin can release resources
   //      (background tasks, timers, connections) with its tools and routes
   //      already removed.
-  //   4. Unregister contributed skills via the ref-counted helper. Skills tear
-  //      down last so `onShutdown()` can still invoke skill-resolving code
-  //      (e.g. to flush pending skill work) before the catalog is emptied.
-  //      This mirrors the symmetry of registerPluginSkills() — every
-  //      successful registration must get a matching unregister call,
-  //      regardless of whether onShutdown throws.
   const shutdownSnapshot: ActivePlugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
@@ -394,23 +381,6 @@ async function initializePlugin(
       );
     }
 
-    if (plugin.skills && plugin.skills.length > 0) {
-      try {
-        registerPluginSkills(
-          name,
-          plugin.skills as readonly PluginSkillRegistration[],
-        );
-      } catch (err) {
-        throw new PluginExecutionError(
-          `plugin ${name} skill registration failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-          name,
-          { cause: err },
-        );
-      }
-    }
-
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -438,9 +408,6 @@ async function initializePlugin(
         unregisterSkillRoute(handle);
       }
       unregisterPluginTools(name);
-      if (plugin.skills && plugin.skills.length > 0) {
-        unregisterPluginSkills(name);
-      }
     }
     throw err;
   }
@@ -448,9 +415,9 @@ async function initializePlugin(
 
 /**
  * Tear down a single fully-initialized plugin: unregister routes, unregister
- * tools, invoke `onShutdown()` if present, then unregister skills. Every step
- * swallows errors and logs with plugin attribution so one bad plugin can't
- * block teardown of the rest.
+ * tools, then invoke `onShutdown()` if present. Every step swallows errors and
+ * logs with plugin attribution so one bad plugin can't block teardown of the
+ * rest.
  *
  * Shared between the normal shutdown hook and the bootstrap error path; both
  * consume plugins that already cleared every contribution step.
@@ -501,17 +468,6 @@ async function teardownPlugin(
       log.warn(
         { err, plugin: name, reason },
         "plugin shutdown hook failed (continuing with remaining plugins)",
-      );
-    }
-  }
-
-  if (plugin.skills && plugin.skills.length > 0) {
-    try {
-      unregisterPluginSkills(name);
-    } catch (err) {
-      log.warn(
-        { err, plugin: name, reason },
-        "plugin skill unregistration failed (continuing with remaining plugins)",
       );
     }
   }
