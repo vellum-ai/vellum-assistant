@@ -13,12 +13,15 @@
  *
  * Every per-turn input the live conversation can supply is self-resolved from
  * it (looked up by id) rather than threaded in by the loop:
- * - The trust snapshot and inbound actor context come from the conversation's
- *   turn-start trust snapshot ({@link Conversation.currentTurnTrustContext}),
- *   not the live `trustContext`. Post-compaction runs mid-turn in a later tool
- *   iteration, where the live value may have been overwritten by a concurrent
- *   request's actor; the turn-start snapshot is the value the loop's initial
- *   assembly resolved, so re-injection matches it.
+ * - The trust snapshot comes from the conversation's turn-start trust snapshot
+ *   ({@link Conversation.currentTurnTrustContext}), and the inbound actor
+ *   context from the turn-start actor snapshot
+ *   ({@link Conversation.currentTurnInboundActorContext}) — both frozen at turn
+ *   start, not read live. Post-compaction runs mid-turn in a later tool
+ *   iteration, where the live trust can be overwritten by a concurrent
+ *   request's actor and the contact/member registry the actor context derives
+ *   from can be mutated by contact tools; reading the frozen snapshots re-emits
+ *   the values the turn's initial assembly resolved.
  * - The memory graph handle comes from the plugin's own conversation-keyed
  *   registry ({@link getLiveGraphMemory}).
  * - The call site and transcript inputs self-resolve inside
@@ -34,7 +37,6 @@ import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
-  resolveTurnInboundActorContext,
   resolveTurnModelProfileLabel,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import {
@@ -53,18 +55,17 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
   } = ctx;
   const config = getConfig();
   const conversation = findConversationOrSubagent(conversationId);
-  // Trust and inbound actor context are read from the conversation's turn-start
-  // snapshot (`currentTurnTrustContext`) rather than the live `trustContext`:
-  // post-compaction runs mid-turn in a later tool iteration, where the live
-  // value may have been overwritten by a concurrent request's actor. The
-  // snapshot is the same value the turn's initial assembly resolved.
-  const turnTrust =
-    conversation?.currentTurnTrustContext ?? conversation?.trustContext;
-  const trust = turnTrust ?? FALLBACK_TURN_TRUST;
-  const actorContext = resolveTurnInboundActorContext(
-    turnTrust,
-    conversation?.assistantId,
-  );
+  // Trust and the inbound actor context are read from the conversation's
+  // turn-start snapshots rather than live state: post-compaction runs mid-turn
+  // in a later tool iteration, where the live trust can be overwritten by a
+  // concurrent request's actor and the contact/member registry the actor
+  // context derives from can be mutated by contact tools. The snapshots are the
+  // values the turn's initial assembly resolved.
+  const trust =
+    conversation?.currentTurnTrustContext ??
+    conversation?.trustContext ??
+    FALLBACK_TURN_TRUST;
+  const actorContext = conversation?.currentTurnInboundActorContext ?? null;
   // Render the `model_profile:` label from the turn's resolved profile key,
   // using the call site self-resolved from the live conversation — the same
   // derivation the first-call user-prompt-submit assembly uses. Mid-loop
