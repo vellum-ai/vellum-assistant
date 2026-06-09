@@ -13,6 +13,20 @@ describe("onboardingCompletedMiddleware", () => {
     sessionStorage.clear();
   });
 
+  test("allows preview mode to bypass the guard", async () => {
+    const next = mock(async () => "ok");
+
+    const result = await onboardingCompletedMiddleware(
+      {
+        request: makeRequest(`${routes.onboarding.privacy}?preview=true`),
+      } as Parameters<typeof onboardingCompletedMiddleware>[0],
+      next,
+    );
+
+    expect(result).toBe("ok");
+    expect(next).toHaveBeenCalled();
+  });
+
   test("allows local pre-chat after hatch when onboarding is not complete", async () => {
     localStorage.setItem(
       "vellum:local:lockfile",

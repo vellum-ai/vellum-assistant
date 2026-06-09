@@ -21,6 +21,11 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
   next,
 ) => {
   const url = new URL(request.url);
+  // Developer preview mode bypasses the onboarding guard so completed users
+  // can re-walk the screens without being redirected away.
+  if (url.searchParams.get("preview") === "true") {
+    return next();
+  }
   // Auth has already been verified by the parent auth middleware.
   const decision = resolveNavigation(
     buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
