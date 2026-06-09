@@ -218,9 +218,7 @@ describe("plugin tool contributions", () => {
   });
 
   test("tools are only registered after init() succeeds", async () => {
-    // A plugin whose init throws must not contribute tools — the bootstrap
-    // aborts with a PluginExecutionError, and nothing from this plugin
-    // should leak into the tool registry.
+    // GIVEN a plugin that declares a tool but throws during init()
     const plugin = buildPlugin("delta-broken", {
       async init() {
         throw new Error("boom");
@@ -229,7 +227,12 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await expect(bootstrapPlugins()).rejects.toThrow(/delta-broken/);
+    // WHEN bootstrap runs
+    // THEN it does not throw — the init failure is contained to this plugin
+    await bootstrapPlugins();
+
+    // AND the failing plugin's tool is rolled back, never leaking into the
+    // registry
     expect(getTool("delta-tool")).toBeUndefined();
   });
 });

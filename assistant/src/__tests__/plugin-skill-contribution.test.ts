@@ -202,7 +202,8 @@ describe("plugin skill contributions", () => {
     expect(getPluginContributedSkillSummaries()).toEqual([]);
   });
 
-  test("duplicate skill id across plugins fails bootstrap with the plugin named", async () => {
+  test("duplicate skill id across plugins drops the colliding plugin, keeping the first", async () => {
+    // GIVEN two plugins that both declare the same skill id
     const shared: PluginSkillRegistration = {
       id: "contested-id",
       name: "contested",
@@ -215,22 +216,22 @@ describe("plugin skill contributions", () => {
       description: "Second",
       body: "from second plugin",
     };
-
+    // AND the first registered plugin claims the id; the second collides on it
     registerPlugin(buildSkillPlugin("first-plugin", [shared]));
     registerPlugin(buildSkillPlugin("second-plugin", [duplicate]));
 
-    let caught: unknown;
-    try {
-      await bootstrapPlugins();
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(PluginExecutionError);
-    // The error must identify which plugin tripped the collision so
-    // operators can deploy a fix.
-    const msg = (caught as PluginExecutionError).message;
-    expect(msg).toContain("second-plugin");
-    expect(msg).toContain("contested-id");
+    // WHEN bootstrap runs
+    // THEN it does not throw — the collision is contained to the colliding
+    // plugin rather than aborting the whole plugin layer
+    await bootstrapPlugins();
+
+    // AND the first plugin keeps the contested skill, while the second
+    // plugin's colliding contribution is rolled back and dropped
+    expect(
+      getPluginContributedSkillDefinition("contested-id")?.description,
+    ).toBe("First");
+    expect(getPluginSkillRefCount("first-plugin")).toBe(1);
+    expect(getPluginSkillRefCount("second-plugin")).toBe(0);
   });
 
   test("intra-batch duplicate skill id in one plugin is rejected at registration", () => {
