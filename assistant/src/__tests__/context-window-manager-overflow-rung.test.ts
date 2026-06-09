@@ -194,6 +194,34 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     ]);
   });
 
+  test("reuses the first rung's corrected target across the turn's later rungs", async () => {
+    // GIVEN the provider rejected at 480k while the estimator counted 240k, and
+    // only one estimate is seeded so a second estimate call would throw
+    estimateReturns.push(240_000);
+    reduceSteps = [
+      makeStep(["emergency_compaction"]),
+      makeStep(["emergency_compaction", "forced_compaction"]),
+    ];
+    const manager = buildManager();
+
+    // WHEN two rungs run within the same turn with the provider's actual count
+    await manager.reduceOverflowOneRung(makeMessages(10), {
+      actualTokens: 480_000,
+      allowAutoCompressLatestTurn: false,
+    });
+    await manager.reduceOverflowOneRung(makeMessages(4), {
+      actualTokens: 480_000,
+      allowAutoCompressLatestTurn: false,
+    });
+
+    // THEN the corrected target (190k preflight / 2x error ratio) is computed
+    // once and reused, rather than re-derived against the shrunk prompt
+    expect(reduceCalls[0]?.config.targetTokens).toBe(95_000);
+    expect(reduceCalls[1]?.config.targetTokens).toBe(95_000);
+    expect(reduceCalls[0]?.config.previousEstimatedInputTokens).toBe(240_000);
+    expect(reduceCalls[1]?.config.previousEstimatedInputTokens).toBe(240_000);
+  });
+
   test("resetOverflowRecovery starts a fresh ladder", async () => {
     // GIVEN a manager whose ladder has already advanced one rung
     estimateReturns.push(240_000, 240_000);

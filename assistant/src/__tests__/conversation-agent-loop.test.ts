@@ -114,38 +114,69 @@ mock.module("../context/token-estimator.js", () => ({
 let mockReducerStepFn:
   | ((msgs: Message[], cfg: unknown, state: unknown) => unknown)
   | null = null;
+const makeInitialReducerState = () => ({
+  appliedTiers: [] as string[],
+  injectionMode: "full" as const,
+  exhausted: false,
+});
+const runMockReducer = async (
+  msgs: Message[],
+  cfg: unknown,
+  state: unknown,
+) => {
+  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  return {
+    messages: msgs,
+    tier: "forced_compaction",
+    state: {
+      appliedTiers: [
+        "forced_compaction",
+        "tool_result_truncation",
+        "media_stubbing",
+        "injection_downgrade",
+      ],
+      injectionMode: "full",
+      exhausted: true,
+    },
+    estimatedTokens: 1000,
+  };
+};
 mock.module(
   "../plugins/defaults/compaction/context-overflow-reducer.js",
   () => ({
-    createInitialReducerState: () => ({
-      appliedTiers: [],
-      injectionMode: "full" as const,
-      exhausted: false,
-    }),
-    reduceContextOverflow: async (
-      msgs: Message[],
-      cfg: unknown,
-      state: unknown,
-    ) => {
-      if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
-      return {
-        messages: msgs,
-        tier: "forced_compaction",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "full",
-          exhausted: true,
-        },
-        estimatedTokens: 1000,
-      };
-    },
+    createInitialReducerState: makeInitialReducerState,
+    reduceContextOverflow: runMockReducer,
   }),
 );
+
+// Stand-in for `ContextWindowManager`'s turn-scoped overflow ladder. Threads
+// reducer state across a turn's rungs and delegates each rung to the mocked
+// reducer, mirroring `reduceOverflowOneRung` / `resetOverflowRecovery` so the
+// convergence driver exercises the same per-rung escalation the real manager
+// drives.
+function makeOverflowLadderStub(): {
+  resetOverflowRecovery: () => void;
+  reduceOverflowOneRung: (
+    msgs: Message[],
+    opts: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+} {
+  let state: unknown;
+  return {
+    resetOverflowRecovery: () => {
+      state = undefined;
+    },
+    reduceOverflowOneRung: async (msgs: Message[], opts: unknown) => {
+      if (!state) state = makeInitialReducerState();
+      const step = (await runMockReducer(msgs, opts, state)) as {
+        state: unknown;
+      };
+      state = step.state;
+      return step;
+    },
+  };
+}
 
 // Policy: default to fail_gracefully
 let mockOverflowAction: string = "fail_gracefully";
@@ -716,6 +747,16 @@ function makeCtx(
 
     ...ctxOverrides,
   } as unknown as Conversation;
+  // The convergence driver resolves the turn-scoped overflow ladder off the
+  // manager; give every fake manager the ladder methods unless a test supplied
+  // its own.
+  const manager = ctx.contextWindowManager as unknown as Record<
+    string,
+    unknown
+  >;
+  if (typeof manager.reduceOverflowOneRung !== "function") {
+    Object.assign(manager, makeOverflowLadderStub());
+  }
   fakeContextWindowManagers.set(conversationId, ctx.contextWindowManager);
   return ctx;
 }
