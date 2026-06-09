@@ -9,7 +9,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
 
 import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
@@ -21,8 +21,7 @@ import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
 
-import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
+import { useChatLayoutSlotsStore, type ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
     chooseSidebarOpenAppDestination,
@@ -118,6 +117,7 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const navigationType = useNavigationType();
 
   // Capture pop-out mode once at mount so it persists across in-window
   // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
@@ -221,15 +221,13 @@ export function ChatLayout() {
     const idx = (window.history.state?.idx as number) ?? 0;
     setPrevLocation(location);
     setHistoryIndex(idx);
-    setMaxHistoryIndex((prev) => Math.max(prev, idx));
+    // On PUSH/REPLACE the browser drops forward entries, so max resets to
+    // the current index. On POP (back/forward) forward entries still exist.
+    setMaxHistoryIndex(navigationType === "POP" ? (prev) => Math.max(prev, idx) : idx);
   }
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < maxHistoryIndex;
-
-  const handleStartNewConversation = useCallback(() => {
-    navigateToNewConversation(navigate);
-  }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
@@ -509,84 +507,49 @@ export function ChatLayout() {
     [navigate],
   );
 
-  const renderSideMenu = useCallback(
-    (args: SideMenuRenderArgs): ReactNode => (
-      <AssistantSideMenu
-        assistantId={assistantId ?? ""}
-        assistantName={assistantName}
-        collapsed={args.collapsed}
-        variant={args.variant}
-        width={args.width}
-        onWidthChange={args.onWidthChange}
-        conversations={conversations}
-        conversationGroups={conversationGroups}
-        activeConversationId={sidebarActiveConversationId}
-        processingConversationIds={processingConversationIds}
-        attentionConversationIds={attentionConversationIds}
-        onSelectConversation={handleSelectConversation}
-        onStartNewConversation={handleStartNewConversation}
-        isIntelligenceActive={isIdentityActive}
-        onOpenIntelligence={handleOpenIdentity}
-        isLibraryActive={isLibraryActive}
-        onOpenLibrary={handleOpenLibrary}
-        activeAppId={activeAppId ?? undefined}
-        onOpenApp={handleOpenAppFromSidebar}
-        onPinConversation={handleTogglePinConversation}
-        onRenameConversation={handleRenameConversation}
-        onArchiveConversation={handleArchiveConversation}
-        onUnarchiveConversation={handleUnarchiveConversation}
-        onMarkConversationUnread={handleMarkConversationUnread}
-        onMarkConversationRead={handleMarkConversationRead}
-        onMoveToGroup={handleMoveToGroup}
-        onRemoveFromGroup={handleRemoveFromGroup}
-        onRenameGroup={handleRenameGroup}
-        onDeleteGroup={handleDeleteGroup}
-        onMarkAllReadInGroup={handleMarkAllReadInGroup}
-        onArchiveAllInGroup={handleArchiveAllInGroup}
-        onInspect={showLlmInspector ? handleInspectConversation : undefined}
-        footerAction={
-          <PreferencesMenu
-            assistantId={assistantId}
-            assistantVersion={assistantVersion}
-            activeConversationId={activeConversationId}
-          />
-        }
-        onClose={args.onClose}
-      />
-    ),
-    [
-      activeConversationId,
-      assistantId,
-      assistantName,
-      assistantVersion,
-      conversations,
-      conversationGroups,
-      sidebarActiveConversationId,
-      processingConversationIds,
-      attentionConversationIds,
-      handleSelectConversation,
-      handleStartNewConversation,
-      handleTogglePinConversation,
-      handleRenameConversation,
-      handleArchiveConversation,
-      handleUnarchiveConversation,
-      handleMarkConversationUnread,
-      handleMarkConversationRead,
-      handleMoveToGroup,
-      handleRemoveFromGroup,
-      handleRenameGroup,
-      handleDeleteGroup,
-      handleMarkAllReadInGroup,
-      handleArchiveAllInGroup,
-      isIdentityActive,
-      handleOpenIdentity,
-      isLibraryActive,
-      handleOpenLibrary,
-      activeAppId,
-      handleOpenAppFromSidebar,
-      showLlmInspector,
-      handleInspectConversation,
-    ],
+  const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
+    <AssistantSideMenu
+      assistantId={assistantId ?? ""}
+      assistantName={assistantName}
+      collapsed={args.collapsed}
+      variant={args.variant}
+      width={args.width}
+      onWidthChange={args.onWidthChange}
+      conversations={conversations}
+      conversationGroups={conversationGroups}
+      activeConversationId={sidebarActiveConversationId}
+      processingConversationIds={processingConversationIds}
+      attentionConversationIds={attentionConversationIds}
+      onSelectConversation={handleSelectConversation}
+      onStartNewConversation={startNewConversation}
+      isIntelligenceActive={isIdentityActive}
+      onOpenIntelligence={handleOpenIdentity}
+      isLibraryActive={isLibraryActive}
+      onOpenLibrary={handleOpenLibrary}
+      activeAppId={activeAppId ?? undefined}
+      onOpenApp={handleOpenAppFromSidebar}
+      onPinConversation={handleTogglePinConversation}
+      onRenameConversation={handleRenameConversation}
+      onArchiveConversation={handleArchiveConversation}
+      onUnarchiveConversation={handleUnarchiveConversation}
+      onMarkConversationUnread={handleMarkConversationUnread}
+      onMarkConversationRead={handleMarkConversationRead}
+      onMoveToGroup={handleMoveToGroup}
+      onRemoveFromGroup={handleRemoveFromGroup}
+      onRenameGroup={handleRenameGroup}
+      onDeleteGroup={handleDeleteGroup}
+      onMarkAllReadInGroup={handleMarkAllReadInGroup}
+      onArchiveAllInGroup={handleArchiveAllInGroup}
+      onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      footerAction={
+        <PreferencesMenu
+          assistantId={assistantId}
+          assistantVersion={assistantVersion}
+          activeConversationId={activeConversationId}
+        />
+      }
+      onClose={args.onClose}
+    />
   );
 
   return (
