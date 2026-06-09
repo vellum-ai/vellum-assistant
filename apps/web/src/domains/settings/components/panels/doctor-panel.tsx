@@ -69,17 +69,25 @@ export function DoctorPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevEntryCountRef = useRef(0);
+  const prevLastContentLenRef = useRef(0);
 
-  // Scroll only on new entries appended, not in-place mutations (tool_result)
+  // Scroll when entries grow (new message) OR when the last entry's content
+  // grows (streaming message_delta). Avoids scrolling on tool_result in-place
+  // updates to mid-array entries which don't change the tail content length.
   useEffect(() => {
-    if (entries.length > prevEntryCountRef.current) {
+    const lastContentLen = entries.at(-1)?.content.length ?? 0;
+    const shouldScroll =
+      entries.length > prevEntryCountRef.current ||
+      lastContentLen > prevLastContentLenRef.current;
+    if (shouldScroll) {
       scrollRef.current?.scrollTo({
         top: scrollRef.current.scrollHeight,
         behavior: "smooth",
       });
     }
     prevEntryCountRef.current = entries.length;
-  }, [entries.length]);
+    prevLastContentLenRef.current = lastContentLen;
+  }, [entries]);
 
   // ---------------------------------------------------------------------------
   // SSE hook
