@@ -87,6 +87,20 @@ export function isLocalMode(): boolean {
   return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
 }
 
+export function isPlatformDisabled(): boolean {
+  const config = (
+    window as unknown as {
+      __VELLUM_CONFIG__?: { disablePlatform?: boolean };
+    }
+  ).__VELLUM_CONFIG__;
+  if (config?.disablePlatform != null) return !!config.disablePlatform;
+
+  const raw = import.meta.env.VITE_VELLUM_DISABLE_PLATFORM;
+  if (raw) return PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+
+  return false;
+}
+
 export async function loadLockfile(): Promise<Lockfile> {
   try {
     const data = await loadLockfileHost();

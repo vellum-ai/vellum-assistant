@@ -29,7 +29,7 @@ import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
     getSelfHostedActorToken,
     getSelfHostedIngressUrl,
@@ -37,7 +37,6 @@ import {
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -242,10 +241,7 @@ for (const apiClient of [authClient, platformClient]) {
 }
 
 function arePlatformFeaturesEnabled(): boolean {
-  return (
-    (useAssistantFeatureFlagStore.getState() as Record<string, unknown>)
-      .platformFeaturesInLocalMode !== false
-  );
+  return !isPlatformDisabled();
 }
 
 /**
@@ -270,7 +266,7 @@ export function platformFeaturesGate(request: Request): Request {
   }
 
   console.debug(
-    "platform-features-in-local-mode is disabled — no-op platform request:",
+    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
     new URL(request.url).pathname,
   );
   const aborted = new AbortController();
