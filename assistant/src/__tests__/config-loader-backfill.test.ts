@@ -1348,12 +1348,12 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     expect(config.llm.profiles["cost-optimized"]?.label).toBe("Speed");
   });
 
-  test("stale bare labels on materialized entries are honored as transition overrides on off-platform", () => {
+  test("stale bare labels on materialized entries are seed artifacts: the BYOK suffix default applies", () => {
     // Existing off-platform install (pre-suffix era) has `label: "Balanced"`
-    // on disk. The loader honors label keys on stale materialized entries by
-    // key presence, so the bare label carries through unsuffixed until
-    // workspace migration 098 collapses seed-default labels (letting the
-    // loader's " (Managed)" suffix default apply again).
+    // on disk. A seed-default label is not user intent, so the loader skips
+    // it when lifting transition overrides — the resolve-time " (Managed)"
+    // suffix applies and the managed profile stays distinguishable from the
+    // personal `custom-*` sibling sharing the bare label.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1386,15 +1386,20 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
-    expect(config.llm.profiles["quality-optimized"]?.label).toBe("Quality");
-    expect(config.llm.profiles["cost-optimized"]?.label).toBe("Speed");
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
+      "Quality (Managed)",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
+      "Speed (Managed)",
+    );
   });
 
   test("upgrade boot preserves user-customized labels and explicit null on off-platform", () => {
-    // A user-set string that differs from the bare default must survive;
-    // an explicit null (user cleared the label) must also survive. Only
-    // exact matches against the bare template label trigger the upgrade.
+    // The seeder never rewrites stale materialized entries: a user-set
+    // string and an explicit null (user cleared the label) stay on disk
+    // verbatim. Seed-default labels stay on disk too — the loader skips
+    // them at read time instead of migrating them here.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1412,7 +1417,8 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
             provider_connection: "anthropic-managed",
             label: null,
           },
-          // Already-suffixed labels are also preserved (idempotency).
+          // Seed-default suffixed labels stay on disk; the loader treats
+          // them as seed artifacts at read time.
           "cost-optimized": {
             source: "managed",
             provider: "anthropic",
@@ -1432,9 +1438,10 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     expect(raw.llm.profiles["cost-optimized"].label).toBe("Speed (Managed)");
   });
 
-  test("upgrade boot does NOT rewrite bare labels on platform", () => {
-    // The migration is gated on isByokMode, so an on-platform install with
-    // a bare "Balanced" label preserves it (no suffix on platform).
+  test("upgrade boot keeps the bare label on platform", () => {
+    // A stale bare "Balanced" label is a seed artifact and is skipped as an
+    // override; on platform the resolve-time default is the bare label, so
+    // the effective label is unchanged (no suffix on platform).
     process.env.IS_PLATFORM = "true";
     writeConfig({
       llm: {

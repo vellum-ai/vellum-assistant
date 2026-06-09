@@ -21,6 +21,7 @@ import {
 import {
   AUTO_PROFILE_KEY,
   type BuiltinProfileOverride,
+  isSeedDefaultBuiltinLabel,
   MANAGED_PROFILE_NAMES,
   resolveBuiltinProfiles,
 } from "./builtin-inference-profiles.js";
@@ -374,7 +375,11 @@ function deleteNestedKey(
  *   full materialized built-in entries in `config.json` (including drifted
  *   shadow entries the assistant wrote on-platform). Such an entry's
  *   `label`/`status` are honored as *lower*-precedence overrides
- *   (key-presence semantics) and every other field is discarded.
+ *   (key-presence semantics) and every other field is discarded. A stale
+ *   label equal to a seed default (the bare template label or its BYOK
+ *   `" (Managed)"` form) is a seeder artifact, not user intent, and is not
+ *   lifted — the resolve-time default supplies the platform-appropriate
+ *   label instead.
  * - Built-in names are spliced into `llm.profileOrder` exactly as the
  *   seeder does (auto prepended if missing, managed names appended if
  *   missing); flag-disabled built-ins are removed from the in-memory order
@@ -394,6 +399,16 @@ export function applyBuiltinProfiles(raw: Record<string, unknown>): void {
     const entry: BuiltinProfileOverride = {};
     // Lower precedence: label/status carried on a still-materialized entry.
     collectBuiltinOverrideFields(profiles[name], entry);
+    // A stale label equal to a seed default is a seeder artifact, not user
+    // intent — drop it so the resolve-time default supplies the
+    // platform-appropriate label. Explicit `null` (cleared) and any other
+    // string remain honored.
+    if (
+      typeof entry.label === "string" &&
+      isSeedDefaultBuiltinLabel(name, entry.label)
+    ) {
+      delete entry.label;
+    }
     // Higher precedence: the sparse override store.
     collectBuiltinOverrideFields(profileOverrides[name], entry);
     if ("label" in entry || "status" in entry) overrides[name] = entry;

@@ -290,6 +290,112 @@ describe("config loader — built-in inference profile merge", () => {
     expect(config.llm.profiles.balanced!.label).toBe("Override Label");
   });
 
+  test("stale seed-default labels are not lifted as overrides: BYOK gets the suffixed default", () => {
+    process.env.IS_PLATFORM = "false";
+    // Pre-suffix-era seeder wrote the bare template label; the suffix-era
+    // seeder wrote the " (Managed)" form. Both are seed artifacts — neither
+    // carries user intent, so the resolve-time BYOK default applies.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Quality (Managed)",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const config = getConfig();
+
+    expect(config.llm.profiles.balanced!.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]!.label).toBe(
+      "Quality (Managed)",
+    );
+  });
+
+  test("stale seed-default suffixed label resolves to the bare default on platform", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Balanced (Managed)",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const config = getConfig();
+
+    expect(config.llm.profiles.balanced!.label).toBe("Balanced");
+  });
+
+  test("non-seed stale labels and explicit null are honored as overrides on BYOK", () => {
+    process.env.IS_PLATFORM = "false";
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "My Custom Name",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: null,
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const config = getConfig();
+
+    expect(config.llm.profiles.balanced!.label).toBe("My Custom Name");
+    expect(config.llm.profiles["quality-optimized"]!.label).toBeNull();
+  });
+
+  test("llm.profileOverrides label wins over a stale seed-default label", () => {
+    process.env.IS_PLATFORM = "false";
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Balanced",
+          },
+        },
+        profileOverrides: {
+          balanced: { label: "Override Label" },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const config = getConfig();
+
+    expect(config.llm.profiles.balanced!.label).toBe("Override Label");
+  });
+
   test("the balanced-economy definition is gated by the registry flag", () => {
     expect(MANAGED_PROFILE_TEMPLATES["balanced-economy"]!.featureFlag).toBe(
       BALANCED_ECONOMY_FLAG,

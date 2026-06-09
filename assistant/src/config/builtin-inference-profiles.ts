@@ -106,6 +106,35 @@ export const MANAGED_PROFILE_NAMES = new Set([
   AUTO_PROFILE_KEY,
 ]);
 
+/**
+ * Label suffix applied to managed built-ins on off-platform (BYOK) installs,
+ * disambiguating them from the personal `custom-*` profiles that share the
+ * bare base labels.
+ */
+const MANAGED_LABEL_SUFFIX = " (Managed)";
+
+/**
+ * Whether `label` is a seed-default label for the built-in profile `name`:
+ * the bare template label (e.g. `"Balanced"`) or its BYOK-suffixed form
+ * (`"Balanced (Managed)"`), both of which the legacy seeder materialized to
+ * disk. A seed-default label carries no user intent — callers skip it as an
+ * override so the resolve-time default supplies the platform-appropriate
+ * form. The `auto` entry only ever had the bare label.
+ */
+export function isSeedDefaultBuiltinLabel(
+  name: string,
+  label: string,
+): boolean {
+  if (name === AUTO_PROFILE_KEY) {
+    return label === createAutoProfileEntry().label;
+  }
+  const base = MANAGED_PROFILE_TEMPLATES[name]?.label;
+  return (
+    base !== undefined &&
+    (label === base || label === `${base}${MANAGED_LABEL_SUFFIX}`)
+  );
+}
+
 export function materializeProfile(
   template: BuiltinProfileDefinition,
   provider: NonNullable<ProfileEntry["provider"]>,
@@ -180,7 +209,7 @@ export function resolveBuiltinProfiles(opts: {
     }
     const effective: BuiltinProfileDefinition = opts.isPlatform
       ? definition
-      : { ...definition, label: `${definition.label} (Managed)` };
+      : { ...definition, label: `${definition.label}${MANAGED_LABEL_SUFFIX}` };
     const entry = materializeProfile(
       effective,
       definition.provider,
