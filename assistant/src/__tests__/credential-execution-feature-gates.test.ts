@@ -165,10 +165,11 @@ describe("CES flags do not affect unrelated flags", () => {
     setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // account-deletion defaults to true in the registry and should stay true.
-    expect(isAssistantFeatureFlagEnabled("account-deletion", config)).toBe(
-      true,
-    );
+    // Flags with defaultEnabled: true in the registry should stay true
+    // regardless of CES overrides.
+    expect(
+      isAssistantFeatureFlagEnabled("platform-features-in-local-mode", config),
+    ).toBe(true);
   });
 
   test("enabling all CES flags does not change unrelated fail-closed flags", () => {
