@@ -18,8 +18,6 @@ import {
     type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -54,7 +52,6 @@ export function ManageProvidersModal({
   assistantId,
   onClose,
 }: ManageProvidersModalProps) {
-  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ProviderConnection | null>(null);
 
@@ -122,7 +119,6 @@ export function ManageProvidersModal({
             connection={editingConnection ?? undefined}
             assistantId={assistantId}
             existingNames={existingNames}
-            chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
             onSave={handleEditorSave}
             onCancel={cancelEditor}
           />
