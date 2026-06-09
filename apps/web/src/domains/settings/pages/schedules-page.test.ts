@@ -70,12 +70,17 @@ const {
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
-  RecentRunsCard,
-  ScheduleRow,
-  SystemTaskRow,
-  SystemTaskDetailView,
   shouldShowSystemTaskToggles,
-} = await import("./schedules-page");
+} = await import("@/domains/settings/utils/schedule-formatters");
+const { RecentRunsCard } = await import(
+  "@/domains/settings/components/recent-runs-card"
+);
+const { ScheduleRow } = await import(
+  "@/domains/settings/components/schedule-row"
+);
+const { SystemTaskRow, SystemTaskDetailView } = await import(
+  "@/domains/settings/components/system-tasks-section"
+);
 
 afterEach(() => {
   cleanup();
