@@ -6,7 +6,7 @@ export function getDeviceId(): string | null {
   if (!isElectron()) return null;
   if (cached === undefined) {
     cached =
-      (window as Record<string, unknown> as { __VELLUM_CONFIG__?: { deviceId?: string } })
+      (window as unknown as { __VELLUM_CONFIG__?: { deviceId?: string } })
         .__VELLUM_CONFIG__?.deviceId ?? null;
   }
   return cached;
