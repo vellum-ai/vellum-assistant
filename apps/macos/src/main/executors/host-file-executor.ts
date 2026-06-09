@@ -8,11 +8,69 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { Stats } from "node:fs";
 
 import type { HostProxyExecutor } from "../host-proxy-router";
 import type { HostProxyPoster } from "../host-proxy-poster";
 import type { HostProxySseMessage } from "../host-proxy-sse";
 import log from "../logger";
+
+// ---------------------------------------------------------------------------
+// Host filesystem safety checks
+// ---------------------------------------------------------------------------
+
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function validateHostPath(rawPath: string): { ok: true; path: string } | { ok: false; content: string; isError: true } {
+  if (!path.isAbsolute(rawPath)) {
+    return { content: `path must be absolute for host file access: ${rawPath}`, isError: true, ok: false };
+  }
+
+  const basename = path.basename(rawPath);
+  if (DENIED_BASENAMES.has(basename)) {
+    return { content: `Access to "${basename}" is denied`, isError: true, ok: false };
+  }
+
+  return { ok: true, path: rawPath };
+}
+
+function validateRegularFile(filePath: string): { ok: true; stat: Stats } | { ok: false; content: string; isError: true } {
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile()) {
+    return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+  }
+  return { ok: true, stat };
+}
+
+function validateFileSize(filePath: string, size: number): { ok: true } | { ok: false; content: string; isError: true } {
+  if (size > MAX_FILE_SIZE_BYTES) {
+    return {
+      content: `File size (${formatBytes(size)}) exceeds the ${formatBytes(MAX_FILE_SIZE_BYTES)} limit: ${filePath}`,
+      isError: true,
+      ok: false,
+    };
+  }
+  return { ok: true };
+}
+
+function validateContentSize(content: string, filePath: string): { ok: true } | { ok: false; content: string; isError: true } {
+  const size = Buffer.byteLength(content, "utf-8");
+  if (size > MAX_FILE_SIZE_BYTES) {
+    return {
+      content: `Content size (${formatBytes(size)}) exceeds the ${formatBytes(MAX_FILE_SIZE_BYTES)} limit for: ${filePath}`,
+      isError: true,
+      ok: false,
+    };
+  }
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------------
 // Magic-byte detection helpers
@@ -84,7 +142,16 @@ function executeRead(fields: ReadFields): {
   audioMimeType?: string;
   isError?: boolean;
 } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const fileCheck = validateRegularFile(filePath);
+  if (!fileCheck.ok) return fileCheck;
+
+  const sizeCheck = validateFileSize(filePath, fileCheck.stat.size);
+  if (!sizeCheck.ok) return sizeCheck;
+
   const raw = fs.readFileSync(filePath);
 
   // Check for image
@@ -117,7 +184,13 @@ interface WriteFields {
 }
 
 function executeWrite(fields: WriteFields): { content?: string; isError?: boolean } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const sizeCheck = validateContentSize(fields.content, filePath);
+  if (!sizeCheck.ok) return sizeCheck;
+
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, fields.content, "utf-8");
@@ -136,7 +209,16 @@ interface EditFields {
 }
 
 function executeEdit(fields: EditFields): { content?: string; isError?: boolean } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const fileCheck = validateRegularFile(filePath);
+  if (!fileCheck.ok) return fileCheck;
+
+  const sizeCheck = validateFileSize(filePath, fileCheck.stat.size);
+  if (!sizeCheck.ok) return sizeCheck;
+
   const existing = fs.readFileSync(filePath, "utf-8");
   const { old_string, new_string, replace_all } = fields;
 
@@ -246,6 +328,10 @@ export const __testing = {
   executeRead,
   executeWrite,
   executeEdit,
+  validateHostPath,
+  validateRegularFile,
+  validateFileSize,
+  validateContentSize,
   get pendingRequests() {
     return pendingRequests;
   },
