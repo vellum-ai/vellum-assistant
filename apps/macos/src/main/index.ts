@@ -277,7 +277,7 @@ const forwardPlatformRequest = async (
 ): Promise<Response | null> => {
   const plan = planPlatformForward(request, platformUrl, {
     allowedOrigin: resolveAllowedOrigin(),
-    sessionToken: getSessionToken(),
+    sessionToken: getSessionToken,
   });
   if (plan.kind === "pass") return null;
   if (plan.kind === "reject") {

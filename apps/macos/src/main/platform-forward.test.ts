@@ -19,9 +19,16 @@ const request = (
 
 describe("planPlatformForward", () => {
   test("passes non-platform requests through to static serving", () => {
+    let tokenReads = 0;
     expect(
-      planPlatformForward(request("/assistant/assets/app.js"), PLATFORM),
+      planPlatformForward(request("/assistant/assets/app.js"), PLATFORM, {
+        sessionToken: () => {
+          tokenReads += 1;
+          return "main-session-token";
+        },
+      }),
     ).toEqual({ kind: "pass" });
+    expect(tokenReads).toBe(0);
   });
 
   test("passes gateway requests through", () => {
@@ -64,6 +71,25 @@ describe("planPlatformForward", () => {
       "https://platform.vellum.ai/_allauth/app/v1/auth/session",
     );
     expect(plan.headers.get("X-Session-Token")).toBe("main-session-token");
+  });
+
+  test("reads lazy session token only after matching a platform request", () => {
+    let tokenReads = 0;
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session"),
+      PLATFORM,
+      {
+        sessionToken: () => {
+          tokenReads += 1;
+          return "main-session-token";
+        },
+      },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(tokenReads).toBe(1);
+    expect(plan.url).toBe(
+      "https://platform.vellum.ai/_allauth/app/v1/auth/session",
+    );
   });
 
   test("forwards /accounts/* requests to platform", () => {

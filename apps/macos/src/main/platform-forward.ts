@@ -31,7 +31,7 @@ export interface PlatformForwardAllowedOrigin {
 
 export interface PlatformForwardOptions {
   allowedOrigin?: PlatformForwardAllowedOrigin;
-  sessionToken?: string | null;
+  sessionToken?: string | null | (() => string | null);
 }
 
 const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
@@ -60,6 +60,14 @@ function isAllowedSource(
 
 function isUnsafeMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function resolveSessionToken(
+  sessionToken: PlatformForwardOptions["sessionToken"],
+): string | null {
+  return typeof sessionToken === "function"
+    ? sessionToken()
+    : (sessionToken ?? null);
 }
 
 function platformPathnameForForward(
@@ -178,15 +186,13 @@ export function planPlatformForward(
   }
 
   const target = new URL(platformUrl);
-  const pathname = platformPathnameForForward(
-    url.pathname,
-    options.sessionToken,
-  );
+  const sessionToken = resolveSessionToken(options.sessionToken);
+  const pathname = platformPathnameForForward(url.pathname, sessionToken);
   const headers = new Headers(request.headers);
   headers.delete(ELECTRON_RENDERER_ORIGIN_HEADER);
   headers.set("origin", target.origin);
-  if (options.sessionToken && !headers.has("X-Session-Token")) {
-    headers.set("X-Session-Token", options.sessionToken);
+  if (sessionToken && !headers.has("X-Session-Token")) {
+    headers.set("X-Session-Token", sessionToken);
   }
 
   return {
