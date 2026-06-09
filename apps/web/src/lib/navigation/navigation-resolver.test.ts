@@ -99,13 +99,10 @@ describe("resolveNavigation", () => {
 
     // -- authenticated, onboarding routes ---------------------------------
 
-    test("redirects authenticated user with assistants away from new-user onboarding", () => {
+    test("allows authenticated user on onboarding route regardless of assistant count", () => {
       expect(
         guard(s({}), "/assistant/onboarding/privacy"),
-      ).toEqual({ action: "redirect", to: "/assistant" });
-    });
-
-    test("allows authenticated user without assistants on onboarding route", () => {
+      ).toEqual(ALLOW);
       expect(
         guard(s({ hasAssistants: false }), "/assistant/onboarding/privacy"),
       ).toEqual(ALLOW);
@@ -153,22 +150,16 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant" });
     });
 
-    test("redirects non-local user with assistants from entry onboarding screens", () => {
+    test("allows non-local user on onboarding screens regardless of assistant count", () => {
       expect(
         guard(s({ isLocalMode: false }), "/assistant/onboarding/privacy"),
-      ).toEqual({ action: "redirect", to: "/assistant" });
-    });
-
-    test("allows non-local user with assistants on mid-hatch onboarding paths", () => {
+      ).toEqual(ALLOW);
       expect(
         guard(s({ isLocalMode: false }), "/assistant/onboarding/hatching"),
       ).toEqual(ALLOW);
       expect(
         guard(s({ isLocalMode: false }), "/assistant/onboarding/prechat"),
       ).toEqual(ALLOW);
-    });
-
-    test("allows non-local user without assistants on shared onboarding screens", () => {
       expect(
         guard(s({ isLocalMode: false, hasAssistants: false }), "/assistant/onboarding/privacy"),
       ).toEqual(ALLOW);
