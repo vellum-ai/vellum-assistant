@@ -282,6 +282,10 @@ const forwardPlatformRequest = async (
       body: plan.hasBody ? request.body : undefined,
       ...(plan.hasBody ? { duplex: "half" } : {}),
       redirect: "manual",
+      // Auth is header-based (X-Session-Token), not cookie-based.
+      // Omit credentials so stale session cookies in the main process's
+      // default session store never shadow the renderer's token header.
+      credentials: "omit",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Platform unreachable";

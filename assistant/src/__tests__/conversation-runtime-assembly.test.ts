@@ -64,6 +64,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
 }));
 
+import { LLMSchema } from "../config/schemas/llm.js";
 import {
   clearConversations,
   setConversation,
@@ -87,6 +88,7 @@ import {
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   resolveTurnInboundActorContext,
+  resolveTurnModelProfileLabel,
   stripChannelCapabilityContext,
   stripInjectionsForCompaction,
   stripNowScratchpad,
@@ -1506,6 +1508,69 @@ describe("resolveTurnInboundActorContext", () => {
       trustClass: "trusted_contact",
       guardianIdentity: undefined,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTurnModelProfileLabel
+// ---------------------------------------------------------------------------
+
+describe("resolveTurnModelProfileLabel", () => {
+  /**
+   * A null key means the active profile is unchanged since the last notified
+   * one, so there is no `model_profile` line to render this turn.
+   */
+  test("returns null when the profile key is null", () => {
+    // GIVEN a turn whose profile is unchanged since the last notification
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+    });
+
+    // WHEN the label is resolved for a null key
+    const label = resolveTurnModelProfileLabel(null, "mainAgent", llm);
+
+    // THEN there is no profile line to inject
+    expect(label).toBeNull();
+  });
+
+  /**
+   * A known profile renders its configured display label paired with the model
+   * the call site resolves to.
+   */
+  test("renders the profile's label with the resolved model", () => {
+    // GIVEN a workspace with a labelled "fast" profile
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      profiles: {
+        fast: { label: "Fast", provider: "anthropic", model: "claude-haiku-4" },
+      },
+    });
+
+    // WHEN the label is resolved for that profile at the main-agent call site
+    const label = resolveTurnModelProfileLabel("fast", "mainAgent", llm);
+
+    // THEN the rendered line pairs the display label with the resolved model
+    expect(label).toBe("Fast (claude-haiku-4)");
+  });
+
+  /**
+   * A profile with no configured label falls back to its raw key so the model
+   * still gets a stable identifier.
+   */
+  test("falls back to the raw key when the profile has no label", () => {
+    // GIVEN a profile that sets a model but no display label
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      profiles: {
+        deep: { provider: "anthropic", model: "claude-opus-4" },
+      },
+    });
+
+    // WHEN the label is resolved for that profile
+    const label = resolveTurnModelProfileLabel("deep", "mainAgent", llm);
+
+    // THEN the raw key stands in for the missing label
+    expect(label).toBe("deep (claude-opus-4)");
   });
 });
 
