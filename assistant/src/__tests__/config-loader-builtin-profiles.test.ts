@@ -95,9 +95,9 @@ const BUILTIN_NAMES = [
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
 ];
 
-/** Flag key used by the gating tests. Undeclared in the registry on purpose
- * — resolution comes entirely from the (test-seeded) override cache. */
-const TEST_FLAG = "test-builtin-profile-flag";
+/** Registry flag gating the `balanced-economy` built-in
+ * (`defaultEnabled: true` — a remote kill switch). */
+const BALANCED_ECONOMY_FLAG = "balanced-economy-profile";
 
 function ensureTestDir(): void {
   const dirs = [
@@ -156,8 +156,6 @@ describe("config loader — built-in inference profile merge", () => {
   });
 
   afterEach(() => {
-    // Safety net: gating tests patch the shared template object.
-    delete MANAGED_PROFILE_TEMPLATES["balanced-economy"]!.featureFlag;
     setStorePathForTesting(null);
     invalidateConfigCache();
     clearFeatureFlagOverridesCache();
@@ -292,9 +290,14 @@ describe("config loader — built-in inference profile merge", () => {
     expect(config.llm.profiles.balanced!.label).toBe("Override Label");
   });
 
+  test("the balanced-economy definition is gated by the registry flag", () => {
+    expect(MANAGED_PROFILE_TEMPLATES["balanced-economy"]!.featureFlag).toBe(
+      BALANCED_ECONOMY_FLAG,
+    );
+  });
+
   test("flag-disabled built-in is absent from profiles and profileOrder; activeProfile falls back to balanced", () => {
-    MANAGED_PROFILE_TEMPLATES["balanced-economy"]!.featureFlag = TEST_FLAG;
-    setOverridesForTesting({ [TEST_FLAG]: false });
+    setOverridesForTesting({ [BALANCED_ECONOMY_FLAG]: false });
     writeConfig({
       llm: {
         profiles: {
@@ -320,8 +323,7 @@ describe("config loader — built-in inference profile merge", () => {
   });
 
   test("flag flip via refreshOverridesFromGateway changes the visible profile set without restart", async () => {
-    MANAGED_PROFILE_TEMPLATES["balanced-economy"]!.featureFlag = TEST_FLAG;
-    setOverridesForTesting({ [TEST_FLAG]: true });
+    setOverridesForTesting({ [BALANCED_ECONOMY_FLAG]: true });
     writeConfig({ llm: { activeProfile: "balanced" } });
 
     expect(getConfig().llm.profiles["balanced-economy"]).toBeDefined();
@@ -329,10 +331,51 @@ describe("config loader — built-in inference profile merge", () => {
     // The gateway pushes a flag flip; the refresh must invalidate the
     // parsed-config cache (config.json itself is unchanged, so the file
     // signature alone would keep serving the stale merged set).
-    mockGatewayIpc({ [TEST_FLAG]: false });
+    mockGatewayIpc({ [BALANCED_ECONOMY_FLAG]: false });
     await refreshOverridesFromGateway();
 
     expect(getConfig().llm.profiles["balanced-economy"]).toBeUndefined();
+  });
+
+  test("balanced-economy is present by default (registry defaultEnabled: true)", () => {
+    // setOverridesForTesting({}) in beforeEach pins "no remote overrides" —
+    // resolution falls back to the registry default.
+    const config = getConfig();
+
+    expect(config.llm.profiles["balanced-economy"]).toBeDefined();
+    expect(config.llm.profileOrder).toContain("balanced-economy");
+  });
+
+  test("a profileOverrides entry for a flag-disabled built-in is retained on disk and re-applies on re-enable", () => {
+    setOverridesForTesting({ [BALANCED_ECONOMY_FLAG]: false });
+    writeConfig({
+      llm: {
+        profileOverrides: {
+          "balanced-economy": { label: "My Economy", status: "disabled" },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    expect(getConfig().llm.profiles["balanced-economy"]).toBeUndefined();
+
+    // The override store on disk is untouched while the flag is off.
+    const onDisk = readConfigFromDisk() as {
+      llm: { profileOverrides: Record<string, unknown> };
+    };
+    expect(onDisk.llm.profileOverrides["balanced-economy"]).toEqual({
+      label: "My Economy",
+      status: "disabled",
+    });
+
+    // Flag re-enables → the profile reappears with the override applied.
+    setOverridesForTesting({ [BALANCED_ECONOMY_FLAG]: true });
+    invalidateConfigCache();
+    const config = getConfig();
+
+    expect(config.llm.profiles["balanced-economy"]).toBeDefined();
+    expect(config.llm.profiles["balanced-economy"]!.label).toBe("My Economy");
+    expect(config.llm.profiles["balanced-economy"]!.status).toBe("disabled");
   });
 
   test("activeProfile naming a custom user profile is NOT reset", () => {
