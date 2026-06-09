@@ -56,6 +56,12 @@ export function stripUserTextBlocksByPrefix(
     );
 }
 
+/** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
+export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
+  "<NOW.md Always keep this up to date",
+  "<now_scratchpad>",
+];
+
 /** Matchers stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<channel_capabilities>",
@@ -100,10 +106,7 @@ const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  // Shared prefix catches both the current NOW.md tag and any pre-line-limit
-  // variant that may linger in in-flight histories during a rolling deploy.
-  "<NOW.md Always keep this up to date",
-  "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  ...NOW_SCRATCHPAD_STRIP_PREFIXES,
   "<knowledge_base>",
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
