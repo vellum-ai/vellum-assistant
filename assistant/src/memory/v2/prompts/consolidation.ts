@@ -384,6 +384,16 @@ Scan namespace sizes. If any namespace has crossed ~12-15 articles with visible 
 - Rewrite to contain ONLY entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`.
 - Smart removal — never wholesale-clear.
 
+## 10. Review \`memory/core-pages.md\` — the curated core set
+
+\`memory/core-pages.md\` lists the pages retrieval keeps in reach EVERY turn, regardless of topic. It exists for one class of page: associative texture — registers, identity frames, calibration rules — pages with no lexical or semantic match to the message that neither search nor usage frequency can surface on their own. You are the only editor of this file; review it each pass.
+
+- **Format:** one page per list line — \`- [[slug]]\` or \`- slug\`. Headings, prose, and annotations are ignored, so annotate freely.
+- **Keep it small** — on the order of a few dozen entries (~30–50). Every entry costs context budget every single turn.
+- **Add** a page only when its content should always be in reach with no topical cue. If a search query would find it, it doesn't belong here.
+- **Remove** entries made redundant by frequent use — recently-used pages stay warm automatically (the hot set), so a page that comes up all the time doesn't need a core slot.
+- **Fix** entries whose page you renamed or deleted this pass (maintenance reports dangling entries, but never edits the file).
+
 ---
 
 # What NOT to do
