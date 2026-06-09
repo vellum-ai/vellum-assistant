@@ -707,7 +707,8 @@ function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
 
 /**
  * Recursively copy regular files from `srcRoot` into `destDir`, skipping the
- * top-level `.git` directory and any symlinks. Returns the file count.
+ * top-level `.git` directory, a top-level `bunfig.toml` (see below), and any
+ * symlinks. Returns the file count.
  */
 function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
   let count = 0;
@@ -717,6 +718,17 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
       // Drop git metadata and symlinks: the loader follows neither, and a
       // symlink could otherwise point outside the staging tree.
       if (relDir === "" && entry.name === ".git") continue;
+      // Drop a top-level `bunfig.toml`. The adapter postinstall runs `bun` with
+      // its cwd at the staged root, and Bun auto-loads `$cwd/bunfig.toml` as
+      // project config — including a `preload` list it executes before the
+      // entry point. An upstream config would therefore run arbitrary code
+      // ahead of the curated adapter, defeating the command/env guards. Bun
+      // reads only the cwd's file (it neither walks up nor descends), so
+      // dropping it at the root closes the vector; a Vellum plugin never
+      // consumes `bunfig.toml`. Match case-insensitively because the macOS
+      // install target's filesystem is case-insensitive, where Bun would still
+      // open a clone-supplied `BUNFIG.TOML`.
+      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") continue;
       if (entry.isSymbolicLink()) continue;
 
       const rel = relDir ? join(relDir, entry.name) : entry.name;
