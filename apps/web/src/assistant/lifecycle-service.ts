@@ -27,8 +27,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
   getAssistant,
+  getAssistantHealthz,
   type GetAssistantResult,
 } from "@/assistant/api";
+import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -47,6 +49,9 @@ import {
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
+
+const PROBE_RETRY_DELAY_MS = 4_000;
+const PROBE_RETRY_LIMIT_MS = 30_000;
 
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
@@ -94,6 +99,11 @@ class AssistantLifecycleService {
     queryClient: null as unknown as QueryClient,
     selectedPlatformAssistantId: null,
   };
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    subscribeAssistantUnreachable(() => this.onUnreachable());
+  }
 
   // ---------------------------------------------------------------------------
   // React-facing API
@@ -320,6 +330,7 @@ class AssistantLifecycleService {
       isLocal: result.data.is_local ?? false,
       maintenanceMode: { enabled: mm?.enabled },
     });
+    void this.probeReachability(result.data.id);
   }
 
   /**
@@ -398,6 +409,57 @@ class AssistantLifecycleService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Reachability probe
+  // ---------------------------------------------------------------------------
+
+  private async probeReachability(assistantId: string): Promise<void> {
+    const generation = this.generation;
+    try {
+      const result = await getAssistantHealthz(assistantId);
+      if (generation !== this.generation) return;
+      if (this.state.kind !== "active") return;
+      this.transition({ ...this.state, reachable: result.ok });
+    } catch {
+      if (generation !== this.generation) return;
+      if (this.state.kind !== "active") return;
+      this.transition({ ...this.state, reachable: false });
+    }
+  }
+
+  private cancelProbeTimer(): void {
+    if (this.probeTimer) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  private startProbeLoop(assistantId: string): void {
+    this.cancelProbeTimer();
+    const startedAt = Date.now();
+    const tick = async () => {
+      if (this.state.kind !== "active") return;
+      if (this.state.reachable === true) return;
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      await this.probeReachability(assistantId);
+      if (this.state.kind !== "active") return;
+      if (this.state.reachable === true) return;
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
+    };
+    this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
+  }
+
+  private onUnreachable(): void {
+    if (this.state.kind !== "active") return;
+    this.transition({ ...this.state, reachable: false });
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (assistantId) {
+      this.startProbeLoop(assistantId);
+    }
+  }
+
   /**
    * Reset all state to the post-import default. For tests only —
    * production code should never call this. (Use `respondToInputs`
@@ -408,6 +470,7 @@ class AssistantLifecycleService {
       clearTimeout(this.initializingTimeout);
       this.initializingTimeout = null;
     }
+    this.cancelProbeTimer();
     this.state = { kind: "loading" };
     this.generation = 0;
     this.ready = false;
