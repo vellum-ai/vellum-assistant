@@ -44,6 +44,7 @@ mock.module("../../config/loader.js", () => ({
 }));
 
 mock.module("../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) => key === "enabled-flag",
 }));
 

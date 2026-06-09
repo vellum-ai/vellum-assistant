@@ -76,6 +76,7 @@ mock.module("../runtime/btw-sidechain.js", () => ({
 const assistantFeatureFlags: Record<string, boolean> = {};
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) =>
     assistantFeatureFlags[key] ?? false,
 }));

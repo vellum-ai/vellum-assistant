@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 let _mockConversation: unknown = undefined;
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 

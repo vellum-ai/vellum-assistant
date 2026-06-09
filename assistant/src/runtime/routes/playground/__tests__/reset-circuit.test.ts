@@ -8,6 +8,7 @@ mock.module("../../../../util/logger.js", () => ({
 }));
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 

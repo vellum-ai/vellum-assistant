@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 

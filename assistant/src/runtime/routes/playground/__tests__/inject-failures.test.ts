@@ -9,6 +9,7 @@ import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 let _mockConversation: MockConversation | undefined;
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 

@@ -83,6 +83,7 @@ mock.module("../runtime/routes/identity-intro-cache.js", () => ({
 const assistantFeatureFlags: Record<string, boolean> = {};
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) =>
     assistantFeatureFlags[key] ?? false,
 }));

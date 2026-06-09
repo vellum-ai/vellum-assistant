@@ -59,6 +59,7 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => false,
 }));
 

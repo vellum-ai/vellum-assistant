@@ -45,6 +45,7 @@ mock.module("../../config/loader.js", () => ({
 
 // Stub feature flags so auto-analyze isn't gated by an unrelated flag.
 mock.module("../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
@@ -117,12 +118,10 @@ mock.module("../db-connection.js", () => ({
 
 // Now load the real modules under test.
 const { isMemoryEnabled } = await import("../jobs-store.js");
-const { enqueueAutoAnalysisIfEnabled } = await import(
-  "../auto-analysis-enqueue.js"
-);
-const { enqueueMemoryRetrospectiveIfEnabled } = await import(
-  "../memory-retrospective-enqueue.js"
-);
+const { enqueueAutoAnalysisIfEnabled } =
+  await import("../auto-analysis-enqueue.js");
+const { enqueueMemoryRetrospectiveIfEnabled } =
+  await import("../memory-retrospective-enqueue.js");
 
 beforeEach(() => {
   dbInserts.length = 0;

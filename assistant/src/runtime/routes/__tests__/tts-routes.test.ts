@@ -16,6 +16,7 @@ mock.module("../../../util/logger.js", () => ({
 let mockFeatureFlagEnabled = true;
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => mockFeatureFlagEnabled,
 }));
 

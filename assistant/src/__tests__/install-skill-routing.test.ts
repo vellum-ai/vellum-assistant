@@ -94,6 +94,7 @@ mock.module("../skills/install-meta.js", () => ({
   readInstallMeta: () => null,
 }));
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 mock.module("../config/loader.js", () => ({

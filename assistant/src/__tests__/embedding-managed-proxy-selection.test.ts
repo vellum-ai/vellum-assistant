@@ -46,6 +46,7 @@ mock.module("../security/secure-keys.js", () => ({
 const mockFeatureFlags: Record<string, boolean> = {};
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown) => {
     return mockFeatureFlags[key] ?? false;
   },

@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 let _playgroundEnabled = true;
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => _playgroundEnabled,
 }));
 

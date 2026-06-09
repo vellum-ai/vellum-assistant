@@ -103,6 +103,7 @@ mock.module("../skills/install-meta.js", () => ({
 
 // Stub remaining imports pulled in by skills.ts
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 mock.module("../config/loader.js", () => ({

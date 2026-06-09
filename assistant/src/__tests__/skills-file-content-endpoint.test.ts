@@ -108,6 +108,7 @@ mock.module("../config/skill-state.js", () => ({
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
