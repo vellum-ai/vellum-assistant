@@ -53,6 +53,7 @@ import {
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -865,18 +866,21 @@ export class Conversation {
           // so the resulting layout matches `applyRuntimeInjections`'s
           // after-memory-prefix splices in ascending injector order
           // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
-          // now-md 40 — the v2 static block lands inside the memory
-          // prefix, so now-md splices *after* it):
+          // now-md 40, memory-v3-shadow 1000 — the v2 static block lands
+          // inside the memory prefix, so now-md splices *after* it; the
+          // v3 card block is `<memory>`-wrapped and splices LAST, landing
+          // at the memory boundary after the `<info>` block but before
+          // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <NOW.md>, <system_reminder>,
-          //    <knowledge_base>, ...original]
+          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
           // depending on when they were persisted.
           // Required so Anthropic's prefix cache keeps matching msg[0]
           // across daemon restart and conversation eviction. The tail
-          // row only rehydrates `memoryInjectedBlock` — the next turn
-          // re-injects the rest fresh.
+          // row only rehydrates `memoryInjectedBlock` and the v3 card
+          // block — the next turn re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbContextBlock },
@@ -896,6 +900,38 @@ export class Conversation {
               { type: "text" as const, text: meta.nowScratchpadBlock },
               ...content,
             ];
+          }
+
+          // The memory-v3 frozen card block (net-new compact cards) persists
+          // under its own key, stored UNWRAPPED like v2's dynamic block below.
+          // Rehydrated on ALL rows (tail included): the next turn injects only
+          // net-new cards — deduped via the v3 everInjected store — so this
+          // row's block must be back in history byte-identical for the dedup
+          // (and the provider prefix cache) to hold. A row carries at most one
+          // of the v3 and v2-dynamic keys (the user-prompt-submit hook
+          // persists them mutually exclusively). Spliced here — before the v2
+          // static and dynamic blocks — because prepends invert: executing
+          // first leaves it BELOW both in the final content, matching the
+          // live after-memory-prefix splice (order 1000 lands at the memory
+          // boundary, after `<info>` / `<memory>` prefix blocks).
+          // Pruned slugs' card sections are filtered out here (the metadata
+          // itself is never rewritten — auditable and reversible); an
+          // all-pruned block is skipped entirely, matching the live strip in
+          // `memory-v3-shadow/prune.ts`.
+          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+            const v3Block = meta[
+              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
+            ] as string;
+            const v3Resident = filterPrunedCardSections(
+              unwrapMemoryBlock(v3Block),
+              v3PrunedSlugs(),
+            );
+            if (v3Resident.length > 0) {
+              content = [
+                { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
+                ...content,
+              ];
+            }
           }
 
           // The v2 static memory block (essentials/threads/recent/buffer
@@ -925,53 +961,15 @@ export class Conversation {
           // legitimate unwrapped payloads that happen to start with
           // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const block = meta.memoryInjectedBlock;
-            const inner =
-              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
-                ? block.slice("<memory>\n".length, -"\n</memory>".length)
-                : block;
             content = [
               {
                 type: "text" as const,
-                text: `<memory>\n${inner}\n</memory>`,
+                text: wrapMemoryBlock(
+                  unwrapMemoryBlock(meta.memoryInjectedBlock),
+                ),
               },
               ...content,
             ];
-          }
-
-          // The memory-v3 frozen card block (net-new compact cards) persists
-          // under its own key, stored UNWRAPPED like v2's above. Rehydrated on
-          // ALL rows (tail included): the next turn injects only net-new cards
-          // — deduped via the v3 everInjected store — so this row's block must
-          // be back in history byte-identical for the dedup (and the provider
-          // prefix cache) to hold. A row carries at most one of the two keys
-          // (the user-prompt-submit hook persists them mutually exclusively).
-          // Pruned slugs' card sections are filtered out here (the metadata
-          // itself is never rewritten — auditable and reversible); an
-          // all-pruned block is skipped entirely, matching the live strip in
-          // `memory-v3-shadow/prune.ts`.
-          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
-            const v3Block = meta[
-              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
-            ] as string;
-            const v3Inner =
-              v3Block.startsWith("<memory>\n") &&
-              v3Block.endsWith("\n</memory>")
-                ? v3Block.slice("<memory>\n".length, -"\n</memory>".length)
-                : v3Block;
-            const v3Resident = filterPrunedCardSections(
-              v3Inner,
-              v3PrunedSlugs(),
-            );
-            if (v3Resident.length > 0) {
-              content = [
-                {
-                  type: "text" as const,
-                  text: `<memory>\n${v3Resident}\n</memory>`,
-                },
-                ...content,
-              ];
-            }
           }
 
           if (!isTail && typeof meta.turnContextBlock === "string") {
