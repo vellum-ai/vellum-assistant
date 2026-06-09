@@ -83,10 +83,7 @@ function makeQueryClient(): QueryClient {
 
 const baseInputs = {
   sessionStatus: "authenticated" as const,
-  isRetired: false,
   hasPlatformSession: true,
-  onRedirect: () => {},
-  resolveOnboardingRedirect: () => null,
 };
 
 beforeEach(() => {
@@ -290,21 +287,18 @@ describe("lifecycleService — bootstrap branches", () => {
 });
 
 describe("lifecycleService — 404 (no assistant)", () => {
-  test("404 is a no-op — no redirect, no state transition", async () => {
+  test("404 is a no-op — no state transition", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
     }));
 
-    const onRedirect = mock(() => {});
     lifecycleService.setInputs({
       ...baseInputs,
-      onRedirect,
       queryClient: makeQueryClient(),
     });
     await lifecycleService.checkAssistant();
 
-    expect(onRedirect).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
     );

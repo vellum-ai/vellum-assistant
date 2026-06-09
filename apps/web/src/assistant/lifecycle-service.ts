@@ -7,11 +7,11 @@
  * (`useAssistantLifecycleStore`, `useResolvedAssistantsStore`),
  * which is how the React tree reads it. Also owns the generation
  * counter that drops stale async responses on timeout escalations,
- * the 5-minute stuck-initializing watchdog, the gateway-auth
- * short-circuit, and the onboarding-redirect coordination.
+ * the 5-minute stuck-initializing watchdog, and the gateway-auth
+ * short-circuit.
  *
- * Inputs from React (auth, env, the navigate callback, the
- * TanStack Query client) flow in through `setInputs()`;
+ * Inputs from React (auth, env, the TanStack Query client) flow
+ * in through `setInputs()`;
  * `useAssistantLifecycle` is the thin wiring layer that pushes
  * them.
  *
@@ -44,26 +44,13 @@ import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
   getLocalGatewayUrl,
-  isLocalMode,
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
-  isRetired: boolean;
   hasPlatformSession: boolean;
-  /** Framework-agnostic redirect — called instead of router.replace(). */
-  onRedirect: (url: string) => void;
-  /**
-   * Returns the path to redirect to when onboarding should intercept,
-   * or `null` if the intended destination is fine as-is. Injected so
-   * `assistant/` stays free of the onboarding domain (the
-   * `shared → domains` direction).
-   */
-  resolveOnboardingRedirect: (input: {
-    intendedDestination: string;
-  }) => string | null;
   /** The TanStack Query client owned by `RootLayout`'s provider. */
   queryClient: QueryClient;
   /**
@@ -80,10 +67,6 @@ export interface LifecycleServiceInputs {
    */
   isOrgReady?: boolean;
 }
-
-const NOOP_REDIRECT = (_: string) => {};
-const NOOP_RESOLVE: LifecycleServiceInputs["resolveOnboardingRedirect"] =
-  () => null;
 
 class AssistantLifecycleService {
   private state: AssistantState = { kind: "loading" };
@@ -107,10 +90,7 @@ class AssistantLifecycleService {
   private ready = false;
   private inputs: LifecycleServiceInputs = {
     sessionStatus: "initializing",
-    isRetired: false,
     hasPlatformSession: false,
-    onRedirect: NOOP_REDIRECT,
-    resolveOnboardingRedirect: NOOP_RESOLVE,
     queryClient: null as unknown as QueryClient,
     selectedPlatformAssistantId: null,
   };
@@ -168,17 +148,6 @@ class AssistantLifecycleService {
 
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
-      return;
-    }
-    if (
-      isLocalMode() &&
-      !isGatewayAuthMode() &&
-      !this.inputs.hasPlatformSession
-    ) {
-      const redirect = this.inputs.resolveOnboardingRedirect({
-        intendedDestination: window.location.pathname,
-      });
-      if (redirect) this.inputs.onRedirect(redirect);
       return;
     }
     if (this.inputs.hasPlatformSession) {
@@ -445,10 +414,7 @@ class AssistantLifecycleService {
     useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
       sessionStatus: "initializing",
-      isRetired: false,
       hasPlatformSession: false,
-      onRedirect: NOOP_REDIRECT,
-      resolveOnboardingRedirect: NOOP_RESOLVE,
       queryClient: null as unknown as QueryClient,
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });

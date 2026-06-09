@@ -23,7 +23,6 @@ import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
-import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
@@ -93,10 +92,7 @@ export function RootLayout() {
   useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
-    isRetired: false,
     hasPlatformSession,
-    onRedirect: navigate,
-    resolveOnboardingRedirect,
   });
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
