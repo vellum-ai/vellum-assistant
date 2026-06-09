@@ -103,7 +103,3 @@ Past 500 lines the model loses things in the middle. Warnings get buried, branch
 After scaffolding, load the skill and run it against a realistic prompt. Confirm it activates on the intended trigger and follows its own steps. If it does not activate or drifts, fix the body and test again.
 
 > ⚠️ CRITICAL: Do not tell the user a skill is ready until you have actually loaded and exercised it. A skill that was never run is a skill that was never tested.
-
-## Reference
-
-Full guide: `{workspaceDir}/skill-writing-guide.md` ("How to Write Great Skills").
