@@ -5,11 +5,6 @@ on:
     # Every hour on the hour
     - cron: '0 * * * *'
   workflow_dispatch:
-    inputs:
-      no_compile:
-        description: 'Build macOS with --no-compile (raw source + production node_modules instead of compiled bun binaries). Skips the binaries step. Only affects the build-macos job.'
-        type: boolean
-        default: false
 
 concurrency:
   group: dev-release
@@ -1557,10 +1552,6 @@ jobs:
           done
 
       - name: Build binaries
-        # Skipped under --no-compile: the no-compile path materializes raw
-        # source + production node_modules instead of compiled bun binaries,
-        # so there's nothing for `./build.sh binaries` to produce.
-        if: ${{ !inputs.no_compile }}
         run: |
           DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1575,11 +1566,6 @@ jobs:
 
       - name: Build macOS app
         timeout-minutes: 20
-        env:
-          # Threaded into ./build.sh release when no_compile=true. Otherwise
-          # empty (the original --compile path is preserved for scheduled
-          # runs and for dispatches with the input unchecked).
-          NO_COMPILE_FLAG: ${{ inputs.no_compile == true && '--no-compile' || '' }}
         run: |
           set -o pipefail
           SKIP_BUN_REBUILD=1 \
@@ -1592,7 +1578,7 @@ jobs:
           SU_FEED_URL="https://storage.googleapis.com/vellum-nonprod-sparkle/dev/appcast.xml" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
-          ./build.sh release $NO_COMPILE_FLAG 2>&1 | while IFS= read -r line; do
+          ./build.sh release 2>&1 | while IFS= read -r line; do
             echo "[$(date -u '+%H:%M:%S')] $line"
           done
 
@@ -2016,7 +2002,7 @@ jobs:
 
   # ── Dev npm publishing ─────────────────────────────────────────────────
 
-  publish-npm-dev:
+  build-npm-dev:
     needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2033,7 +2019,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Sync feature flag registry
         run: bun run meta/feature-flags/sync-bundled-copies.ts
       - name: Stamp dev version
@@ -2044,21 +2029,57 @@ jobs:
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-dev:
+    needs: [compute-version, build-npm-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-${{ matrix.package }}
+          path: /tmp/npm-dist
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          cd "${{ matrix.package }}"
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag dev --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
 
-  publish-web-dev:
-    name: publish-npm-dev (web)
+  build-web-dev:
     needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -2072,7 +2093,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Install design-library dependencies
         working-directory: packages/design-library
         run: bun install --frozen-lockfile
@@ -2099,18 +2119,53 @@ jobs:
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
           jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
-      - name: Publish
+      - name: Pack tarball
         working-directory: apps/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-dev:
+    name: publish-npm-dev (web)
+    needs: [compute-version, build-web-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-web
+          path: /tmp/npm-dist
+      - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag dev --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
 
   publish-meta-dev:
     name: publish-npm-dev (meta)

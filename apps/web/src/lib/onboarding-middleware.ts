@@ -10,7 +10,7 @@ export const localModeOnlyMiddleware: MiddlewareFunction = async (
   // Auth has already been verified by the parent auth middleware.
   const decision = resolveNavigation(
     buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
-    { kind: "route-guard", pathname: "/assistant/onboarding/welcome" },
+    { kind: "route-guard", pathname: "/assistant/onboarding/hosting" },
   );
   if (decision.action === "redirect") throw redirect(decision.to);
   return next();

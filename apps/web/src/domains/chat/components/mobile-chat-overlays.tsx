@@ -11,7 +11,6 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -38,8 +37,6 @@ export function MobileChatOverlays() {
   const subagentById = useSubagentStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
-
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
     useConversationStore.getState().setEditingConversationId(null);
@@ -107,7 +104,7 @@ export function MobileChatOverlays() {
         onClose={handleCloseApp}
         onShare={handleShareApp}
         isSharing={isSharing}
-        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        onDeploy={handleDeployApp}
         isDeploying={isDeploying}
       />
       <MobileDocumentOverlay

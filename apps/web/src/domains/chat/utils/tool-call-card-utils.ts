@@ -50,7 +50,20 @@ export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
  * the subagent timeline's `error` event type).
  */
 export type ToolCallCardStep =
-  | { kind: "thinking"; durationLabel: string; text: string }
+  | {
+      kind: "thinking";
+      durationLabel: string;
+      text: string;
+      /**
+       * Epoch-ms start of the reasoning run, when known. Mirrors the `tool`
+       * variant's `startedAt`: surfaced as a tooltip on the phase duration so
+       * hovering "3s" reveals when the reasoning began. Omitted when the daemon
+       * didn't stamp the thinking block.
+       */
+      startedAt?: number;
+      /** Epoch-ms end of the reasoning run, when known. */
+      completedAt?: number;
+    }
   | {
       kind: "web_search";
       title: string;
@@ -156,10 +169,20 @@ export interface ToolCallCardData {
 // Small pure helpers used by the unified card hook and its consumers.
 // ---------------------------------------------------------------------------
 
-/** Format a duration in ms for the row-meta cluster (e.g. `<1s`, `2s`). */
+/**
+ * Format a duration in ms for the row-meta cluster as a single, human-readable
+ * unit with low precision — seconds for short work, then minutes, then hours
+ * as the run gets longer (`<1s`, `2s`, `45s`, `3m`, `2h`). We round to the
+ * coarsest unit and drop the smaller one (a "long enough task" reads as `3m`,
+ * not `3m 12s`) so the label stays glanceable in the card header and chips.
+ */
 export function formatMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 1000) return "<1s";
-  return `${Math.round(ms / 1000)}s`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.round(minutes / 60)}h`;
 }
 
 /** True when `tc.name` is a web tool (`web_search` / `web_fetch`). */
@@ -311,38 +334,114 @@ function deriveToolStepStatus(
 }
 
 /**
- * Raw per-tool duration in ms (start time `startedAt` → completion time
- * `completedAt`). Returns `null` when either timing is missing so callers can
- * distinguish "no data" from a genuine `0ms`.
+ * Raw duration in ms between a start and completion epoch. Returns `null` when
+ * either bound is missing so callers can distinguish "no data" from a genuine
+ * `0ms`. Shared by tool and thinking steps so both derive durations identically.
  */
-function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
-  if (tc.startedAt == null || tc.completedAt == null) return null;
-  return Math.max(0, tc.completedAt - tc.startedAt);
+function computeDurationMs(
+  startedAt: number | undefined,
+  completedAt: number | undefined,
+): number | null {
+  if (startedAt == null || completedAt == null) return null;
+  return Math.max(0, completedAt - startedAt);
 }
 
 /**
- * Per-tool duration, mirroring the legacy generic card: start time
- * (`startedAt`) → completion time (`completedAt`) → `formatMs`. Returns an
- * empty string when timings are missing so the row chrome can hide the
- * meta cluster rather than render a misleading `<1s`.
+ * Duration label from a start/completion epoch pair, mirroring the legacy
+ * generic card: `formatMs(completedAt - startedAt)`. Returns an empty string
+ * when timings are missing so the row chrome can hide the meta cluster rather
+ * than render a misleading `<1s`.
  */
-function computeToolDurationLabel(tc: ChatMessageToolCall): string {
-  const ms = computeToolDurationMs(tc);
+function computeDurationLabel(
+  startedAt: number | undefined,
+  completedAt: number | undefined,
+): string {
+  const ms = computeDurationMs(startedAt, completedAt);
   return ms == null ? "" : formatMs(ms);
 }
 
+function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
+  return computeDurationMs(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
+}
+
+function computeToolDurationLabel(tc: ChatMessageToolCall): string {
+  return computeDurationLabel(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
+}
+
+/** True for a tool call that is rendered as a step AND still in flight. */
+function isRenderableRunningCall(tc: ChatMessageToolCall): boolean {
+  return !isSubagentSpawnCall(tc) && isToolCallRunning(tc);
+}
+
 /**
- * Total active work time across a group's tool calls — the sum of each call's
- * raw duration — formatted via `formatMs` (so a sub-second total reads `<1s`,
- * matching the per-phase duration chips). Powers the expanded card's "Worked
- * for Xs" summary. Returns an empty string only when NO call carries timing
- * data, in which case the header falls back to its outcome label.
+ * Raw active-work duration in ms for a single ordered item — the building
+ * block of the header's "Worked for Xs" / "Working for Xs" total. Sums BOTH
+ * thinking and tool time so the header reflects everything the run grouped,
+ * not just its tool calls.
+ *
+ * For an in-flight step (a running tool call, or a thinking segment that has
+ * started but not yet finished) the elapsed is measured against `nowMs` when
+ * supplied, so the total ticks upward during streaming. Without `nowMs` an
+ * unfinished step contributes nothing (the caller is at rest). Returns `null`
+ * for items that carry no usable timing or aren't rendered as steps (empty
+ * thinking, `subagent_spawn`) so the caller can distinguish "no data".
  */
-function computeTotalDurationLabel(toolCalls: ChatMessageToolCall[]): string {
+function computeItemDurationMs(
+  item: ToolCallCardItem,
+  nowMs: number | undefined,
+): number | null {
+  if (item.kind === "thinking") {
+    if (!item.text) return null;
+    if (item.completedAt != null) {
+      return computeDurationMs(item.startedAt, item.completedAt);
+    }
+    if (item.startedAt != null && nowMs != null) {
+      return Math.max(0, nowMs - item.startedAt);
+    }
+    return null;
+  }
+  const tc = item.toolCall;
+  if (isSubagentSpawnCall(tc)) return null;
+  if (tc.completedAt != null) return computeToolDurationMs(tc);
+  if (isToolCallRunning(tc) && tc.startedAt != null && nowMs != null) {
+    return Math.max(0, nowMs - tc.startedAt);
+  }
+  return null;
+}
+
+/**
+ * True when any ordered item is still in flight — a running (non-spawn) tool
+ * call, or a thinking segment that has started but not completed. The card
+ * hook uses this to decide whether to drive the per-second clock that makes
+ * the header's "Working for Xs" total tick during streaming.
+ */
+export function hasRunningItem(items: ToolCallCardItem[]): boolean {
+  return items.some((item) =>
+    item.kind === "thinking"
+      ? Boolean(item.text) &&
+        item.startedAt != null &&
+        item.completedAt == null
+      : isRenderableRunningCall(item.toolCall),
+  );
+}
+
+/**
+ * Total active work time across a group's steps — the sum of each thinking and
+ * tool step's raw duration — formatted via `formatMs` (so a sub-second total
+ * reads `<1s`, matching the per-phase duration chips). Powers the expanded
+ * card's "Worked for Xs" / "Working for Xs" summary; when `nowMs` is supplied
+ * the still-running step's elapsed is included so the total ticks during
+ * streaming. Returns an empty string only when NO step carries timing data, in
+ * which case the header falls back to its outcome label.
+ */
+function computeTotalDurationLabel(
+  items: ToolCallCardItem[],
+  nowMs: number | undefined,
+): string {
   let total = 0;
   let anyTimed = false;
-  for (const tc of toolCalls) {
-    const ms = computeToolDurationMs(tc);
+  for (const item of items) {
+    const ms = computeItemDurationMs(item, nowMs);
     if (ms == null) continue;
     anyTimed = true;
     total += ms;
@@ -402,6 +501,15 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
  * the calls in reverse so the latest one wins, mirroring the legacy
  * web-search hook's selector logic for the web-tool branch and adding a
  * non-web `deriveStepLabel().title` branch alongside it.
+ *
+ * The bash label ("Working (bash)") is redundant chrome in the collapsed
+ * header — the command/activity subtext already conveys what's running — so
+ * we suppress it here, letting `HeaderStepCarousel` promote the info to the
+ * primary slot. We intentionally key off the derived title rather than
+ * `tc.name` so the `skill_execute → bash` wrapper (which also derives to
+ * "Working (bash)") is covered too. `deriveStepLabel` and `phaseFromStep`
+ * stay untouched, so the EXPANDED list still groups bash steps under a
+ * distinct "Working (bash)" section.
  */
 function deriveCurrentStepTitle(
   toolCalls: ChatMessageToolCall[],
@@ -425,7 +533,8 @@ function deriveCurrentStepTitle(
         return "Thinking";
       }
     } else {
-      return deriveStepLabel(tc).title;
+      const title = deriveStepLabel(tc).title;
+      return title === "Working (bash)" ? "" : title;
     }
   }
   return "";
@@ -570,7 +679,14 @@ function deriveCardState(
  * prepending a single leading-thinking step ahead of all tools.
  */
 export type ToolCallCardItem =
-  | { kind: "thinking"; text: string }
+  | {
+      kind: "thinking";
+      text: string;
+      /** Epoch-ms start of the reasoning run (earliest stamped thinking block). */
+      startedAt?: number;
+      /** Epoch-ms end of the reasoning run (latest stamped thinking block). */
+      completedAt?: number;
+    }
   | { kind: "toolCall"; toolCall: ChatMessageToolCall };
 
 /**
@@ -618,6 +734,7 @@ function buildStepForToolCall(
 export function computeToolCallCardDataFromItems(
   items: ToolCallCardItem[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  nowMs?: number,
 ): ToolCallCardData {
   const toolCalls = items
     .filter((i): i is { kind: "toolCall"; toolCall: ChatMessageToolCall } =>
@@ -642,7 +759,13 @@ export function computeToolCallCardDataFromItems(
   for (const item of items) {
     if (item.kind === "thinking") {
       if (item.text) {
-        steps.push({ kind: "thinking", durationLabel: "", text: item.text });
+        steps.push({
+          kind: "thinking",
+          durationLabel: computeDurationLabel(item.startedAt, item.completedAt),
+          text: item.text,
+          startedAt: item.startedAt,
+          completedAt: item.completedAt,
+        });
         trailingThinkingText = item.text;
       }
       continue;
@@ -686,7 +809,7 @@ export function computeToolCallCardDataFromItems(
     liveWebActivity,
   );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
-  const totalDurationLabel = computeTotalDurationLabel(renderableToolCalls);
+  const totalDurationLabel = computeTotalDurationLabel(items, nowMs);
 
   return {
     currentStepTitle,
@@ -716,10 +839,11 @@ export function computeToolCallCardDataFromItems(
 export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  nowMs?: number,
 ): ToolCallCardData {
   const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
     kind: "toolCall",
     toolCall: tc,
   }));
-  return computeToolCallCardDataFromItems(items, liveWebActivity);
+  return computeToolCallCardDataFromItems(items, liveWebActivity, nowMs);
 }

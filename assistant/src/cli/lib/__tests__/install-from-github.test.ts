@@ -45,7 +45,7 @@ const DOWNLOAD_HOST = "https://files.test/";
  * Build a `fetch` that serves the GitHub Contents API from an in-memory tree.
  *
  * `tree` is keyed by full canonical-repo path (e.g.
- * `experimental/plugins/simple-memory/package.json`) and maps each entry to a
+ * `plugins/simple-memory/package.json`) and maps each entry to a
  * file's content (`string`/`Uint8Array`) or `null` for an explicit directory.
  * Directory listings are derived from the key set; file `download_url`s point
  * at {@link DOWNLOAD_HOST} and are served with the stored bytes.
@@ -64,7 +64,7 @@ function makeContentsFetch(opts: {
    */
   manifestStatus?: number;
 }): FetchLike {
-  const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/experimental/plugins/marketplace.json`;
+  const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/plugins/marketplace.json`;
   const CONTENTS = `https://api.github.com/repos/${CANON_REPO}/contents/`;
   const { tree } = opts;
 
@@ -136,13 +136,13 @@ function makeContentsFetch(opts: {
   }) as FetchLike;
 }
 
-/** First-party fixture: keys are relative to `experimental/plugins/`. */
+/** First-party fixture: keys are relative to `plugins/`. */
 function fixtureFetch(
   tree: Record<string, Uint8Array | string | null>,
 ): FetchLike {
   const full: Record<string, Uint8Array | string | null> = {};
   for (const [key, value] of Object.entries(tree)) {
-    full[`experimental/plugins/${key}`] = value;
+    full[`plugins/${key}`] = value;
   }
   return makeContentsFetch({ tree: full });
 }
@@ -200,12 +200,12 @@ const unusedGitRunner: GitRunner = async (args) => {
  * Read the real, committed caveman adapter stub from the repo so the
  * integration test exercises the adapter that ships rather than a fixture
  * copy that could drift from it. Returns every stub file keyed by its
- * Contents-API path (`experimental/plugins/caveman/<rel>`) so the fetch fake
+ * Contents-API path (`plugins/caveman/<rel>`) so the fetch fake
  * serves the whole stub — package.json, the adapter, and its templates — to
  * the real postinstall runner. Resolves the stub relative to this test file.
  */
 function readRealCavemanStub(): Record<string, string> {
-  const repoRel = "experimental/plugins/caveman";
+  const repoRel = "plugins/caveman";
   const stubDir = join(import.meta.dir, "../../../../../", repoRel);
   const tree: Record<string, string> = {};
   const walk = (relDir: string): void => {
@@ -458,9 +458,7 @@ describe("installPlugin — first-party", () => {
     const base = fixtureFetch({ "demo/package.json": "{}" });
     const fetch: FetchLike = async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
-      const match = /\/contents\/experimental\/plugins\/demo\?ref=([^&]+)/.exec(
-        url,
-      );
+      const match = /\/contents\/plugins\/demo\?ref=([^&]+)/.exec(url);
       if (match) listRef = decodeURIComponent(match[1]!);
       return base(url, init);
     };
@@ -489,7 +487,7 @@ describe("installPlugin — first-party", () => {
           JSON.stringify([
             {
               name: "../escape",
-              path: "experimental/plugins/demo/../escape",
+              path: "plugins/demo/../escape",
               type: "file",
               download_url: `${DOWNLOAD_HOST}escape`,
             },
@@ -685,7 +683,7 @@ describe("installPlugin — marketplace resolution", () => {
 
   test("overlays a curated adapter stub and runs its postinstall transform", async () => {
     // GIVEN caveman is whitelisted externally
-    // AND we curate an adapter stub for it at experimental/plugins/caveman —
+    // AND we curate an adapter stub for it at plugins/caveman —
     // the real, committed stub (package.json + postinstall.ts + templates), so
     // this test exercises the adapter that ships, not a fixture copy of it
     const fetch = makeContentsFetch({
@@ -697,7 +695,12 @@ describe("installPlugin — marketplace resolution", () => {
     // terse-mode ruleset in skills/caveman/SKILL.md
     const runGit = fakeGitRunner({
       tree: {
-        "package.json": '{"name":"caveman-installer"}',
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+          description: "Caveman installer.",
+          license: "MIT",
+        }),
         ".claude-plugin/plugin.json": JSON.stringify({
           name: "caveman",
           description: "Ultra-compressed communication mode.",
@@ -723,6 +726,12 @@ describe("installPlugin — marketplace resolution", () => {
     expect(pkg.name).toBe("caveman");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
     expect(pkg.scripts?.postinstall).toBeUndefined();
+    // AND every other upstream manifest field is preserved verbatim — only
+    // `name` and the peer dep are touched, so the installed plugin reports the
+    // upstream `version` (and description, license, …) rather than the stub's
+    expect(pkg.version).toBe("0.1.0");
+    expect(pkg.description).toBe("Caveman installer.");
+    expect(pkg.license).toBe("MIT");
 
     // AND a pre-model-call hook is synthesized carrying the upstream ruleset,
     // so caveman actually runs (terse mode injected on the user-facing call)
@@ -737,9 +746,156 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).not.toContain("description: terse mode");
   });
 
+  test("falls back to the stub manifest when the upstream ships no package.json", async () => {
+    // GIVEN caveman is whitelisted with the real curated adapter stub
+    const fetch = makeContentsFetch({
+      tree: readRealCavemanStub(),
+      manifest: CAVEMAN_MANIFEST,
+    });
+    // AND the upstream clone has NO package.json — only the Claude Code
+    // manifest and the terse-mode ruleset the adapter reads
+    const runGit = fakeGitRunner({
+      tree: {
+        ".claude-plugin/plugin.json": JSON.stringify({ name: "caveman" }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+
+    // WHEN we install (real postinstall runner)
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the overlaid stub is the only manifest available, so it becomes the
+    // base: the loader still gets a matching `name` and the peer dep, and the
+    // spent stub `postinstall` is dropped so no install machinery is shipped
+    const pkg = JSON.parse(
+      readFileSync(join(pluginsDir, "caveman", "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
+  });
+
+  test("strips a clone-supplied bunfig.toml so its preload can't run before the adapter", async () => {
+    // GIVEN caveman is whitelisted with the real, committed adapter stub
+    const fetch = makeContentsFetch({
+      tree: readRealCavemanStub(),
+      manifest: CAVEMAN_MANIFEST,
+    });
+    // AND the upstream clone is a valid Claude Code plugin that ALSO smuggles a
+    // `bunfig.toml` whose `preload` points at attacker code in the clone. Bun
+    // loads `$cwd/bunfig.toml` and runs `preload` before the entry point, so an
+    // un-stripped config would execute `evil.ts` (writing a `pwned` sentinel)
+    // ahead of the curated adapter — arbitrary code execution.
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"caveman-installer"}',
+        ".claude-plugin/plugin.json": JSON.stringify({
+          name: "caveman",
+          description: "Ultra-compressed communication mode.",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\ndescription: terse mode\n---\n\nCAVEMAN MODE. Drop filler words. Keep technical substance.",
+        "bunfig.toml": 'preload = ["./evil.ts"]\n',
+        "evil.ts":
+          'import { writeFileSync } from "node:fs";\nwriteFileSync("pwned", "pwned");\n',
+      },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+
+    // WHEN we install with the real postinstall runner (real `bun` subprocess)
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the adapter still ran and produced a valid Vellum plugin
+    const target = join(pluginsDir, "caveman");
+    expect(result.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(
+      readFileSync(join(target, "hooks", "pre-model-call.ts"), "utf-8"),
+    ).toContain("CAVEMAN MODE. Drop filler words.");
+    // AND the upstream bunfig.toml was dropped before `bun` ran, so its preload
+    // never fired — no sentinel was written — and the config never persists in
+    // the installed plugin
+    expect(existsSync(join(target, "pwned"))).toBe(false);
+    expect(existsSync(join(target, "bunfig.toml"))).toBe(false);
+  });
+
+  test("drops a clone-supplied bunfig.toml regardless of filename case", async () => {
+    // GIVEN a raw external clone (no adapter stub) that smuggles a Bun config
+    // under an uppercase name. The macOS install target is case-insensitive, so
+    // Bun would still open a `BUNFIG.TOML`; a case-sensitive skip would miss it.
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"caveman"}',
+        "BUNFIG.TOML": 'preload = ["./evil.ts"]\n',
+      },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the uppercase Bun config was dropped while the plugin's own files
+    // were materialized
+    const target = join(pluginsDir, "caveman");
+    expect(existsSync(join(target, "BUNFIG.TOML"))).toBe(false);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"caveman"}',
+    );
+  });
+
+  test("stages the clone outside the served plugins/ directory", async () => {
+    // GIVEN caveman is whitelisted externally (raw clone, no adapter stub)
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    // AND a git runner that records the working directory it clones into
+    const cloneCwds: string[] = [];
+    const runGit: GitRunner = async (args, { cwd }) => {
+      if (args[0] === "fetch") {
+        cloneCwds.push(cwd);
+        mkdirSync(join(cwd, ".git"), { recursive: true });
+        writeFileSync(join(cwd, "package.json"), '{"name":"caveman"}');
+        return { stdout: "" };
+      }
+      if (args[0] === "rev-parse") {
+        return { stdout: "63a91ecadbf4c4719a4602a5abb00883f9966034\n" };
+      }
+      return { stdout: "" };
+    };
+
+    // WHEN we install
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the half-built clone was staged in a sibling directory, never inside
+    // the served plugins/ tree — so the daemon's source watcher and startup
+    // loader can't observe the un-adapted clone (wrong name, no peer dep) and
+    // log spurious name-mismatch / missing-peer-dependency warnings mid-install
+    expect(cloneCwds).toHaveLength(1);
+    expect(dirname(cloneCwds[0]!)).toBe(
+      join(dirname(pluginsDir), ".plugins-staging"),
+    );
+
+    // AND the finished plugin still lands inside plugins/, with no staging
+    // artifact left behind in the served directory
+    expect(result.target).toBe(join(pluginsDir, "caveman"));
+    expect(readdirSync(pluginsDir)).toEqual(["caveman"]);
+  });
+
   test("does not run a postinstall for a raw clone without an adapter stub", async () => {
     // GIVEN caveman is whitelisted but we curate NO adapter stub for it
-    // (the Contents API has no experimental/plugins/caveman directory)
+    // (the Contents API has no plugins/caveman directory)
     const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
     const runGit = fakeGitRunner({
       tree: { "package.json": '{"name":"caveman"}', "hooks/init.ts": "//" },
@@ -767,11 +923,11 @@ describe("installPlugin — marketplace resolution", () => {
     // GIVEN a whitelisted plugin with a curated stub declaring a postinstall
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/postinstall.ts": "// adapter",
+        "plugins/caveman/postinstall.ts": "// adapter",
       },
       manifest: CAVEMAN_MANIFEST,
     });
@@ -801,7 +957,7 @@ describe("installPlugin — marketplace resolution", () => {
     // rather than the supported `bun <script>` adapter convention
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "rm -rf /" },
         }),
@@ -832,11 +988,11 @@ describe("installPlugin — marketplace resolution", () => {
     // with a postinstall + adapter script, but no hooks/tools of its own)
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/postinstall.ts": "// adapter",
+        "plugins/caveman/postinstall.ts": "// adapter",
       },
       manifestStatus: 500,
     });

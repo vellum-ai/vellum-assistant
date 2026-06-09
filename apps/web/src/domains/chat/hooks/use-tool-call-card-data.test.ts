@@ -87,8 +87,10 @@ describe("computeToolCallCardData — step kinds", () => {
       status: "completed",
     });
     expect(data.state).toBe("complete");
-    // `currentStepTitle` / `currentStepInfo` mirror the tool step.
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // The collapsed header suppresses the redundant "Working (bash)" label,
+    // promoting the command into the (otherwise subtext) info slot. The
+    // underlying step keeps its "Working (bash)" title for phase grouping.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("echo hello");
   });
 
@@ -349,8 +351,8 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
     // Header derivation also ignores the filtered spawn so the carousel
-    // reflects only the bash call.
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // reflects only the bash call — whose title is suppressed in the header.
+    expect(data.currentStepTitle).toBe("");
   });
 });
 
@@ -385,6 +387,45 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
     expect(data.stepCount).toBe("3 steps");
   });
 
+  test("derives a thinking step's duration label from its timestamps", () => {
+    /**
+     * A thinking step carrying start/completion timestamps should surface the
+     * same `formatMs` duration label as a tool step, so the phase renders "3s"
+     * and a "Started at …" hover.
+     */
+
+    // GIVEN a thinking item that spans 3 seconds and one with no timestamps
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "thinking",
+        text: "stamped reasoning",
+        startedAt: 1_000,
+        completedAt: 4_000,
+      },
+      { kind: "thinking", text: "unstamped reasoning" },
+    ];
+
+    // WHEN the card data is computed
+    const data = computeToolCallCardDataFromItems(items, {});
+
+    // THEN the stamped step carries the formatted duration plus its bounds
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "3s",
+      text: "stamped reasoning",
+      startedAt: 1_000,
+      completedAt: 4_000,
+    });
+    // AND the unstamped step hides its duration, exactly as a tool with no timing
+    expect(data.steps[1]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "unstamped reasoning",
+      startedAt: undefined,
+      completedAt: undefined,
+    });
+  });
+
   test("skips empty thinking items and subagent_spawn tool items", () => {
     const items: ToolCallCardItem[] = [
       { kind: "thinking", text: "" },
@@ -410,6 +451,134 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
     const data = computeToolCallCardDataFromItems(items, {});
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
+  });
+});
+
+describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
+  test("sums BOTH thinking and tool time, not just tool calls", () => {
+    // GIVEN a run with 2s of thinking and 3s of tool work
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "thinking",
+        text: "reasoning",
+        startedAt: 0,
+        completedAt: 2_000,
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 2_000,
+          completedAt: 5_000,
+          input: { command: "ls" },
+        }),
+      },
+    ];
+    // WHEN the card data is computed at rest (no `nowMs`)
+    const data = computeToolCallCardDataFromItems(items, {});
+    // THEN the header total is 2s + 3s = 5s — thinking is no longer excluded
+    expect(data.totalDurationLabel).toBe("5s");
+  });
+
+  test("excludes subagent_spawn time and returns '' when nothing is timed", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "untimed reasoning" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-spawn",
+          name: "subagent_spawn",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 9_000,
+          input: { label: "Investigate" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("");
+  });
+
+  test("ticks the running step's elapsed against nowMs during streaming", () => {
+    // GIVEN a completed 4s tool plus a still-running tool started at t=10s
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 4_000,
+          input: { command: "ls" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          startedAt: 10_000,
+          input: { command: "sleep 5" },
+        }),
+      },
+    ];
+    // WHEN the clock reads t=13s — the running tool has been live for 3s
+    const data = computeToolCallCardDataFromItems(items, {}, 13_000);
+    // THEN the header total ticks: 4s (done) + 3s (in flight) = 7s
+    expect(data.totalDurationLabel).toBe("7s");
+    expect(data.state).toBe("loading");
+  });
+
+  test("renders a long run in human-readable minutes, not raw seconds", () => {
+    // A 3-minute tool call should read "3m", not "180s".
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-long",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 180_000,
+          input: { command: "long-build" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("3m");
+  });
+
+  test("a running step contributes nothing without a clock (at rest)", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 4_000,
+          input: { command: "ls" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          startedAt: 10_000,
+          input: { command: "sleep 5" },
+        }),
+      },
+    ];
+    // No `nowMs` → only the completed 4s counts.
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("4s");
   });
 });
 
@@ -450,7 +619,8 @@ describe("computeToolCallCardDataFromItems — header reflects the latest step",
     ];
     const data = computeToolCallCardDataFromItems(items, {});
     expect(data.currentStepKind).toBe("tool");
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // Bash title suppressed in the collapsed header; command promoted to info.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("echo hi");
   });
 });
@@ -557,8 +727,9 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     expect(data.steps).toHaveLength(2);
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.steps[1]!.kind).toBe("tool");
-    // currentStepTitle reflects the latest call (the bash tool).
-    expect(data.currentStepTitle).toBe("Working (bash)");
+    // currentStepTitle reflects the latest call (the bash tool), whose
+    // redundant label is suppressed in the collapsed header.
+    expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("ls");
   });
 });

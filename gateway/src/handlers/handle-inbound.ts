@@ -21,6 +21,8 @@ export type InboundResult = {
   forwarded: boolean;
   rejected: boolean;
   verificationIntercepted?: boolean;
+  /** Reply text when the verification intercept couldn't deliver (no replyCallbackUrl). */
+  verificationReplyText?: string;
   runtimeResponse?: RuntimeInboundResponse;
   rejectionReason?: string;
 };
@@ -111,6 +113,7 @@ export async function handleInbound(
       forwarded: false,
       rejected: false,
       verificationIntercepted: true,
+      verificationReplyText: verificationResult.pendingReplyText,
     };
   }
 

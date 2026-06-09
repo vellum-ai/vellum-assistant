@@ -29,18 +29,23 @@ import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
     getSelfHostedActorToken,
     getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+
+function getRendererTupleOrigin(): string {
+  return `${window.location.protocol}//${window.location.host}`;
+}
 
 /**
  * Allowlist of `/v1/assistants/{id}/<segment>/...` first segments that
@@ -190,9 +195,21 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     }
 
     // Platform path — Django session auth.
+    if (isElectron() && MUTATING_METHODS.has(request.method)) {
+      newRequest.headers.set(
+        ELECTRON_RENDERER_ORIGIN_HEADER,
+        getRendererTupleOrigin(),
+      );
+    }
+
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
+    }
+
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      newRequest.headers.set("Vellum-Device-Id", deviceId);
     }
 
     // Electron app provides a session token header. This is no-ops on web.
@@ -230,10 +247,7 @@ for (const apiClient of [authClient, platformClient]) {
 }
 
 function arePlatformFeaturesEnabled(): boolean {
-  return (
-    (useAssistantFeatureFlagStore.getState() as Record<string, unknown>)
-      .platformFeaturesInLocalMode !== false
-  );
+  return !isPlatformDisabled();
 }
 
 /**
@@ -258,7 +272,7 @@ export function platformFeaturesGate(request: Request): Request {
   }
 
   console.debug(
-    "platform-features-in-local-mode is disabled — no-op platform request:",
+    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
     new URL(request.url).pathname,
   );
   const aborted = new AbortController();

@@ -252,6 +252,129 @@ describe("workspace skills", () => {
   });
 });
 
+describe("plugin-resident skills", () => {
+  const pluginsDir = join(TEST_DIR, "plugins");
+
+  /**
+   * Materialize a skill on disk inside an installed plugin directory:
+   * `plugins/<plugin>/skills/<skillId>/SKILL.md`. A `package.json` is written
+   * for the plugin by default since that is the install gate the discovery
+   * scan keys on; pass `withPackageJson: false` to simulate a stray directory.
+   */
+  function writePluginSkill(
+    pluginName: string,
+    skillId: string,
+    name: string,
+    description: string,
+    body: string = "Plugin skill body",
+    {
+      withPackageJson = true,
+      packageName,
+    }: { withPackageJson?: boolean; packageName?: string } = {},
+  ): void {
+    const pluginDir = join(pluginsDir, pluginName);
+    mkdirSync(pluginDir, { recursive: true });
+    if (withPackageJson) {
+      writeFileSync(
+        join(pluginDir, "package.json"),
+        JSON.stringify({ name: packageName ?? pluginName, version: "1.0.0" }),
+      );
+    }
+    const skillDir = join(pluginDir, "skills", skillId);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "${name}"\ndescription: "${description}"\n---\n\n${body}\n`,
+    );
+  }
+
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    for (const dir of [join(TEST_DIR, "skills"), pluginsDir]) {
+      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers skills shipped inside an installed plugin, attributed to it", () => {
+    writePluginSkill("caveman", "caveman", "Caveman", "Terse mode");
+
+    const skill = loadSkillCatalog().find((s) => s.id === "caveman");
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("plugin");
+    expect(skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
+  });
+
+  test("loadSkillBySelector loads a plugin-resident skill body", () => {
+    writePluginSkill(
+      "caveman",
+      "caveman",
+      "Caveman",
+      "Terse mode",
+      "Full plugin skill body",
+    );
+
+    const result = loadSkillBySelector("caveman");
+    expect(result.error).toBeUndefined();
+    expect(result.skill).toBeDefined();
+    expect(result.skill!.source).toBe("plugin");
+    expect(result.skill!.body).toBe("Full plugin skill body");
+    expect(result.skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
+  });
+
+  test("ignores plugin directories without a package.json (staging/stray dirs)", () => {
+    writePluginSkill(
+      "half-installed",
+      "ghost",
+      "Ghost",
+      "Should be skipped",
+      "body",
+      { withPackageJson: false },
+    );
+
+    const skill = loadSkillCatalog().find((s) => s.id === "ghost");
+    expect(skill).toBeUndefined();
+  });
+
+  test("ignores plugin dirs whose package.json name mismatches the directory", () => {
+    // Mirrors the loader's recognition gate: an un-adapted clone whose
+    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
+    writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
+      packageName: "caveman-installer",
+    });
+
+    const skill = loadSkillCatalog().find((s) => s.id === "caveman");
+    expect(skill).toBeUndefined();
+  });
+
+  test("workspace skill overrides a plugin-resident skill with the same id", () => {
+    const WORKSPACE_DIR = join(
+      tmpdir(),
+      `vellum-workspace-test-${crypto.randomUUID()}`,
+    );
+    const workspaceSkillsDir = join(WORKSPACE_DIR, ".vellum", "skills");
+    mkdirSync(join(workspaceSkillsDir, "shared-id"), { recursive: true });
+    writeFileSync(
+      join(workspaceSkillsDir, "shared-id", "SKILL.md"),
+      `---\nname: "Workspace Wins"\ndescription: "Workspace version"\n---\n\nbody\n`,
+    );
+    writePluginSkill("caveman", "shared-id", "Plugin Loses", "Plugin version");
+
+    try {
+      const skill = loadSkillCatalog(workspaceSkillsDir).find(
+        (s) => s.id === "shared-id",
+      );
+      expect(skill).toBeDefined();
+      expect(skill!.source).toBe("workspace");
+      expect(skill!.name).toBe("Workspace Wins");
+    } finally {
+      rmSync(WORKSPACE_DIR, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("tool manifest detection", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });

@@ -54,6 +54,6 @@ Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
 
 ## What does NOT belong here
 
-- Vellum runtime code, plugin sources, skill definitions — those live in `assistant/`, `experimental/plugins/`, `skills/`.
+- Vellum runtime code, plugin sources, skill definitions — those live in `assistant/`, `plugins/`, `skills/`.
 - CI infrastructure or release tooling — this is a sandbox-only harness.
 - Anything not directly serving the "run a profile × test combo and emit a report row" mission.

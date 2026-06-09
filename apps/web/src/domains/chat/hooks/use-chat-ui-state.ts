@@ -101,6 +101,20 @@ export function useChatUIState(): ChatUIState {
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
+  // True once the live assistant message has emitted reasoning content — at
+  // which point an inline `ThoughtProcessLink` is rendering it (and owning the
+  // streaming "Thinking" loading state). Used to hand off from the standalone
+  // thinking-dots row so the two indicators never compete.
+  const hasStreamingAssistantThinking = useMemo(() => {
+    if (liveAssistantMessageId == null) return false;
+    const live = messages.find((m) => m.id === liveAssistantMessageId);
+    if (!live) return false;
+    return (
+      (live.thinkingSegments?.length ?? 0) > 0 ||
+      !!live.contentBlocks?.some((b) => b.type === "thinking")
+    );
+  }, [messages, liveAssistantMessageId]);
+
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(messages),
     [messages],
@@ -109,6 +123,7 @@ export function useChatUIState(): ChatUIState {
   const uiContext: UIContext = useMemo(
     () => ({
       hasStreamingAssistantMessage,
+      hasStreamingAssistantThinking,
       hasPendingSecret: !!pendingSecret,
       hasPendingConfirmation: !!pendingConfirmation,
       hasPendingQuestion: !!pendingQuestion,
@@ -119,6 +134,7 @@ export function useChatUIState(): ChatUIState {
     }),
     [
       hasStreamingAssistantMessage,
+      hasStreamingAssistantThinking,
       pendingSecret,
       pendingConfirmation,
       pendingQuestion,

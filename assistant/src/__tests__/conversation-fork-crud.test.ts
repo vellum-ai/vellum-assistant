@@ -922,6 +922,116 @@ describe("forkConversation", () => {
     expect(loadGraphMemoryState(fork.id)).toBeNull();
   });
 
+  test("truncated fork seeds everInjected from inherited memory attachments", async () => {
+    const source = createConversation("Truncated seed thread");
+    await addMessage(source.id, "user", "first turn", {
+      metadata: {
+        memoryInjectedBlock:
+          "# memory/concepts/topics/page-a.md\nSummary A\n\n# memory/concepts/topics/page-b.md\nSummary B",
+      },
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "first reply", {
+      skipIndexing: true,
+    });
+    const boundaryMessage = await addMessage(source.id, "user", "second turn", {
+      metadata: {
+        memoryInjectedBlock: "# memory/concepts/topics/page-c.md\nSummary C",
+      },
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "second reply", {
+      skipIndexing: true,
+    });
+    // Past the fork boundary — its attachment must NOT be claimed.
+    await addMessage(source.id, "user", "third turn", {
+      metadata: {
+        memoryInjectedBlock: "# memory/concepts/topics/page-d.md\nSummary D",
+      },
+      skipIndexing: true,
+    });
+
+    const db = getDb();
+    db.insert(activationState)
+      .values({
+        conversationId: source.id,
+        messageId: "parent-msg",
+        stateJson: JSON.stringify({ "topics/page-d": 0.9 }),
+        everInjectedJson: JSON.stringify([
+          { slug: "topics/page-a", turn: 1 },
+          { slug: "topics/page-b", turn: 1 },
+          { slug: "topics/page-c", turn: 2 },
+          { slug: "topics/page-d", turn: 3 },
+        ]),
+        currentTurn: 3,
+        updatedAt: 1_700_000_000_000,
+      })
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: boundaryMessage.id,
+    });
+
+    const childState = await hydrateActivationState(db, fork.id);
+    expect(childState).not.toBeNull();
+    // Exactly the slugs whose attachments live in the copied history —
+    // page-d (injected past the boundary) stays re-injectable.
+    expect(childState?.everInjected.map((e) => e.slug).sort()).toEqual([
+      "topics/page-a",
+      "topics/page-b",
+      "topics/page-c",
+    ]);
+    expect(childState?.everInjected.every((e) => e.turn === 0)).toBe(true);
+    // Activation scores and the turn counter start fresh, matching the
+    // graph tracker (also not copied for truncated forks).
+    expect(childState?.state).toEqual({});
+    expect(childState?.currentTurn).toBe(0);
+  });
+
+  test("truncated fork ignores attachments behind an inherited compaction boundary", async () => {
+    const source = createConversation("Compacted truncated thread");
+    await addMessage(source.id, "user", "compacted turn", {
+      metadata: {
+        memoryInjectedBlock:
+          "# memory/concepts/topics/page-compacted.md\nOld summary",
+      },
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "compacted reply", {
+      skipIndexing: true,
+    });
+    const boundaryMessage = await addMessage(source.id, "user", "live turn", {
+      metadata: {
+        memoryInjectedBlock: "# memory/concepts/topics/page-live.md\nSummary",
+      },
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "live reply", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "past boundary", {
+      skipIndexing: true,
+    });
+    // First two messages sit behind the compaction boundary: their
+    // attachments are not rendered, so the fork must not claim them.
+    getDb()
+      .update(conversations)
+      .set({ contextCompactedMessageCount: 2 })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: boundaryMessage.id,
+    });
+
+    const childState = await hydrateActivationState(getDb(), fork.id);
+    expect(childState?.everInjected.map((e) => e.slug)).toEqual([
+      "topics/page-live",
+    ]);
+  });
+
   test("defaults conversationType to standard and inherits the parent's group", async () => {
     const source = createConversation("Default inheritance thread");
     await addMessage(source.id, "user", "first message", {

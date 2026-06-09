@@ -16,6 +16,7 @@ import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { installCsp } from "./csp";
+import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
@@ -30,6 +31,7 @@ import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installEscapeMonitor } from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -257,6 +259,11 @@ const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
   platformUrl: resolvedConfig.platformUrl,
+  disablePlatform:
+    ["true", "1"].includes(
+      (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
+    ) || undefined,
+  deviceId: getDeviceId(),
 }));
 
 /**
@@ -284,6 +291,10 @@ const forwardPlatformRequest = async (
       body: plan.hasBody ? request.body : undefined,
       ...(plan.hasBody ? { duplex: "half" } : {}),
       redirect: "manual",
+      // Auth is header-based (X-Session-Token), not cookie-based.
+      // Omit credentials so stale session cookies in the main process's
+      // default session store never shadow the renderer's token header.
+      credentials: "omit",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Platform unreachable";
@@ -331,6 +342,7 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    installEscapeMonitor();
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);

@@ -10,8 +10,7 @@ export type MaintenanceModeInfo = {
  * `loading` is the client-only initial phase before any `/assistant/`
  * response has resolved. Every other kind maps from
  * `resolveAssistantLifecycleState` of a server response plus
- * client-managed recovery state (retry exhaustion → `error`, version
- * selection in nonprod → `awaiting_version_selection`).
+ * client-managed recovery state (retry exhaustion → `error`).
  */
 export type AssistantState =
   | { kind: "loading" }
@@ -20,6 +19,5 @@ export type AssistantState =
   | { kind: "retired" }
   | { kind: "platform_hosted" }
   | { kind: "self_hosted" }
-  | { kind: "awaiting_version_selection" }
   | { kind: "active"; isLocal: boolean; maintenanceMode?: MaintenanceModeInfo }
   | { kind: "error"; message: string };

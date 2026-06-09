@@ -16,7 +16,7 @@ import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/dom
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
-import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Params & return type

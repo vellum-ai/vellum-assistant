@@ -83,7 +83,7 @@ export function PlatformLoopbackPage() {
           <button
             type="button"
             className="mt-4 rounded-lg border border-[var(--border-disabled)] px-4 py-2 text-sm hover:bg-[var(--surface-lift)]"
-            onClick={() => void navigate(routes.onboarding.welcome)}
+            onClick={() => void navigate(routes.welcome)}
           >
             Back to Welcome
           </button>

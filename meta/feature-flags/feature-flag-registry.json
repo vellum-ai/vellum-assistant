@@ -116,22 +116,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "chatgpt-subscription-auth",
-      "scope": "assistant",
-      "key": "chatgpt-subscription-auth",
-      "label": "ChatGPT Subscription Auth",
-      "description": "Enable ChatGPT subscription OAuth as a provider auth type for OpenAI models, using the Codex device-code flow.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "deploy-to-vercel",
-      "scope": "assistant",
-      "key": "deploy-to-vercel",
-      "label": "Deploy to Vercel",
-      "description": "Enable the Deploy to Vercel / Publish option in the app workspace header share menu",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -164,27 +148,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "sounds",
-      "scope": "assistant",
-      "key": "sounds",
-      "label": "Sounds",
-      "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
-      "defaultEnabled": false
-    },
-    {
       "id": "message-tts",
       "scope": "assistant",
       "key": "message-tts",
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
-      "defaultEnabled": false
-    },
-    {
-      "id": "openai-compatible-endpoints",
-      "scope": "assistant",
-      "key": "openai-compatible-endpoints",
-      "label": "OpenAI-Compatible Endpoints",
-      "description": "Enable user-configured OpenAI-compatible inference endpoints with custom base URLs and model identifiers",
       "defaultEnabled": false
     },
     {
@@ -233,14 +201,6 @@
       "key": "apple-container",
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
-      "defaultEnabled": false
-    },
-    {
-      "id": "managed-gemini-embeddings-enabled",
-      "scope": "assistant",
-      "key": "managed-gemini-embeddings-enabled",
-      "label": "Managed Gemini Embeddings Enabled",
-      "description": "Route embedding requests through the platform runtime proxy using Vellum-managed Gemini credentials when available",
       "defaultEnabled": false
     },
     {
@@ -298,14 +258,6 @@
       "label": "Compaction Playground",
       "description": "Expose the developer-only Compaction Playground tab in macOS Settings and enable the /playground/* HTTP endpoints for exercising compaction conditions. Dev-only; default off.",
       "defaultEnabled": false
-    },
-    {
-      "id": "account-deletion",
-      "scope": "assistant",
-      "key": "account-deletion",
-      "label": "Account Deletion",
-      "description": "Surfaces the user-initiated account deletion flow in client settings.",
-      "defaultEnabled": true
     },
     {
       "id": "app-control",
@@ -372,22 +324,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "doctor",
-      "scope": "client",
-      "key": "doctor",
-      "label": "Doctor",
-      "description": "Enable the Doctor diagnostic tab in Debug settings.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "home-page",
-      "scope": "client",
-      "key": "home-page",
-      "label": "Home Page",
-      "description": "Enable the Home page as the default landing view.",
-      "defaultEnabled": false
-    },
-    {
       "id": "platform-notifications",
       "scope": "client",
       "key": "platform-notifications",
@@ -442,14 +378,6 @@
       "label": "Memory Router Playground",
       "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
       "defaultEnabled": false
-    },
-    {
-      "id": "platform-features-in-local-mode",
-      "scope": "assistant",
-      "key": "platform-features-in-local-mode",
-      "label": "Platform Features in Local Mode",
-      "description": "When enabled, the assistant can call the Vellum platform API from local mode. When disabled, all platform API clients in the daemon, gateway, CES, and web UI no-op with a debug log instead of making outbound requests.",
-      "defaultEnabled": true
     },
     {
       "id": "memory-v3-shadow",

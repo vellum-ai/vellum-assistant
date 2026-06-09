@@ -49,10 +49,13 @@ export type NavigationDecision =
 const ONBOARDING_PREFIX = `${routes.assistant}/onboarding`;
 
 const LOCAL_ONLY_ONBOARDING_PATHS: Set<string> = new Set([
-  routes.onboarding.welcome,
-  routes.onboarding.selectAssistant,
   routes.onboarding.hosting,
   routes.onboarding.apiKey,
+]);
+
+const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
+  routes.welcome,
+  routes.selectAssistant,
 ]);
 
 function isOnboardingPath(pathname: string): boolean {
@@ -60,7 +63,7 @@ function isOnboardingPath(pathname: string): boolean {
 }
 
 function onboardingEntrypoint(isLocalMode: boolean): string {
-  return isLocalMode ? routes.onboarding.welcome : routes.onboarding.privacy;
+  return isLocalMode ? routes.welcome : routes.onboarding.privacy;
 }
 
 function extractPathname(destination: string): string {
@@ -86,12 +89,12 @@ export function resolveLoginReturnTo(
   state: NavigationState,
   fromPath: string,
 ): string {
-  if (fromPath === routes.onboarding.welcome) {
+  if (fromPath === routes.welcome) {
     return state.hasAssistants
-      ? routes.onboarding.selectAssistant
+      ? routes.selectAssistant
       : routes.onboarding.hosting;
   }
-  if (fromPath === routes.onboarding.selectAssistant) {
+  if (fromPath === routes.selectAssistant) {
     return `${fromPath}?fromLogin=1`;
   }
   return fromPath;
@@ -140,17 +143,17 @@ function resolveRouteGuard(
 
   // 3. Unauthenticated
   if (!state.isAuthenticated) {
-    if (state.isLocalMode && isOnboardingPath(path)) {
-      if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
+    if (state.isLocalMode && (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))) {
+      if (path === routes.selectAssistant && !state.hasAssistants) {
         return { action: "redirect", to: routes.onboarding.hosting };
       }
       return { action: "allow" };
     }
     if (state.isLocalMode && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.welcome };
+      return { action: "redirect", to: routes.welcome };
     }
     if (state.isLocalMode) {
-      return { action: "redirect", to: routes.onboarding.selectAssistant };
+      return { action: "redirect", to: routes.selectAssistant };
     }
     return {
       action: "redirect",
@@ -158,13 +161,31 @@ function resolveRouteGuard(
     };
   }
 
-  // 4. Authenticated, on an onboarding route
+  // 4a. Authenticated, local-only standalone paths (welcome, select-assistant)
+  if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
+    if (!state.isLocalMode) {
+      return { action: "redirect", to: routes.assistant };
+    }
+    if (path === routes.selectAssistant && !state.hasAssistants) {
+      return { action: "redirect", to: routes.onboarding.hosting };
+    }
+    return { action: "allow" };
+  }
+
+  // 4b. Authenticated, review-terms (consent gate for existing users)
+  if (path === routes.reviewTerms) return { action: "allow" };
+
+  // 4c. Authenticated, on an onboarding route
   if (isOnboardingPath(path)) {
     if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
     }
-    if (path === routes.onboarding.selectAssistant && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
+    if (state.hasAssistants && !state.isLocalMode) {
+      if (!(state.tosAccepted && state.aiDataConsent)) {
+        const returnTo = encodeURIComponent(pathnameWithSearch);
+        return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+      }
+      return { action: "redirect", to: routes.assistant };
     }
     if (path === routes.onboarding.hatching && !(state.tosAccepted && state.aiDataConsent)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
@@ -178,14 +199,14 @@ function resolveRouteGuard(
     if (state.platformSession === "present") {
       return { action: "redirect", to: routes.onboarding.hosting };
     }
-    return { action: "redirect", to: routes.onboarding.welcome };
+    return { action: "redirect", to: routes.welcome };
   }
 
   // 6. Authenticated, platform mode, onboarding not completed
   if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
     if (state.hasAssistants) {
       const returnTo = encodeURIComponent(pathnameWithSearch);
-      return { action: "redirect", to: `${routes.onboarding.reviewTerms}?returnTo=${returnTo}` };
+      return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
     }
     return { action: "redirect", to: routes.onboarding.privacy };
   }
@@ -208,6 +229,7 @@ function resolveOnboardingIntercept(
   const path = extractPathname(intendedDestination);
   if (!path.startsWith(routes.assistant)) return { action: "allow" };
   if (path.startsWith(`${routes.assistant}/onboarding`)) return { action: "allow" };
+  if (path === routes.reviewTerms) return { action: "allow" };
 
   return {
     action: "redirect",
@@ -255,7 +277,7 @@ function resolvePostRetire(state: NavigationState): NavigationDecision {
     // where the app picks up the next available assistant.
     return {
       action: "redirect",
-      to: state.isLocalMode ? routes.onboarding.selectAssistant : routes.assistant,
+      to: state.isLocalMode ? routes.selectAssistant : routes.assistant,
     };
   }
   if (!state.isLocalMode) {
@@ -264,6 +286,6 @@ function resolvePostRetire(state: NavigationState): NavigationDecision {
   if (state.platformSession === "present") {
     return { action: "redirect", to: routes.onboarding.hosting };
   }
-  return { action: "redirect", to: routes.onboarding.welcome };
+  return { action: "redirect", to: routes.welcome };
 }
 

@@ -23,7 +23,7 @@ import {
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
-import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
+import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
 /**
  * Detail page for a single plugin, reached by clicking a row in the
@@ -71,7 +71,10 @@ export function PluginDetailPage() {
 
   const installMutation = useMutation({
     ...pluginsInstallPostMutation(),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast.success(`Installed ${name ?? "plugin"}`);
+    },
   });
 
   const removeMutation = useMutation({

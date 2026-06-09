@@ -4,18 +4,18 @@
  * A name resolves to one of two sources, materialized into
  * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start:
  *   1. A whitelisted external ecosystem plugin, when the name matches an entry
- *      in the curated `experimental/plugins/marketplace.json` manifest. The
+ *      in the curated `plugins/marketplace.json` manifest. The
  *      pinned `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is
  *      fetched with a shallow `git` clone at that ref — one network operation
  *      regardless of repo size, immune to GitHub's unauthenticated API
  *      rate-limit, and recording the exact resolved commit for provenance.
  *      When we curate an adapter stub for the plugin (an
- *      `experimental/plugins/<name>/` directory in this repo with a
+ *      `plugins/<name>/` directory in this repo with a
  *      `scripts.postinstall` command), the stub is overlaid onto the clone and
  *      its postinstall runs to translate a foreign-ecosystem layout into the
  *      shape Vellum's loader runs (see {@link applyAdapterStub}).
  *   2. Otherwise the first-party convention
- *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
+ *      `vellum-ai/vellum-assistant/plugins/<name>/` at the
  *      configured ref, fetched via the GitHub Contents API (a small handful of
  *      in-repo files — cloning the whole monorepo to install one would be
  *      wasteful).
@@ -54,7 +54,7 @@ const execFileAsync = promisify(execFile);
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
+const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 /** Default git ref to fetch from when callers don't override. */
 export const DEFAULT_PLUGIN_REF = "main";
 
@@ -230,7 +230,7 @@ function sourceLabel(source: PluginFetchSource): string {
     : `${source.owner}/${source.repo}`;
 }
 
-/** First-party `experimental/plugins/<name>` coordinates at a given ref. */
+/** First-party `plugins/<name>` coordinates at a given ref. */
 function firstPartySource(name: string, ref: string): PluginFetchSource {
   return {
     kind: "first-party",
@@ -245,9 +245,9 @@ function firstPartySource(name: string, ref: string): PluginFetchSource {
  * Resolve a plugin name to concrete GitHub coordinates.
  *
  * A name claimed by the curated marketplace resolves to its pinned external
- * repo; any other name resolves to the first-party `experimental/plugins/<name>`
+ * repo; any other name resolves to the first-party `plugins/<name>`
  * convention. The marketplace is external-only by construction — a same-named
- * `experimental/plugins/<name>` directory is the plugin's optional *adapter
+ * `plugins/<name>` directory is the plugin's optional *adapter
  * stub* (a curated `package.json` + postinstall script overlaid onto the clone
  * to translate it into Vellum's shape; see {@link applyAdapterStub}), not a
  * standalone first-party plugin. So letting the marketplace win the name is
@@ -288,7 +288,7 @@ async function resolvePluginSource(
 /**
  * Reject plugin names that could escape the canonical source path or the
  * install target. The source convention is a flat namespace under
- * `experimental/plugins/`, so a legitimate name is a single path segment
+ * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
@@ -353,10 +353,19 @@ export async function installPlugin(
     throw new PluginAlreadyInstalledError(name, target);
   }
 
-  // Stage into a sibling temp dir so an in-progress install never destroys
-  // the currently installed version. `process.pid` keeps concurrent installs
-  // of the same plugin from clobbering each other's staging.
-  const stagingDir = `${target}.installing.${process.pid}`;
+  // Stage *outside* the served `plugins/` directory. The daemon watches that
+  // directory and its startup loader enumerates it, so a staging dir living
+  // inside it is observed mid-install — before the adapter overlay runs, an
+  // external clone still carries its upstream `package.json` (wrong name, no
+  // plugin-api peer dep), which the loader rejects with spurious name-mismatch
+  // and missing-peer-dependency warnings. Staging in a sibling directory keeps
+  // the half-built tree invisible until the final swap. The root is on the
+  // same filesystem as the target, so that swap stays an atomic rename.
+  // `process.pid` keeps concurrent installs of the same plugin from clobbering
+  // each other's staging.
+  const stagingRoot = join(dirname(pluginsDir), ".plugins-staging");
+  mkdirSync(stagingRoot, { recursive: true });
+  const stagingDir = join(stagingRoot, `${name}.installing.${process.pid}`);
   if (existsSync(stagingDir)) {
     rmSync(stagingDir, { recursive: true, force: true });
   }
@@ -431,6 +440,9 @@ export async function installPlugin(
   // Atomic-ish swap: rmSync + renameSync. On POSIX the rename itself is
   // atomic, so the only window where the target is absent is between the
   // rm and the rename — and at that point the staging dir is fully populated.
+  // Ensure the served `plugins/` directory exists: staging now lives outside
+  // it, so the target's parent is no longer created as a side effect.
+  mkdirSync(pluginsDir, { recursive: true });
   if (existsSync(target)) {
     rmSync(target, { recursive: true, force: true });
   }
@@ -534,14 +546,16 @@ const POSTINSTALL_TIMEOUT_MS = 60_000;
  * Overlay our curated adapter stub onto a freshly cloned external plugin and
  * run its postinstall transform, returning whether a transform ran.
  *
- * The stub lives at `experimental/plugins/<name>/` in our own repo and carries
+ * The stub lives at `plugins/<name>/` in our own repo and carries
  * a `package.json` (with a `scripts.postinstall` adapter command) plus the
  * adapter script it names. We fetch it via the Contents API — a couple of
- * small files, well within the rate limit — and copy it over the clone, which
- * deliberately overwrites the clone's `package.json` so the postinstall we run
- * is ours, never the upstream repo's lifecycle script. Absent a stub (the
- * common case for a plugin already in Vellum shape), nothing is overlaid and
- * the clone is installed as-is.
+ * small files, well within the rate limit — and copy it over the clone so the
+ * postinstall we run is ours, never the upstream repo's lifecycle script. The
+ * overlaid stub `package.json` exists only to name that adapter; the installed
+ * plugin's manifest is rebuilt from the upstream `package.json` afterwards (see
+ * {@link normalizeInstalledManifest}). Absent a stub (the common case for a
+ * plugin already in Vellum shape), nothing is overlaid and the clone is
+ * installed as-is.
  *
  * On any adapter failure the error propagates so {@link installPlugin} rolls
  * back staging — better to fail loudly than ship a half-transformed plugin.
@@ -552,6 +566,11 @@ async function applyAdapterStub(
   stagingDir: string,
   deps: InstallPluginDeps,
 ): Promise<boolean> {
+  // Capture the cloned upstream manifest before the stub overlay replaces it,
+  // so the installed plugin can preserve it verbatim except for the two fields
+  // the Vellum loader requires (name + plugin-api peer dep).
+  const upstreamPkg = readPackageJson(join(stagingDir, "package.json"));
+
   const stubFileCount = await copyDir(
     PLUGIN_SOURCE_OWNER,
     PLUGIN_SOURCE_REPO,
@@ -571,7 +590,87 @@ async function applyAdapterStub(
   } catch (err) {
     throw new PluginPostinstallError(name, subprocessErrorText(err));
   }
+
+  normalizeInstalledManifest(name, stagingDir, upstreamPkg);
   return true;
+}
+
+/**
+ * Default `@vellumai/plugin-api` peer-dependency range stamped onto an adapted
+ * plugin that doesn't already declare one.
+ */
+const PLUGIN_API_PEER_RANGE = ">=0.8.0";
+
+type PackageManifest = Record<string, unknown>;
+
+/** Parse the `package.json` at `path`, or null if it's absent or unparseable. */
+function readPackageJson(path: string): PackageManifest | null {
+  if (!existsSync(path)) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as PackageManifest)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the installed plugin's final `package.json` after the adapter has run.
+ *
+ * A curated adapter stub deliberately overlays its own `package.json` onto the
+ * clone so the installer can find and run the stub's `scripts.postinstall`.
+ * That stub is install-time machinery, not the plugin's manifest, so once the
+ * adapter has run we rebuild the manifest from the upstream `package.json`
+ * captured before the overlay — preserving its `version`, `description`,
+ * `license`, and every other field — and mutate only what the Vellum loader
+ * requires: `name` must equal the install directory, and `@vellumai/plugin-api`
+ * must be declared as a peer dependency. The spent `postinstall` script is
+ * dropped so the installed plugin carries no install-time machinery.
+ *
+ * When the upstream repo shipped no `package.json`, the overlaid stub is the
+ * only manifest available, so it becomes the base instead.
+ */
+function normalizeInstalledManifest(
+  name: string,
+  stagingDir: string,
+  upstreamPkg: PackageManifest | null,
+): void {
+  const manifestPath = join(stagingDir, "package.json");
+  const base = upstreamPkg ?? readPackageJson(manifestPath) ?? {};
+
+  const peer =
+    typeof base.peerDependencies === "object" && base.peerDependencies !== null
+      ? (base.peerDependencies as Record<string, unknown>)
+      : {};
+  const existingRange = peer["@vellumai/plugin-api"];
+
+  const manifest: PackageManifest = {
+    ...base,
+    name,
+    peerDependencies: {
+      ...peer,
+      "@vellumai/plugin-api":
+        typeof existingRange === "string"
+          ? existingRange
+          : PLUGIN_API_PEER_RANGE,
+    },
+  };
+
+  if (typeof manifest.scripts === "object" && manifest.scripts !== null) {
+    const scripts = { ...(manifest.scripts as Record<string, unknown>) };
+    delete scripts.postinstall;
+    if (Object.keys(scripts).length === 0) {
+      delete manifest.scripts;
+    } else {
+      manifest.scripts = scripts;
+    }
+  }
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 /**
@@ -695,7 +794,8 @@ function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
 
 /**
  * Recursively copy regular files from `srcRoot` into `destDir`, skipping the
- * top-level `.git` directory and any symlinks. Returns the file count.
+ * top-level `.git` directory, a top-level `bunfig.toml` (see below), and any
+ * symlinks. Returns the file count.
  */
 function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
   let count = 0;
@@ -705,6 +805,17 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
       // Drop git metadata and symlinks: the loader follows neither, and a
       // symlink could otherwise point outside the staging tree.
       if (relDir === "" && entry.name === ".git") continue;
+      // Drop a top-level `bunfig.toml`. The adapter postinstall runs `bun` with
+      // its cwd at the staged root, and Bun auto-loads `$cwd/bunfig.toml` as
+      // project config — including a `preload` list it executes before the
+      // entry point. An upstream config would therefore run arbitrary code
+      // ahead of the curated adapter, defeating the command/env guards. Bun
+      // reads only the cwd's file (it neither walks up nor descends), so
+      // dropping it at the root closes the vector; a Vellum plugin never
+      // consumes `bunfig.toml`. Match case-insensitively because the macOS
+      // install target's filesystem is case-insensitive, where Bun would still
+      // open a clone-supplied `BUNFIG.TOML`.
+      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") continue;
       if (entry.isSymbolicLink()) continue;
 
       const rel = relDir ? join(relDir, entry.name) : entry.name;

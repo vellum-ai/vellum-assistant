@@ -90,7 +90,32 @@ function renderCard(
 }
 
 describe("ActivityRunCard — non-web tool group", () => {
-  test("renders the unified shell with the bash carousel header collapsed by default", () => {
+  test("collapsed terminal card promotes the bash command into the carousel header", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "completed",
+        input: { command: "git status" },
+      }),
+    ];
+    const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
+    // The unified card mounts the shared shell wrapper.
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    // The redundant "Working (bash)" label is suppressed in the collapsed
+    // header; the `command` input is promoted to the header's primary slot.
+    // The expanded body is hidden by default, so only the header content is
+    // present on mount.
+    expect(queryByText("Working (bash)")).toBeNull();
+    expect(getByText("git status")).toBeTruthy();
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+    // Single-step cards suppress the count pill — it would just duplicate
+    // the carousel title. Pill returns at 2+ steps.
+    expect(queryByText("1 step")).toBeNull();
+  });
+
+  test("shows a stable 'Working' summary header while streaming, not the step command", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -99,19 +124,15 @@ describe("ActivityRunCard — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
-    // The unified card mounts the shared shell wrapper.
-    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // Title comes from `deriveStepLabel("bash")`, info from the `command`
-    // input. The expanded body is hidden by default, so only the header
-    // content is present on mount.
-    expect(getByText("Working (bash)")).toBeTruthy();
-    expect(getByText("git status")).toBeTruthy();
-    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+    const { getByText, queryByText, queryByTestId } = renderCard(toolCalls);
+    // While the run is in flight the header is a single status summary — it
+    // does NOT carousel the live step (no "git status", no "Working (bash)").
+    // The latest step's loading indicator lives in the expanded timeline.
+    expect(getByText("Working")).toBeTruthy();
+    expect(queryByText("git status")).toBeNull();
+    expect(queryByText("Working (bash)")).toBeNull();
+    // Collapsed by default: no step rows on mount.
     expect(queryByTestId("tool-step-pill")).toBeNull();
-    // Single-step cards suppress the count pill — it would just duplicate
-    // the carousel title. Pill returns at 2+ steps.
-    expect(queryByText("1 step")).toBeNull();
   });
 
   test("keeps loading step rows hidden until the user expands the card", () => {
@@ -127,6 +148,45 @@ describe("ActivityRunCard — non-web tool group", () => {
     expect(queryByTestId("tool-step-pill")).toBeNull();
     fireEvent.click(getByRole("button", { name: /expand steps/i }));
     expect(getByTestId("tool-step-pill")).toBeTruthy();
+  });
+
+  test("drops the header's loading dots once expanded — the timeline carries status", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "running",
+        input: { command: "git status" },
+      }),
+    ];
+    const { getByRole, getByTestId, queryByTestId } = renderCard(toolCalls);
+    // Collapsed: the header shows the loading dots (no timeline to carry them).
+    expect(getByTestId("tool-progress-card-status-indicator")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: /expand steps/i }));
+    // Expanded: the header's loading dots are gone; the running phase node in
+    // the timeline below carries the live indicator instead.
+    expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
+    expect(
+      getByTestId("phase-header-status-icon").children.length,
+    ).toBe(3);
+  });
+
+  test("keeps the finished checkmark in the header when expanded and complete", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "bash",
+        status: "completed",
+        input: { command: "git status" },
+      }),
+    ];
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId } = renderCard(toolCalls);
+    // Only the loading dots are dropped when expanded — the terminal checkmark
+    // still summarises the outcome in the header above the timeline.
+    const indicator = getByTestId("tool-progress-card-status-indicator");
+    expect(indicator.tagName.toLowerCase()).toBe("svg");
+    expect(indicator.getAttribute("data-state")).toBe("complete");
   });
 
   test("uses the loading indicator while any tool is running", () => {
@@ -806,7 +866,9 @@ describe("ActivityRunCard — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    expect(getByText("Working (bash)")).toBeTruthy();
+    // Bash label suppressed in the collapsed header; command promoted to the
+    // primary slot.
+    expect(queryByText("Working (bash)")).toBeNull();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a body
     // step only).

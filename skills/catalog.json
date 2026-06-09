@@ -267,7 +267,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -284,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-09T13:43:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -325,7 +325,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-05T22:44:27.000Z"
+      "updatedAt": "2026-06-05T23:44:29.000Z"
     },
     {
       "id": "inbox-management",
@@ -442,7 +442,7 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
+      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
@@ -450,8 +450,8 @@
           "display-name": "MCP Setup"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
+      "updatedAt": "2026-06-09T15:08:32.000Z"
     },
     {
       "id": "meet-join",

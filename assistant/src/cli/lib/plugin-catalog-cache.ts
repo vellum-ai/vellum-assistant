@@ -2,7 +2,7 @@
  * In-memory cache for the installable plugin catalog.
  *
  * The catalog (`loadPluginCatalog`) is built from two unauthenticated GitHub
- * Contents API calls — the first-party `experimental/plugins/` directory
+ * Contents API calls — the first-party `plugins/` directory
  * listing and the `marketplace.json` manifest. GitHub's unauthenticated rate
  * limit is 60 requests/hour per IP, so a long-lived daemon that hit GitHub on
  * every catalog search (on web mount, on every keystroke, across reloads and

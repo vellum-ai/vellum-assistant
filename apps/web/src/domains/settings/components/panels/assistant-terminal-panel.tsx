@@ -83,8 +83,8 @@ export function AssistantTerminalPanel() {
   if (platformGate === "gated") return null;
 
   // Treat ONLY the genuine lifecycle-loading window as still-resolving.
-  // Already-resolved non-hosted kinds (`retired`, `error`,
-  // `awaiting_version_selection`) must fall through to the existing
+  // Already-resolved non-hosted kinds (`retired`, `error`) must
+  // fall through to the existing
   // "No assistant found" empty state — gating those on `!isPlatformHosted`
   // would stick the panel on the spinner forever because `fetchAssistant`
   // never clears `loading` for an assistant that doesn't exist.

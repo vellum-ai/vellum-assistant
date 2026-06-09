@@ -24,16 +24,21 @@ import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
+  buildAccessRequestContractText,
+  buildAccessRequestInviteDirective,
+  hasAccessRequestInstructions,
+  hasInviteFlowDirective,
+} from "./access-request-copy.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
 import {
-  buildAccessRequestContractText,
-  buildAccessRequestInviteDirective,
   composeFallbackCopy,
-  hasAccessRequestInstructions,
-  hasInviteFlowDirective,
+  deriveTitle,
+  nonEmpty,
+  readPayloadString,
 } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
@@ -55,21 +60,6 @@ const log = getLogger("notification-decision-engine");
 
 const DECISION_TIMEOUT_MS = 15_000;
 const PROMPT_VERSION = "v4";
-
-/**
- * Derive a short notification title from a message body. Used when an
- * assistant_tool-sourced signal supplies `requestedMessage` without an
- * explicit `requestedTitle`: trims to the first sentence terminator when
- * present, then caps the result at 60 characters with an ellipsis.
- */
-function deriveTitle(body: string): string {
-  const firstSentenceEnd = body.search(/[.!?](\s|$)/);
-  const candidate =
-    firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "…"
-    : candidate.trim();
-}
 
 /**
  * Maximum character budget for identity context injected into the notification
@@ -768,24 +758,15 @@ export async function evaluateSignal(
   // classifier entirely. The producer has already done the routing and
   // copy decisions — we just enforce the standard post-decision guards
   // and persist the result.
-  if (
-    signal.sourceChannel === "assistant_tool" &&
-    typeof signal.contextPayload === "object" &&
-    signal.contextPayload != null &&
-    typeof (signal.contextPayload as Record<string, unknown>)
-      .requestedMessage === "string" &&
-    (
-      (signal.contextPayload as Record<string, unknown>)
-        .requestedMessage as string
-    ).trim().length > 0
-  ) {
+  const requestedBody = nonEmpty(
+    readPayloadString(signal.contextPayload, "requestedMessage"),
+  );
+  if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const body = (payload.requestedMessage as string).trim();
+    const body = requestedBody;
     const title =
-      typeof payload.requestedTitle === "string" &&
-      payload.requestedTitle.trim().length > 0
-        ? (payload.requestedTitle as string).trim()
-        : deriveTitle(body);
+      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+      deriveTitle(body);
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";

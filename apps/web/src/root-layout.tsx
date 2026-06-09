@@ -18,7 +18,6 @@ import { handleLogout } from "@/lib/auth/handle-logout";
 import { getSelectedAssistant } from "@/lib/local-mode";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { routes } from "@/utils/routes";
-import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
@@ -91,12 +90,10 @@ export function RootLayout() {
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
-  const isNonProduction = useEnvironmentStore.use.isNonProduction();
   useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
     isRetired: false,
-    isNonProduction,
     hasPlatformSession,
     onRedirect: navigate,
     resolveOnboardingRedirect,

@@ -28,7 +28,6 @@ import { useOrganizationStore } from "@/stores/organization-store";
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
   isRetired: boolean;
-  isNonProduction: boolean;
   hasPlatformSession: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
@@ -46,7 +45,6 @@ interface UseAssistantLifecycleOptions {
 export function useAssistantLifecycle({
   sessionStatus,
   isRetired,
-  isNonProduction,
   hasPlatformSession,
   onRedirect,
   resolveOnboardingRedirect,
@@ -97,7 +95,6 @@ export function useAssistantLifecycle({
     lifecycleService.setInputs({
       sessionStatus,
       isRetired,
-      isNonProduction,
       hasPlatformSession,
       onRedirect,
       resolveOnboardingRedirect,
@@ -109,7 +106,6 @@ export function useAssistantLifecycle({
   }, [
     sessionStatus,
     isRetired,
-    isNonProduction,
     hasPlatformSession,
     onRedirect,
     resolveOnboardingRedirect,

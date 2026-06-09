@@ -1,7 +1,7 @@
 /**
  * Read the curated plugin marketplace manifest from the canonical repo.
  *
- * The manifest at `experimental/plugins/marketplace.json` whitelists external
+ * The manifest at `plugins/marketplace.json` whitelists external
  * ecosystem plugins so they appear in `assistant plugins search` / the web
  * catalog and become installable by name. Its shape is a subset of the
  * Claude Code marketplace manifest
@@ -33,7 +33,7 @@ import type { FetchLike } from "./install-from-github.js";
 /** Canonical location of the marketplace manifest. */
 const MARKETPLACE_SOURCE_OWNER = "vellum-ai";
 const MARKETPLACE_SOURCE_REPO = "vellum-assistant";
-const MARKETPLACE_FILE_PATH = "experimental/plugins/marketplace.json";
+const MARKETPLACE_FILE_PATH = "plugins/marketplace.json";
 
 // ---------------------------------------------------------------------------
 // Manifest schema (subset of the Claude Code marketplace schema)

@@ -29,7 +29,7 @@ import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -252,7 +252,6 @@ export function ActiveChatView() {
     startReconciliationLoop,
     cancelReconciliation,
     reconcileActiveConversation,
-    refreshLatestMessages,
   } = useMessageLifecycle({
     assistantId,
     assistantStateKind: assistantState.kind,
@@ -362,6 +361,14 @@ export function ActiveChatView() {
     switchConversation,
   });
 
+  // Manual "Refresh" menu item — re-fetch the latest history page through the
+  // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
+  // transcript reconciles through the seq frontier exactly like a page reload.
+  const invalidateHistory = historyResult.pagination.invalidate;
+  const handleRefreshLatest = useCallback(() => {
+    void invalidateHistory();
+  }, [invalidateHistory]);
+
   // -------------------------------------------------------------------------
   // Layout header slot registration — supplements, top bar right
   // -------------------------------------------------------------------------
@@ -372,7 +379,7 @@ export function ActiveChatView() {
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
-    refreshLatestMessages,
+    onRefresh: handleRefreshLatest,
   });
 
   // -------------------------------------------------------------------------

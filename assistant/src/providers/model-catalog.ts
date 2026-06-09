@@ -41,6 +41,15 @@ export interface CatalogModel {
   longContextPricingThresholdTokens?: number;
   longContextMode?: LongContextMode;
   supportsThinking?: boolean;
+  /**
+   * When true, the model always reasons with adaptive (always-on) thinking and
+   * rejects an explicit `thinking: { type: "disabled" }` request (Anthropic
+   * 400s such calls). Clients hide the enable/disable thinking toggle for these
+   * models — effort stays adjustable — and the daemon drops a disabled thinking
+   * config (and any non-1 `temperature`, which adaptive mode also rejects)
+   * before dispatching. Implies `supportsThinking`.
+   */
+  adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
@@ -144,6 +153,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open Anthropic Console",
     },
     models: [
+      {
+        id: "claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
       {
         id: "claude-opus-4-8",
         displayName: "Claude Opus 4.8",
@@ -721,6 +748,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
       {
+        id: "anthropic/claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
+      {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
         contextWindowTokens: 1000000,
@@ -1167,7 +1212,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupHint:
       "Enter the base URL of your endpoint and at least one model identifier.",
     apiKeyPlaceholder: "Your provider's API key",
-    featureFlag: "openai-compatible-endpoints",
     models: [],
     defaultModel: "",
   },
@@ -1226,4 +1270,16 @@ export function getCatalogProviderForModel(
     p.models.some((m) => m.id === modelId),
   );
   return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+/**
+ * Whether the given model only supports adaptive (always-on) thinking, driven
+ * by the `adaptiveThinkingOnly` capability in the catalog. Matches the model ID
+ * across every provider (a model carries the same id under each provider it is
+ * offered by, e.g. `claude-fable-5` and OpenRouter's `anthropic/claude-fable-5`).
+ */
+export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
 }

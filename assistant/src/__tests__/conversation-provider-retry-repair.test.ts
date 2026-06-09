@@ -98,8 +98,9 @@ mock.module("../context/token-estimator.js", () => ({
 
 // Overflow recovery module mocks — the convergence loop delegates to these
 // but these tests exercise the Conversation-level flow, not the reducer internals.
-// The reducer mock delegates to the compactFn to simulate a forced compaction
-// tier, matching the real reducer's behavior for Tier 1.
+// The reducer mock runs the forced-compaction tier through defaultCompact, which
+// resolves the conversation's ContextWindowManager from the store — mirroring the
+// real reducer's Tier 1.
 mock.module(
   "../plugins/defaults/compaction/context-overflow-reducer.js",
   () => ({
@@ -110,29 +111,24 @@ mock.module(
     }),
     reduceContextOverflow: async (
       msgs: Message[],
-      _cfg: unknown,
+      cfg: { conversationId: string },
       _state: unknown,
-      compactFn?: (
-        m: Message[],
-        s: AbortSignal | undefined,
-        o: Record<string, unknown>,
-      ) => Promise<{
-        compacted: boolean;
-        messages: Message[];
-        compactedPersistedMessages?: number;
-        summaryText?: string;
-        [k: string]: unknown;
-      }>,
       signal?: AbortSignal,
     ) => {
+      const { defaultCompact } =
+        await import("../plugins/defaults/compaction/compact.js");
+      const cr = await defaultCompact({
+        conversationId: cfg.conversationId,
+        messages: msgs,
+        signal,
+        force: true,
+        minKeepRecentUserTurns: 0,
+      });
       let resultMessages = msgs;
       let compactionResult;
-      if (compactFn) {
-        const cr = await compactFn(msgs, signal, { force: true });
-        if (cr.compacted) {
-          resultMessages = cr.messages;
-          compactionResult = cr;
-        }
+      if (cr.compacted) {
+        resultMessages = cr.messages;
+        compactionResult = cr;
       }
       return {
         messages: resultMessages,

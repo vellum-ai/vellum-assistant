@@ -533,7 +533,6 @@ describe("loadExternalPlugin — end-to-end @vellumai/simple-memory", () => {
       "..",
       "..",
       "..",
-      "experimental",
       "plugins",
       "simple-memory",
     );

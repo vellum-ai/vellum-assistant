@@ -1,20 +1,12 @@
 /**
- * Tests for the credit-bundle wiring in `AdjustPlanModal` (PR 4 of the
- * pro-credit-bundles-frontend plan).
+ * Tests for `AdjustPlanModal` — credit-bundle wiring, tier-change coordination,
+ * and the upgrade / downgrade flows.
  *
- * Strategy: mock the generated API SDK so the upgrade / change-credit-tier
- * mutations resolve without network calls and we can capture the request
- * bodies. The modal's React Query reads are pre-seeded into the cache so they
- * resolve synchronously. The credit-bundle Dropdown is the design-library
- * combobox (not a native <select>): open it via its trigger, then click the
- * option whose visible label matches.
- *
- * Coverage:
- *  - upgrade (Base→Pro) forwards `credit_tier` (a selected bundle, and null for
- *    "No bundle"),
- *  - change mode (existing Pro) calls change-credit-tier with the selected
- *    value and with null on removal,
- *  - the credit UI is hidden when the catalog has no `credit_tiers`.
+ * Strategy: mock the generated API SDK so mutations resolve without network
+ * calls and we can capture the request bodies. React Query reads are pre-seeded
+ * into the cache so they resolve synchronously. The credit-bundle Dropdown is
+ * the design-library combobox (not a native <select>): open it via its trigger,
+ * then click the option whose visible label matches.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -706,6 +698,100 @@ describe("AdjustPlanModal credit bundle — catalog gate", () => {
         'button[role="combobox"][aria-label="Credit bundle"]',
       ),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-dimension coordination tests
+// ---------------------------------------------------------------------------
+
+const LARGE_MACHINE_ONBOARDING: OnboardingData = {
+  max_machine_tier: "machine_large",
+  selected_storage_tier: "storage_10",
+  selected_storage_gib: 10,
+};
+
+function openStorageDropdown(): void {
+  fireEvent.click(getDropdownTrigger("Storage tier"));
+}
+
+describe("AdjustPlanModal — multi-dimension tier coordination", () => {
+  test("storage upgrade + machine downgrade still triggers onTierUpgraded", async () => {
+    // Regression test: the original consolidated handler gated onTierUpgraded
+    // on !isMachineDowngrade globally, which blocked resize for a concurrent
+    // storage upgrade when the machine was being downgraded.
+    let upgraded = false;
+    const { getByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(CREDIT_TIERS),
+      () => {
+        upgraded = true;
+      },
+      LARGE_MACHINE_ONBOARDING,
+    );
+
+    // Downgrade machine: Large → Small
+    openMachineDropdown();
+    clickOptionStartingWith("Small");
+
+    // Upgrade storage: 10 GiB → 20 GiB
+    openStorageDropdown();
+    clickOptionStartingWith("20 GiB");
+
+    // Machine downgrade opens the reconfirm modal first.
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    // Confirm the downgrade in the reconfirm modal.
+    await waitFor(() => {
+      const btn = document.querySelector<HTMLButtonElement>(
+        '[data-testid="confirm-downgrade-button"]',
+      );
+      if (!btn) throw new Error("reconfirm not open");
+      fireEvent.click(btn);
+    });
+
+    // Both mutations should fire.
+    await waitFor(() => {
+      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeStorageTierCall) throw new Error("storage change not called");
+    });
+
+    // The storage upgrade must trigger the resize flow even though the machine
+    // change is a downgrade.
+    await waitFor(() => {
+      if (!upgraded) throw new Error("onTierUpgraded not called");
+    });
+  });
+
+  test("machine upgrade + credit change fires both mutations, only machine triggers resize", async () => {
+    let upgraded = false;
+    const { getByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(CREDIT_TIERS),
+      () => {
+        upgraded = true;
+      },
+    );
+
+    // Upgrade machine: Small → Large
+    openMachineDropdown();
+    clickOptionStartingWith("Large");
+
+    // Add a credit bundle
+    openCreditDropdown();
+    clickOption("25 credits — $25/mo");
+
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeCreditTierCall) throw new Error("credit change not called");
+    });
+
+    // Machine upgrade triggers resize flow.
+    await waitFor(() => {
+      if (!upgraded) throw new Error("onTierUpgraded not called");
+    });
   });
 });
 

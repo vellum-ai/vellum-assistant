@@ -41,7 +41,7 @@ export function LogsLayout() {
   return (
     <SidebarShell
       backHref={routes.assistant}
-      sidebar={<SidebarTree items={filteredItems} />}
+      sidebar={<SidebarTree items={filteredItems} indexPath={routes.logs.root} />}
       title={pageTitle}
       menuRoute={routes.logs.root}
     >

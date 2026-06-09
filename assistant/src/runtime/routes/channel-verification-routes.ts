@@ -23,6 +23,7 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { revokePendingSessions } from "../channel-verification-service.js";
 import {
   cancelOutbound,
+  deliverVerificationEmail,
   deliverVerificationSlack,
   normalizeTelegramDestination,
   resendOutbound,
@@ -139,10 +140,14 @@ export async function handleCreateVerificationSession({
       verificationRateLimiter.recordFailure(rateLimitKey);
     }
 
-    // Dispatch Slack DM delivery from the daemon process (not sandboxed).
+    // Dispatch delivery from the daemon process (not sandboxed).
     if (result._pendingSlackDm) {
       const { userId, text, assistantId: aid } = result._pendingSlackDm;
       deliverVerificationSlack(userId, text, aid);
+    }
+    if (result._pendingEmail) {
+      const { to, text, subject, assistantId: aid } = result._pendingEmail;
+      deliverVerificationEmail(to, text, subject, aid);
     }
 
     if (!result.success) {
@@ -157,8 +162,8 @@ export async function handleCreateVerificationSession({
       );
     }
 
-    // Strip internal field from the response
-    const { _pendingSlackDm: _, ...publicResult } = result;
+    // Strip internal fields from the response
+    const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
     return publicResult;
   }
 
@@ -204,10 +209,14 @@ export async function handleResendVerificationSession({
 
   const result = resendOutbound({ channel, originConversationId });
 
-  // Dispatch Slack DM delivery from the daemon process (not sandboxed).
+  // Dispatch delivery from the daemon process (not sandboxed).
   if (result._pendingSlackDm) {
     const { userId, text, assistantId: aid } = result._pendingSlackDm;
     deliverVerificationSlack(userId, text, aid);
+  }
+  if (result._pendingEmail) {
+    const { to, text, subject, assistantId: aid } = result._pendingEmail;
+    deliverVerificationEmail(to, text, subject, aid);
   }
 
   if (!result.success) {
@@ -221,7 +230,7 @@ export async function handleResendVerificationSession({
     );
   }
 
-  const { _pendingSlackDm: _, ...publicResult } = result;
+  const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
   return publicResult;
 }
 

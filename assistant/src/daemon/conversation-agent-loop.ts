@@ -33,7 +33,6 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import { runEmergencyCompaction } from "../context/compactor.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -73,17 +72,13 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
-import type { ContextWindowCompactOptions } from "../plugins/defaults/compaction/window-manager.js";
+import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import userPromptSubmitMemoryRetrieval, {
-  type MemoryRetrievalHookContext,
-} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -125,6 +120,7 @@ import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
+  resolveTurnModelProfileLabel,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -803,9 +799,9 @@ export async function runAgentLoopImpl(
     // Unified `<turn_context>` actor input for this turn (model-facing grounding
     // metadata; the conversation runtime context remains the source for policy
     // gating). Resolved once at turn start and threaded per call site (like
-    // `modelProfile`) so post-compaction re-injection receives it as an explicit
-    // hook input rather than re-deriving it from live state that can flip
-    // mid-turn.
+    // `modelProfileKey`) so post-compaction re-injection receives it as an
+    // explicit hook input rather than re-deriving it from live state that can
+    // flip mid-turn.
     const actorContext = resolveTurnInboundActorContext(
       ctx.trustContext,
       ctx.assistantId,
@@ -852,80 +848,65 @@ export async function runAgentLoopImpl(
       config.llm.activeProfile ??
       resolveDefaultProfileKey("mainAgent", config.llm);
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    let modelProfileStr: string | null = null;
-    if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
-      const profileEntry = config.llm.profiles?.[effectiveProfileKey];
-      const resolved = resolveCallSiteConfig(turnCallSite, config.llm, {
-        overrideProfile: turnOverrideProfile ?? undefined,
-      });
-      const label = profileEntry?.label ?? effectiveProfileKey;
-      modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
+    const modelProfileKey =
+      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
+        ? effectiveProfileKey
+        : null;
+    // The key is threaded as plain turn data to the user-prompt-submit and
+    // post-compaction hooks, which render the `Label (model)` line from it
+    // themselves. The post-rejection convergence re-injection further down is a
+    // direct assembly call rather than a hook, so its label is still rendered
+    // here from the same key.
+    const modelProfileStr = resolveTurnModelProfileLabel(
+      modelProfileKey,
+      turnCallSite,
+      config.llm,
+      ctx.conversationId,
+    );
+    if (modelProfileKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = effectiveProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileKey;
     }
 
-    // Memory retrieval + runtime injection — fetches PKB / NOW.md / memory-graph
-    // outputs, persists the retrieval's own side effects (injected-block
-    // metadata, recall log, `memory_recalled` event), and assembles the turn's
-    // runtime-injection blocks onto the history (persisting those blocks too).
-    // Runs at the early "prompt submitted, before context assembly" moment so
-    // its injected output is what the agent loop receives. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now,
-    // separate from the canonical late `user-prompt-submit` hook (history
-    // repair, title) that fires just before the loop.
-    // The injection inputs (`isNonInteractive`, `modelProfile`) are resolved
-    // once at turn start and threaded in so post-compaction re-injection reuses
-    // the same snapshot rather than live state that can flip mid-turn.
+    // Trust class and injection mode, resolved once at turn start for the
+    // post-compaction re-injection sites further down, which re-apply the
+    // runtime injections (gated on trust) onto the compacted history.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
-    const memoryCtx: MemoryRetrievalHookContext = {
-      onEvent,
-      conversationId: ctx.conversationId,
-      userMessageId,
-      logger: rlog,
-      latestMessages: ctx.messages,
-      requestId: reqId,
-      isNonInteractive,
-      modelProfile: modelProfileStr,
-    };
-    await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // The hook owns its side effects (injected-block metadata, recall log,
-    // `memory_recalled` event, and the runtime-injection metadata persist) and
-    // records the dense/sparse PKB query pair on the graph handle for the
-    // PKB-reminder injector to read back; the loop reuses the fully injected
-    // message list downstream.
-    let runMessages = memoryCtx.latestMessages;
-
-    // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at the
-    // primary `agentLoop.run` only — the re-entry / retry calls further down
-    // in this function do not refire it (they're not new user submissions).
-    // Plugins may mutate `ctx.latestMessages` in place OR return a new
-    // context with a fresh array; `runHook` forwards whichever the chain
-    // settles on. Order is plugin registration order.
-    //
-    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
-    // of the loop's input; the loop then reports its own appended output via
-    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
+    // user-prompt-submit hook chain. Fires once per user turn at the primary
+    // `agentLoop.run` (the re-entry / retry calls further down do not refire it
+    // — they're not new user submissions), before the loop runs so the
+    // hook-assembled messages are part of its input. Memory retrieval runs
+    // first — fetching PKB / NOW.md / memory-graph outputs, persisting its own
+    // side effects (injected-block metadata, recall log, `memory_recalled`
+    // event), and assembling the turn's runtime-injection blocks onto the
+    // history — followed by history repair and title generation, which see the
+    // fully injected history. Plugins may mutate `ctx.latestMessages` in place
+    // OR return a new context with a fresh array; `runHook` forwards whichever
+    // the chain settles on, in plugin registration order. The loop then reports
+    // its own appended output via `AgentLoopRunResult.newMessages`, which
+    // persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
-      latestMessages: runMessages,
+      latestMessages: ctx.messages,
       logger: rlog,
+      modelProfileKey,
+      isNonInteractive,
     };
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
-    runMessages = finalUserPromptCtx.latestMessages;
+    let runMessages = finalUserPromptCtx.latestMessages;
 
     // Reducer state, tool-token budget, and calibration provider key consumed
     // by the post-rejection convergence loop further down. The tool-token
@@ -1006,7 +987,7 @@ export async function runAgentLoopImpl(
           resolveContextWindow,
           compactInPlace,
           isNonInteractive,
-          modelProfile: modelProfileStr,
+          modelProfileKey,
           actorContext,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
@@ -1191,99 +1172,76 @@ export async function runAgentLoopImpl(
         },
       );
       const convergenceBudget = resolveCurrentContextBudget();
-      let correctedTarget = convergenceBudget.preflightBudget;
-      if (actualTokens && estimatedTokensAtOverflow > 0) {
-        const estimationErrorRatio = actualTokens / estimatedTokensAtOverflow;
-        if (estimationErrorRatio > 1.0) {
-          correctedTarget = Math.floor(
-            convergenceBudget.preflightBudget / estimationErrorRatio,
-          );
-          rlog.warn(
-            {
-              phase: "convergence",
-              actualTokens,
-              estimatedTokens: estimatedTokensAtOverflow,
-              estimationErrorRatio: estimationErrorRatio.toFixed(2),
-              preflightBudget: convergenceBudget.preflightBudget,
-              correctedTarget,
-            },
-            "Adjusting compaction target based on observed estimation error",
-          );
-        }
-      }
-
-      // ── Emergency mid-turn compaction ────────────────────────────
-      // Before entering the reducer tier loop, attempt a targeted
-      // emergency compaction: summarize everything before the last
-      // tool_use + tool_result pair and let the agent continue with
-      // [summary, last_tool_call, last_tool_result]. This preserves
-      // the agent's most recent action context while aggressively
-      // compressing history. Falls through to reducer tiers on failure.
-      {
-        try {
-          const emergencyConfig = getConfig().compaction;
-          const emergencyResult = await runEmergencyCompaction({
-            conversationId: ctx.conversationId,
-            messages: ctx.messages,
-            provider: ctx.provider,
-            systemPrompt: ctx.systemPrompt,
-            tools: undefined,
-            compaction: emergencyConfig,
-            maxInputTokens: resolveCurrentMaxInputTokens(),
-            previousEstimatedInputTokens: estimatedTokensAtOverflow,
-            force: true,
-            signal: abortController.signal,
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            nonPersistedPrefixCount:
-              ctx.contextWindowManager.nonPersistedPrefixCount,
-          });
-          if (emergencyResult.compacted) {
-            rlog.info(
-              {
-                phase: "convergence",
-                compactedMessages: emergencyResult.compactedMessages,
-                summaryChars: emergencyResult.summaryText.length,
-              },
-              "Emergency mid-turn compaction succeeded — bypassing reducer tiers",
-            );
-            if (emergencyResult.summaryFailed !== undefined) {
-              await ctx.agentLoop.compactionCircuit.recordOutcome(
-                emergencyResult.summaryFailed,
-                onEvent,
-              );
-            }
-            if (emergencyResult.compacted) {
-              await applySuccessfulCompaction(emergencyResult, ctx.messages);
-            }
-            // Clear the overflow flag and re-run the agent loop with
-            // the compacted context.
-            state.contextTooLargeDetected = false;
-          }
-        } catch (err) {
-          rlog.warn(
-            { phase: "convergence", err },
-            "Emergency mid-turn compaction failed; continuing to reducer tiers",
-          );
-        }
-        // If emergency compaction failed, fall through to reducer tiers.
-      }
-
-      let convergenceAttempts = 0;
-      const maxAttempts = convergenceBudget.overflowRecovery.maxAttempts;
-
-      while (
-        state.contextTooLargeDetected &&
-        convergenceAttempts < maxAttempts &&
-        !reducerState.exhausted
-      ) {
-        convergenceAttempts++;
+      const { targetTokens: correctedTarget, estimationErrorRatio } =
+        computeCorrectedOverflowTarget({
+          preflightBudget: convergenceBudget.preflightBudget,
+          actualTokens,
+          estimatedTokens: estimatedTokensAtOverflow,
+        });
+      if (estimationErrorRatio != null) {
         rlog.warn(
           {
             phase: "convergence",
-            attempt: convergenceAttempts,
+            actualTokens,
+            estimatedTokens: estimatedTokensAtOverflow,
+            estimationErrorRatio: estimationErrorRatio.toFixed(2),
+            preflightBudget: convergenceBudget.preflightBudget,
+            correctedTarget,
+          },
+          "Adjusting compaction target based on observed estimation error",
+        );
+      }
+
+      // ── Bounded context-overflow convergence driver ─────────────────
+      // The compaction plugin's reduction ladder owns every rung: the
+      // emergency summarize-around-last-tool-pair, the middle tiers (forced
+      // compaction, tool-result truncation, media stubbing, injection
+      // downgrade), and the terminal auto-compress of the latest turn. This
+      // driver applies one rung per iteration, re-injects, and re-runs the
+      // agent loop until the context fits or the ladder is exhausted. The
+      // overflow policy decides whether the terminal auto-compress rung is
+      // permitted; the ladder never makes that policy call itself.
+      const overflowAction = resolveOverflowAction({
+        overflowRecovery: convergenceBudget.overflowRecovery,
+        isInteractive: isInteractiveResolved,
+      });
+      const reducerConfig = {
+        providerName: estimationProviderName,
+        systemPrompt: ctx.systemPrompt,
+        contextWindow: resolveCurrentContextWindowConfig(),
+        targetTokens: correctedTarget,
+        toolTokenBudget,
+        conversationId: ctx.conversationId,
+        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        actorTrustClass: resolveTurnActorTrustClass(ctx),
+        previousEstimatedInputTokens: estimatedTokensAtOverflow,
+        maxMiddleTierAttempts: convergenceBudget.overflowRecovery.maxAttempts,
+        allowAutoCompressLatestTurn:
+          overflowAction === "auto_compress_latest_turn",
+      };
+
+      // Safety backstop against a reduction ladder that never reports
+      // exhaustion: the ladder can apply at most the emergency rung, the
+      // middle-tier attempt budget, and the terminal auto-compress rung, so a
+      // well-behaved reducer always sets `exhausted` within this many steps.
+      // The cap only guards against a misbehaving reducer; it never truncates a
+      // legitimate escalation.
+      const maxConvergenceRungs = reducerConfig.maxMiddleTierAttempts + 2;
+      let convergenceRungs = 0;
+
+      while (
+        state.contextTooLargeDetected &&
+        !reducerState.exhausted &&
+        convergenceRungs < maxConvergenceRungs
+      ) {
+        convergenceRungs++;
+        rlog.warn(
+          {
+            phase: "convergence",
+            rung: convergenceRungs,
             appliedTiers: reducerState.appliedTiers,
           },
-          "Context too large — applying next reducer tier",
+          "Context too large — applying next reduction rung",
         );
 
         ctx.emitActivityState("thinking", "context_compacting", {
@@ -1292,23 +1250,8 @@ export async function runAgentLoopImpl(
         const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
           convergenceCompactionBasis,
-          {
-            providerName: estimationProviderName,
-            systemPrompt: ctx.systemPrompt,
-            contextWindow: resolveCurrentContextWindowConfig(),
-            targetTokens: correctedTarget,
-            toolTokenBudget,
-          },
+          reducerConfig,
           reducerState,
-          (msgs, signal, opts) =>
-            defaultCompact({
-              conversationId: ctx.conversationId,
-              messages: msgs,
-              signal,
-              ...((opts ?? {}) as ContextWindowCompactOptions),
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: resolveTurnActorTrustClass(ctx),
-            }),
           abortController.signal,
         );
 
@@ -1316,10 +1259,9 @@ export async function runAgentLoopImpl(
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
 
-        // See the preflight reducer call above for rationale. Only track when
-        // the summary LLM actually ran — `summaryFailed === undefined`
-        // indicates the reducer's forced compaction took an early-return path
-        // without calling the summary LLM.
+        // Only track when the summary LLM actually ran — `summaryFailed
+        // === undefined` indicates a forced-compaction early-return path that
+        // never called the summary LLM.
         if (
           step.compactionResult &&
           step.compactionResult.summaryFailed !== undefined
@@ -1359,87 +1301,39 @@ export async function runAgentLoopImpl(
 
         updatedHistory = await runAgentLoop(runMessages);
 
-        // If the rerun still yields at checkpoint, the turn is still
-        // incomplete — continue reducing through the remaining tiers
-        // instead of silently dropping the incomplete state.
         if (yieldedForBudget && !abortController.signal.aborted) {
-          rlog.warn(
-            {
-              phase: "convergence",
-              attempt: convergenceAttempts,
-              appliedTiers: reducerState.appliedTiers,
-            },
-            "Post-convergence rerun still yielded at checkpoint — continuing reduction",
-          );
-          state.contextTooLargeDetected = true;
-
-          // Fold rerun progress into ctx.messages so the next reducer
-          // tier operates on up-to-date history instead of stale
-          // pre-rerun messages.
-          if (lastRunAppendedNewMessages) {
-            ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            markHistoryStrippedBestEffort(ctx.conversationId);
-          }
-        }
-      }
-
-      // All reducer tiers exhausted but provider still rejects —
-      // consult the overflow policy for latest-turn compression.
-      // The policy either auto-compresses the latest turn or falls
-      // through to the final graceful-error fallback below.
-      if (state.contextTooLargeDetected) {
-        const action = resolveOverflowAction({
-          overflowRecovery: convergenceBudget.overflowRecovery,
-          isInteractive: isInteractiveResolved,
-        });
-
-        if (action === "auto_compress_latest_turn") {
-          // Auto-compress without asking — users opt out via the "drop" policy.
-          ctx.emitActivityState("thinking", "context_compacting", {
-            requestId: reqId,
-          });
-          const emergencyCompact = await defaultCompact({
-            conversationId: ctx.conversationId,
-            messages: ctx.messages,
-            signal: abortController.signal,
-            force: true,
-            minKeepRecentUserTurns: 0,
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-          });
-          // Only track when the summary LLM actually ran; `force: true`
-          // bypasses the auto-threshold gate but not the early-return paths.
-          if (emergencyCompact.summaryFailed !== undefined) {
-            await ctx.agentLoop.compactionCircuit.recordOutcome(
-              emergencyCompact.summaryFailed,
-              onEvent,
+          if (!reducerState.exhausted) {
+            // The rerun still yields and the ladder has a rung left — the turn
+            // is incomplete, so continue reducing instead of silently dropping
+            // the incomplete state.
+            rlog.warn(
+              {
+                phase: "convergence",
+                appliedTiers: reducerState.appliedTiers,
+              },
+              "Post-convergence rerun still yielded at checkpoint — continuing reduction",
             );
-          }
-          if (emergencyCompact.compacted) {
-            await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-          }
+            state.contextTooLargeDetected = true;
 
-          // Only re-inject the memory-static block when ctx.messages was
-          // actually stripped; otherwise the existing block is still present.
-          // (The `<knowledge_base>`, NOW.md, and v2 static `<info>` blocks
-          // self-gate inside their injectors on whether they are already
-          // present in `ctx.messages`.)
-          const injection = await applyRuntimeInjections(ctx.messages, {
-            isNonInteractive,
-            modelProfile: modelProfileStr,
-            actorContext,
-            mode: currentInjectionMode,
-            requestId: reqId,
-            conversationId: ctx.conversationId,
-          });
-          runMessages = injection.messages;
-          if (isTrustedActor && currentInjectionMode !== "minimal") {
-            ctx.graphMemory.retrackCachedNodes();
+            // Fold rerun progress into ctx.messages so the next rung operates
+            // on up-to-date history instead of stale pre-rerun messages.
+            if (lastRunAppendedNewMessages) {
+              ctx.messages = stripInjectionsForCompaction(updatedHistory);
+              markHistoryStrippedBestEffort(ctx.conversationId);
+            }
+          } else if (
+            !reducerState.appliedTiers.includes("auto_compress_latest_turn")
+          ) {
+            // The ladder is exhausted without the terminal auto-compress rung
+            // (the overflow policy disallowed it, or the middle tiers ran out)
+            // and the turn is still over budget. This is a genuine
+            // unrecoverable overflow — surface `context_too_large` via the
+            // fallback below. The terminal auto-compress rung instead leaves
+            // this false so its post-rerun yield reads as
+            // `budget_yield_unrecovered`.
+            state.contextTooLargeDetected = true;
           }
-          state.contextTooLargeDetected = false;
-
-          updatedHistory = await runAgentLoop(runMessages);
         }
-        // action === "fail_gracefully" falls through to the final error below
       }
 
       // Final fallback: all recovery paths exhausted

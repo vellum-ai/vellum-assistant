@@ -1333,6 +1333,97 @@ describe("routing invariant: callback buttons route through canonical primitive"
 });
 
 // ===========================================================================
+// SECTION 8b: route-owned (directResolve) confirmations resolve via the
+// channel/guardian-action path too.
+//
+// The ACP spawn/steer approval gate (acp-routes.ts, ATL-822) registers
+// pending confirmations with a `directResolve` callback rather than a
+// Conversation.prompter. The tool_approval resolver must fire that callback
+// directly; otherwise a guardian approval submitted over a channel never
+// reaches the waiting route and the spawn/resume hangs until timeout.
+// ===========================================================================
+
+describe("routing invariant: directResolve interactions resolve via guardian decisions", () => {
+  beforeEach(() => resetTables());
+
+  function registerDirectResolveInteraction(
+    requestId: string,
+    conversationId: string,
+  ): string[] {
+    const decisions: string[] = [];
+    pendingInteractions.register(requestId, {
+      conversationId,
+      kind: "confirmation",
+      confirmationDetails: {
+        toolName: "acp_spawn",
+        input: { agent: "claude", task: "t", cwd: "/work" },
+        riskLevel: "high",
+        executionTarget: "host",
+        allowlistOptions: [],
+        scopeOptions: [],
+        persistentDecisionsAllowed: false,
+      },
+      directResolve: (d) => decisions.push(d),
+    });
+    return decisions;
+  }
+
+  test("channel approval fires directResolve('allow') with no live Conversation", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-acp",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "acp_spawn",
+      expiresAt: Date.now() + 60_000,
+    });
+    // Deliberately no _conversationMocks entry: the prompter path would have
+    // failed with conversation_not_found, proving directResolve is what runs.
+    const decisions = registerDirectResolveInteraction(req.id, "conv-acp");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "",
+        callbackData: `apr:${req.id}:approve_once`,
+        conversationId: "conv-acp",
+      }),
+    );
+
+    expect(result.decisionApplied).toBe(true);
+    expect(decisions).toEqual(["allow"]);
+    expect(pendingInteractions.get(req.id)).toBeUndefined();
+    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("approved");
+  });
+
+  test("channel rejection fires directResolve('deny')", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-acp",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "acp_spawn",
+      expiresAt: Date.now() + 60_000,
+    });
+    const decisions = registerDirectResolveInteraction(req.id, "conv-acp");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "",
+        callbackData: `apr:${req.id}:reject`,
+        conversationId: "conv-acp",
+      }),
+    );
+
+    expect(result.decisionApplied).toBe(true);
+    expect(decisions).toEqual(["deny"]);
+    expect(pendingInteractions.get(req.id)).toBeUndefined();
+    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("denied");
+  });
+});
+
+// ===========================================================================
 // SECTION 9: Destination hints do not bypass principal binding for tool_approval
 // ===========================================================================
 

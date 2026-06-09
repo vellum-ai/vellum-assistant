@@ -16,11 +16,22 @@ export interface LlmCatalogModel {
   defaultContextWindowTokens: number;
   maxOutputTokens: number;
   supportsThinking?: boolean;
+  adaptiveThinkingOnly?: boolean;
   longContextPricingThresholdTokens?: number;
 }
 
 export const MODELS_BY_PROVIDER = {
   anthropic: [
+    {
+      id: "claude-fable-5",
+      displayName: "Claude Fable 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
     {
       id: "claude-opus-4-8",
       displayName: "Claude Opus 4.8",
@@ -235,6 +246,16 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   openrouter: [
+    {
+      id: "anthropic/claude-fable-5",
+      displayName: "Claude Fable 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
     {
       id: "anthropic/claude-opus-4.8",
       displayName: "Claude Opus 4.8",

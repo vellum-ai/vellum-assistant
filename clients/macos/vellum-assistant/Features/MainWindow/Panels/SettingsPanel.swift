@@ -39,7 +39,6 @@ enum SettingsTab: String {
     }
 
     static func sidebarTopTabs(
-        soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false,
         includeMemoryRouterPlayground: Bool = false,
@@ -54,7 +53,7 @@ enum SettingsTab: String {
         }
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
-        if soundsEnabled { tabs.append(.sounds) }
+        tabs.append(.sounds)
         tabs.append(.billing)
         tabs.append(.community)
         tabs.append(.permissionsAndPrivacy)
@@ -113,9 +112,6 @@ struct SettingsPanel: View {
         let developerEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
         _isDeveloperEnabled = State(initialValue: developerEnabled)
 
-        let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
-        _isSoundsEnabled = State(initialValue: soundsEnabled)
-
         let bookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
         _isBookmarksEnabled = State(initialValue: bookmarksEnabled)
 
@@ -138,7 +134,6 @@ struct SettingsPanel: View {
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
             var visibleTabs = SettingsTab.sidebarTopTabs(
-                soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false,
                 includeMemoryRouterPlayground: false,
@@ -177,7 +172,6 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isMemoryRouterPlaygroundEnabled: Bool = false
-    @State private var isSoundsEnabled: Bool = true
     @State private var isBookmarksEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
@@ -188,7 +182,6 @@ struct SettingsPanel: View {
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
     private static let memoryRouterPlaygroundFeatureFlagKey = "memory-router-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
-    private static let soundsFeatureFlagKey = "sounds"
     private static let bookmarksFeatureFlagKey = "bookmarks"
     private static let deferredDeepLinkTabs: Set<SettingsTab> = [
         .compactionPlayground,
@@ -260,7 +253,6 @@ struct SettingsPanel: View {
         }
         .onAppear {
             isDeveloperEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
-            isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isBookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
@@ -292,9 +284,6 @@ struct SettingsPanel: View {
         .onChange(of: isDebugVisible) { _, _ in
             handleSidebarVisibilityChanged()
         }
-        .onChange(of: isSoundsEnabled) { _, _ in
-            handleSidebarVisibilityChanged()
-        }
         .onChange(of: isDeveloperEnabled) { _, _ in
             handleSidebarVisibilityChanged()
         }
@@ -313,8 +302,6 @@ struct SettingsPanel: View {
                     isCompactionPlaygroundEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
-                } else if key == Self.soundsFeatureFlagKey {
-                    isSoundsEnabled = enabled
                 } else if key == Self.bookmarksFeatureFlagKey {
                     isBookmarksEnabled = enabled
                 }
@@ -410,7 +397,6 @@ struct SettingsPanel: View {
 
     private var visibleSidebarTopTabs: [SettingsTab] {
         SettingsTab.sidebarTopTabs(
-            soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible,
             includeMemoryRouterPlayground: isMemoryRouterPlaygroundVisible,
@@ -765,9 +751,6 @@ struct SettingsPanel: View {
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
-                if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
-                    isSoundsEnabled = soundsFlag.enabled
-                }
                 handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
                 hasLoadedFeatureFlags = true
                 return
@@ -785,9 +768,6 @@ struct SettingsPanel: View {
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
-        }
-        if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
-            isSoundsEnabled = soundsEnabled
         }
         handleSidebarVisibilityChanged(clearDeferredIfHidden: true)
         hasLoadedFeatureFlags = true

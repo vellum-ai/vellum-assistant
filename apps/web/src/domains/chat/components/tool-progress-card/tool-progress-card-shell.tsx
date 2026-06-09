@@ -54,6 +54,22 @@ export interface ToolProgressCardShellProps {
    * render.
    */
   currentStepInfo: ReactNode;
+  /**
+   * Optional stable identity for the header carousel's enter/exit animation.
+   * When supplied, the carousel keys its transition on this instead of the
+   * title text, so a header whose only changing part is a live value (e.g. a
+   * ticking "Working for 8s") updates in place rather than re-sliding on every
+   * change. See {@link HeaderStepCarousel}'s `animationKey`.
+   */
+  headerAnimationKey?: string;
+  /**
+   * When `true`, the leading status indicator is omitted from the header. Used
+   * by the expanded unified card: its timeline below carries per-phase status
+   * (including the running `ThreeDotIndicator`), so repeating a status icon —
+   * especially the animated loading dots — in the header is redundant noise.
+   * The collapsed header still shows it, since there's no timeline to carry it.
+   */
+  hideStatusIndicator?: boolean;
   /** Pre-formatted step count for the toggle pill, e.g. "2 steps". */
   stepCount: string;
   /** Whether the card starts expanded. Uncontrolled by default. */
@@ -192,6 +208,8 @@ export function ToolProgressCardShell({
   leadingIcon,
   currentStepTitle,
   currentStepInfo,
+  headerAnimationKey,
+  hideStatusIndicator = false,
   stepCount,
   defaultExpanded = false,
   expanded: controlledExpanded,
@@ -256,7 +274,9 @@ export function ToolProgressCardShell({
       {(() => {
         const titleCluster = (
           <span className="flex min-w-0 flex-1 items-center gap-1">
-            <StatusIndicator state={state} testId={statusIndicatorTestId} />
+            {hideStatusIndicator ? null : (
+              <StatusIndicator state={state} testId={statusIndicatorTestId} />
+            )}
             {leadingIcon ? (
               // `mx-1` adds 4px on each side on top of the parent's `gap-1`
               // (also 4px) so the icon sits with ~8px of breathing room on
@@ -269,6 +289,7 @@ export function ToolProgressCardShell({
             <HeaderStepCarousel
               currentStepTitle={currentStepTitle}
               currentStepInfo={currentStepInfo}
+              animationKey={headerAnimationKey}
               // Terminal states (complete / denied / error) flush the header
               // throttle so the final `(title, info)` lands in sync with the
               // status-icon swap. Without this, the 400ms min-dwell could

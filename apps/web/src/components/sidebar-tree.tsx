@@ -14,18 +14,25 @@ export interface SidebarItem {
 interface SidebarTreeProps {
   items: SidebarItem[];
   bottomItems?: SidebarItem[];
+  /** When the current pathname matches this path, the first item is marked active.
+   *  Handles index routes that render the same page as the first sidebar item
+   *  but have a different URL (e.g. /assistant/settings → General page). */
+  indexPath?: string;
 }
 
 export function SidebarTree({
   items,
   bottomItems,
+  indexPath,
 }: SidebarTreeProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
-  const renderItem = (item: SidebarItem, isLast: boolean) => {
+  const renderItem = (item: SidebarItem, isLast: boolean, isIndexItem: boolean) => {
     const isActive =
-      pathname === item.href || pathname.startsWith(item.href + "/");
+      pathname === item.href ||
+      pathname.startsWith(item.href + "/") ||
+      (isIndexItem && indexPath != null && pathname === indexPath);
     return (
       <Fragment key={item.id}>
         <SideMenu.Item
@@ -70,7 +77,7 @@ export function SidebarTree({
       className="flex min-h-full flex-col md:gap-2 md:px-6 md:pb-4"
     >
       {items.map((item, index) =>
-        renderItem(item, index === items.length - 1 && !bottomItems?.length),
+        renderItem(item, index === items.length - 1 && !bottomItems?.length, index === 0),
       )}
 
       {bottomItems && bottomItems.length > 0 && (
@@ -82,7 +89,7 @@ export function SidebarTree({
             className="mx-0 my-2 h-px w-full bg-[var(--border-base)] md:mx-0"
           />
           {bottomItems.map((item, index) =>
-            renderItem(item, index === bottomItems.length - 1),
+            renderItem(item, index === bottomItems.length - 1, false),
           )}
         </>
       )}

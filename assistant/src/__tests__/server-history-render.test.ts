@@ -808,6 +808,45 @@ describe("renderHistoryContent contentBlocks", () => {
     );
   });
 
+  test("surfaces persisted thinking timing onto the thinking block", () => {
+    // GIVEN a thinking block the daemon stamped with internal `_startedAt` /
+    // `_completedAt` timing at message_complete
+    const output = renderHistoryContent([
+      {
+        type: "thinking",
+        thinking: "reasoning",
+        signature: "sig",
+        _startedAt: 1000,
+        _completedAt: 1500,
+      },
+    ]);
+
+    // THEN the rendered block exposes them as the wire schema's
+    // startedAt/completedAt so the client can show the duration + hover state
+    expect(output.contentBlocks).toEqual([
+      {
+        type: "thinking",
+        thinking: "reasoning",
+        startedAt: 1000,
+        completedAt: 1500,
+      },
+    ]);
+  });
+
+  test("omits thinking timing when the block carries none", () => {
+    // GIVEN a thinking block with no persisted timing (older daemon / thinking
+    // streaming disabled)
+    const output = renderHistoryContent([
+      { type: "thinking", thinking: "reasoning", signature: "sig" },
+    ]);
+
+    // THEN the rendered block has no startedAt/completedAt and the client hides
+    // the duration, exactly as a tool call with no timing
+    expect(output.contentBlocks).toEqual([
+      { type: "thinking", thinking: "reasoning" },
+    ]);
+  });
+
   const pdfBlock = {
     type: "file",
     source: {

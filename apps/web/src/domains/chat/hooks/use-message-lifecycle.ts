@@ -21,10 +21,8 @@ import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-recon
 import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
-import type { RefreshLatestOutcome } from "@/domains/chat/hooks/use-refresh-latest-messages";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -52,7 +50,6 @@ export interface UseMessageLifecycleReturn {
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
-  refreshLatestMessages: () => Promise<RefreshLatestOutcome>;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,16 +128,9 @@ export function useMessageLifecycle({
     cancelScheduledRefetch,
   });
 
-  // 5. Non-destructive refresh for the chat title chevron's Refresh
-  //    menu item.
-  const refreshLatestMessages = useRefreshLatestMessages({
-    assistantId,
-  });
-
   return {
     startReconciliationLoop,
     cancelReconciliation,
     reconcileActiveConversation,
-    refreshLatestMessages,
   };
 }

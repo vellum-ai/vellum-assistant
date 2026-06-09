@@ -10,8 +10,9 @@ import { join } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
@@ -208,6 +209,43 @@ export function resolveTurnInboundActorContext(
     resolved = inboundActorContextFromTrustContext(trustContext);
   }
   return resolved.trustClass === "guardian" ? null : resolved;
+}
+
+/**
+ * Render the `model_profile:` turn-context label for a turn from its resolved
+ * inference profile key, for the unified `<turn_context>` block.
+ *
+ * Returns `null` when there is no key to announce (the caller gates this to the
+ * turns where the active profile changed since the one last delivered to the
+ * model). Otherwise the human-readable label comes from the profile's
+ * configured `label` (falling back to the key) and the model id from the
+ * call-site resolution keyed on that profile, yielding `Label (model)` — or
+ * just `Label` when no model resolves. Derives purely from the passed key,
+ * call site, and config, so callers thread the key (plain turn data) rather
+ * than the rendered string and self-resolve the call site from the live
+ * conversation.
+ *
+ * `selectionSeed` is the conversation id, threaded so that a key naming a `mix`
+ * profile expands to the same arm the turn's provider calls run on (which seed
+ * expansion with the same id). Without it the announced model would be a fresh
+ * random arm that can disagree with the model actually serving the turn.
+ */
+export function resolveTurnModelProfileLabel(
+  modelProfileKey: string | null,
+  callSite: LLMCallSite,
+  llm: LLMConfig,
+  selectionSeed?: string,
+): string | null {
+  if (modelProfileKey == null) {
+    return null;
+  }
+  const profileEntry = llm.profiles?.[modelProfileKey];
+  const resolved = resolveCallSiteConfig(callSite, llm, {
+    overrideProfile: modelProfileKey,
+    selectionSeed,
+  });
+  const label = profileEntry?.label ?? modelProfileKey;
+  return resolved.model ? `${label} (${resolved.model})` : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */

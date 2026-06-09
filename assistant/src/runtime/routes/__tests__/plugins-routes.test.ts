@@ -369,7 +369,7 @@ describe("GET /v1/plugins/search", () => {
       catalog(ref, [
         {
           name: "simple-memory",
-          path: "experimental/plugins/simple-memory",
+          path: "plugins/simple-memory",
           source: { kind: "first-party" },
         },
         {
@@ -402,7 +402,7 @@ describe("GET /v1/plugins/search", () => {
       matches: [
         {
           name: "simple-memory",
-          path: "experimental/plugins/simple-memory",
+          path: "plugins/simple-memory",
           source: { kind: "first-party" },
         },
       ],
@@ -458,7 +458,7 @@ describe("GET /v1/plugins/search", () => {
   test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
     getCatalogSpy.mockImplementation(async () => {
       throw new PluginCatalogUnavailableError(
-        "GitHub contents listing failed for experimental/plugins @ main: HTTP 403",
+        "GitHub contents listing failed for plugins @ main: HTTP 403",
         403,
       );
     });
@@ -489,7 +489,7 @@ describe("GET /v1/plugins/search", () => {
     const frozenMatches = Object.freeze([
       Object.freeze({
         name: "a",
-        path: "experimental/plugins/a",
+        path: "plugins/a",
         source: { kind: "first-party" } as const,
       }),
     ]) as readonly PluginSearchMatch[];
