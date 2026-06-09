@@ -153,14 +153,15 @@ mock.module("../memory/onboarding-events-store.js", () => ({
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
+import {
+  seedToolInvocation as seedToolInvocationRow,
+  type SeedToolInvocationSpec,
+  TOOL_INVOCATION_PII_SENTINEL,
+} from "../memory/__tests__/tool-invocation-test-helpers.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  authFallbackEvents,
-  conversations,
-  toolInvocations,
-} from "../memory/schema.js";
+import { authFallbackEvents, toolInvocations } from "../memory/schema.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
@@ -245,40 +246,13 @@ function makeOnboardingEvent(
 
 const TOOL_EXEC_CONVERSATION_ID = "conv-tool-exec-reporter-test";
 
-function seedToolInvocation(overrides: {
-  id: string;
-  createdAt: number;
-  toolName?: string;
-  skillId?: string | null;
-  decision?: string;
-  riskLevel?: string;
-  durationMs?: number;
-}): void {
-  const db = getDb();
-  // tool_invocations has an enforced FK to conversations.
-  db.insert(conversations)
-    .values({
-      id: TOOL_EXEC_CONVERSATION_ID,
-      title: "test",
-      createdAt: 1000,
-      updatedAt: 1000,
-    })
-    .onConflictDoNothing()
-    .run();
-  db.insert(toolInvocations)
-    .values({
-      id: overrides.id,
-      conversationId: TOOL_EXEC_CONVERSATION_ID,
-      toolName: overrides.toolName ?? "web_search",
-      input: '{"secret":"raw tool args — must never leave the device"}',
-      result: '{"secret":"raw tool output — must never leave the device"}',
-      decision: overrides.decision ?? "allow",
-      riskLevel: overrides.riskLevel ?? "low",
-      skillId: overrides.skillId ?? null,
-      durationMs: overrides.durationMs ?? 42,
-      createdAt: overrides.createdAt,
-    })
-    .run();
+function seedToolInvocation(
+  spec: Omit<SeedToolInvocationSpec, "conversationId">,
+): void {
+  seedToolInvocationRow({
+    ...spec,
+    conversationId: TOOL_EXEC_CONVERSATION_ID,
+  });
 }
 
 const originalFetch = globalThis.fetch;
@@ -1275,15 +1249,21 @@ describe("UsageTelemetryReporter", () => {
   test("tool_invocations rows flush as tool_execution events with mapped fields and no raw input/result", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     seedToolInvocation({
-      id: "ti-flush-1",
+      id: "ti-flush-direct",
       createdAt: 1700000900000,
       toolName: "calendar_list_events",
       decision: "denied",
       riskLevel: "high",
       durationMs: 137,
     });
+    seedToolInvocation({
+      id: "ti-flush-skill",
+      createdAt: 1700000950000,
+      toolName: "task_create",
+      skillId: "tasks-skill",
+    });
     mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
     const reporter = new UsageTelemetryReporter();
@@ -1293,10 +1273,15 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.events.length).toBe(1);
-    expect(body.events[0]).toMatchObject({
+    expect(body.events.length).toBe(2);
+
+    const direct = body.events.find(
+      (e: { daemon_event_id: string }) =>
+        e.daemon_event_id === "ti-flush-direct",
+    );
+    expect(direct).toMatchObject({
       type: "tool_execution",
-      daemon_event_id: "ti-flush-1",
+      daemon_event_id: "ti-flush-direct",
       recorded_at: 1700000900000,
       tool_name: "calendar_list_events",
       // Direct (non-skill) tool call — skill_id stays null on the wire.
@@ -1307,40 +1292,22 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: TOOL_EXEC_CONVERSATION_ID,
       assistant_version: "1.2.3-test",
     });
-    // The raw tool args/outputs persisted in the audit row are potentially
-    // PII and must NEVER appear anywhere in the payload.
-    expect(JSON.stringify(body)).not.toContain("must never leave the device");
-    expect(body.events[0].input).toBeUndefined();
-    expect(body.events[0].result).toBeUndefined();
-  });
 
-  test("skill-routed tool_invocations flush with a non-null skill_id", async () => {
-    mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    seedToolInvocation({
-      id: "ti-skill-1",
-      createdAt: 1700000950000,
-      toolName: "task_create",
-      skillId: "tasks-skill",
-    });
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    const skillRouted = body.events.find(
+      (e: { daemon_event_id: string }) =>
+        e.daemon_event_id === "ti-flush-skill",
     );
-
-    const reporter = new UsageTelemetryReporter();
-    await reporter.flush();
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(
-      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
-    );
-    expect(body.events.length).toBe(1);
-    expect(body.events[0]).toMatchObject({
+    expect(skillRouted).toMatchObject({
       type: "tool_execution",
       tool_name: "task_create",
       skill_id: "tasks-skill",
     });
-    // Only the skill id ships — never raw skill arguments or outputs.
-    expect(JSON.stringify(body)).not.toContain("must never leave the device");
+
+    // The raw tool args/outputs persisted in the audit rows are potentially
+    // PII and must NEVER appear anywhere in the payload.
+    expect(JSON.stringify(body)).not.toContain(TOOL_INVOCATION_PII_SENTINEL);
+    expect(direct.input).toBeUndefined();
+    expect(direct.result).toBeUndefined();
   });
 
   test("tool_execution watermark advances to the last reported row on success", async () => {
