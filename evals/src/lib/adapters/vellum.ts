@@ -336,11 +336,7 @@ export class VellumAgent implements BaseAgent {
         // inside the repo (`repoRootFromAdapter()` already drives the
         // hatch `--source` arg above), so the fixtures path is always
         // resolvable here.
-        pluginFixturesDir: resolve(
-          repoRootFromAdapter(),
-          "experimental",
-          "plugins",
-        ),
+        pluginFixturesDir: resolve(repoRootFromAdapter(), "plugins"),
       });
 
       // Apply species-default feature flags BEFORE setup commands.
