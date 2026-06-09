@@ -25,7 +25,7 @@ import {
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
-import { parseVerificationCode, hashVerificationSecret } from "./code-parsing.js";
+import { extractEmailReplyBody, parseVerificationCode, hashVerificationSecret } from "./code-parsing.js";
 import {
   findContactChannelByExternalUserId,
   upsertVerifiedContactChannel,
@@ -93,8 +93,14 @@ export async function tryTextVerificationIntercept(
     assistantId,
   } = params;
 
-  // 1. Parse — only bare 6-digit numeric or 64-char hex codes are intercepted
-  const code = parseVerificationCode(messageContent);
+  // 1. Parse — only bare 6-digit numeric or 64-char hex codes are intercepted.
+  //    For email, strip quoted reply content first so the code isn't buried
+  //    under signatures and quoted thread text.
+  const effectiveContent =
+    sourceChannel === "email"
+      ? extractEmailReplyBody(messageContent)
+      : messageContent;
+  const code = parseVerificationCode(effectiveContent);
   if (code === undefined) {
     return { intercepted: false };
   }

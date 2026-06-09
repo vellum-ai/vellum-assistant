@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
-import { parseVerificationCode, hashVerificationSecret } from "../verification/code-parsing.js";
+import { extractEmailReplyBody, parseVerificationCode, hashVerificationSecret } from "../verification/code-parsing.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { checkIdentityMatch } from "../verification/identity-match.js";
 import type { VerificationSession } from "../verification/session-helpers.js";
@@ -38,6 +38,55 @@ describe("parseVerificationCode", () => {
   });
 });
 
+describe("extractEmailReplyBody", () => {
+  test("returns bare code from plain reply", () => {
+    expect(extractEmailReplyBody("421063")).toBe("421063");
+  });
+
+  test("strips Gmail-style quoted reply", () => {
+    const body = "421063\n\nOn Mon, Jun 9, 2026 at 2:30 PM Vellum Assistant wrote:\n> Your verification code is: 421063";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("strips standard > quoted lines", () => {
+    const body = "421063\n\n> Original message content\n> More quoted text";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("strips RFC 3676 signature delimiter", () => {
+    const body = "421063\n\n-- \nJohn Doe\njohn@example.com";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("strips bare -- signature delimiter", () => {
+    const body = "421063\n--\nJohn Doe";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("strips Outlook original message header", () => {
+    const body = "421063\n\n-----Original Message-----\nFrom: Vellum Assistant";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("strips Outlook From:/Sent: block", () => {
+    const body = "421063\n\nFrom: Vellum Assistant <hi@credence.vellum.me>\nSent: Monday, June 9, 2026";
+    expect(extractEmailReplyBody(body)).toBe("421063");
+  });
+
+  test("handles empty body", () => {
+    expect(extractEmailReplyBody("")).toBe("");
+  });
+
+  test("handles body with only quoted text", () => {
+    expect(extractEmailReplyBody("> quoted text only")).toBe("");
+  });
+
+  test("preserves multiline fresh content before quote", () => {
+    const body = "line 1\nline 2\n\nOn Jun 9 wrote:\n> quote";
+    expect(extractEmailReplyBody(body)).toBe("line 1\nline 2");
+  });
+});
+
 describe("hashVerificationSecret", () => {
   test("produces a 64-char hex sha256", () => {
     const hash = hashVerificationSecret("test");
@@ -71,6 +120,11 @@ describe("canonicalizeInboundIdentity", () => {
   test("non-phone channel: trims only", () => {
     expect(canonicalizeInboundIdentity("telegram", "  user123  ")).toBe("user123");
     expect(canonicalizeInboundIdentity("slack", "U12345")).toBe("U12345");
+  });
+
+  test("email channel: lowercases address", () => {
+    expect(canonicalizeInboundIdentity("email", "Alice@Example.COM")).toBe("alice@example.com");
+    expect(canonicalizeInboundIdentity("email", "  USER@test.com  ")).toBe("user@test.com");
   });
 
   test("returns null for empty/whitespace", () => {
