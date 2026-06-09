@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -302,13 +301,10 @@ export async function selectEmbeddingBackend(
     };
   }
 
-  // When the managed-gemini-embeddings-enabled flag is on AND managed proxy
-  // prerequisites are satisfied, insert managed-proxy Gemini at the front of
-  // the auto chain so platform assistants use Vellum-managed Gemini embeddings.
-  if (
-    (requested === "auto" || requested === "gemini") &&
-    isAssistantFeatureFlagEnabled("managed-gemini-embeddings-enabled", config)
-  ) {
+  // When managed proxy prerequisites are satisfied, insert managed-proxy Gemini
+  // at the front of the auto chain so platform assistants use Vellum-managed
+  // Gemini embeddings.
+  if (requested === "auto" || requested === "gemini") {
     const proxyCtx = await resolveManagedProxyContext();
     if (proxyCtx.enabled) {
       const meta = PLATFORM_PROVIDER_META["gemini"];
@@ -677,12 +673,7 @@ async function selectFallbackBackends(
               geminiCacheExtras(config),
             ),
           );
-        } else if (
-          isAssistantFeatureFlagEnabled(
-            "managed-gemini-embeddings-enabled",
-            config,
-          )
-        ) {
+        } else {
           // Try managed proxy Gemini as fallback when no direct key exists.
           const proxyCtx = await resolveManagedProxyContext();
           const meta = PLATFORM_PROVIDER_META["gemini"];
@@ -724,14 +715,6 @@ async function selectFallbackBackends(
               );
             if (cached) backends.push(cached);
           }
-        } else {
-          // Preserve cached backend on transient credential-store failures.
-          const cached = getCached(
-            "gemini",
-            config.memory.embeddings.geminiModel,
-            geminiCacheExtras(config),
-          );
-          if (cached) backends.push(cached);
         }
         break;
       }

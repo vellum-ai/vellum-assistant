@@ -224,11 +224,17 @@ export function resolveTurnInboundActorContext(
  * call site, and config, so callers thread the key (plain turn data) rather
  * than the rendered string and self-resolve the call site from the live
  * conversation.
+ *
+ * `selectionSeed` is the conversation id, threaded so that a key naming a `mix`
+ * profile expands to the same arm the turn's provider calls run on (which seed
+ * expansion with the same id). Without it the announced model would be a fresh
+ * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
   modelProfileKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
+  selectionSeed?: string,
 ): string | null {
   if (modelProfileKey == null) {
     return null;
@@ -236,6 +242,7 @@ export function resolveTurnModelProfileLabel(
   const profileEntry = llm.profiles?.[modelProfileKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile: modelProfileKey,
+    selectionSeed,
   });
   const label = profileEntry?.label ?? modelProfileKey;
   return resolved.model ? `${label} (${resolved.model})` : label;

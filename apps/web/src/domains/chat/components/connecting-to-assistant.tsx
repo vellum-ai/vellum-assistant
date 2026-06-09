@@ -8,7 +8,6 @@ import type {
     ReachabilityState,
 } from "@/assistant/use-assistant-reachability";
 import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 import { Button, Modal, Typography } from "@vellumai/design-library";
@@ -112,19 +111,14 @@ const FailureBody: FC<FailureBodyProps> = ({
   lastServerState,
   onRetry,
 }) => {
-  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
   const isCrashLoop = lastServerState === "crash_loop";
 
   const title = isCrashLoop
     ? "Your assistant hit an error"
     : "Couldn't connect to your assistant";
   const description = isCrashLoop
-    ? doctorEnabled
-      ? "Your assistant reported an error while starting. Try running Vellum Doctor to diagnose the issue, or ask the community for help."
-      : "Your assistant reported an error while starting. Ask the community for help if the problem persists."
-    : doctorEnabled
-      ? `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running Vellum Doctor to diagnose the issue, or ask the community for help.`
-      : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Ask the community for help if the problem persists.`;
+    ? "Your assistant reported an error while starting. Try running Vellum Doctor to diagnose the issue, or ask the community for help."
+    : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running Vellum Doctor to diagnose the issue, or ask the community for help.`;
 
   return (
     <StatusLayout
@@ -145,17 +139,15 @@ const FailureBody: FC<FailureBodyProps> = ({
           >
             Try again
           </Button>
-          {doctorEnabled && (
-            <Button
-              asChild
-              variant="outlined"
-              data-testid="connection-go-to-doctor-button"
-            >
-              <Link to={`${routes.settings.debug}?tab=doctor`}>
-                Vellum Doctor
-              </Link>
-            </Button>
-          )}
+          <Button
+            asChild
+            variant="outlined"
+            data-testid="connection-go-to-doctor-button"
+          >
+            <Link to={`${routes.settings.debug}?tab=doctor`}>
+              Vellum Doctor
+            </Link>
+          </Button>
           <Button
             asChild
             variant="outlined"

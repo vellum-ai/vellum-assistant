@@ -20,7 +20,6 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { dedupeDisplayMessages } from "@/domains/chat/utils/message-merge";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 
@@ -36,10 +35,7 @@ function parsePaginatedResponse(
 ): PaginatedHistoryResult {
   const rows = body?.messages ?? [];
 
-  // Map to display messages first so we can correlate ids with subagent
-  // notifications. The two arrays share the same indices.
-  const mapped = rows.map(mapRuntimeToDisplayMessage);
-  const messages = dedupeDisplayMessages(mapped);
+  const messages = rows.map(mapRuntimeToDisplayMessage);
 
   // Extract notifications and associate each with the id of the last
   // non-notification assistant message (the message that spawned the

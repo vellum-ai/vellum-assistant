@@ -2,8 +2,7 @@
  * Tests for managed proxy Gemini embedding backend selection.
  *
  * Verifies that selectEmbeddingBackend correctly routes through the
- * managed proxy when the feature flag is enabled and managed proxy
- * prerequisites are satisfied.
+ * managed proxy when managed proxy prerequisites are satisfied.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -42,13 +41,9 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
-// Feature flag mock
-const mockFeatureFlags: Record<string, boolean> = {};
-
+// Feature flag mock — always returns true (flag is GA'ed)
 mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string, _config: unknown) => {
-    return mockFeatureFlags[key] ?? false;
-  },
+  isAssistantFeatureFlagEnabled: () => true,
 }));
 
 import type { AssistantConfig } from "../config/types.js";
@@ -73,14 +68,6 @@ function enableManagedProxy() {
 function disableManagedProxy() {
   mockPlatformBaseUrl = "";
   mockAssistantApiKey = null;
-}
-
-function enableFlag() {
-  mockFeatureFlags["managed-gemini-embeddings-enabled"] = true;
-}
-
-function disableFlag() {
-  mockFeatureFlags["managed-gemini-embeddings-enabled"] = false;
 }
 
 function makeConfig(
@@ -116,7 +103,6 @@ function makeConfig(
 
 beforeEach(() => {
   disableManagedProxy();
-  disableFlag();
   mockProviderKeys = {};
   clearEmbeddingBackendCache();
 });
@@ -126,9 +112,8 @@ afterEach(() => {
 });
 
 describe("managed proxy Gemini embedding selection", () => {
-  test("selects managed proxy Gemini when flag enabled and proxy context available", async () => {
+  test("selects managed proxy Gemini when proxy context available", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig();
 
     const { backend, reason } = await selectEmbeddingBackend(config);
@@ -141,7 +126,6 @@ describe("managed proxy Gemini embedding selection", () => {
 
   test("managed proxy backend uses default 3072 dimensions when geminiDimensions not set", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig();
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -155,7 +139,6 @@ describe("managed proxy Gemini embedding selection", () => {
 
   test("managed proxy backend uses explicit geminiDimensions when set", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig({ geminiDimensions: 768 });
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -168,7 +151,6 @@ describe("managed proxy Gemini embedding selection", () => {
 
   test("managed proxy backend uses managedBaseUrl (not direct Google API)", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig();
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -179,32 +161,19 @@ describe("managed proxy Gemini embedding selection", () => {
     expect(managedBaseUrl).toBe(`${PLATFORM_BASE}/v1/runtime-proxy/gemini`);
   });
 
-  test("falls back to local when flag is disabled (no managed proxy)", async () => {
-    enableManagedProxy();
-    disableFlag();
-    const config = makeConfig();
-
-    const { backend } = await selectEmbeddingBackend(config);
-
-    // With auto and no provider keys, falls through to local
-    expect(backend).not.toBeNull();
-    expect(backend!.provider).toBe("local");
-  });
-
   test("falls back to local when managed proxy context unavailable", async () => {
     disableManagedProxy();
-    enableFlag();
     const config = makeConfig();
 
     const { backend } = await selectEmbeddingBackend(config);
 
+    // With auto and no provider keys or proxy, falls through to local
     expect(backend).not.toBeNull();
     expect(backend!.provider).toBe("local");
   });
 
   test("selects managed proxy when provider is explicitly gemini", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig({ provider: "gemini" });
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -217,7 +186,6 @@ describe("managed proxy Gemini embedding selection", () => {
 
   test("does not use managed proxy when provider is explicitly local", async () => {
     enableManagedProxy();
-    enableFlag();
     const config = makeConfig({ provider: "local" });
 
     const { backend } = await selectEmbeddingBackend(config);
@@ -228,7 +196,6 @@ describe("managed proxy Gemini embedding selection", () => {
 
   test("does not use managed proxy when provider is explicitly openai", async () => {
     enableManagedProxy();
-    enableFlag();
     mockProviderKeys[credentialKey("openai", "api_key")] = "user-openai-key";
     const config = makeConfig({ provider: "openai" });
 
@@ -238,9 +205,8 @@ describe("managed proxy Gemini embedding selection", () => {
     expect(backend!.provider).toBe("openai");
   });
 
-  test("direct Gemini key still works when flag is off", async () => {
+  test("direct Gemini key still works without managed proxy", async () => {
     disableManagedProxy();
-    disableFlag();
     mockProviderKeys[credentialKey("gemini", "api_key")] = "user-gemini-key";
     const config = makeConfig({ provider: "gemini" });
 

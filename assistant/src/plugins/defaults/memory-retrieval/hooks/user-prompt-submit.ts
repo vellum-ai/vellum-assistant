@@ -27,7 +27,10 @@
  * fully assembled, memory-injected history.
  */
 
-import type { PluginHookFn, UserPromptSubmitContext } from "@vellumai/plugin-api";
+import type {
+  PluginHookFn,
+  UserPromptSubmitContext,
+} from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -269,6 +272,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     ctx.modelProfileKey,
     conversation?.currentCallSite ?? "mainAgent",
     config.llm,
+    ctx.conversationId,
   );
   const injection = await applyRuntimeInjections(ctx.latestMessages, {
     isNonInteractive: ctx.isNonInteractive,

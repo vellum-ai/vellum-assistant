@@ -26,7 +26,7 @@ export interface DockerEgressJailConfig {
    * When provided, the addon's `mock_github_handler.py` serves
    * `assistant plugins install` traffic from this directory instead of
    * letting it reach api.github.com / raw.githubusercontent.com. The
-   * layout mirrors `experimental/plugins/<name>/...` in the
+   * layout mirrors `plugins/<name>/...` in the
    * vellum-assistant repo — one subdirectory per plugin name.
    *
    * Omit to leave plugin install requests unmocked — they then hit

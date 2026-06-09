@@ -5,7 +5,6 @@ import { AssistantTerminalPanel } from "@/domains/settings/components/panels/ass
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { cn } from "@/utils/misc";
 
 const ALL_TABS = [
@@ -18,7 +17,6 @@ type DebugTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DebugPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
   // Terminal tab is platform-routed and should be hidden when the active
   // assistant is self-hosted — `platformHostedOnly: true` is the correct
   // variant. The standard gate would still resolve to "full" on a
@@ -29,13 +27,12 @@ export function DebugPage() {
   const tabs = useMemo(
     () =>
       ALL_TABS.filter((tab) => {
-        if (tab.id === "doctor" && !doctorEnabled) return false;
         // Terminal is platform-routed — hide the tab entirely on self-hosted
         // assistants so users don't land on an empty panel.
         if (tab.id === "terminal" && platformGate === "gated") return false;
         return true;
       }),
-    [doctorEnabled, platformGate],
+    [platformGate],
   );
 
   const activeTab: DebugTabId = useMemo(() => {
@@ -93,7 +90,7 @@ export function DebugPage() {
       >
         {activeTab === "general" && <DebugControlsPanel />}
         {activeTab === "terminal" && <AssistantTerminalPanel />}
-        {activeTab === "doctor" && doctorEnabled && <DoctorPanel />}
+        {activeTab === "doctor" && <DoctorPanel />}
       </div>
     </div>
   );

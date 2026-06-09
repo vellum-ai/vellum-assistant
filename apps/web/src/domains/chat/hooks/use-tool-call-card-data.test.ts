@@ -454,6 +454,134 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
   });
 });
 
+describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
+  test("sums BOTH thinking and tool time, not just tool calls", () => {
+    // GIVEN a run with 2s of thinking and 3s of tool work
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "thinking",
+        text: "reasoning",
+        startedAt: 0,
+        completedAt: 2_000,
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 2_000,
+          completedAt: 5_000,
+          input: { command: "ls" },
+        }),
+      },
+    ];
+    // WHEN the card data is computed at rest (no `nowMs`)
+    const data = computeToolCallCardDataFromItems(items, {});
+    // THEN the header total is 2s + 3s = 5s — thinking is no longer excluded
+    expect(data.totalDurationLabel).toBe("5s");
+  });
+
+  test("excludes subagent_spawn time and returns '' when nothing is timed", () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "untimed reasoning" },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-spawn",
+          name: "subagent_spawn",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 9_000,
+          input: { label: "Investigate" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("");
+  });
+
+  test("ticks the running step's elapsed against nowMs during streaming", () => {
+    // GIVEN a completed 4s tool plus a still-running tool started at t=10s
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 4_000,
+          input: { command: "ls" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          startedAt: 10_000,
+          input: { command: "sleep 5" },
+        }),
+      },
+    ];
+    // WHEN the clock reads t=13s — the running tool has been live for 3s
+    const data = computeToolCallCardDataFromItems(items, {}, 13_000);
+    // THEN the header total ticks: 4s (done) + 3s (in flight) = 7s
+    expect(data.totalDurationLabel).toBe("7s");
+    expect(data.state).toBe("loading");
+  });
+
+  test("renders a long run in human-readable minutes, not raw seconds", () => {
+    // A 3-minute tool call should read "3m", not "180s".
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-long",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 180_000,
+          input: { command: "long-build" },
+        }),
+      },
+    ];
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("3m");
+  });
+
+  test("a running step contributes nothing without a clock (at rest)", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-1",
+          name: "bash",
+          status: "completed",
+          startedAt: 0,
+          completedAt: 4_000,
+          input: { command: "ls" },
+        }),
+      },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-2",
+          name: "bash",
+          status: "running",
+          startedAt: 10_000,
+          input: { command: "sleep 5" },
+        }),
+      },
+    ];
+    // No `nowMs` → only the completed 4s counts.
+    const data = computeToolCallCardDataFromItems(items, {});
+    expect(data.totalDurationLabel).toBe("4s");
+  });
+});
+
 describe("computeToolCallCardDataFromItems — header reflects the latest step", () => {
   test("a run ending in a thinking step surfaces it in the header", () => {
     const items: ToolCallCardItem[] = [

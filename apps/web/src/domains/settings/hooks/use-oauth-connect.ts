@@ -11,6 +11,7 @@ import {
   getOAuthCompleteMessagePayload,
   getOAuthCompleteStoragePayload,
   oauthCompletionStorageKey,
+  parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
@@ -348,16 +349,13 @@ export function useOAuthConnect({
             oauthCompletionStorageKey(pendingRequest.requestId),
           );
           if (storedCompletion) {
-            try {
-              handleOAuthCompletePayload(
-                JSON.parse(storedCompletion) as OAuthCompletePayload,
-              );
+            const parsed = parseOAuthCompletePayload(storedCompletion);
+            if (parsed && parsed.requestId === pendingRequest.requestId) {
+              handleOAuthCompletePayload(parsed);
               window.localStorage.removeItem(
                 oauthCompletionStorageKey(pendingRequest.requestId),
               );
               return;
-            } catch {
-              // Fall through to the normal closed-popup error.
             }
           }
 

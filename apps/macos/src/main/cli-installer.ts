@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 // Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.8.8";
+export const PINNED_CLI_VERSION = "0.8.9";
 
 /** Directory where the pinned CLI version is installed. */
 export function getCliInstallDir(): string {

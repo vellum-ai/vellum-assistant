@@ -4,18 +4,18 @@
  * A name resolves to one of two sources, materialized into
  * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start:
  *   1. A whitelisted external ecosystem plugin, when the name matches an entry
- *      in the curated `experimental/plugins/marketplace.json` manifest. The
+ *      in the curated `plugins/marketplace.json` manifest. The
  *      pinned `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is
  *      fetched with a shallow `git` clone at that ref — one network operation
  *      regardless of repo size, immune to GitHub's unauthenticated API
  *      rate-limit, and recording the exact resolved commit for provenance.
  *      When we curate an adapter stub for the plugin (an
- *      `experimental/plugins/<name>/` directory in this repo with a
+ *      `plugins/<name>/` directory in this repo with a
  *      `scripts.postinstall` command), the stub is overlaid onto the clone and
  *      its postinstall runs to translate a foreign-ecosystem layout into the
  *      shape Vellum's loader runs (see {@link applyAdapterStub}).
  *   2. Otherwise the first-party convention
- *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
+ *      `vellum-ai/vellum-assistant/plugins/<name>/` at the
  *      configured ref, fetched via the GitHub Contents API (a small handful of
  *      in-repo files — cloning the whole monorepo to install one would be
  *      wasteful).
@@ -54,7 +54,7 @@ const execFileAsync = promisify(execFile);
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
+const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 /** Default git ref to fetch from when callers don't override. */
 export const DEFAULT_PLUGIN_REF = "main";
 
@@ -230,7 +230,7 @@ function sourceLabel(source: PluginFetchSource): string {
     : `${source.owner}/${source.repo}`;
 }
 
-/** First-party `experimental/plugins/<name>` coordinates at a given ref. */
+/** First-party `plugins/<name>` coordinates at a given ref. */
 function firstPartySource(name: string, ref: string): PluginFetchSource {
   return {
     kind: "first-party",
@@ -245,9 +245,9 @@ function firstPartySource(name: string, ref: string): PluginFetchSource {
  * Resolve a plugin name to concrete GitHub coordinates.
  *
  * A name claimed by the curated marketplace resolves to its pinned external
- * repo; any other name resolves to the first-party `experimental/plugins/<name>`
+ * repo; any other name resolves to the first-party `plugins/<name>`
  * convention. The marketplace is external-only by construction — a same-named
- * `experimental/plugins/<name>` directory is the plugin's optional *adapter
+ * `plugins/<name>` directory is the plugin's optional *adapter
  * stub* (a curated `package.json` + postinstall script overlaid onto the clone
  * to translate it into Vellum's shape; see {@link applyAdapterStub}), not a
  * standalone first-party plugin. So letting the marketplace win the name is
@@ -288,7 +288,7 @@ async function resolvePluginSource(
 /**
  * Reject plugin names that could escape the canonical source path or the
  * install target. The source convention is a flat namespace under
- * `experimental/plugins/`, so a legitimate name is a single path segment
+ * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
@@ -546,7 +546,7 @@ const POSTINSTALL_TIMEOUT_MS = 60_000;
  * Overlay our curated adapter stub onto a freshly cloned external plugin and
  * run its postinstall transform, returning whether a transform ran.
  *
- * The stub lives at `experimental/plugins/<name>/` in our own repo and carries
+ * The stub lives at `plugins/<name>/` in our own repo and carries
  * a `package.json` (with a `scripts.postinstall` adapter command) plus the
  * adapter script it names. We fetch it via the Contents API — a couple of
  * small files, well within the rate limit — and copy it over the clone so the

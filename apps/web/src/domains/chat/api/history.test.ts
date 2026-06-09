@@ -206,34 +206,6 @@ describe("response parsing", () => {
     expect(older.oldestTimestamp).toBeNull();
     expect(older.oldestMessageId).toBeNull();
   });
-
-  test("deduplicates duplicate message ids in a history page", async () => {
-    nextResponse = makeJsonResponse({
-      messages: [
-        { id: "m1", role: "user", ...textBody("hello"), timestamp: 1 },
-        {
-          id: "m2",
-          role: "assistant",
-          ...textBody("partial"),
-          timestamp: 2,
-        },
-        {
-          id: "m2",
-          role: "assistant",
-          ...textBody("complete response"),
-          timestamp: 2,
-        },
-      ],
-      hasMore: false,
-      oldestTimestamp: 1,
-      oldestMessageId: "m1",
-    });
-
-    const result = await fetchLatestHistoryPage("asst-1", "K");
-
-    expect(result.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
-    expect(messageText(result.messages[1]!)).toBe("complete response");
-  });
 });
 
 // ---------------------------------------------------------------------------

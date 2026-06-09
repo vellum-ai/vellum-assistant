@@ -169,10 +169,20 @@ export interface ToolCallCardData {
 // Small pure helpers used by the unified card hook and its consumers.
 // ---------------------------------------------------------------------------
 
-/** Format a duration in ms for the row-meta cluster (e.g. `<1s`, `2s`). */
+/**
+ * Format a duration in ms for the row-meta cluster as a single, human-readable
+ * unit with low precision — seconds for short work, then minutes, then hours
+ * as the run gets longer (`<1s`, `2s`, `45s`, `3m`, `2h`). We round to the
+ * coarsest unit and drop the smaller one (a "long enough task" reads as `3m`,
+ * not `3m 12s`) so the label stays glanceable in the card header and chips.
+ */
 export function formatMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 1000) return "<1s";
-  return `${Math.round(ms / 1000)}s`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.round(minutes / 60)}h`;
 }
 
 /** True when `tc.name` is a web tool (`web_search` / `web_fetch`). */
@@ -358,18 +368,80 @@ function computeToolDurationLabel(tc: ChatMessageToolCall): string {
   return computeDurationLabel(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
 }
 
+/** True for a tool call that is rendered as a step AND still in flight. */
+function isRenderableRunningCall(tc: ChatMessageToolCall): boolean {
+  return !isSubagentSpawnCall(tc) && isToolCallRunning(tc);
+}
+
 /**
- * Total active work time across a group's tool calls — the sum of each call's
- * raw duration — formatted via `formatMs` (so a sub-second total reads `<1s`,
- * matching the per-phase duration chips). Powers the expanded card's "Worked
- * for Xs" summary. Returns an empty string only when NO call carries timing
- * data, in which case the header falls back to its outcome label.
+ * Raw active-work duration in ms for a single ordered item — the building
+ * block of the header's "Worked for Xs" / "Working for Xs" total. Sums BOTH
+ * thinking and tool time so the header reflects everything the run grouped,
+ * not just its tool calls.
+ *
+ * For an in-flight step (a running tool call, or a thinking segment that has
+ * started but not yet finished) the elapsed is measured against `nowMs` when
+ * supplied, so the total ticks upward during streaming. Without `nowMs` an
+ * unfinished step contributes nothing (the caller is at rest). Returns `null`
+ * for items that carry no usable timing or aren't rendered as steps (empty
+ * thinking, `subagent_spawn`) so the caller can distinguish "no data".
  */
-function computeTotalDurationLabel(toolCalls: ChatMessageToolCall[]): string {
+function computeItemDurationMs(
+  item: ToolCallCardItem,
+  nowMs: number | undefined,
+): number | null {
+  if (item.kind === "thinking") {
+    if (!item.text) return null;
+    if (item.completedAt != null) {
+      return computeDurationMs(item.startedAt, item.completedAt);
+    }
+    if (item.startedAt != null && nowMs != null) {
+      return Math.max(0, nowMs - item.startedAt);
+    }
+    return null;
+  }
+  const tc = item.toolCall;
+  if (isSubagentSpawnCall(tc)) return null;
+  if (tc.completedAt != null) return computeToolDurationMs(tc);
+  if (isToolCallRunning(tc) && tc.startedAt != null && nowMs != null) {
+    return Math.max(0, nowMs - tc.startedAt);
+  }
+  return null;
+}
+
+/**
+ * True when any ordered item is still in flight — a running (non-spawn) tool
+ * call, or a thinking segment that has started but not completed. The card
+ * hook uses this to decide whether to drive the per-second clock that makes
+ * the header's "Working for Xs" total tick during streaming.
+ */
+export function hasRunningItem(items: ToolCallCardItem[]): boolean {
+  return items.some((item) =>
+    item.kind === "thinking"
+      ? Boolean(item.text) &&
+        item.startedAt != null &&
+        item.completedAt == null
+      : isRenderableRunningCall(item.toolCall),
+  );
+}
+
+/**
+ * Total active work time across a group's steps — the sum of each thinking and
+ * tool step's raw duration — formatted via `formatMs` (so a sub-second total
+ * reads `<1s`, matching the per-phase duration chips). Powers the expanded
+ * card's "Worked for Xs" / "Working for Xs" summary; when `nowMs` is supplied
+ * the still-running step's elapsed is included so the total ticks during
+ * streaming. Returns an empty string only when NO step carries timing data, in
+ * which case the header falls back to its outcome label.
+ */
+function computeTotalDurationLabel(
+  items: ToolCallCardItem[],
+  nowMs: number | undefined,
+): string {
   let total = 0;
   let anyTimed = false;
-  for (const tc of toolCalls) {
-    const ms = computeToolDurationMs(tc);
+  for (const item of items) {
+    const ms = computeItemDurationMs(item, nowMs);
     if (ms == null) continue;
     anyTimed = true;
     total += ms;
@@ -662,6 +734,7 @@ function buildStepForToolCall(
 export function computeToolCallCardDataFromItems(
   items: ToolCallCardItem[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  nowMs?: number,
 ): ToolCallCardData {
   const toolCalls = items
     .filter((i): i is { kind: "toolCall"; toolCall: ChatMessageToolCall } =>
@@ -736,7 +809,7 @@ export function computeToolCallCardDataFromItems(
     liveWebActivity,
   );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
-  const totalDurationLabel = computeTotalDurationLabel(renderableToolCalls);
+  const totalDurationLabel = computeTotalDurationLabel(items, nowMs);
 
   return {
     currentStepTitle,
@@ -766,10 +839,11 @@ export function computeToolCallCardDataFromItems(
 export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  nowMs?: number,
 ): ToolCallCardData {
   const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
     kind: "toolCall",
     toolCall: tc,
   }));
-  return computeToolCallCardDataFromItems(items, liveWebActivity);
+  return computeToolCallCardDataFromItems(items, liveWebActivity, nowMs);
 }

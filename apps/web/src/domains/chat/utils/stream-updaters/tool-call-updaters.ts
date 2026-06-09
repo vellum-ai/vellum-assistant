@@ -132,6 +132,12 @@ export function applyToolResult(
      * after the active turn ends and `liveWebActivity` is cleared.
      */
     activityMetadata?: ToolActivityMetadata;
+    /**
+     * Server-stamped completion time (ms). Keeps the final duration on the
+     * same clock as the daemon-stamped `startedAt`; falls back to the local
+     * clock for older daemons that omit it.
+     */
+    completedAt?: number;
   },
 ): DisplayMessage[] {
   let msgIdx = -1;
@@ -183,7 +189,7 @@ export function applyToolResult(
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
       : {}),
-    completedAt: Date.now(),
+    completedAt: opts.completedAt ?? Date.now(),
   };
 
   const updated = [...prev];

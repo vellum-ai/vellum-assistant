@@ -18,16 +18,16 @@ import {
 /**
  * Build a GitHub Contents API fixture from an in-memory directory listing.
  *
- * `entries` maps each name under `experimental/plugins/` to its `type`. The
+ * `entries` maps each name under `plugins/` to its `type`. The
  * fixture answers GET requests against
- *  - `https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins...`
+ *  - `https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins...`
  * and returns 500 for anything else (forces test bugs to surface loudly).
  */
 function fixtureFetch(
   entries: Record<string, "dir" | "file" | "symlink" | "submodule">,
 ): FetchLike {
   const PREFIX_API =
-    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins";
+    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins";
 
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -36,12 +36,12 @@ function fixtureFetch(
     }
     const body = Object.entries(entries).map(([name, type]) => ({
       name,
-      path: `experimental/plugins/${name}`,
+      path: `plugins/${name}`,
       type,
       size: type === "file" ? 1 : 0,
       download_url:
         type === "file"
-          ? `https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/experimental/plugins/${name}`
+          ? `https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/plugins/${name}`
           : null,
     }));
     return new Response(JSON.stringify(body), {
@@ -68,7 +68,7 @@ describe("searchPlugins", () => {
       "memory-graph",
       "simple-memory",
     ]);
-    expect(result.matches[0]!.path).toBe("experimental/plugins/memory-graph");
+    expect(result.matches[0]!.path).toBe("plugins/memory-graph");
     expect(result.query).toBe("memory");
     expect(result.ref).toBe("main");
   });
@@ -164,7 +164,7 @@ describe("searchPlugins", () => {
             JSON.stringify([
               {
                 name: "simple-memory",
-                path: "experimental/plugins/simple-memory",
+                path: "plugins/simple-memory",
                 type: "dir",
                 size: 0,
                 download_url: null,
@@ -294,7 +294,7 @@ describe("searchPlugins", () => {
         JSON.stringify([
           {
             name: "simple-memory",
-            path: "experimental/plugins/simple-memory",
+            path: "plugins/simple-memory",
             type: "dir",
             size: 0,
             download_url: null,
@@ -321,7 +321,7 @@ describe("searchPlugins", () => {
       },
       {
         name: "simple-memory",
-        path: "experimental/plugins/simple-memory",
+        path: "plugins/simple-memory",
         source: { kind: "first-party" },
       },
     ]);
@@ -383,7 +383,7 @@ describe("searchPlugins", () => {
         JSON.stringify([
           {
             name: "caveman",
-            path: "experimental/plugins/caveman",
+            path: "plugins/caveman",
             type: "dir",
             size: 0,
             download_url: null,
@@ -422,7 +422,7 @@ describe("searchPlugins", () => {
         JSON.stringify([
           {
             name: "simple-memory",
-            path: "experimental/plugins/simple-memory",
+            path: "plugins/simple-memory",
             type: "dir",
             size: 0,
             download_url: null,

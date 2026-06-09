@@ -39,18 +39,21 @@ import type {
 
 // The agent loop invokes the default post-compaction re-injection hook directly
 // when it compacts in place. Stub it so these unit tests can drive the
-// re-injection result without the daemon-level injector chain. Tests assign
-// `postCompactImpl` to observe the call or force a failure; when unset
-// the hook is a no-op that returns the history it was handed.
+// re-injection result without the daemon-level injector chain. The hook writes
+// the re-injected history back onto the context; tests assign `postCompactImpl`
+// to observe the call or force a failure; when unset the hook leaves the
+// history it was handed untouched.
 let postCompactImpl:
   | ((input: PostCompactContext) => Promise<Message[]>)
   | null = null;
 mock.module(
   "../plugins/defaults/memory-retrieval/hooks/post-compact.js",
   () => ({
-    default: async (input: PostCompactContext) => ({
-      messages: postCompactImpl ? await postCompactImpl(input) : input.history,
-    }),
+    default: async (input: PostCompactContext): Promise<void> => {
+      input.history = postCompactImpl
+        ? await postCompactImpl(input)
+        : input.history;
+    },
   }),
 );
 

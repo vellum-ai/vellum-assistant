@@ -128,14 +128,14 @@ describe("PluginsTab", () => {
         matches: [
           {
             name: "apollo-bot-brain",
-            path: "experimental/plugins/apollo-bot-brain",
+            path: "plugins/apollo-bot-brain",
             source: { kind: "first-party" },
           },
         ],
       },
     });
     expect(html).toContain("apollo-bot-brain");
-    expect(html).toContain("experimental/plugins/apollo-bot-brain");
+    expect(html).toContain("plugins/apollo-bot-brain");
     expect(html).toContain('href="/assistant/plugins/apollo-bot-brain"');
     // The inline CLI install hint was replaced by the detail page.
     expect(html).not.toContain("assistant plugins install");
@@ -159,22 +159,24 @@ describe("PluginsTab", () => {
         matches: [
           {
             name: "simple-memory",
-            path: "experimental/plugins/simple-memory",
+            path: "plugins/simple-memory",
             source: { kind: "first-party" },
           },
           {
             name: "apollo-bot-brain",
-            path: "experimental/plugins/apollo-bot-brain",
+            path: "plugins/apollo-bot-brain",
             source: { kind: "first-party" },
           },
         ],
       },
     });
-    // The catalog path string is rendered only by CatalogRow, so its
-    // absence proves the already-installed entry was suppressed there
-    // (the installed row links to the same detail page but omits the path).
-    expect(html).not.toContain("experimental/plugins/simple-memory");
-    expect(html).toContain("experimental/plugins/apollo-bot-brain");
+    // CatalogRow renders the origin path in a `title` attribute, which is
+    // unique to the catalog row — the installed row links to the same detail
+    // page (`/assistant/plugins/<name>`) but renders no such title. Asserting
+    // on the title attribute proves the already-installed entry was suppressed
+    // without colliding with the shared `plugins/<name>` href substring.
+    expect(html).not.toContain('title="plugins/simple-memory"');
+    expect(html).toContain('title="plugins/apollo-bot-brain"');
   });
 
   test("shows the installed empty state when nothing is installed", () => {

@@ -14,6 +14,7 @@ import {
   sleep,
 } from "../util/retry.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
+import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
@@ -324,6 +325,18 @@ function normalizeSendMessageOptions(
     }
   }
 
+  // Claude Fable always reasons with adaptive thinking and rejects an explicit
+  // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
+  // disabled thinking config for these models so they fall back to their
+  // always-on adaptive thinking; effort and other params are unaffected.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingOnlyModel(nextConfig.model) &&
+    isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
+  }
+
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
   // signal for its unified reasoning parameter; Gemini reads `level` from it.
   // Strip it for other providers.
@@ -405,15 +418,30 @@ function normalizeSendMessageOptions(
   //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
   //   models don't have this exact constraint).
   const isThinkingTemperatureConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    // Claude Fable always reasons in adaptive mode, so the `temperature: 1`
+    // constraint applies even when no explicit `thinking` config is present
+    // (a disabled config was already dropped above). For every other model
+    // the constraint only applies when thinking is actually enabled.
+    if (!isAdaptiveThinkingOnlyModel(model)) {
+      if (nextConfig.thinking == null) {
+        return false;
+      }
+      if (isThinkingConfigDisabled(nextConfig.thinking)) {
+        return false;
+      }
+    }
     const temp = nextConfig.temperature;
-    if (typeof temp !== "number") return false;
-    if (temp === 1) return false;
-    if (providerName === "anthropic") return true;
+    if (typeof temp !== "number") {
+      return false;
+    }
+    if (temp === 1) {
+      return false;
+    }
+    if (providerName === "anthropic") {
+      return true;
+    }
     if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
       return model.startsWith("anthropic/");
     }
     return false;

@@ -35,6 +35,7 @@ import {
     getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
@@ -204,6 +205,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
+    }
+
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      newRequest.headers.set("Vellum-Device-Id", deviceId);
     }
 
     // Electron app provides a session token header. This is no-ops on web.

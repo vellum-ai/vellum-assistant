@@ -41,7 +41,7 @@
  * absolute paths or workspace-local copies — the TypeScript compiler erases
  * them and they have no module-identity effect at runtime.
  *
- * See `experimental/plugins/README.md` for the full authoring contract and
+ * See `plugins/README.md` for the full authoring contract and
  * `assistant/examples/plugins/echo/` for a worked example.
  */
 

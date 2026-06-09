@@ -55,7 +55,7 @@ Examples:
       plugins
         .command("install <name>")
         .description(
-          "Install a plugin from vellum-ai/vellum-assistant/experimental/plugins/<name>",
+          "Install a plugin from vellum-ai/vellum-assistant/plugins/<name>",
         )
         .option("--force", "Overwrite an existing install")
         .option(
@@ -150,7 +150,7 @@ Examples:
       plugins
         .command("search <query>")
         .description(
-          "Search vellum-ai/vellum-assistant/experimental/plugins for plugin names matching <query> (case-insensitive regex)",
+          "Search vellum-ai/vellum-assistant/plugins for plugin names matching <query> (case-insensitive regex)",
         )
         .option("--json", "Emit machine-readable JSON instead of a table")
         .action(async (query: string, opts: { json?: boolean }) => {
