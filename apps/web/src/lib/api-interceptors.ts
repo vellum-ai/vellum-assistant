@@ -35,6 +35,7 @@ import {
     getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
@@ -200,7 +201,9 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
       newRequest.headers.set("X-Session-Token", sessionToken);
     }
 
-    if (MUTATING_METHODS.has(request.method)) {
+    // Clients authenticating via session cookie need to pass CSRF checks.
+    // Electron authenticates via a session token header.
+    if (!isElectron() && MUTATING_METHODS.has(request.method)) {
       await ensureCsrfCookie();
       const csrfToken = getCsrfToken();
       if (csrfToken) {

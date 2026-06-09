@@ -53,6 +53,7 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
@@ -556,6 +557,8 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      // Clean up session token in the main process.
+      if (isElectron()) await window.vellum?.auth?.signOut?.();
       if (isLocalMode()) {
         document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
       }

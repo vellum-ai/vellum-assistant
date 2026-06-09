@@ -10,6 +10,7 @@
  */
 import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isElectron } from "@/runtime/is-electron";
 
 const CSRF_COOKIE_NAME = import.meta.env.PROD
   ? "__Secure-csrftoken"
@@ -47,6 +48,8 @@ function clearDuplicateCsrfCookies(): void {
 let csrfBootstrap: Promise<void> | null = null;
 
 export async function ensureCsrfCookie(): Promise<void> {
+  // Electron authenticates via a token header - no CSRF needed.
+  if (isElectron()) return;
   if (isGatewayAuthMode()) return;
 
   clearDuplicateCsrfCookies();
