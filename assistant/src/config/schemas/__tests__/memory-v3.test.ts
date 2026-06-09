@@ -7,6 +7,7 @@ describe("MemoryV3ConfigSchema", () => {
     const parsed = MemoryV3ConfigSchema.parse({});
     expect(parsed).toEqual({
       workingSet: { maxPages: 150, evictWindow: 5 },
+      hotSet: { k: 40, halfLifeDays: 14 },
       needleK: 100,
       denseK: 100,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
