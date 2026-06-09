@@ -160,16 +160,42 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
 // Lifecycle — connect / disconnect per assistant
 // ---------------------------------------------------------------------------
 
-async function connectAssistant(
+/**
+ * Exchange a guardian access token for a gateway JWT via POST /auth/token.
+ * The daemon requires a JWT with aud=vellum-daemon or aud=vellum-gateway;
+ * the raw guardian token is an opaque string that cannot authenticate
+ * directly against daemon endpoints.
+ */
+async function exchangeForGatewayToken(
+  gatewayPort: number,
+  guardianToken: string,
+): Promise<{ token: string; expiresAt: number } | null> {
+  try {
+    const url = `http://127.0.0.1:${gatewayPort}/auth/token`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${guardianToken}`,
+        Origin: `http://127.0.0.1:${gatewayPort}`,
+      },
+    });
+    if (!res.ok) {
+      log.warn("[host-proxy-router] gateway token exchange failed", { status: res.status });
+      return null;
+    }
+    const body = (await res.json()) as { token: string; expiresAt: number };
+    return body;
+  } catch (err) {
+    log.warn("[host-proxy-router] gateway token exchange error", { err });
+    return null;
+  }
+}
+
+async function acquireGatewayToken(
   assistantId: string,
   gatewayPort: number,
-): Promise<void> {
-  if (connections.has(assistantId)) return;
-
-  if (!resolveCliInvocation) {
-    log.error("[host-proxy-router] CLI invocation resolver not set");
-    return;
-  }
+): Promise<string | null> {
+  if (!resolveCliInvocation) return null;
 
   const configDir = resolveConfigDir(process.env);
 
@@ -178,7 +204,7 @@ async function connectAssistant(
     invocation = await resolveCliInvocation();
   } catch (err) {
     log.error("[host-proxy-router] failed to resolve CLI invocation", { assistantId, err });
-    return;
+    return null;
   }
 
   const tokenResult = await getGuardianAccessToken(
@@ -193,26 +219,35 @@ async function connectAssistant(
       assistantId,
       error: tokenResult.error,
     });
+    return null;
+  }
+
+  const exchanged = await exchangeForGatewayToken(gatewayPort, tokenResult.accessToken);
+  if (!exchanged) return null;
+
+  return exchanged.token;
+}
+
+async function connectAssistant(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<void> {
+  if (connections.has(assistantId)) return;
+
+  const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
+  if (!gatewayToken) {
+    log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
     return;
   }
 
-  const authToken = tokenResult.accessToken;
-
   const refreshToken = async (): Promise<string | null> => {
-    if (!resolveCliInvocation) return null;
-    try {
-      const inv = await resolveCliInvocation();
-      const result = await getGuardianAccessToken(assistantId, configDir, inv, true);
-      if (result.ok) {
-        poster.updateAuthToken(result.accessToken);
-        return result.accessToken;
-      }
-    } catch { /* keep existing token */ }
-    return null;
+    const fresh = await acquireGatewayToken(assistantId, gatewayPort);
+    if (fresh) poster.updateAuthToken(fresh);
+    return fresh;
   };
 
-  const sse = new HostProxySseClient({ gatewayPort, authToken, onRefreshToken: refreshToken });
-  const poster = new HostProxyPoster({ gatewayPort, authToken });
+  const sse = new HostProxySseClient({ gatewayPort, authToken: gatewayToken, onRefreshToken: refreshToken });
+  const poster = new HostProxyPoster({ gatewayPort, authToken: gatewayToken });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
