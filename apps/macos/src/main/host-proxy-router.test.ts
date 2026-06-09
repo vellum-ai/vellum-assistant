@@ -44,6 +44,12 @@ mock.module("electron-log/main", () => {
   };
 });
 
+// Stub session-token-store
+let mockSessionToken: string | null = "test-session-token";
+mock.module("./session-token-store", () => ({
+  getSessionToken: () => mockSessionToken,
+}));
+
 const { HostProxySseClient } = await import("./host-proxy-sse");
 const { HostProxyPoster } = await import("./host-proxy-poster");
 const {
@@ -65,7 +71,7 @@ async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-// Mock globalThis.fetch for the /auth/token exchange used by connectAssistant.
+// Mock globalThis.fetch for the /auth/token exchange used by connectLocalAssistant.
 const originalFetch = globalThis.fetch;
 const mockGatewayTokenFetch = async (input: string | URL | Request) => {
   const url = String(input);
@@ -87,8 +93,8 @@ function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; body
     return new Response("ok");
   };
   const poster = new HostProxyPoster({
-    gatewayPort: 9000,
-    authToken: "t",
+    endpointBase: "http://127.0.0.1:9000/v1",
+    authHeaders: () => ({ Authorization: "Bearer t" }),
     fetch: fakeFetch as typeof globalThis.fetch,
   });
   return { poster, body: () => postedBody };
@@ -106,12 +112,13 @@ describe("host-proxy-router", () => {
     mockGetGuardianAccessToken.mockImplementation(
       async () => ({ ok: true, accessToken: "test-token" }),
     );
+    mockSessionToken = "test-session-token";
     globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
   });
 
-  // -- Lifecycle -----------------------------------------------------------
+  // -- Local lifecycle ----------------------------------------------------
 
-  describe("lifecycle", () => {
+  describe("local lifecycle", () => {
     test("connects when an assistant with a gatewayPort appears", async () => {
       installHostProxyBridge(fakeCliResolver);
 
@@ -131,6 +138,7 @@ describe("host-proxy-router", () => {
       const conn = __testing.connections.get("a1")!;
       expect(conn.sse).toBeInstanceOf(HostProxySseClient);
       expect(conn.poster).toBeInstanceOf(HostProxyPoster);
+      expect(conn.fingerprint).toBe("local:9001");
     });
 
     test("disconnects when an assistant is retired", async () => {
@@ -152,7 +160,7 @@ describe("host-proxy-router", () => {
       expect(__testing.connections.has("a1")).toBe(false);
     });
 
-    test("ignores assistants without resources", async () => {
+    test("ignores assistants without resources or runtimeUrl", async () => {
       installHostProxyBridge(fakeCliResolver);
 
       lockfileListener?.({
@@ -219,6 +227,148 @@ describe("host-proxy-router", () => {
     });
   });
 
+  // -- Cloud lifecycle ----------------------------------------------------
+
+  describe("cloud lifecycle", () => {
+    test("connects when a cloud assistant with runtimeUrl appears", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+      const conn = __testing.connections.get("cloud-1")!;
+      expect(conn.sse).toBeInstanceOf(HostProxySseClient);
+      expect(conn.poster).toBeInstanceOf(HostProxyPoster);
+      expect(conn.fingerprint).toBe("cloud:https://platform.vellum.ai");
+    });
+
+    test("skips cloud assistant when no session token is available", async () => {
+      mockSessionToken = null;
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("cloud-1")).toBe(false);
+    });
+
+    test("disconnects cloud assistant when removed from lockfile", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+
+      lockfileListener?.({ assistants: [], activeAssistant: null });
+      await flush();
+      expect(__testing.connections.has("cloud-1")).toBe(false);
+    });
+
+    test("handles mixed local and cloud assistants", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "local-1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+        ],
+        activeAssistant: "local-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("local-1")).toBe(true);
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+      expect(__testing.connections.get("local-1")!.fingerprint).toBe("local:9001");
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://platform.vellum.ai");
+    });
+
+    test("reconnects cloud assistant when runtimeUrl changes", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://old.vellum.ai" },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+      const firstSse = __testing.connections.get("cloud-1")!.sse;
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://new.vellum.ai" },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+      expect(__testing.connections.get("cloud-1")!.sse).not.toBe(firstSse);
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://new.vellum.ai");
+    });
+
+    test("ignores non-vellum cloud assistants without resources", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "custom-1", cloud: "custom", runtimeUrl: "https://my-server.com" },
+        ],
+        activeAssistant: "custom-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("custom-1")).toBe(false);
+    });
+
+    test("does not duplicate cloud connections on repeated lockfile updates", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      const lockfile: Lockfile = {
+        assistants: [
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+        ],
+        activeAssistant: "cloud-1",
+      };
+
+      lockfileListener?.(lockfile);
+      await flush();
+      const firstSse = __testing.connections.get("cloud-1")!.sse;
+
+      lockfileListener?.(lockfile);
+      await flush();
+      expect(__testing.connections.get("cloud-1")!.sse).toBe(firstSse);
+    });
+  });
+
   // -- Message dispatch ----------------------------------------------------
 
   describe("message dispatch", () => {
@@ -230,8 +380,8 @@ describe("host-proxy-router", () => {
       });
 
       const poster = new HostProxyPoster({
-        gatewayPort: 9000,
-        authToken: "t",
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
         fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 
@@ -256,8 +406,8 @@ describe("host-proxy-router", () => {
       });
 
       const poster = new HostProxyPoster({
-        gatewayPort: 9000,
-        authToken: "t",
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
         fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 
@@ -311,8 +461,8 @@ describe("host-proxy-router", () => {
 
     test("ignores unknown message types without crashing", () => {
       const poster = new HostProxyPoster({
-        gatewayPort: 9000,
-        authToken: "t",
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
         fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
       });
 

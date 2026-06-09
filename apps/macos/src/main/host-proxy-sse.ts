@@ -1,11 +1,13 @@
 /**
  * SSE client for the host proxy subsystem in the Electron main process.
  *
- * Connects to the daemon's `/v1/events` endpoint, parses SSE frames
- * (`data: <json>\n\n` for messages, `: <comment>\n` for heartbeats),
- * and emits parsed JSON payloads via a callback. Reconnects automatically
- * with exponential backoff and detects stale connections via an idle
- * watchdog.
+ * Connects to an events endpoint, parses SSE frames (`data: <json>\n\n`
+ * for messages, `: <comment>\n` for heartbeats), and emits parsed JSON
+ * payloads via a callback. Reconnects automatically with exponential
+ * backoff and detects stale connections via an idle watchdog.
+ *
+ * Supports both local gateway connections and cloud/platform connections
+ * — the caller provides the full events URL and an auth-headers builder.
  */
 
 import { hostname } from "node:os";
@@ -13,16 +15,17 @@ import { hostname } from "node:os";
 import { getDeviceId } from "./device-id";
 
 export interface HostProxySseOptions {
-  gatewayPort: number;
-  gatewayHost?: string;
-  authToken: string;
+  /** Full URL for the events endpoint. */
+  eventsUrl: string;
+  /** Called on every connect attempt to build auth headers. */
+  authHeaders: () => Record<string, string>;
   /** Injectable fetch for testing. Defaults to globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
   /** Override idle timeout for testing. */
   idleTimeoutMs?: number;
   /** Override idle check interval for testing. */
   idleCheckIntervalMs?: number;
-  /** Called before each reconnect — return a fresh token or null to keep the current one. */
+  /** Called before each reconnect — return a fresh token or null. */
   onRefreshToken?: () => Promise<string | null>;
 }
 
@@ -39,9 +42,8 @@ const IDLE_TIMEOUT_MS = 30_000;
 const IDLE_CHECK_INTERVAL_MS = 10_000;
 
 export class HostProxySseClient {
-  private readonly gatewayPort: number;
-  private readonly gatewayHost: string;
-  private authToken: string;
+  private readonly eventsUrl: string;
+  private readonly authHeaders: () => Record<string, string>;
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly idleTimeoutMs: number;
   private readonly idleCheckIntervalMs: number;
@@ -57,9 +59,8 @@ export class HostProxySseClient {
   private shouldReconnect = false;
 
   constructor(options: HostProxySseOptions) {
-    this.gatewayPort = options.gatewayPort;
-    this.gatewayHost = options.gatewayHost ?? "127.0.0.1";
-    this.authToken = options.authToken;
+    this.eventsUrl = options.eventsUrl;
+    this.authHeaders = options.authHeaders;
     this.fetchFn = options.fetch ?? globalThis.fetch;
     this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
@@ -95,11 +96,6 @@ export class HostProxySseClient {
     this._connected = false;
   }
 
-  /** Replace the auth token (e.g. after token rotation). */
-  updateAuthToken(token: string): void {
-    this.authToken = token;
-  }
-
   // -- Stream lifecycle ---------------------------------------------------
 
   private startStream(): void {
@@ -107,20 +103,15 @@ export class HostProxySseClient {
     const controller = new AbortController();
     this.abortController = controller;
 
-    const url = `http://${this.gatewayHost}:${this.gatewayPort}/v1/events`;
     const headers: Record<string, string> = {
       Accept: "text/event-stream, application/json",
       "X-Vellum-Client-Id": getDeviceId(),
-      // "macos" advertises all 5 host capabilities (including host_cu and
-      // host_app_control which aren't implemented yet). Unimplemented
-      // capabilities return stub errors via the router so the daemon doesn't
-      // hang. A selective capability mechanism requires daemon-side changes.
       "X-Vellum-Interface-Id": "macos",
       "X-Vellum-Machine-Name": hostname(),
-      Authorization: `Bearer ${this.authToken}`,
+      ...this.authHeaders(),
     };
 
-    this.fetchFn(url, { headers, signal: controller.signal })
+    this.fetchFn(this.eventsUrl, { headers, signal: controller.signal })
       .then((response) => this.handleResponse(response))
       .catch((err: unknown) => {
         if (isAbortError(err)) return;
@@ -222,10 +213,9 @@ export class HostProxySseClient {
       if (!this.shouldReconnect) return;
       if (this.onRefreshToken) {
         try {
-          const freshToken = await this.onRefreshToken();
-          if (freshToken) this.authToken = freshToken;
+          await this.onRefreshToken();
         } catch {
-          // Token refresh failed — reconnect with existing token
+          // Token refresh failed — reconnect with existing headers
         }
       }
       this.startStream();
