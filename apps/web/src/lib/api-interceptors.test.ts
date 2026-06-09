@@ -36,6 +36,7 @@ import { useOrganizationStore } from "@/stores/organization-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const TEST_ORG_ID = "org-test-1234";
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function setCsrfCookie(token: string): void {
   document.cookie = `csrftoken=${token}; path=/`;
@@ -101,6 +102,11 @@ describe("api-interceptors / requestInterceptor", () => {
     expect(headers.get("X-Session-Token")).toBeNull();
   });
 
+  test("does not attach renderer-origin marker outside Electron", async () => {
+    const headers = await intercept("POST");
+    expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
+  });
+
   test("returns a new Request, leaving the input headers untouched", async () => {
     const input = new Request("https://example.test/v1/probe", { method: "POST" });
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
@@ -143,6 +149,18 @@ describe("api-interceptors / Electron session-token header", () => {
     const headers = await intercept("POST");
     expect(headers.get("X-Session-Token")).toBe("electron-sess-tok");
     expect(headers.get("X-CSRFToken")).toBeNull();
+  });
+
+  test("attaches renderer-origin marker on Electron mutating requests", async () => {
+    const headers = await intercept("POST");
+    expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBe(
+      `${window.location.protocol}//${window.location.host}`,
+    );
+  });
+
+  test("does not attach renderer-origin marker on Electron safe requests", async () => {
+    const headers = await intercept("GET");
+    expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
   });
 });
 
