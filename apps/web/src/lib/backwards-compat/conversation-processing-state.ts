@@ -1,5 +1,5 @@
 /**
- * Backwards-compat gate: source of truth for a conversation's
+ * Backwards-compat gate: source of truth for the active conversation's
  * "assistant is responding" (processing) state.
  *
  * Vellum Assistant 0.8.8 makes the daemon's `Conversation.isProcessing()`
@@ -23,20 +23,12 @@
  * module along with `processingConversationIds` and its writers/clearers,
  * and read `conversation.isProcessing` directly.
  */
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAssistantSupports } from "@/lib/backwards-compat/utils";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const MIN_VERSION = "0.8.8";
-
-export interface ConversationProcessingInputs {
-  /** Server-seeded `Conversation.isProcessing()` from the cached row. */
-  serverIsProcessing: boolean | undefined;
-  /**
-   * Whether the client-side optimistic mirror currently marks this
-   * conversation as processing. Only consulted for assistants older than
-   * {@link MIN_VERSION}.
-   */
-  isMarkedProcessingLocally: boolean;
-}
 
 /**
  * Resolve whether the active conversation is processing.
@@ -46,13 +38,29 @@ export interface ConversationProcessingInputs {
  *   client optimistic mirror, preserving the legacy belt-and-suspenders
  *   behavior for daemons that may not surface `isProcessing` on the wire.
  */
-export function useConversationIsProcessing({
-  serverIsProcessing,
-  isMarkedProcessingLocally,
-}: ConversationProcessingInputs): boolean {
+export function useActiveConversationIsProcessing(): boolean {
   const serverOwnsProcessingState = useAssistantSupports(MIN_VERSION);
+
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+
+  // Cache-only read (`enabled: false`): the chat view owns the fetch via
+  // its own `useActiveConversation` call; here we only subscribe to the
+  // row the SSE turn lifecycle keeps fresh.
+  const serverIsProcessing = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    false,
+  )?.isProcessing;
+
   if (serverOwnsProcessingState) {
     return serverIsProcessing === true;
   }
+
+  const isMarkedProcessingLocally =
+    activeConversationId != null &&
+    processingConversationIds.has(activeConversationId);
   return isMarkedProcessingLocally || serverIsProcessing === true;
 }

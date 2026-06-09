@@ -23,7 +23,7 @@ import {
 } from "@/domains/chat/turn-selectors";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
-import { useConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
+import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -75,7 +75,6 @@ export function useChatUIState(): ChatUIState {
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
 
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
@@ -85,12 +84,7 @@ export function useChatUIState(): ChatUIState {
   // Conversation processing. The daemon's `isProcessing` flag is the single
   // source of truth on 0.8.8+; older daemons fall back to the client
   // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
-  const activeConversationIsProcessing = useConversationIsProcessing({
-    serverIsProcessing: activeConversation?.isProcessing,
-    isMarkedProcessingLocally:
-      activeConversationId != null &&
-      processingConversationIds.has(activeConversationId),
-  });
+  const activeConversationIsProcessing = useActiveConversationIsProcessing();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
