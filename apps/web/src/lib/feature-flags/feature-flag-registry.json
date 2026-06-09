@@ -284,14 +284,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "provider-zai",
-      "scope": "assistant",
-      "key": "provider-zai",
-      "label": "z.ai Provider",
-      "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
