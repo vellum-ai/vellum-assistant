@@ -450,13 +450,23 @@ class AssistantLifecycleService {
   }
 
   private onUnreachable(): void {
+    this.triggerReachabilityProbe();
+  }
+
+  /**
+   * Kick off a reachability probe. Marks `reachable: false` and
+   * starts the background probe loop so the lifecycle store's
+   * `reachable` field updates when the daemon responds. Called
+   * internally by the unreachable-bus subscriber and externally
+   * by the reachability hook on SSE drops / user retry.
+   */
+  triggerReachabilityProbe(): void {
     if (this.state.kind !== "active") return;
-    this.transition({ ...this.state, reachable: false });
     const assistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
-    if (assistantId) {
-      this.startProbeLoop(assistantId);
-    }
+    if (!assistantId) return;
+    this.transition({ ...this.state, reachable: false });
+    this.startProbeLoop(assistantId);
   }
 
   /**
