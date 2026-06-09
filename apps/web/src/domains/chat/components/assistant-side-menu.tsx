@@ -115,7 +115,7 @@ function SearchButton({ onClose }: { onClose?: () => void }) {
  *   Body · Conversations section
  *     • thread …       — recent conversations inline
  *     • …
- *     • Show more/less — page through recent conversations
+ *     • Show more     — page through recent conversations
  *     • Scheduled      — collapsible category
  *     • Background     — collapsible category (includes Reflections sub-group)
  *     • Slack ▾        — collapsible category when Slack conversations exist
@@ -337,8 +337,6 @@ export function AssistantSideMenu({
     items: Conversation[],
     showMore: boolean,
     onShowMore?: () => void,
-    showLess = false,
-    onShowLess?: () => void,
   ): ReactNode => (
     <SideMenu.SubList>
       {items.map((c) =>
@@ -361,15 +359,6 @@ export function AssistantSideMenu({
           indent
           emphasized
           onSelect={onShowMore}
-        />
-      ) : null}
-      {showLess && onShowLess ? (
-        <SideMenu.Item
-          label="Show less"
-          size="compact"
-          indent
-          emphasized
-          onSelect={onShowLess}
         />
       ) : null}
     </SideMenu.SubList>
@@ -536,8 +525,6 @@ export function AssistantSideMenu({
                 sidebar.recents.items,
                 sidebar.recents.showMore,
                 sidebar.recents.onShowMore,
-                sidebar.recents.showLess,
-                sidebar.recents.onShowLess,
               )}
 
               <CollapsibleNavSection.Root
@@ -557,8 +544,6 @@ export function AssistantSideMenu({
                       sidebar.slack.items,
                       sidebar.slack.showMore,
                       sidebar.slack.onShowMore,
-                      sidebar.slack.showLess,
-                      sidebar.slack.onShowLess,
                     )}
                   </CollapsibleNavSection.Section>
                 ) : null}
