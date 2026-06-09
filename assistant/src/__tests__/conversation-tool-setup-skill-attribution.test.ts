@@ -7,41 +7,17 @@
 
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import {
+  installConversationToolSetupMocks,
+  makeToolSetupContext,
+} from "./conversation-tool-setup-test-helpers.js";
 
-mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: mock(() => {}),
-}));
-
-mock.module("../daemon/conversation-surfaces.js", () => ({
-  refreshSurfacesForApp: mock(() => {}),
-  surfaceProxyResolver: mock(() =>
-    Promise.resolve({ content: "", isError: false }),
-  ),
-}));
-
-mock.module("../services/published-app-updater.js", () => ({
-  updatePublishedAppDeployment: mock(() => Promise.resolve()),
-}));
-
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerConversationSender: mock(() => {}),
-}));
-
-mock.module("../memory/app-store.js", () => ({
-  getApp: mock(() => null),
-  getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
-  getAppsDir: mock(() => "/tmp/test-apps"),
-  resolveAppIdByDirName: mock(() => null),
-  resolveAppIdFromPath: mock(() => null),
-}));
+installConversationToolSetupMocks();
 
 import { createToolExecutor } from "../daemon/conversation-tool-setup.js";
 import { registerSkillTools, unregisterSkillTools } from "../tools/registry.js";
@@ -61,32 +37,6 @@ const skillTool: Tool = {
 
 registerSkillTools(SKILL_ID, [skillTool]);
 afterAll(() => unregisterSkillTools(SKILL_ID));
-
-function makeCtx(): ToolSetupContext {
-  return {
-    conversationId: "conv-test",
-    currentRequestId: "req-1",
-    workingDir: "/tmp/test",
-    abortController: null,
-    traceEmitter: { emit: () => {} },
-    sendToClient: mock(() => {}),
-    pendingSurfaceActions: new Map(),
-    lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
-    surfaceUndoStacks: new Map(),
-    accumulatedSurfaceState: new Map(),
-    surfaceActionRequestIds: new Set<string>(),
-    currentTurnSurfaces: [],
-    isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "r" }),
-    getQueueDepth: () => 0,
-    processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-  };
-}
 
 /** Fake ToolExecutor that captures the context of each execute() call. */
 function makeCapturingExecutor() {
@@ -116,7 +66,7 @@ function makeToolFn(executor: ToolExecutor) {
     executor,
     noopPrompter,
     noopSecretPrompter,
-    makeCtx(),
+    makeToolSetupContext(),
     () => {},
   );
 }

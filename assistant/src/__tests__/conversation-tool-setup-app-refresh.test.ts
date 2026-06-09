@@ -12,55 +12,20 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import type { ToolExecutionResult } from "../tools/types.js";
+import {
+  broadcastMessageSpy as broadcastSpy,
+  installConversationToolSetupMocks,
+  makeToolSetupContext as makeCtx,
+  refreshSurfacesForAppSpy as refreshSpy,
+  updatePublishedAppDeploymentSpy as updatePublishedSpy,
+} from "./conversation-tool-setup-test-helpers.js";
 
-// ---------------------------------------------------------------------------
-// Spies for side-effect verification
-// ---------------------------------------------------------------------------
-
-const refreshSpy = mock(() => {});
-const updatePublishedSpy = mock(() => Promise.resolve());
-const broadcastSpy = mock(() => {});
-
-mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: broadcastSpy,
-}));
-
-// Mock session-surfaces so refreshSurfacesForApp is captured
-mock.module("../daemon/conversation-surfaces.js", () => ({
-  refreshSurfacesForApp: refreshSpy,
-  surfaceProxyResolver: mock(() =>
-    Promise.resolve({ content: "", isError: false }),
-  ),
-}));
-
-// Mock published-app-updater to prevent real deployment calls
-mock.module("../services/published-app-updater.js", () => ({
-  updatePublishedAppDeployment: updatePublishedSpy,
-}));
-
-// Mock browser-screencast registration (no-op)
-mock.module("../tools/browser/browser-screencast.js", () => ({
-  registerConversationSender: mock(() => {}),
-}));
-
-// Stub app-store functions used by other modules (e.g. app-source-watcher,
-// conversation-surfaces) so tool-side-effects' hooks can run without touching
-// the real app store during tests.
-mock.module("../memory/app-store.js", () => ({
-  getApp: mock(() => null),
-  getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
-  getAppsDir: mock(() => "/tmp/test-apps"),
-  resolveAppIdByDirName: mock(() => null),
-  resolveAppIdFromPath: mock(() => null),
-}));
+installConversationToolSetupMocks();
 
 // ---------------------------------------------------------------------------
 // Import createToolExecutor after mocks are in place
@@ -83,34 +48,6 @@ function expectAppChangeBroadcast(appId: string): void {
       { type: "sync_changed", tags: [SYNC_TAGS.appsList] },
     ]) as never,
   );
-}
-
-/** Build a minimal ToolSetupContext stub. */
-function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
-  return {
-    conversationId: "conv-test",
-    currentRequestId: "req-1",
-    workingDir: "/tmp/test",
-    abortController: null,
-    traceEmitter: { emit: () => {} },
-    sendToClient: mock(() => {}),
-    pendingSurfaceActions: new Map(),
-    lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
-    surfaceUndoStacks: new Map(),
-    accumulatedSurfaceState: new Map(),
-    surfaceActionRequestIds: new Set<string>(),
-    currentTurnSurfaces: [],
-    isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "r" }),
-    getQueueDepth: () => 0,
-    processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-    ...overrides,
-  };
 }
 
 /** Fake ToolExecutor whose execute() returns a controlled result. */
