@@ -166,18 +166,25 @@ function deriveSummaryState(
  * this stays a short heading for the steps timeline rather than echoing the
  * latest step.
  *
- * Once the run is terminal and we have timing data, the summary reports how
- * long the agent worked ("Worked for 16s") regardless of outcome — the icon
- * still carries success / partial / failure. Without timing data it falls back
- * to an outcome label, and the `warning` fallback spells out how many tools
- * failed.
+ * Whenever we have timing data the summary reports how long the agent worked —
+ * a live, ticking "Working for 16s" while running and a final "Worked for 16s"
+ * once terminal, regardless of outcome (the icon still carries success /
+ * partial / failure). Without timing data it falls back to an outcome label,
+ * and the `warning` fallback spells out how many tools failed.
  */
 function expandedHeaderLabel(
   state: ToolProgressCardState,
   totalDurationLabel: string,
   failedCount: number,
 ): string {
-  if (state === "loading") return "Working";
+  // While running, surface the live, ticking total ("Working for 12s") once we
+  // have at least a full second of work — below that the `<1s` label reads
+  // awkwardly, so we keep the bare "Working".
+  if (state === "loading") {
+    return totalDurationLabel && totalDurationLabel !== "<1s"
+      ? `Working for ${totalDurationLabel}`
+      : "Working";
+  }
   if (totalDurationLabel) return `Worked for ${totalDurationLabel}`;
   switch (state) {
     case "warning":
@@ -381,12 +388,21 @@ function UnifiedActivityRunCard({
   // reads the raw call to build the tool-detail drawer payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
-  // Expanded, the full step timeline is visible below, so echoing the latest
-  // step's title + info in the header is pure repetition. Swap the live
-  // per-step title for a stable overall-status label ("Working" / "Completed" /
-  // "Failed") and drop the info entirely — the header then reads as a section
-  // heading for the expanded steps rather than a duplicate of the last row.
-  const headerTitle = expanded
+  // The header shows the stable overall-status summary ("Working for 8s" /
+  // "Worked for 8s" / "Failed") rather than the live per-step carousel in two
+  // cases:
+  //   - While the run is in flight: the only changing part is the ticking
+  //     duration — no step carousel, no truncated step text. The expanded
+  //     timeline's latest step carries the live loading indicator instead, so
+  //     the header needn't echo it (and a stable animation key below keeps the
+  //     number updating in place rather than re-sliding every second).
+  //   - When expanded: the full timeline is visible below, so echoing the
+  //     latest step in the header would be pure repetition.
+  // Otherwise (collapsed + terminal) the header carousels the latest step so a
+  // compact history card still summarises what ran.
+  const isLoading = shellState === "loading";
+  const showSummaryHeader = isLoading || expanded;
+  const headerTitle = showSummaryHeader
     ? expandedHeaderLabel(
         shellState,
         cardData.totalDurationLabel ?? "",
@@ -395,12 +411,13 @@ function UnifiedActivityRunCard({
     : cardData.currentStepTitle;
 
   // When the latest step is a thinking segment, the collapsed header pairs a
-  // brain glyph with the thinking text. Suppressed when expanded (the timeline
-  // below already shows every step). Memoized so the carousel (which compares
-  // the info node by reference via `Object.is`) doesn't re-animate on every
-  // parent render — only when the (expanded, kind, info) tuple actually changes.
+  // brain glyph with the thinking text. Suppressed for the summary header (the
+  // ticking duration / expanded timeline stand in). Memoized so the carousel
+  // (which compares the info node by reference via `Object.is`) doesn't
+  // re-animate on every parent render — only when the (summary, kind, info)
+  // tuple actually changes.
   const headerInfo = useMemo(() => {
-    if (expanded) return null;
+    if (showSummaryHeader) return null;
     if (cardData.currentStepKind === "thinking") {
       return (
         // Fill the carousel's flex slot (`flex w-full min-w-0`) so the inner
@@ -422,7 +439,7 @@ function UnifiedActivityRunCard({
       );
     }
     return cardData.currentStepInfo;
-  }, [expanded, cardData.currentStepKind, cardData.currentStepInfo]);
+  }, [showSummaryHeader, cardData.currentStepKind, cardData.currentStepInfo]);
 
   return (
     <ToolProgressCardShell
@@ -435,6 +452,18 @@ function UnifiedActivityRunCard({
       state={shellState}
       currentStepTitle={headerTitle}
       currentStepInfo={headerInfo}
+      // The summary header ("Working for Ns" / "Worked for Ns") is a single
+      // stable label whose only changing part is the duration, so a constant
+      // animation key keeps the carousel from re-sliding — the text updates in
+      // place. (Collapsed + terminal still carousels the latest step, hence the
+      // key only pins while the summary header is shown.)
+      headerAnimationKey={showSummaryHeader ? "summary" : undefined}
+      // Expanded + running: drop the header's animated loading dots — the
+      // timeline below already shows the live step's running indicator, so the
+      // dots are redundant noise. Terminal icons (the finished checkmark /
+      // failure alert) still render when expanded so the header keeps its
+      // outcome-at-a-glance summary; collapsed always keeps its indicator.
+      hideStatusIndicator={expanded && isLoading}
       stepCount={cardData.stepCount}
       expanded={expanded}
       onExpandChange={onCardExpandChange}

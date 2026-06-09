@@ -115,6 +115,7 @@ export function HeaderStepCarousel({
   currentStepTitle,
   currentStepInfo,
   bypassDwell = false,
+  animationKey,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
@@ -129,6 +130,15 @@ export function HeaderStepCarousel({
    * metadata still coalesces into readable steps.
    */
   bypassDwell?: boolean;
+  /**
+   * Optional stable identity for the enter/exit transition. By default the
+   * animation re-keys on the `(title, info)` tuple, so any text change slides
+   * the old content out and the new content in. When the header's only
+   * changing part is a live value (e.g. a ticking "Working for 8s"), pass a
+   * constant key here so the same element stays mounted and the text updates
+   * in place — no per-tick slide.
+   */
+  animationKey?: string;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
@@ -164,7 +174,10 @@ export function HeaderStepCarousel({
     : displayed.info == null
       ? ""
       : "node";
-  const key = `${displayed.title}::${infoKey}`;
+  // A caller-supplied `animationKey` pins the transition identity so in-place
+  // value updates (e.g. a ticking duration) don't trigger a slide; otherwise
+  // the key tracks the content tuple so each new step animates in.
+  const key = animationKey ?? `${displayed.title}::${infoKey}`;
 
   // Pipe separator only renders when there's info to follow it. Empty
   // string, null, and undefined all count as "no info".
