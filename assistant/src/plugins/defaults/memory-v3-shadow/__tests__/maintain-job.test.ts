@@ -84,6 +84,9 @@ describe("maintainJob", () => {
       // dedicated prune tests below override both collaborators.
       listSectionArticles: async () => [],
       listIndexedSlugs: async () => [],
+      // Core-validation stage off by default: empty core set ⇒ nothing to
+      // check. The dedicated core tests below override this.
+      loadCoreSet: () => [],
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
@@ -269,6 +272,68 @@ describe("maintainJob", () => {
     // were still invalidated.
     expect(outcome.failures).not.toContain("prune");
     expect(calls.invalidate).toBe(1);
+  });
+
+  test("reports dangling core entries without mutating anything", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // The core file lists a live page, a renamed/deleted page, and a synthetic
+    // capability slug; only the missing page is reported. The stage is
+    // report-only: no deletes, no upserts, and the maintainer-owned file is
+    // untouched (the injected loader is read-only by construction).
+    const { deps: d, calls } = deps({
+      loadCoreSet: () => ["page-live", "page-gone", "skills/example"],
+      listIndexedSlugs: async () => ["page-live", "skills/example"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.danglingCoreSlugs).toEqual(["page-gone"]);
+    expect(outcome.failures).toEqual([]);
+    // Report-only: the dangling entry triggered no dense-store mutation.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    // The pass still invalidates the lanes.
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("reports nothing when every core entry is still in the index", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d } = deps({
+      loadCoreSet: () => ["page-a", "page-b"],
+      listIndexedSlugs: async () => ["page-a", "page-b", "page-c"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+  });
+
+  test("an empty core set skips validation entirely", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    let indexReads = 0;
+    const { deps: d } = deps({
+      loadCoreSet: () => [],
+      listIndexedSlugs: async () => {
+        indexReads += 1;
+        return [];
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+    // The prune stage reads the index once; the core stage adds no second read.
+    expect(indexReads).toBe(1);
+  });
+
+  test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      loadCoreSet: () => {
+        throw new Error("core boom");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.failures).toContain("core-validate");
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
   });
 
   test("a thrown prune stage is contained and does not abort lane invalidation", async () => {
