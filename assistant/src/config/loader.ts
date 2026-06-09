@@ -821,8 +821,12 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
           llmDefaults,
           "profileOverrides",
         );
+        // An explicit `llm.profileOverrides.<name>` entry in the overlay is
+        // the canonical representation and wins over fields lifted from the
+        // legacy `llm.profiles.<name>` fragment; lifted fields only fill
+        // keys the explicit override does not set.
         const existing = readPlainObject(overridesStore[name]);
-        overridesStore[name] = { ...existing, ...override };
+        overridesStore[name] = { ...override, ...existing };
       }
     }
   }

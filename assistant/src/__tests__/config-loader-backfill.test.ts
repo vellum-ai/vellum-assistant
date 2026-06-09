@@ -1160,6 +1160,41 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     expect(getConnection(db, "anthropic-personal")).not.toBeNull();
   });
 
+  test("explicit overlay profileOverrides win over lifted legacy fragment fields", () => {
+    // When an overlay carries both representations for a built-in — a legacy
+    // `llm.profiles` fragment and an explicit `llm.profileOverrides` entry —
+    // the explicit override is canonical: lifted legacy fields only fill
+    // keys the explicit entry does not set.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: { label: "Legacy Label", status: "disabled" },
+            },
+            profileOverrides: {
+              balanced: { label: "Explicit Label" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles?.balanced).toBeUndefined();
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: "Explicit Label",
+      status: "disabled",
+    });
+  });
+
   test("hatch overlay activeProfile naming a built-in with dropped provider routing remaps to the matching custom profile", () => {
     // Pre-PR semantics let a hatch overlay back `balanced` with openai; that
     // representation no longer exists. The hatch collected an openai BYOK
