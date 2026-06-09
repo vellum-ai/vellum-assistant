@@ -5,7 +5,7 @@ import {
   APPROVAL_RESPONSES,
   doctorBasePath,
   doctorFetch,
-} from "@/domains/settings/components/panels/doctor-types";
+} from "@/domains/settings/components/panels/doctor-api";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -148,10 +148,11 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
       setSessionId(null);
       setSessionStatus("idle");
       setPendingApproval(false);
+      setPendingBackup(false);
     } finally {
       setEnding(false);
     }
-  }, [sessionId, assistantId, abort, setSessionId, setSessionStatus, setPendingApproval]);
+  }, [sessionId, assistantId, abort, setSessionId, setSessionStatus, setPendingApproval, setPendingBackup]);
 
   const restartSession = useCallback(async () => {
     abort();

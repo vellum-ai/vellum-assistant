@@ -1,5 +1,5 @@
 import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -18,9 +18,6 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
-  type PersistedMessage,
-  type PersistedMessageKind,
-  type PersistedSessionStatus,
   hasPendingApproval,
   hasPendingBackup,
   mapPersistedMessagesToEntries,
@@ -93,40 +90,13 @@ export function DoctorPanel() {
   // SSE hook
   // ---------------------------------------------------------------------------
 
-  const { connectSSE, abort, nextId } = useDoctorSSE({
+  const { connectSSE, abort, appendEntry } = useDoctorSSE({
     setEntries,
     setThinking,
     setPendingApproval,
     setPendingBackup,
     setSessionStatus,
-    appendEntry: useCallback(
-      (entry: Omit<ChatEntry, "id" | "timestamp">) => {
-        setEntries((prev) => [
-          ...prev,
-          {
-            ...entry,
-            id: `entry-sse-${Date.now()}-${Math.random()}`,
-            timestamp: Date.now(),
-          },
-        ]);
-      },
-      [],
-    ),
   });
-
-  // ---------------------------------------------------------------------------
-  // Session hook
-  // ---------------------------------------------------------------------------
-
-  const appendEntry = useCallback(
-    (entry: Omit<ChatEntry, "id" | "timestamp">) => {
-      setEntries((prev) => [
-        ...prev,
-        { ...entry, id: nextId(), timestamp: Date.now() },
-      ]);
-    },
-    [nextId],
-  );
 
   const {
     sending,
@@ -214,20 +184,11 @@ export function DoctorPanel() {
     const detail = historyDetailQuery.data;
     if (!detail) return;
 
-    const messages = (detail.messages ?? []) as PersistedMessage[];
-    const normalized: PersistedMessage[] = messages.map((m) => ({
-      id: m.id,
-      kind: m.kind as PersistedMessageKind,
-      content: m.content,
-      metadata: m.metadata,
-      sequence: m.sequence,
-      occurred_at: m.occurred_at,
-    }));
-    const resumedEntries = mapPersistedMessagesToEntries(normalized);
-    setEntries(resumedEntries);
-    const panelStatus = mapPersistedStatusToPanelStatus(
-      detail.status as PersistedSessionStatus,
+    const resumedEntries = mapPersistedMessagesToEntries(
+      detail.messages ?? [],
     );
+    setEntries(resumedEntries);
+    const panelStatus = mapPersistedStatusToPanelStatus(detail.status);
     setSessionStatus(panelStatus);
 
     if (panelStatus === "active" && assistantId) {

@@ -12,7 +12,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
@@ -33,7 +33,7 @@ export function MessageCopyButton({ text }: { text: string }) {
     };
   }, []);
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -45,7 +45,7 @@ export function MessageCopyButton({ text }: { text: string }) {
         }, 1500);
       })
       .catch(() => {});
-  }, [text]);
+  };
 
   return (
     <button

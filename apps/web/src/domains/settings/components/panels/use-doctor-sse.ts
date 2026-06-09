@@ -5,7 +5,7 @@ import {
   buildDoctorSSEHeaders,
   doctorBasePath,
   parseDoctorEvent,
-} from "@/domains/settings/components/panels/doctor-types";
+} from "@/domains/settings/components/panels/doctor-api";
 import { captureError } from "@/lib/sentry/capture-error";
 
 export interface DoctorSSECallbacks {
@@ -14,7 +14,6 @@ export interface DoctorSSECallbacks {
   setPendingApproval: (v: boolean) => void;
   setPendingBackup: (v: boolean) => void;
   setSessionStatus: (s: "idle" | "active" | "completed" | "error") => void;
-  appendEntry: (entry: Omit<ChatEntry, "id" | "timestamp">) => void;
 }
 
 /**
@@ -28,7 +27,6 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
     setPendingApproval,
     setPendingBackup,
     setSessionStatus,
-    appendEntry,
   } = callbacks;
 
   const controllerRef = useRef<AbortController | null>(null);
@@ -38,6 +36,16 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
   const nextId = useCallback(() => {
     return `entry-${++entryCounterRef.current}`;
   }, []);
+
+  const appendEntry = useCallback(
+    (entry: Omit<ChatEntry, "id" | "timestamp">) => {
+      setEntries((prev) => [
+        ...prev,
+        { ...entry, id: nextId(), timestamp: Date.now() },
+      ]);
+    },
+    [nextId, setEntries],
+  );
 
   const connectSSE = useCallback(
     (assistantId: string, sessionId: string) => {
@@ -262,5 +270,5 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
     controllerRef.current = null;
   }, []);
 
-  return { connectSSE, abort, nextId };
+  return { connectSSE, abort, nextId, appendEntry };
 }

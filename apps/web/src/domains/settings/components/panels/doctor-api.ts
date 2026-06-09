@@ -55,7 +55,7 @@ const VALID_EVENT_TYPES = new Set([
 
 /**
  * Parse a raw SSE data payload into a DoctorEvent, returning null on
- * malformed input. Replaces unsafe `JSON.parse(...) as DoctorEvent`.
+ * malformed input. Validates that the `type` field is a known event type.
  */
 export function parseDoctorEvent(raw: string): DoctorEvent | null {
   try {

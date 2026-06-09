@@ -1,3 +1,8 @@
+import type {
+  DoctorMessage,
+  DoctorSessionStatusEnum,
+} from "@/generated/api/types.gen";
+
 export type ChatEntryKind =
   | "user"
   | "assistant"
@@ -16,35 +21,6 @@ export interface ChatEntry {
   meta?: Record<string, unknown>;
 }
 
-export type PersistedMessageKind =
-  | "user"
-  | "assistant"
-  | "tool_call"
-  | "tool_result"
-  | "approval"
-  | "status"
-  | "error";
-
-export type PersistedSessionStatus = "active" | "completed" | "error";
-
-export interface PersistedMessage {
-  id: string;
-  kind: PersistedMessageKind;
-  content: string;
-  metadata: unknown;
-  sequence: number;
-  occurred_at: string;
-}
-
-export interface PersistedSession {
-  id: string;
-  status: PersistedSessionStatus;
-  last_message_at: string | null;
-  ended_at: string | null;
-  created: string;
-  modified: string;
-}
-
 function metaRecord(metadata: unknown): Record<string, unknown> {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     return metadata as Record<string, unknown>;
@@ -53,7 +29,7 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
 }
 
 export function mapPersistedMessagesToEntries(
-  messages: PersistedMessage[],
+  messages: DoctorMessage[],
 ): ChatEntry[] {
   const entries: ChatEntry[] = [];
 
@@ -170,7 +146,7 @@ export function mapPersistedMessagesToEntries(
 }
 
 export function mapPersistedStatusToPanelStatus(
-  status: PersistedSessionStatus,
+  status: DoctorSessionStatusEnum,
 ): "idle" | "active" | "completed" | "error" {
   switch (status) {
     case "active":
@@ -205,5 +181,5 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
 export function selectLatestHistorySession<
   T extends { last_message_at: string | null; created: string },
 >(sessions: T[]): T | null {
-  return sessions.length > 0 ? sessions[0]! : null;
+  return sessions[0] ?? null;
 }
