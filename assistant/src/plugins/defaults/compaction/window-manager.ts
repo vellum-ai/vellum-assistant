@@ -24,7 +24,10 @@ import {
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
 } from "../../../context/compactor.js";
-import { estimatePromptTokens } from "../../../context/token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateToolsTokens,
+} from "../../../context/token-estimator.js";
 import type {
   ContentBlock,
   Message,
@@ -435,7 +438,7 @@ export class ContextWindowManager {
       systemPrompt: this.systemPrompt,
       contextWindow: this.config,
       targetTokens,
-      toolTokenBudget: this.toolTokenBudget,
+      toolTokenBudget: this.resolveTurnToolTokenBudget(),
       conversationId: this.conversationId,
       overrideProfile: options.overrideProfile ?? null,
       actorTrustClass: options.actorTrustClass,
@@ -469,7 +472,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
+        toolTokenBudget: this.resolveTurnToolTokenBudget(),
       },
     );
     const { targetTokens, estimationErrorRatio } =
@@ -498,6 +501,17 @@ export class ContextWindowManager {
    * Long histories (> 50 messages) get a wider margin so the reduced prompt
    * keeps clearance under the provider's true ceiling.
    */
+  /**
+   * Tool-token budget for the current turn's overflow recovery. Prefers the
+   * live tool set resolved for the turn — matching what the loop sends to the
+   * provider — and falls back to the constructor-time snapshot when no
+   * resolver is wired (legacy test paths, ad-hoc instantiation).
+   */
+  private resolveTurnToolTokenBudget(): number {
+    const tools = this.resolveTools?.();
+    return tools ? estimateToolsTokens(tools) : this.toolTokenBudget;
+  }
+
   private resolveOverflowPreflightBudget(messageCount: number): number {
     const baseSafetyMargin = this.config.overflowRecovery.safetyMarginRatio;
     const safetyMargin =

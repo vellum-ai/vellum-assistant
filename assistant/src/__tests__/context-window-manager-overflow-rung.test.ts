@@ -67,6 +67,10 @@ mock.module("../context/token-estimator.js", () => ({
     }
     return next;
   },
+  // Deterministic per-tool budget so tests can assert the manager fed the
+  // turn's resolved tool set (not the constructor-time snapshot) into the
+  // overflow estimate.
+  estimateToolsTokens: (tools: unknown[]): number => tools.length * 1_000,
 }));
 
 mock.module(
@@ -96,7 +100,7 @@ mock.module(
 );
 
 import { ContextWindowManager } from "../plugins/defaults/compaction/window-manager.js";
-import type { Message, Provider } from "../providers/types.js";
+import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 
 function makeProvider(): Provider {
   return {
@@ -261,6 +265,36 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     // THEN the target is the preflight budget (200k * 0.95 = 190k) divided by
     // the 2x estimation-error ratio
     expect(reduceCalls[0]?.config.targetTokens).toBe(95_000);
+  });
+
+  test("estimates against the turn's resolved tool set, not the constructor snapshot", async () => {
+    // GIVEN a manager whose live tool set (3 tools) differs from the stale
+    // constructor-time budget snapshot
+    estimateReturns.push(240_000);
+    reduceSteps = [makeStep(["emergency_compaction"])];
+    const resolvedTools = [
+      { name: "a" },
+      { name: "b" },
+      { name: "c" },
+    ] as unknown as ToolDefinition[];
+    const manager = new ContextWindowManager({
+      provider: makeProvider(),
+      systemPrompt: "you are a test assistant",
+      config: makeConfig(),
+      conversationId: "conv-test",
+      toolTokenBudget: 50,
+      resolveTools: () => resolvedTools,
+    });
+
+    // WHEN a rung runs
+    await manager.reduceOverflowOneRung(makeMessages(10), {
+      actualTokens: null,
+      allowAutoCompressLatestTurn: false,
+    });
+
+    // THEN the reducer is fed the resolved tool budget (3 tools * 1k) rather
+    // than the constructor snapshot (50)
+    expect(reduceCalls[0]?.config.toolTokenBudget).toBe(3_000);
   });
 
   test("target is the full preflight budget when the actual count is unknown", async () => {
