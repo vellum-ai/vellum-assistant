@@ -166,14 +166,14 @@ export function docsUrl(path: string): string {
 
 /** URL for the platform-hosted admin UI. */
 export function adminUrl(): string {
-  if (import.meta.env.DEV) {
-    return `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`;
-  }
   if (isElectron()) {
     const config = (
       window as unknown as { __VELLUM_CONFIG__?: { platformUrl?: string } }
     ).__VELLUM_CONFIG__;
     return `${config?.platformUrl ?? window.location.origin}${routes.admin.root}`;
+  }
+  if (import.meta.env.DEV) {
+    return `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`;
   }
   return routes.admin.root;
 }
