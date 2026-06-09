@@ -6,7 +6,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
@@ -62,38 +62,38 @@ export function YourOwnTab({
   const [connectionPendingDisconnect, setConnectionPendingDisconnect] =
     useState<{ appId: string; connection: OAuthAppConnection } | null>(null);
 
-  const loadConnectionsForApp = useCallback(
-    async (appId: string) => {
-      try {
-        const connections = await listOAuthAppConnections(assistantId, appId);
-        setConnectionsMap((prev) => ({ ...prev, [appId]: connections }));
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to load connections";
-        toast.error(message);
-      }
-    },
-    [assistantId],
-  );
-
-  const loadApps = useCallback(async () => {
-    setLoadingApps(true);
-    try {
-      const result = await listOAuthApps(assistantId, providerKey);
-      setApps(result);
-      await Promise.all(result.map((app) => loadConnectionsForApp(app.id)));
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load OAuth apps";
-      toast.error(message);
-    } finally {
-      setLoadingApps(false);
-    }
-  }, [assistantId, providerKey, loadConnectionsForApp]);
-
   useEffect(() => {
-    void loadApps();
-  }, [loadApps]);
+    let active = true;
+    setLoadingApps(true);
+
+    void (async () => {
+      try {
+        const result = await listOAuthApps(assistantId, providerKey);
+        if (!active) return;
+        setApps(result);
+        const connectionResults = await Promise.all(
+          result.map((app) => listOAuthAppConnections(assistantId, app.id)),
+        );
+        if (!active) return;
+        const map: Record<string, OAuthAppConnection[]> = {};
+        result.forEach((app, i) => {
+          map[app.id] = connectionResults[i];
+        });
+        setConnectionsMap(map);
+      } catch (err) {
+        if (!active) return;
+        const message =
+          err instanceof Error ? err.message : "Failed to load OAuth apps";
+        toast.error(message);
+      } finally {
+        if (active) setLoadingApps(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [assistantId, providerKey]);
 
   useEffect(() => {
     let active = true;
