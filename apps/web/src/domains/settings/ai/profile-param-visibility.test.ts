@@ -31,6 +31,22 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinking).toBe(true);
   });
 
+  test("anthropic fable hides the thinking toggle but keeps effort", () => {
+    const vis = resolveProfileParamVisibility("anthropic", "claude-fable-5");
+    // Fable reasons with always-on adaptive thinking: effort stays adjustable,
+    // but the enable/disable toggle is hidden so the UI never emits a
+    // `thinking: { type: "disabled" }` request (which Fable would 400).
+    expect(vis.effort).toBe(true);
+    expect(vis.thinking).toBe(false);
+    expect(vis.temperature).toBe(true);
+  });
+
+  test("openrouter anthropic fable hides the thinking toggle but keeps effort", () => {
+    const vis = resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5");
+    expect(vis.effort).toBe(true);
+    expect(vis.thinking).toBe(false);
+  });
+
   test("anthropic opus enables speed", () => {
     const vis = resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229");
     expect(vis.speed).toBe(true);
