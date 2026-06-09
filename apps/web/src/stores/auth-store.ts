@@ -270,9 +270,8 @@ function probePlatformSession(
         // indefinitely otherwise.
         if (isLocalMode()) {
           try {
-            await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await Promise.race([
-              listAssistants(),
+              useOrganizationStore.getState().fetchOrganizations().then(() => listAssistants()),
               new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error("sync timeout")), 3_000),
               ),
