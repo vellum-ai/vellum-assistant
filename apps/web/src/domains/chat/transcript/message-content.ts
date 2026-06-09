@@ -137,12 +137,8 @@ export interface ThinkingTiming {
 /**
  * Resolve the timing of a run of `thinking` contentOrder ids: the earliest
  * `startedAt` and latest `completedAt` across the referenced thinking blocks.
- *
- * Only the unified `contentBlocks` projection carries timestamps — the
- * positional `thinkingSegments` array has no place for them — so rows without
- * `contentBlocks` (older daemons, in-flight streaming rows) resolve to empty
- * timing. The UI then hides the duration, exactly as a tool call with no
- * `startedAt` does.
+ * Rows without `contentBlocks` resolve to empty timing, and the UI then hides
+ * the duration exactly as a tool call with no `startedAt` does.
  */
 export function resolveThinkingTiming(
   message: DisplayMessage,
