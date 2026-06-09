@@ -65,6 +65,20 @@ async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+// Mock globalThis.fetch for the /auth/token exchange used by connectAssistant.
+const originalFetch = globalThis.fetch;
+const mockGatewayTokenFetch = async (input: string | URL | Request) => {
+  const url = String(input);
+  if (url.includes("/auth/token")) {
+    return new Response(JSON.stringify({ token: "gateway-jwt", expiresAt: Date.now() + 60_000 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return new Response("ok");
+};
+globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
+
 /** Create a poster that captures the first POST body for assertions. */
 function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; body: () => Record<string, unknown> | null } {
   let postedBody: Record<string, unknown> | null = null;
@@ -92,6 +106,7 @@ describe("host-proxy-router", () => {
     mockGetGuardianAccessToken.mockImplementation(
       async () => ({ ok: true, accessToken: "test-token" }),
     );
+    globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
   });
 
   // -- Lifecycle -----------------------------------------------------------
