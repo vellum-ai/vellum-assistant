@@ -96,8 +96,11 @@ paths:
       operationId: acp_by_id_steer_post
       summary: Steer ACP session
       description:
-        Send a steering instruction to an ACP session. Sessions no longer in memory (completed, or lost to a daemon
-        restart) are transparently resumed from persisted history first, when the agent supports ACP session loading.
+        "Send a steering instruction to an ACP session. Sessions no longer in memory (completed, or lost to a
+        daemon restart) are transparently resumed from persisted history first, when the agent supports ACP session
+        loading. Resuming a terminal session re-spawns the host agent, so it requires guardian approval: the route acks
+        immediately with approvalPending=true and performs the resume in the background once approved, streaming results
+        over SSE."
       tags:
         - acp
       responses:
@@ -114,6 +117,11 @@ paths:
                     type: boolean
                   resumed:
                     description: True when the session was resumed from persisted history before steering.
+                    type: boolean
+                  approvalPending:
+                    description:
+                      True when the steer triggered a guardian-approval-gated resume that will run asynchronously; watch SSE for
+                      the outcome.
                     type: boolean
                 required:
                   - acpSessionId
