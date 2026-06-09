@@ -1,109 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronRight, Loader2, Play } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
-import {
-  fetchConsolidationRuns,
-  fetchHeartbeatRuns,
-} from "@/domains/settings/api/schedules";
-import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
+import { ScheduleUsageStats } from "@/domains/settings/components/schedule-shared-ui";
 import {
   consolidationSubtitle,
   formatTimestamp,
   heartbeatSubtitle,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
-import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 import type {
   ConsolidationConfigGetResponse,
   HeartbeatConfigGetResponse,
 } from "@/generated/daemon/types.gen";
-
-// ---------------------------------------------------------------------------
-// ScheduleUsageStats (shared between ScheduleRow and SystemTaskRow)
-// ---------------------------------------------------------------------------
-
-import { formatScheduleCost, formatScheduleRunCount } from "@/domains/settings/utils/schedule-formatters";
-
-function ScheduleUsageStats({
-  scheduleName,
-  usage,
-  onOpenUsage,
-}: {
-  scheduleName: string;
-  usage: ScheduleRowUsage;
-  onOpenUsage?: () => void;
-}) {
-  if (usage.status === "loading") {
-    return (
-      <div
-        aria-label="Loading schedule usage"
-        className="flex w-[136px] shrink-0 items-center justify-end gap-3"
-      >
-        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
-      </div>
-    );
-  }
-
-  const isUnavailable = usage.status === "error";
-  const cost = isUnavailable
-    ? "--"
-    : formatScheduleCost(usage.summary.totalEstimatedCostUsd);
-  const runs = isUnavailable
-    ? "--"
-    : formatScheduleRunCount(usage.summary.runCount);
-
-  return (
-    <div className="flex w-[136px] shrink-0 items-center justify-end gap-3 text-right">
-      {onOpenUsage ? (
-        <button
-          type="button"
-          onClick={onOpenUsage}
-          aria-label={`View usage for ${scheduleName}`}
-          className="min-w-[54px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
-        >
-          <span className="block text-label-small-default text-[var(--content-tertiary)]">
-            Cost
-          </span>
-          <span className="block text-body-small-default text-[var(--content-default)]">
-            {cost}
-          </span>
-        </button>
-      ) : (
-        <span
-          aria-label={`Cost for ${scheduleName} in the last 7 days: ${cost}`}
-          className="block min-w-[54px] px-1 py-0.5"
-        >
-          <span className="block text-label-small-default text-[var(--content-tertiary)]">
-            Cost
-          </span>
-          <span className="block text-body-small-default text-[var(--content-default)]">
-            {cost}
-          </span>
-        </span>
-      )}
-      <span
-        aria-label={`Runs for ${scheduleName} in the last 7 days: ${runs}`}
-        className="block min-w-[54px] px-1 py-0.5"
-      >
-        <span className="block text-label-small-default text-[var(--content-tertiary)]">
-          Runs
-        </span>
-        <span className="block text-body-small-default text-[var(--content-default)]">
-          {runs}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-export { ScheduleUsageStats };
 
 // ---------------------------------------------------------------------------
 // SystemTaskRow
@@ -294,96 +206,4 @@ export function SystemTasksSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// SystemTaskDetailView
-// ---------------------------------------------------------------------------
 
-interface SystemTaskDetailViewProps {
-  kind: SystemTaskKind;
-  assistantId: string;
-  name: string;
-  subtitle: string;
-  enabled: boolean;
-  nextRunAt: number | null;
-  lastRunAt: number | null;
-  isRunning: boolean;
-  onBack: () => void;
-  onRunNow: () => void;
-}
-
-export function SystemTaskDetailView({
-  kind,
-  assistantId,
-  name,
-  subtitle,
-  enabled,
-  nextRunAt,
-  lastRunAt,
-  isRunning,
-  onBack,
-  onRunNow,
-}: SystemTaskDetailViewProps) {
-  const { data: runs, isLoading } = useQuery({
-    queryKey: ["system-task-runs", assistantId, kind],
-    queryFn: () =>
-      kind === "heartbeat"
-        ? fetchHeartbeatRuns(assistantId)
-        : fetchConsolidationRuns(assistantId),
-    staleTime: 10_000,
-  });
-
-  return (
-    <div className="space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex items-center gap-1.5 text-body-medium-lighter text-[var(--content-secondary)] hover:text-[var(--content-default)] transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to schedules
-      </button>
-
-      <DetailCard
-        title={name}
-        subtitle={subtitle}
-        accessory={
-          <div className="flex items-center gap-2">
-            <Tag tone="neutral">system</Tag>
-            <Button
-              variant="outlined"
-              size="compact"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )
-              }
-              onClick={onRunNow}
-              disabled={isRunning}
-            >
-              {isRunning ? "Running…" : "Run now"}
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-2 text-body-medium-lighter">
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Status</span>
-            <span>{enabled ? "Enabled" : "Disabled"}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Next run</span>
-            <span>{formatTimestamp(nextRunAt)}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--content-secondary)]">Last run</span>
-            <span>{formatTimestamp(lastRunAt)}</span>
-          </div>
-        </div>
-      </DetailCard>
-
-      <RecentRunsCard runs={runs} isLoading={isLoading} />
-    </div>
-  );
-}

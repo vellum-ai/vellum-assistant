@@ -1,6 +1,9 @@
 import { ChevronRight } from "lucide-react";
 
-import { ScheduleUsageStats } from "@/domains/settings/components/system-tasks-section";
+import {
+  ScheduleUsageStats,
+  StatusDot,
+} from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatTimestamp,
   MODE_TONE,
@@ -10,22 +13,6 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
-
-function StatusDot({ status }: { status: string | null }) {
-  const color =
-    status === "ok" || status === "completed"
-      ? "var(--system-positive-strong)"
-      : status === "error" || status === "failed"
-        ? "var(--system-negative-strong)"
-        : "var(--content-tertiary)";
-  return (
-    <span
-      className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: color }}
-      aria-label={status ?? "unknown"}
-    />
-  );
-}
 
 export function ScheduleRow({
   schedule,

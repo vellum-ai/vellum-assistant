@@ -9,10 +9,8 @@ import { fetchSchedules, toggleSchedule } from "@/domains/settings/api/schedules
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { ScheduleDetailView } from "@/domains/settings/components/schedule-detail-view";
 import { ScheduleRow } from "@/domains/settings/components/schedule-row";
-import {
-  SystemTaskDetailView,
-  SystemTasksSection,
-} from "@/domains/settings/components/system-tasks-section";
+import { SystemTaskDetailView } from "@/domains/settings/components/system-task-detail-view";
+import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import {
   consolidationSubtitle,

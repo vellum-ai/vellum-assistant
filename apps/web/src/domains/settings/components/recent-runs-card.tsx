@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { DetailCard } from "@/components/detail-card";
+import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatDuration,
   formatScheduleCost,
@@ -14,22 +15,6 @@ import { routes } from "@/utils/routes";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
 import type { ScheduleRun } from "@/domains/settings/types/schedules";
-
-function StatusDot({ status }: { status: string | null }) {
-  const color =
-    status === "ok" || status === "completed"
-      ? "var(--system-positive-strong)"
-      : status === "error" || status === "failed"
-        ? "var(--system-negative-strong)"
-        : "var(--content-tertiary)";
-  return (
-    <span
-      className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: color }}
-      aria-label={status ?? "unknown"}
-    />
-  );
-}
 
 interface RecentRunsCardProps {
   runs: ScheduleRun[] | undefined;

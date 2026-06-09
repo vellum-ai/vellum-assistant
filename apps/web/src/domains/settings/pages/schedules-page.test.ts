@@ -78,8 +78,11 @@ const { RecentRunsCard } = await import(
 const { ScheduleRow } = await import(
   "@/domains/settings/components/schedule-row"
 );
-const { SystemTaskRow, SystemTaskDetailView } = await import(
+const { SystemTaskRow } = await import(
   "@/domains/settings/components/system-tasks-section"
+);
+const { SystemTaskDetailView } = await import(
+  "@/domains/settings/components/system-task-detail-view"
 );
 
 afterEach(() => {

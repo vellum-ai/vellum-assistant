@@ -7,7 +7,7 @@ import {
   Play,
   Trash2,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { DetailCard } from "@/components/detail-card";
@@ -18,6 +18,7 @@ import {
   updateSchedule,
 } from "@/domains/settings/api/schedules";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
+import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   DEFAULT_SCRIPT_TIMEOUT_MS,
   formatTimestamp,
@@ -36,26 +37,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
 
-// ---------------------------------------------------------------------------
-// ScriptTimeoutField
-// ---------------------------------------------------------------------------
-
-function StatusDot({ status }: { status: string | null }) {
-  const color =
-    status === "ok" || status === "completed"
-      ? "var(--system-positive-strong)"
-      : status === "error" || status === "failed"
-        ? "var(--system-negative-strong)"
-        : "var(--content-tertiary)";
-  return (
-    <span
-      className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: color }}
-      aria-label={status ?? "unknown"}
-    />
-  );
-}
-
 function ScriptTimeoutField({
   schedule,
   assistantId,
@@ -72,29 +53,26 @@ function ScriptTimeoutField({
   const [value, setValue] = useState(String(effectiveSeconds));
   const [isSaving, setIsSaving] = useState(false);
 
-  const startEditing = useCallback(() => {
+  const startEditing = () => {
     setValue(String(effectiveSeconds));
     setIsEditing(true);
-  }, [effectiveSeconds]);
+  };
 
-  const save = useCallback(
-    async (timeoutMs: number | null) => {
-      setIsSaving(true);
-      try {
-        await updateSchedule(assistantId, schedule.id, { timeoutMs });
-        setIsEditing(false);
-        onUpdated();
-      } catch (error) {
-        captureError(error, { context: "schedule_update_timeout" });
-        toast.error("Failed to update timeout.");
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [assistantId, schedule.id, onUpdated],
-  );
+  const save = async (timeoutMs: number | null) => {
+    setIsSaving(true);
+    try {
+      await updateSchedule(assistantId, schedule.id, { timeoutMs });
+      setIsEditing(false);
+      onUpdated();
+    } catch (error) {
+      captureError(error, { context: "schedule_update_timeout" });
+      toast.error("Failed to update timeout.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-  const handleSave = useCallback(() => {
+  const handleSave = () => {
     const seconds = Number(value);
     if (
       !Number.isInteger(seconds) ||
@@ -107,7 +85,7 @@ function ScriptTimeoutField({
       return;
     }
     void save(seconds * 1000);
-  }, [value, save]);
+  };
 
   if (isEditing) {
     return (
@@ -198,7 +176,7 @@ export function ScheduleDetailView({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const handleRunNow = useCallback(async () => {
+  const handleRunNow = async () => {
     setIsRunning(true);
     try {
       await runScheduleNow(assistantId, schedule.id);
@@ -209,9 +187,9 @@ export function ScheduleDetailView({
     } finally {
       setIsRunning(false);
     }
-  }, [assistantId, schedule.id, refetch]);
+  };
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = async () => {
     setIsDeleting(true);
     try {
       await deleteSchedule(assistantId, schedule.id);
@@ -222,7 +200,7 @@ export function ScheduleDetailView({
       setIsDeleting(false);
       setConfirmingDelete(false);
     }
-  }, [assistantId, schedule.id, onDeleted]);
+  };
 
   const sourceConversationId =
     getOpenableScheduleSourceConversationId(schedule);

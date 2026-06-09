@@ -1,6 +1,7 @@
 import type {
   Schedule,
   ScheduleRun,
+  ScheduleUsageSummary,
   SystemTaskKind,
 } from "@/domains/settings/types/schedules";
 import type {
@@ -8,6 +9,10 @@ import type {
   HeartbeatConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import type { TagTone } from "@vellumai/design-library/components/tag";
+
+import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
+import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
+import { assistantScheduleUsageSummaryQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
@@ -200,15 +205,6 @@ export type ScheduleRowUsage =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; summary: ScheduleUsageSummary };
-
-import type { ScheduleUsageSummary } from "@/domains/settings/types/schedules";
-import {
-  assistantScheduleUsageSummaryQueryKey,
-} from "@/lib/sync/query-tags";
-import {
-  fetchScheduleUsageSummary,
-} from "@/domains/settings/api/schedules";
-import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
 
 export function scheduleUsageSummaryQueryOptions(
   assistantId: string | undefined,
