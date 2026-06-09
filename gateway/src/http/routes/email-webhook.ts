@@ -206,6 +206,20 @@ export function createEmailWebhookHandler(
         },
       });
 
+      // Verification reply — short-circuit before processInboundResult
+      if (result.verificationIntercepted && result.verificationReplyText) {
+        dedupCache.mark(eventId);
+        tlog.info(
+          { from: event.actor.actorExternalId, to: recipientAddress },
+          "Verification intercepted — returning reply text to platform",
+        );
+        return Response.json({
+          ok: true,
+          verificationIntercepted: true,
+          replyText: result.verificationReplyText,
+        });
+      }
+
       const processed = processInboundResult(
         result,
         dedupCache,

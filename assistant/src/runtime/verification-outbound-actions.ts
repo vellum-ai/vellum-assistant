@@ -2,7 +2,7 @@
  * Shared outbound verification action logic.
  *
  * These pure functions encapsulate the business logic for starting, resending,
- * and cancelling outbound verification flows (Telegram, voice, Slack).
+ * and cancelling outbound verification flows (Telegram, voice, Slack, email).
  * They return transport-agnostic result objects and are consumed by both the
  * message handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
  */
@@ -26,6 +26,7 @@ import {
   updateSessionStatus,
 } from "./channel-verification-service.js";
 import {
+  composeVerificationEmail,
   composeVerificationSlack,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -51,6 +52,8 @@ export const DESTINATION_RATE_WINDOW_MS = 3_600_000;
 
 /** Session TTL in seconds (matches challenge TTL of 10 minutes). */
 const SESSION_TTL_SECONDS = 600;
+
+const EMAIL_VERIFICATION_SUBJECT = "Vellum Assistant Guardian Verification";
 
 // ---------------------------------------------------------------------------
 // Telegram destination classification
@@ -122,6 +125,8 @@ interface OutboundActionResult {
    *  reach the gateway.  The daemon HTTP route handler calls
    *  deliverVerificationSlack() after receiving this payload. */
   _pendingSlackDm?: { userId: string; text: string; assistantId: string };
+  /** Internal: email delivery payload for the caller to dispatch (same pattern as Slack). */
+  _pendingEmail?: { to: string; text: string; subject: string; assistantId: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +517,80 @@ export function deliverVerificationSlack(
   deliverVerificationSlackAsync(userId, text, assistantId);
 }
 
+// ---------------------------------------------------------------------------
+// Email delivery helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Deliver a verification email via the platform email send API.
+ * Fire-and-forget wrapper for use in the daemon process (HTTP route handlers).
+ */
+export function deliverVerificationEmail(
+  to: string,
+  text: string,
+  subject: string,
+  _assistantId: string,
+): void {
+  (async () => {
+    try {
+      const { VellumPlatformClient } = await import(
+        "../platform/client.js"
+      );
+      const client = await VellumPlatformClient.create();
+      if (!client?.platformAssistantId) {
+        log.error("Cannot deliver verification email: platform client not configured");
+        return;
+      }
+
+      const listResponse = await client.fetch(
+        `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
+      );
+      if (!listResponse.ok) {
+        log.error({ status: listResponse.status }, "Failed to list email addresses for verification");
+        return;
+      }
+      const listData = (await listResponse.json()) as {
+        results: { address: string }[];
+      };
+      const addresses = listData.results ?? [];
+      if (addresses.length === 0) {
+        log.error("No email address registered — cannot deliver verification email");
+        return;
+      }
+      const fromAddress = addresses[0].address;
+
+      const { markdownToEmailHtml } = await import(
+        "../email/html-renderer.js"
+      );
+      const html = markdownToEmailHtml(text);
+
+      const response = await client.fetch("/v1/runtime-proxy/email/send/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [to],
+          from_address: fromAddress,
+          text,
+          subject,
+          html,
+        }),
+      });
+
+      if (response.ok) {
+        log.info({ to }, "Verification email delivered");
+      } else {
+        const respBody = await response.json().catch(() => ({}));
+        log.error(
+          { to, status: response.status, respBody },
+          "Failed to deliver verification email",
+        );
+      }
+    } catch (err) {
+      log.error({ err, to }, "Failed to deliver verification email");
+    }
+  })();
+}
+
 function startOutboundSlack(
   destination: string | undefined,
   assistantId: string,
@@ -644,13 +723,35 @@ function startOutboundEmail(
     verificationPurpose: "guardian",
   });
 
+  const emailBody = composeVerificationEmail(
+    GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST,
+    {
+      code: sessionResult.secret,
+      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+    },
+  );
+
+  const now = Date.now();
+  const nextResendAt = now + RESEND_COOLDOWN_MS;
+  const sendCount = 1;
+
+  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+
   return {
     success: true,
     verificationSessionId: sessionResult.sessionId,
     secret: sessionResult.secret,
     expiresAt: sessionResult.expiresAt,
+    nextResendAt,
+    sendCount,
     channel,
     originConversationId,
+    _pendingEmail: {
+      to: normalizedEmail,
+      text: emailBody,
+      subject: EMAIL_VERIFICATION_SUBJECT,
+      assistantId,
+    },
   };
 }
 
@@ -851,12 +952,56 @@ export function resendOutbound(
       originConversationId,
       _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
     };
+  } else if (channel === "email") {
+    const newSession = createOutboundSession({
+      channel,
+      expectedExternalUserId: destination,
+      expectedChatId: destination,
+      identityBindingStatus: "bound",
+      destinationAddress: destination,
+      verificationPurpose: "guardian",
+    });
+
+    const emailBody = composeVerificationEmail(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND,
+      {
+        code: newSession.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
+
+    const now = Date.now();
+    const newSendCount = currentSendCount + 1;
+    const nextResendAt = now + RESEND_COOLDOWN_MS;
+
+    updateSessionDelivery(
+      newSession.sessionId,
+      now,
+      newSendCount,
+      nextResendAt,
+    );
+
+    return {
+      success: true,
+      verificationSessionId: newSession.sessionId,
+      secret: newSession.secret,
+      nextResendAt,
+      sendCount: newSendCount,
+      channel,
+      originConversationId,
+      _pendingEmail: {
+        to: destination,
+        text: emailBody,
+        subject: EMAIL_VERIFICATION_SUBJECT,
+        assistantId,
+      },
+    };
   }
 
   return {
     success: false,
     error: "unsupported_channel",
-    message: `Resend is only supported for Telegram, phone, and Slack. Got: ${channel}`,
+    message: `Resend is only supported for Telegram, phone, Slack, and email. Got: ${channel}`,
     channel,
   };
 }
