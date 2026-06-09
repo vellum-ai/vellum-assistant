@@ -35,7 +35,7 @@ mock.module("electron", () => ({
 
 mock.module("./logger", () => ({ default: { warn: () => {}, error: () => {} } }));
 
-const { getSessionToken, saveSessionToken, clearSessionToken } = await import(
+const { getSessionToken, saveSessionToken, clearSessionToken, __resetForTesting } = await import(
   "./session-token-store"
 );
 
@@ -44,6 +44,7 @@ const tokenPath = (): string => path.join(userDataDir, "session.enc");
 beforeEach(() => {
   userDataDir = mkdtempSync(path.join(os.tmpdir(), "vellum-session-token-"));
   encryptionAvailable = true;
+  __resetForTesting();
 });
 
 afterEach(() => {
@@ -66,6 +67,14 @@ describe("saveSessionToken", () => {
 
     expect(existsSync(tokenPath())).toBe(false);
   });
+
+  test("keeps the token in memory when encryption is unavailable", () => {
+    encryptionAvailable = false;
+
+    saveSessionToken("tok-memory");
+
+    expect(getSessionToken()).toBe("tok-memory");
+  });
 });
 
 describe("getSessionToken", () => {
@@ -80,11 +89,12 @@ describe("getSessionToken", () => {
     expect(getSessionToken()).toBeNull();
   });
 
-  test("returns null when encryption is unavailable even if a file exists", () => {
-    writeFileSync(tokenPath(), "enc:persisted-tok");
+  test("falls back to in-memory token when encryption is unavailable", () => {
     encryptionAvailable = false;
+    saveSessionToken("tok-fallback");
+    writeFileSync(tokenPath(), "enc:persisted-tok");
 
-    expect(getSessionToken()).toBeNull();
+    expect(getSessionToken()).toBe("tok-fallback");
   });
 });
 
