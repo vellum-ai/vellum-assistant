@@ -380,14 +380,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "platform-features-in-local-mode",
-      "scope": "assistant",
-      "key": "platform-features-in-local-mode",
-      "label": "Platform Features in Local Mode",
-      "description": "When enabled, the assistant can call the Vellum platform API from local mode. When disabled, all platform API clients in the daemon, gateway, CES, and web UI no-op with a debug log instead of making outbound requests.",
-      "defaultEnabled": true
-    },
-    {
       "id": "memory-v3-shadow",
       "scope": "assistant",
       "key": "memory-v3-shadow",

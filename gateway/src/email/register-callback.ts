@@ -40,7 +40,7 @@ export async function registerEmailCallbackRoute(caches?: {
 }): Promise<string | undefined> {
   if (!arePlatformFeaturesEnabled()) {
     log.debug(
-      "platform-features-in-local-mode is disabled — skipping email callback registration",
+      "Platform features disabled — skipping email callback registration",
     );
     return undefined;
   }

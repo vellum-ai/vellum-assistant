@@ -73,6 +73,17 @@ export function isPlatformRemote(): boolean {
 }
 
 /**
+ * VELLUM_DISABLE_PLATFORM — boolean, default: false
+ * When true, all outbound platform API calls in local mode are suppressed.
+ * The daemon, gateway, and web UI each no-op platform requests with a
+ * debug log. Has no effect when IS_PLATFORM is true (platform-managed
+ * instances always connect to the platform).
+ */
+export function getDisablePlatform(): boolean {
+  return flag("VELLUM_DISABLE_PLATFORM");
+}
+
+/**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
  * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
@@ -191,6 +202,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DEBUG",
   "VELLUM_DESKTOP_APP",
   "VELLUM_DEV",
+  "VELLUM_DISABLE_PLATFORM",
   "VELLUM_DOCS_BASE_URL",
   "VELLUM_ENVIRONMENT",
   "VELLUM_HATCHED_BY",

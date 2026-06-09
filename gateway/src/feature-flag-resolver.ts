@@ -47,5 +47,6 @@ function isPlatformMode(): boolean {
 
 export function arePlatformFeaturesEnabled(): boolean {
   if (isPlatformMode()) return true;
-  return isFeatureFlagEnabled("platform-features-in-local-mode");
+  const v = process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
+  return !(v === "true" || v === "1");
 }
