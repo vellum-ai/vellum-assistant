@@ -378,11 +378,11 @@ describe("plugin bootstrap", () => {
     expect(initFired).toBe(true);
   });
 
-  test("requiresFlag disabled: init does not fire and no tools/routes/skills are registered", async () => {
+  test("requiresFlag disabled: init does not fire and no tools/routes are registered", async () => {
     setOverridesForTesting({ "plugin-gated-disabled": false });
 
     let initFired = false;
-    // Attach tool/route/skill contributions alongside init. If gating works,
+    // Attach tool/route contributions alongside init. If gating works,
     // none of them should land in their respective registries.
     const plugin = buildPlugin(
       "gated-off",
@@ -409,24 +409,14 @@ describe("plugin bootstrap", () => {
             handler: async () => new Response("ok"),
           },
         ],
-        skills: [
-          {
-            id: "gated-off/skill",
-            name: "gated-off-skill",
-            description: "should not be catalogued",
-            body: "# unused",
-          },
-        ],
       },
       { requiresFlag: ["plugin-gated-disabled"] },
     );
     registerPlugin(plugin);
 
-    // Grab tool / route / skill introspection helpers lazily so the import
+    // Grab tool / route introspection helpers lazily so the import
     // side effect happens after `mock.module` has taken effect.
     const { getTool } = await import("../tools/registry.js");
-    const { getPluginSkillRefCount } =
-      await import("../plugins/plugin-skill-contributions.js");
     const { matchSkillRoute } =
       await import("../runtime/skill-route-registry.js");
 
@@ -438,8 +428,6 @@ describe("plugin bootstrap", () => {
     expect(getTool("gated-off-tool")).toBeUndefined();
     // No route wired up — `matchSkillRoute` returns null when nothing matches.
     expect(matchSkillRoute("/_plugin/gated-off/status", "GET")).toBeNull();
-    // No skill catalogued under this plugin's name — ref count stays 0.
-    expect(getPluginSkillRefCount("gated-off")).toBe(0);
   });
 
   test("requiresFlag absent: plugin activates unconditionally", async () => {
