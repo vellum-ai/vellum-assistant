@@ -118,7 +118,10 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
   const sends: string[] = [];
   const confirms: ConfirmationDecision[] = [];
   const queues: AgentEvent[][] = (
-    opts.responses ?? [[textEvent("ack"), readyEvent()], [textEvent("hypothesis")]]
+    opts.responses ?? [
+      [textEvent("ack"), readyEvent()],
+      [textEvent("hypothesis")],
+    ]
   ).map((q) => q.slice());
   let turn = 0;
   let conversationKey = "convo-1";
@@ -317,10 +320,7 @@ describe("runIngestAsk — confirmation auto-approval", () => {
     // ingest still completes (e.g. a species that never gates on confirmation)
     const harness = makeFakeAgent({
       omitConfirm: true,
-      responses: [
-        [textEvent("done"), readyEvent()],
-        [textEvent("answer")],
-      ],
+      responses: [[textEvent("done"), readyEvent()], [textEvent("answer")]],
     });
     nextAgent = harness.agent;
 
@@ -385,10 +385,7 @@ describe("runIngestAsk — ingest quiet window", () => {
     // steps without being done
     const harness = makeFakeAgent({
       ingestEventDelayMs: 60,
-      responses: [
-        [textEvent("thinking"), readyEvent()],
-        [textEvent("answer")],
-      ],
+      responses: [[textEvent("thinking"), readyEvent()], [textEvent("answer")]],
     });
     nextAgent = harness.agent;
 
@@ -415,10 +412,7 @@ describe("runIngestAsk — ingest quiet window", () => {
     // window itself — a genuinely stalled turn
     const harness = makeFakeAgent({
       ingestEventDelayMs: 120,
-      responses: [
-        [textEvent("thinking"), readyEvent()],
-        [textEvent("answer")],
-      ],
+      responses: [[textEvent("thinking"), readyEvent()], [textEvent("answer")]],
     });
     nextAgent = harness.agent;
 
