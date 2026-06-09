@@ -6,7 +6,6 @@ import {
   readTosAccepted,
   readAiDataConsent,
 } from "@/domains/onboarding/prefs";
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
 
@@ -18,7 +17,6 @@ export function buildNavigationState(
     isLocalMode: isLocalMode(),
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
-    assistantCheckPending: useAssistantLifecycleStore.getState().assistantState.kind === "loading",
     sessionSettled: isSessionSettled(sessionStatus),
     isAuthenticated: isAuthenticated(sessionStatus),
     platformSession,
