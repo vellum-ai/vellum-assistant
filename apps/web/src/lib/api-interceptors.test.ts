@@ -21,8 +21,15 @@ import {
   beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
+
+const isPlatformDisabledMock = mock(() => false);
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => !process.env.VITE_PLATFORM_MODE,
+  isPlatformDisabled: isPlatformDisabledMock,
+}));
 
 import {
   daemonRequestInterceptor,
@@ -33,7 +40,6 @@ import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
 import { useOrganizationStore } from "@/stores/organization-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const TEST_ORG_ID = "org-test-1234";
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
@@ -458,18 +464,18 @@ describe("api-interceptors / platform features gate", () => {
 
   afterEach(() => {
     setSelfHostedConnection(null);
-    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: true });
+    isPlatformDisabledMock.mockImplementation(() => false);
   });
 
-  test("aborts platform-bound requests when features are disabled", () => {
-    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: false });
+  test("aborts platform-bound requests when platform is disabled", () => {
+    isPlatformDisabledMock.mockImplementation(() => true);
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(true);
   });
 
-  test("passes through gateway-rewritten requests when features are disabled", () => {
-    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: false });
+  test("passes through gateway-rewritten requests when platform is disabled", () => {
+    isPlatformDisabledMock.mockImplementation(() => true);
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     // Simulate a request already rewritten to the gateway by requestInterceptor
     const input = new Request(`${INGRESS}${DAEMON_SKILLS_PATH}`);
@@ -478,8 +484,8 @@ describe("api-interceptors / platform features gate", () => {
     expect(output.url).toBe(input.url);
   });
 
-  test("passes through all requests when features are enabled", () => {
-    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: true });
+  test("passes through all requests when platform is not disabled", () => {
+    isPlatformDisabledMock.mockImplementation(() => false);
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(false);
