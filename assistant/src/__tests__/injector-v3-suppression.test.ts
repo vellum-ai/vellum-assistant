@@ -25,6 +25,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
+import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
+import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -60,7 +62,7 @@ function makeTurnContext(): TurnContext {
  * (error/empty selection); `inner === ""` mirrors an all-repeat turn (block
  * produced, empty text — nothing attached, but v2 is still suppressed).
  */
-function v3Injector(inner: string | null): Injector {
+function v3Injector(inner: string | null, commit?: () => void): Injector {
   return {
     name: "memory-v3-shadow",
     order: 1000,
@@ -70,6 +72,7 @@ function v3Injector(inner: string | null): Injector {
         id: "memory-v3",
         text: inner === "" ? "" : `<memory>\n${inner}\n</memory>`,
         placement: "after-memory-prefix",
+        ...(commit ? { meta: { [MEMORY_V3_COMMIT_META_KEY]: commit } } : {}),
       };
     },
   };
@@ -213,6 +216,103 @@ describe("memory-v3-live v2 suppression", () => {
     expect(texts).toEqual([
       "current question",
       wrapMemorySpotlightBlock("fresh sections"),
+    ]);
+  });
+
+  test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    // Re-entry shape: the memo returns the same selections, every slug is now
+    // in the everInjected store, so the injector produces an EMPTY block —
+    // while the tail still carries the v3 card block frozen on first entry
+    // (leading the content because no workspace / <turn_context> prepend
+    // fired this turn) plus the <info> static block.
+    injectorChainSlot.push(v3Injector(""));
+
+    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const infoBlock = "<info>\nstatic memory\n</info>";
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: infoBlock },
+          { type: "text", text: frozenV3Block },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // The just-frozen cards and the static block survive re-entry — only
+    // v2's fresh dynamic prefix (absent here; stripped on first entry) is
+    // ever removed.
+    expect(tailTexts(result.messages)).toEqual([
+      infoBlock,
+      frozenV3Block,
+      "current question",
+    ]);
+  });
+
+  test("first entry with a v2 prefix AND a frozen v3 block strips ONLY the v2 block", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    injectorChainSlot.push(v3Injector(""));
+
+    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory>\nfresh recalled fact\n</memory>" },
+          { type: "text", text: frozenV3Block },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      frozenV3Block,
+      "current question",
+    ]);
+  });
+
+  test("the v3 block's attachment-commit callback fires on a user tail", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    const commit = mock(() => {});
+    injectorChainSlot.push(v3Injector("net-new cards", commit));
+
+    const runMessages: Message[] = [
+      userMsgWithV2Memory("fresh recalled fact", "current question"),
+    ];
+    await applyRuntimeInjections(runMessages, { ...makeTurnContext() });
+
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  test("the commit callback is SKIPPED when the tail is not a user message (block never attaches)", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    const commit = mock(() => {});
+    injectorChainSlot.push(v3Injector("net-new cards", commit));
+
+    const runMessages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      { role: "assistant", content: [{ type: "text", text: "answer" }] },
+    ];
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // Neither attached nor captured nor committed: the store must not claim
+    // cards that never reached history.
+    expect(commit).not.toHaveBeenCalled();
+    expect(result.blocks.memoryV3InjectedBlock).toBeUndefined();
+    expect(result.messages[1].content).toEqual([
+      { type: "text", text: "answer" },
     ]);
   });
 

@@ -71,7 +71,11 @@ import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { SectionIndex, Slug } from "../types.js";
+import {
+  MEMORY_V3_COMMIT_META_KEY,
+  type SectionIndex,
+  type Slug,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Module stubs (installed before the dynamic imports below; each delegates to
@@ -593,6 +597,11 @@ async function runTurn(
   const cards = await memoryV3Injector.produce(ctx);
   if (!cards)
     throw new Error(`turn ${turnIndex}: cards injector returned null`);
+  // Runtime assembly invokes the block's attachment-commit callback at its
+  // user-tail commit point — this is where the everInjected store records
+  // the turn's cards (and the prune valve is scheduled).
+  const commit = cards.meta?.[MEMORY_V3_COMMIT_META_KEY];
+  if (typeof commit === "function") (commit as () => void)();
   const netNewSlugs = [...getActiveSlugs(convId)].filter(
     (slug) => !activeBefore.has(slug),
   );

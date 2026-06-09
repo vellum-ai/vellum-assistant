@@ -32,7 +32,11 @@ import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/27
 import * as schema from "../../../../memory/schema.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
-import type { SectionIndex, SelectionSource } from "../types.js";
+import {
+  MEMORY_V3_COMMIT_META_KEY,
+  type SectionIndex,
+  type SelectionSource,
+} from "../types.js";
 
 // `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
 // re-mock in `afterAll` reverts it for files that load LATER in the same
@@ -402,14 +406,20 @@ beforeEach(() => {
   resetMemoryV3InjectorStateForTests();
 });
 
-/** Invoke the memory-v3 injector's `produce()` for a turn. */
-function produce(conversationId: string, turnIndex: number) {
-  return memoryV3Injector.produce({
+/** Invoke the memory-v3 injector's `produce()` for a turn and, when a block
+ *  is produced, invoke its attachment-commit callback — simulating runtime
+ *  assembly's user-tail commit point, where the everInjected-store write now
+ *  happens. */
+async function produce(conversationId: string, turnIndex: number) {
+  const block = await memoryV3Injector.produce({
     requestId: "r1",
     conversationId,
     turnIndex,
     trust: {} as never,
   });
+  const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
+  if (typeof commit === "function") (commit as () => void)();
+  return block;
 }
 
 describe("memory-v3 shadow plugin", () => {

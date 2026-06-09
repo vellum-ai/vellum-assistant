@@ -9,17 +9,23 @@
  *  - {@link memoryV3Injector} (id `memory-v3`, `after-memory-prefix`): the
  *    PERSISTENT layer. Renders only this turn's NET-NEW selections — selections
  *    not already in the everInjected store — as compact cards inside one
- *    `<memory>` block, records them (`recordInjected`), and returns the block.
- *    Runtime assembly splices it onto the current user message and the
- *    user-prompt-submit hook persists the unwrapped inner text under
- *    `metadata.memoryV3InjectedBlock`; `conversation.ts` rehydrates it on
- *    load. The block is FROZEN thereafter: prior turns' card blocks stay
+ *    `<memory>` block and returns the block. The everInjected store write
+ *    (`recordInjected`) and the prune-valve schedule are DEFERRED to a commit
+ *    callback the block carries (`meta[MEMORY_V3_COMMIT_META_KEY]`): runtime
+ *    assembly invokes it only when the turn's tail is a user message — the
+ *    same gate as metadata capture — so a turn whose block silently fails to
+ *    attach never claims its cards in the store (which would suppress them
+ *    until compaction). Runtime assembly splices the block onto the current
+ *    user message and the user-prompt-submit hook persists the unwrapped inner
+ *    text under `metadata.memoryV3InjectedBlock`; `conversation.ts` rehydrates
+ *    it on load. The block is FROZEN thereafter: prior turns' card blocks stay
  *    byte-identical in history, so they ride the provider's cached prefix and
  *    survive restarts — mirroring v2's `memoryInjectedBlock` mechanism. An
  *    all-repeat turn returns an EMPTY-TEXT block: assembly attaches nothing,
  *    but the block's presence still keys v2 suppression (v3 ran and owns the
- *    `<memory>` layer this turn). A `null` return (failure / empty selection)
- *    leaves v2's block intact — fallback to v2 rather than a memory-less turn.
+ *    `<memory>` layer this turn). A `null` return (failure / empty selection /
+ *    every net-new card rendered empty) leaves v2's block intact — fallback to
+ *    v2 rather than a memory-less turn.
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
  *    `append-user-tail`): the EPHEMERAL layer. Renders the top `spotlight.n`
@@ -34,6 +40,11 @@
  * (live off) logs what WOULD inject (net-new slugs + bytes + spotlight refs)
  * and attaches nothing; both off → no orchestration.
  *
+ * Both injectors apply the same personal-memory trust gate as v2
+ * ({@link isMemoryV3InjectionAllowed}): an untrusted remote actor's turn
+ * produces nothing — no orchestration, no cards, no spotlight, and nothing
+ * recorded or persisted.
+ *
  * Known mirror-of-v2 limitation: cards attached by mid-turn re-entry
  * assemblies (post-compaction re-injection) live only in memory — metadata is
  * persisted at the first-call site only — so a restart drops them while the
@@ -43,16 +54,19 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
+import { resolveTrustClass } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
   wrapMemorySpotlightBlock,
 } from "../../../memory/memory-marker.js";
+import { shouldExposePersonalMemory } from "../../../memory/v2/static-context.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
   type Injector,
   type TurnContext,
 } from "../../types.js";
+import { isCapabilitySlug } from "./capabilities.js";
 import { cardBytes } from "./card.js";
 import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
@@ -70,6 +84,7 @@ import {
 } from "./shadow-plugin.js";
 import {
   MEMORY_V3_BLOCK_ID,
+  MEMORY_V3_COMMIT_META_KEY,
   MEMORY_V3_SPOTLIGHT_BLOCK_ID,
   type Slug,
 } from "./types.js";
@@ -77,16 +92,27 @@ import {
 const log = getLogger("memory-v3-shadow");
 
 /**
- * Cap on the per-conversation maps below. Oldest-inserted entries are evicted
- * first; an evicted conversation simply re-warms (spotlight) or re-runs
- * orchestration (memo) on its next turn.
+ * Cap on the per-conversation maps below. Least-recently-touched entries are
+ * evicted first; an evicted conversation simply re-warms (spotlight) or
+ * re-runs orchestration (memo) on its next turn.
  */
 const MAX_TRACKED_CONVERSATIONS = 256;
 
-function evictOldest(map: Map<string, unknown>): void {
-  if (map.size < MAX_TRACKED_CONVERSATIONS) return;
-  const oldest = map.keys().next().value;
-  if (oldest !== undefined) map.delete(oldest);
+/**
+ * LRU-set `key` on `map`: delete-then-set so a re-touched key moves to the
+ * back of the Map's insertion order (a plain `set` on an existing key keeps
+ * its original position, which would evict the most long-lived ACTIVE
+ * conversation first). Eviction only fires when inserting a genuinely new
+ * key at the cap.
+ */
+function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
+  if (map.has(key)) {
+    map.delete(key);
+  } else if (map.size >= MAX_TRACKED_CONVERSATIONS) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, value);
 }
 
 // ─── shared per-turn orchestration memo ─────────────────────────────────────
@@ -114,9 +140,8 @@ function observeTurnOnce(
 ): Promise<OrchestrateResult | null> {
   const cached = observedTurns.get(conversationId);
   if (cached && cached.turnIndex === turnIndex) return cached.result;
-  evictOldest(observedTurns);
   const result = observeTurn(conversationId, turnIndex);
-  observedTurns.set(conversationId, { turnIndex, result });
+  lruSet(observedTurns, conversationId, { turnIndex, result });
   return result;
 }
 
@@ -173,8 +198,7 @@ function updateSpotlightWindow(
   const prior = (spotlightRings.get(conversationId) ?? []).filter(
     (t) => t.turnIndex < turnIndex && t.turnIndex >= turnIndex - windowTurns,
   );
-  if (!spotlightRings.has(conversationId)) evictOldest(spotlightRings);
-  spotlightRings.set(conversationId, [...prior, { turnIndex, entries }]);
+  lruSet(spotlightRings, conversationId, [...prior, { turnIndex, entries }]);
 
   const window: SpotlightEntry[] = [];
   const seen = new Set<string>();
@@ -196,6 +220,25 @@ export function resetMemoryV3InjectorStateForTests(): void {
   spotlightRings.clear();
 }
 
+// ─── trust gate ──────────────────────────────────────────────────────────────
+
+/**
+ * Personal-memory trust gate — the same class v2 applies to its dynamic and
+ * static `<memory>` layers ({@link shouldExposePersonalMemory} with the
+ * guardian trust class, mirroring `isPersonalMemoryAllowed` in the
+ * memory-retrieval injectors). Memory pages, skill/CLI capability cards, and
+ * matched-section spotlights all surface private user content, so an
+ * untrusted remote actor's turn must produce NOTHING — and, because v3 cards
+ * are persisted to message metadata and rehydrated forever, must also record
+ * and persist nothing.
+ */
+function isMemoryV3InjectionAllowed(trust: TurnContext["trust"]): boolean {
+  return shouldExposePersonalMemory({
+    sourceChannel: trust.sourceChannel,
+    isTrustedActor: resolveTrustClass(trust) === "guardian",
+  });
+}
+
 // ─── injectors ───────────────────────────────────────────────────────────────
 
 export const memoryV3Injector: Injector = {
@@ -209,6 +252,7 @@ export const memoryV3Injector: Injector = {
     const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
+    if (!isMemoryV3InjectionAllowed(ctx.trust)) return null;
 
     const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     // Empty selection falls back to v2 (return null): v2 suppression keys off
@@ -230,9 +274,21 @@ export const memoryV3Injector: Injector = {
         const card = await renderV3CardContent(slug);
         if (card.trim().length > 0) cards.push({ slug, card });
       }
+      // Every net-new card rendered empty: return null (fall back to v2)
+      // rather than an empty-text block — suppressing v2 with nothing to show
+      // would ship a memory-less turn. Distinct from the all-repeat case
+      // (empty `netNew`), where the empty block correctly keeps v2 suppressed
+      // because the cards already ride history.
+      if (netNew.length > 0 && cards.length === 0) return null;
       const entries = cards.map(({ slug, card }) => ({
         slug,
-        bytes: cardBytes(card),
+        // Capability cards (skills / CLI commands) render with their own
+        // `# Skill:` / `# CLI command:` headers, which the prune valve's
+        // `# memory/concepts/<slug>.md` section grammar can never locate to
+        // free. Record them at zero bytes so they never inflate the freeable
+        // resident accounting (the valve would otherwise loop-fire on bytes
+        // it cannot free).
+        bytes: isCapabilitySlug(slug) ? 0 : cardBytes(card),
       }));
 
       if (!live) {
@@ -254,15 +310,24 @@ export const memoryV3Injector: Injector = {
         return null;
       }
 
-      recordInjected(ctx.conversationId, entries);
-
-      // Prune valve: deferred (never delays this turn's assembly) and fired
-      // after `recordInjected` so the resident accounting includes this
-      // turn's cards. Core/hot lane members are exempt — the selector's
+      // The everInjected store write and the prune-valve schedule are
+      // DEFERRED to this commit callback, invoked by runtime assembly at the
+      // point where attachment is guaranteed (the turn's tail is a user
+      // message — the same gate as metadata capture). Recording here in
+      // `produce()` would let a never-attached turn (non-user tail) claim
+      // cards in the store, suppressing them until compaction. The valve is
+      // scheduled after `recordInjected` so the resident accounting includes
+      // this turn's cards; core/hot lane members are exempt — the selector's
       // stable prefix must never be pruned out from under it.
-      schedulePruneValve(ctx.conversationId, {
-        exemptSlugs: new Set<Slug>([...result.lanes.core, ...result.lanes.hot]),
-      });
+      const commit = (): void => {
+        recordInjected(ctx.conversationId, entries);
+        schedulePruneValve(ctx.conversationId, {
+          exemptSlugs: new Set<Slug>([
+            ...result.lanes.core,
+            ...result.lanes.hot,
+          ]),
+        });
+      };
 
       // Empty net-new → empty-text block: assembly attaches no content
       // (`applyInjectionBlock` no-ops empty text) but the block's presence
@@ -273,6 +338,7 @@ export const memoryV3Injector: Injector = {
         text: inner.length === 0 ? "" : wrapMemoryBlock(inner),
         // Mirror v2's dynamic `<memory>` block placement.
         placement: "after-memory-prefix",
+        meta: { [MEMORY_V3_COMMIT_META_KEY]: commit },
       };
     } catch (err) {
       log.warn(
@@ -297,6 +363,7 @@ export const memoryV3SpotlightInjector: Injector = {
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).
     if (!isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)) return null;
+    if (!isMemoryV3InjectionAllowed(ctx.trust)) return null;
 
     try {
       const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
