@@ -59,9 +59,6 @@ export interface ProfileEditorModalProps {
    * sub-form writes to. Required for the create-mode quick-add flow.
    */
   assistantId: string;
-  /** Surfaces the "Sign in with ChatGPT" subscription path in the inline
-   *  provider create sub-form when enabled. */
-  chatgptSubscriptionEnabled?: boolean;
   /**
    * Persist a profile entry. The optional `options.mode` argument tells the
    * parent how to combine `entry` with the existing on-disk record:
@@ -93,7 +90,6 @@ export function ProfileEditorModal({
   existingNames,
   connections,
   assistantId,
-  chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
 }: ProfileEditorModalProps) {
@@ -112,7 +108,6 @@ export function ProfileEditorModal({
           existingNames={existingNames}
           connections={connections}
           assistantId={assistantId}
-          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           onSave={onSave}
           onCancel={onCancel}
         />
@@ -133,7 +128,6 @@ interface ProfileEditorModalInnerProps {
   // See `ProfileEditorModalProps.connections` for nil-vs-empty semantics.
   connections: ProviderConnection[] | undefined;
   assistantId: string;
-  chatgptSubscriptionEnabled: boolean;
   onSave: (
     name: string,
     entry: ProfileEntry,
@@ -149,7 +143,6 @@ function ProfileEditorModalInner({
   existingNames,
   connections,
   assistantId,
-  chatgptSubscriptionEnabled,
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
@@ -730,7 +723,6 @@ function ProfileEditorModalInner({
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
-          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           defaultProviderType={
             (provider || undefined) as ConnectionProvider | undefined
           }

@@ -53,7 +53,6 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
-  chatgptSubscriptionEnabled?: boolean;
   /** Pre-selected provider type (e.g. when cloning a managed connection). */
   defaultProviderType?: ConnectionProvider;
   /**
@@ -72,7 +71,6 @@ export interface ProviderCreateFormProps {
 export function ProviderCreateForm({
   assistantId,
   existingNames,
-  chatgptSubscriptionEnabled = false,
   defaultProviderType,
   defaultAuthType,
   onCreated,
@@ -428,7 +426,7 @@ export function ProviderCreateForm({
               types = ["api_key"];
             }
             // Add oauth_subscription when ChatGPT flag is enabled for OpenAI.
-            if (chatgptSubscriptionEnabled && provider === "openai") {
+            if (provider === "openai") {
               types.push("oauth_subscription");
             }
             if (authType && !types.includes(authType)) {
