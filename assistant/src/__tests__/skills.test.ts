@@ -267,14 +267,17 @@ describe("plugin-resident skills", () => {
     name: string,
     description: string,
     body: string = "Plugin skill body",
-    { withPackageJson = true }: { withPackageJson?: boolean } = {},
+    {
+      withPackageJson = true,
+      packageName,
+    }: { withPackageJson?: boolean; packageName?: string } = {},
   ): void {
     const pluginDir = join(pluginsDir, pluginName);
     mkdirSync(pluginDir, { recursive: true });
     if (withPackageJson) {
       writeFileSync(
         join(pluginDir, "package.json"),
-        JSON.stringify({ name: pluginName, version: "1.0.0" }),
+        JSON.stringify({ name: packageName ?? pluginName, version: "1.0.0" }),
       );
     }
     const skillDir = join(pluginDir, "skills", skillId);
@@ -332,6 +335,17 @@ describe("plugin-resident skills", () => {
     );
 
     const skill = loadSkillCatalog().find((s) => s.id === "ghost");
+    expect(skill).toBeUndefined();
+  });
+
+  test("ignores plugin dirs whose package.json name mismatches the directory", () => {
+    // Mirrors the loader's recognition gate: an un-adapted clone whose
+    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
+    writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
+      packageName: "caveman-installer",
+    });
+
+    const skill = loadSkillCatalog().find((s) => s.id === "caveman");
     expect(skill).toBeUndefined();
   });
 

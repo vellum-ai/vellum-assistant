@@ -651,11 +651,36 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 /**
+ * Whether `pluginDir` is a recognized installed plugin: it must carry a
+ * parseable `package.json` whose `name` equals the directory name. This
+ * mirrors the external plugin loader's recognition gate, which skips any
+ * directory whose `manifest.name` does not match its directory name.
+ */
+function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
+  const manifestPath = join(pluginDir, "package.json");
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "name" in parsed &&
+      (parsed as { name: unknown }).name === dirName
+    );
+  } catch (err) {
+    log.warn(
+      { err, manifestPath },
+      "Skipping plugin dir with unparseable package.json for resident skills",
+    );
+    return false;
+  }
+}
+
+/**
  * Discover skills shipped on disk inside installed plugins. Each installed
- * plugin — a directory under `<workspaceDir>/plugins/` carrying a
- * `package.json` (the same gate the plugin loader uses) — may ship skills at
- * `skills/<id>/SKILL.md`. Returned summaries are attributed to the owning
- * plugin via `pluginName`.
+ * plugin — a directory under `<workspaceDir>/plugins/` recognized by
+ * {@link isRecognizedPluginDir} — may ship skills at `skills/<id>/SKILL.md`.
+ * Returned summaries are attributed to the owning plugin via `pluginName`.
  */
 function discoverPluginResidentSkills(): SkillSummary[] {
   const pluginsDir = getWorkspacePluginsDir();
@@ -676,9 +701,13 @@ function discoverPluginResidentSkills(): SkillSummary[] {
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const pluginDir = join(pluginsDir, entry.name);
-    // Only real installed plugins carry a package.json (mirrors the user
-    // plugin loader's recognition gate). Skips staging dirs and stray files.
-    if (!existsSync(join(pluginDir, "package.json"))) continue;
+    // Mirror the plugin loader's recognition gate: a directory is a real
+    // installed plugin only if it carries a parseable `package.json` whose
+    // `name` matches the directory. This rejects staging dirs, stray files,
+    // and malformed/mismatched clones (e.g. an un-adapted `caveman-installer`)
+    // that the loader itself would skip, so the catalog never surfaces skills
+    // from a directory the runtime would refuse to load.
+    if (!isRecognizedPluginDir(pluginDir, entry.name)) continue;
 
     const skillsDir = join(pluginDir, "skills");
     if (!existsSync(skillsDir)) continue;
