@@ -374,9 +374,40 @@ export const ConversationMessageSchema = z.object({
     .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
+  /**
+   * Flat list of attachment metadata for the row. Not yet supersedable by
+   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * block only for file-block refs with an inline placement, so orphan rows
+   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
+   * parity, so clients that migrate off the positional arrays don't drop those
+   * chips.
+   */
   attachments: z.array(ConversationMessageAttachmentSchema),
-  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
-  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
+   * list of tool calls for the row.
+   */
+  toolCalls: z
+    .array(ConversationMessageToolCallSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `surface` variant). Flat
+   * list of surfaces for the row.
+   */
+  surfaces: z
+    .array(ConversationMessageSurfaceSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces.",
+    })
+    .optional(),
   /**
    * @deprecated Superseded by `contentBlocks`. Text split by tool-call
    * boundaries; positional sibling of `contentOrder`.
