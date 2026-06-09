@@ -5,7 +5,7 @@
 
 import { randomBytes } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import { actorRefreshTokenRecords, actorTokenRecords } from "../db/schema.js";
@@ -93,7 +93,7 @@ function revokeActorTokensByDevice(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-        inArray(actorTokenRecords.status, ["active", "derived"]),
+        eq(actorTokenRecords.status, "active"),
       ),
     )
     .run();
