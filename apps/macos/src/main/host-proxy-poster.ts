@@ -1,9 +1,13 @@
 /**
  * HTTP client for posting host proxy results back to the daemon.
  *
- * Each typed POST method sends a JSON body to the corresponding daemon
- * endpoint with the required auth and client-id headers. Transfer content
- * methods handle binary GET/PUT for file transfers.
+ * Each typed POST method sends a JSON body to the corresponding endpoint
+ * with the required auth and client-id headers. Transfer content methods
+ * handle binary GET/PUT for file transfers.
+ *
+ * Supports both local gateway connections (loopback) and cloud/platform
+ * connections (assistant-scoped URLs) — the caller provides an endpoint
+ * base and an auth-headers builder.
  *
  * Injectable fetch function for testability (mirrors the SSE client pattern).
  * Returns boolean success/failure without throwing.
@@ -82,9 +86,14 @@ type FetchFn = typeof globalThis.fetch;
 // ---------------------------------------------------------------------------
 
 export interface HostProxyPosterOptions {
-  gatewayPort: number;
-  gatewayHost?: string;
-  authToken: string;
+  /**
+   * Base URL including the path prefix for result endpoints.
+   * Local: "http://127.0.0.1:{port}/v1"
+   * Cloud: "{runtimeUrl}/v1/assistants/{id}"
+   */
+  endpointBase: string;
+  /** Called on every request to build auth headers. */
+  authHeaders: () => Record<string, string>;
   /** Override fetch for testing. Defaults to globalThis.fetch. */
   fetch?: FetchFn;
 }
@@ -103,19 +112,14 @@ function computeTimeout(bodyBytes: number): number {
 }
 
 export class HostProxyPoster {
-  private readonly baseUrl: string;
-  private authToken: string;
+  private readonly endpointBase: string;
+  private readonly authHeaders: () => Record<string, string>;
   private readonly fetchFn: FetchFn;
 
   constructor(opts: HostProxyPosterOptions) {
-    const host = opts.gatewayHost ?? "127.0.0.1";
-    this.baseUrl = `http://${host}:${opts.gatewayPort}`;
-    this.authToken = opts.authToken;
+    this.endpointBase = opts.endpointBase;
+    this.authHeaders = opts.authHeaders;
     this.fetchFn = opts.fetch ?? globalThis.fetch;
-  }
-
-  updateAuthToken(token: string): void {
-    this.authToken = token;
   }
 
   // -----------------------------------------------------------------------
@@ -123,33 +127,33 @@ export class HostProxyPoster {
   // -----------------------------------------------------------------------
 
   async postBashResult(result: HostBashResultPayload): Promise<boolean> {
-    return this.postJson("/v1/host-bash-result", result);
+    return this.postJson("/host-bash-result", result);
   }
 
   async postFileResult(result: HostFileResultPayload): Promise<boolean> {
-    return this.postJson("/v1/host-file-result", result);
+    return this.postJson("/host-file-result", result);
   }
 
   async postTransferResult(
     result: HostTransferResultPayload,
   ): Promise<boolean> {
-    return this.postJson("/v1/host-transfer-result", result);
+    return this.postJson("/host-transfer-result", result);
   }
 
   async postBrowserResult(
     result: HostBrowserResultPayload,
   ): Promise<boolean> {
-    return this.postJson("/v1/host-browser-result", result);
+    return this.postJson("/host-browser-result", result);
   }
 
   async postCuResult(result: HostCuResultPayload): Promise<boolean> {
-    return this.postJson("/v1/host-cu-result", result);
+    return this.postJson("/host-cu-result", result);
   }
 
   async postAppControlResult(
     result: HostAppControlResultPayload,
   ): Promise<boolean> {
-    return this.postJson("/v1/host-app-control-result", result);
+    return this.postJson("/host-app-control-result", result);
   }
 
   // -----------------------------------------------------------------------
@@ -158,7 +162,7 @@ export class HostProxyPoster {
 
   async pullTransferContent(transferId: string): Promise<Buffer | null> {
     try {
-      const url = `${this.baseUrl}/v1/transfers/${encodeURIComponent(transferId)}/content`;
+      const url = `${this.endpointBase}/transfers/${encodeURIComponent(transferId)}/content`;
       const controller = new AbortController();
       const timer = setTimeout(
         () => controller.abort(),
@@ -187,7 +191,7 @@ export class HostProxyPoster {
     sha256: string,
   ): Promise<boolean> {
     try {
-      const url = `${this.baseUrl}/v1/transfers/${encodeURIComponent(transferId)}/content`;
+      const url = `${this.endpointBase}/transfers/${encodeURIComponent(transferId)}/content`;
       const timeout = computeTimeout(data.length);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
@@ -216,7 +220,7 @@ export class HostProxyPoster {
 
   private commonHeaders(): Record<string, string> {
     return {
-      Authorization: `Bearer ${this.authToken}`,
+      ...this.authHeaders(),
       "X-Vellum-Client-Id": getDeviceId(),
     };
   }
@@ -233,7 +237,7 @@ export class HostProxyPoster {
       try {
         const headers = this.commonHeaders();
         headers["Content-Type"] = "application/json";
-        const res = await this.fetchFn(`${this.baseUrl}${path}`, {
+        const res = await this.fetchFn(`${this.endpointBase}${path}`, {
           method: "POST",
           headers,
           body,

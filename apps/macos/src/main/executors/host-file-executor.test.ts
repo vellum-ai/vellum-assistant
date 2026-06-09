@@ -51,8 +51,8 @@ function capturingPoster(): {
     return new Response("ok");
   };
   const poster = new HostProxyPoster({
-    gatewayPort: 9000,
-    authToken: "t",
+    endpointBase: "http://127.0.0.1:9000/v1",
+    authHeaders: () => ({ Authorization: "Bearer t" }),
     fetch: fakeFetch as typeof globalThis.fetch,
   });
   return { poster, body: () => postedBody };

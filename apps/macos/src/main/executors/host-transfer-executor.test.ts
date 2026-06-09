@@ -118,8 +118,8 @@ function capturingPoster(opts: {
   };
 
   const poster = new HostProxyPoster({
-    gatewayPort: 9000,
-    authToken: "test-token",
+    endpointBase: "http://127.0.0.1:9000/v1",
+    authHeaders: () => ({ Authorization: "Bearer test-token" }),
     fetch: fakeFetch as typeof globalThis.fetch,
   });
 
@@ -388,8 +388,8 @@ describe("host-transfer-executor", () => {
       };
 
       const poster = new HostProxyPoster({
-        gatewayPort: 9000,
-        authToken: "t",
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
         fetch: slowFetch as typeof globalThis.fetch,
       });
 
@@ -444,8 +444,8 @@ describe("host-transfer-executor", () => {
       };
 
       const poster = new HostProxyPoster({
-        gatewayPort: 9000,
-        authToken: "t",
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
         fetch: slowFetch as typeof globalThis.fetch,
       });
 
