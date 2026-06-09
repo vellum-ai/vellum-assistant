@@ -8,6 +8,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
+import {
+  seedToolInvocation,
+  type SeedToolInvocationSpec,
+} from "./__tests__/tool-invocation-test-helpers.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
 import { conversations, toolInvocations } from "./schema.js";
@@ -17,32 +21,10 @@ initializeDb();
 
 const CONVERSATION_ID = "conv-tool-exec-store-test";
 
-interface InsertSpec {
-  id: string;
-  createdAt: number;
-  toolName?: string;
-  skillId?: string | null;
-  decision?: string;
-  riskLevel?: string;
-  durationMs?: number;
-}
-
-function insertInvocation(spec: InsertSpec): void {
-  getDb()
-    .insert(toolInvocations)
-    .values({
-      id: spec.id,
-      conversationId: CONVERSATION_ID,
-      toolName: spec.toolName ?? "calendar_list_events",
-      input: '{"secret":"raw tool args — must never leave the device"}',
-      result: '{"secret":"raw tool output — must never leave the device"}',
-      decision: spec.decision ?? "allow",
-      riskLevel: spec.riskLevel ?? "low",
-      skillId: spec.skillId ?? null,
-      durationMs: spec.durationMs ?? 12,
-      createdAt: spec.createdAt,
-    })
-    .run();
+function insertInvocation(
+  spec: Omit<SeedToolInvocationSpec, "conversationId">,
+): void {
+  seedToolInvocation({ ...spec, conversationId: CONVERSATION_ID });
 }
 
 describe("tool-execution-events-store", () => {
