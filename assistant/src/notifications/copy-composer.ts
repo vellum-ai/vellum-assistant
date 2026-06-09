@@ -32,6 +32,20 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Derive a short notification title from a message body. Trims to the
+ * first sentence terminator when present, then caps the result at
+ * 60 characters with an ellipsis.
+ */
+export function deriveTitle(body: string): string {
+  const firstSentenceEnd = body.search(/[.!?](\s|$)/);
+  const candidate =
+    firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
+  return candidate.length > 60
+    ? candidate.slice(0, 60).trim() + "\u2026"
+    : candidate.trim();
+}
+
 // ── Access-request copy contract ─────────────────────────────────────────────
 //
 // Deterministic helpers for building guardian-facing access-request copy.
@@ -553,6 +567,41 @@ export function composeFallbackCopy(
   signal: NotificationSignal,
   channels: NotificationChannel[],
 ): Partial<Record<NotificationChannel, RenderedChannelCopy>> {
+  // Honor user-supplied content when present. The assistant_tool
+  // pass-through handles the happy path (sourceChannel === "assistant_tool");
+  // this catches the same payload fields when the LLM fallback fires for
+  // any source channel.
+  if (
+    signal.contextPayload != null &&
+    typeof signal.contextPayload === "object"
+  ) {
+    const raw = signal.contextPayload as Record<string, unknown>;
+    const msg = nonEmpty(
+      typeof raw.requestedMessage === "string"
+        ? raw.requestedMessage
+        : undefined,
+    );
+    if (msg) {
+      const title =
+        nonEmpty(
+          typeof raw.requestedTitle === "string"
+            ? raw.requestedTitle
+            : undefined,
+        ) ?? deriveTitle(msg);
+      const baseCopy: RenderedChannelCopy = {
+        title,
+        body: msg,
+        conversationSeedMessage: msg,
+      };
+      const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> =
+        {};
+      for (const ch of channels) {
+        result[ch] = applyChannelDefaults(ch, baseCopy);
+      }
+      return result;
+    }
+  }
+
   const template =
     TEMPLATES[signal.sourceEventName as NotificationSourceEventName];
 

@@ -32,6 +32,7 @@ import {
   buildAccessRequestContractText,
   buildAccessRequestInviteDirective,
   composeFallbackCopy,
+  deriveTitle,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
 } from "./copy-composer.js";
@@ -55,21 +56,6 @@ const log = getLogger("notification-decision-engine");
 
 const DECISION_TIMEOUT_MS = 15_000;
 const PROMPT_VERSION = "v4";
-
-/**
- * Derive a short notification title from a message body. Used when an
- * assistant_tool-sourced signal supplies `requestedMessage` without an
- * explicit `requestedTitle`: trims to the first sentence terminator when
- * present, then caps the result at 60 characters with an ellipsis.
- */
-function deriveTitle(body: string): string {
-  const firstSentenceEnd = body.search(/[.!?](\s|$)/);
-  const candidate =
-    firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "…"
-    : candidate.trim();
-}
 
 /**
  * Maximum character budget for identity context injected into the notification
