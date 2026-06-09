@@ -4,8 +4,8 @@
  * machine out of React unlocks.
  *
  * Side-effect helpers (`setSelfHostedConnection`, `isGatewayAuthMode`,
- * etc.) are mocked at module scope. API calls go through mock
- * versions of `getAssistant` / `hatchAssistant` / `retireAssistantById`.
+ * etc.) are mocked at module scope. API calls go through a mock
+ * version of `getAssistant`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -17,10 +17,7 @@ import type { QueryClient } from "@tanstack/react-query";
 // 5-minute watchdog is reachable from a test.
 import {
   buildInitializingTimeoutError,
-  isPlatformHostedDisabled,
-  PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
-  shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 
 const TEST_INITIALIZING_TIMEOUT_MS = 30;
@@ -28,20 +25,9 @@ const TEST_INITIALIZING_TIMEOUT_MS = 30;
 // --- module mocks --- //
 
 const getAssistantMock = mock(async () => ({ ok: false, status: 404 }));
-const hatchAssistantMock = mock(
-  async (
-    _opts?: { version?: string },
-  ): Promise<
-    | { ok: true; status: number; data: { id: string; status?: string } }
-    | { ok: false; status: number; error?: { message?: string } }
-  > => ({ ok: true, status: 201, data: { id: "asst-1" } }),
-);
-const retireAssistantMock = mock(async () => ({ ok: true, status: 200 }));
 
 mock.module("@/assistant/api", () => ({
   getAssistant: getAssistantMock,
-  hatchAssistant: hatchAssistantMock,
-  retireAssistantById: retireAssistantMock,
 }));
 
 const setSelfHostedConnectionMock = mock((_args: unknown) => {});
@@ -75,10 +61,7 @@ mock.module("@sentry/react", () => ({
 mock.module("@/assistant/lifecycle", () => ({
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS: TEST_INITIALIZING_TIMEOUT_MS,
-  isPlatformHostedDisabled,
-  PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
-  shouldRecoverFromHatchFailure,
 }));
 
 // --- imports under test --- //
@@ -108,8 +91,6 @@ const baseInputs = {
 
 beforeEach(() => {
   getAssistantMock.mockClear();
-  hatchAssistantMock.mockClear();
-  retireAssistantMock.mockClear();
   setSelfHostedConnectionMock.mockClear();
   // Re-baseline implementations every test so a `mockImplementationOnce`
   // or `mockImplementation` from a prior test doesn't leak.
@@ -118,11 +99,6 @@ beforeEach(() => {
   // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
   isLocalModeMock.mockImplementation(() => false);
-  hatchAssistantMock.mockImplementation(async () => ({
-    ok: true,
-    status: 201,
-    data: { id: "asst-1" },
-  }));
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   lifecycleService.__resetForTesting();
 });
@@ -314,7 +290,7 @@ describe("lifecycleService — bootstrap branches", () => {
 });
 
 describe("lifecycleService — 404 (no assistant)", () => {
-  test("404 is a no-op — no hatch, no redirect, no state transition", async () => {
+  test("404 is a no-op — no redirect, no state transition", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -328,7 +304,6 @@ describe("lifecycleService — 404 (no assistant)", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
     expect(onRedirect).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
@@ -376,7 +351,6 @@ describe("lifecycleService — pre-init guards", () => {
     await lifecycleService.respondToInputs();
 
     expect(getAssistantMock).not.toHaveBeenCalled();
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
     // Initial state should be untouched — no spurious error
     // transition (the bug the guard prevents).
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
@@ -434,8 +408,8 @@ describe("lifecycleService — stuck-initializing watchdog", () => {
   });
 });
 
-describe("lifecycleService — retry budget exhaustion", () => {
-  test("repeated 404s are no-ops — no hatch retries, no state change", async () => {
+describe("lifecycleService — repeated 404s", () => {
+  test("repeated 404s are no-ops — no state change", async () => {
     getAssistantMock.mockImplementation(async () => ({
       ok: false,
       status: 404,
@@ -450,7 +424,6 @@ describe("lifecycleService — retry budget exhaustion", () => {
     await lifecycleService.checkAssistant();
     await lifecycleService.checkAssistant();
 
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
     );
@@ -458,13 +431,12 @@ describe("lifecycleService — retry budget exhaustion", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Watchdog → recovery flow (LUM-2067)
+// Watchdog timeout (LUM-2067)
 //
 // These tests shrink `INITIALIZING_TIMEOUT_MS` to 30ms (via the
-// `@/assistant/lifecycle` mock above) so the recovery path is
-// reachable from a unit test without time-travel reasoning. The same
-// 5-minute watchdog runs in production; only the timeout constant
-// differs here.
+// `@/assistant/lifecycle` mock above) so the watchdog is reachable
+// from a unit test without time-travel reasoning. The same 5-minute
+// watchdog runs in production; only the timeout constant differs here.
 // ---------------------------------------------------------------------------
 
 /**
@@ -498,27 +470,11 @@ function initializingResult(id: string) {
   };
 }
 
-describe("lifecycleService — watchdog → recovery", () => {
-  test("watchdog firing on a still-initializing assistant retires and re-hatches", async () => {
-    // checkAssistant fetches → initializing → applyServerStateUpdate
-    // → transitions to initializing → arms the watchdog. The first
-    // recovery's mid-flight `getAssistant` (when
-    // `initializingAssistantId` is already set, this call is
-    // skipped — but on a fresh mount the id IS captured by the first
-    // projection, so the recovery branch goes straight to retire).
+describe("lifecycleService — watchdog timeout", () => {
+  test("watchdog fires and transitions to error after timeout", async () => {
     getAssistantMock.mockImplementation(async () =>
       initializingResult("asst-stuck"),
     );
-    retireAssistantMock.mockImplementation(async () => ({
-      ok: true,
-      status: 200,
-    }));
-    // After retire, the rehatch succeeds with a fresh id.
-    hatchAssistantMock.mockImplementation(async () => ({
-      ok: true,
-      status: 201,
-      data: { id: "asst-fresh", status: "initializing" },
-    }));
 
     lifecycleService.setInputs({
       ...baseInputs,
@@ -528,49 +484,6 @@ describe("lifecycleService — watchdog → recovery", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "initializing",
     );
-
-    // Watchdog fires after TEST_INITIALIZING_TIMEOUT_MS.
-    await waitFor(() => retireAssistantMock.mock.calls.length >= 1);
-
-    expect(retireAssistantMock).toHaveBeenCalledWith("asst-stuck");
-    await waitFor(() => hatchAssistantMock.mock.calls.length >= 1);
-    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "initializing",
-    );
-  });
-
-  // Note: the "force-refresh found active" branch inside recovery
-  // (when `initializingAssistantId` was null at watchdog time) and
-  // the post-hatch active landing both depend on the React-tree
-  // polling loop firing `applyServerResult` from the next
-  // `useAssistantQuery` data tick. The state machine alone can't
-  // reach those outcomes without a poll driver, so they're left to
-  // integration coverage (`onboarding-lifecycle-sync.test.tsx`)
-  // rather than reconstructed in isolation here.
-
-  test("MAX_INITIALIZING_RECOVERIES failed recoveries surface as a terminal timeout error", async () => {
-    // Each recovery cycle: retire+rehatch succeeds, but hatch keeps
-    // returning initializing — so the next watchdog firing kicks off
-    // another recovery. Three cycles consume the budget; the fourth
-    // firing trips the budget guard and transitions to error.
-    getAssistantMock.mockImplementation(async () =>
-      initializingResult("asst-stuck"),
-    );
-    retireAssistantMock.mockImplementation(async () => ({
-      ok: true,
-      status: 200,
-    }));
-    hatchAssistantMock.mockImplementation(async () => ({
-      ok: true,
-      status: 201,
-      data: { id: "asst-still-stuck", status: "initializing" },
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
 
     await waitFor(
       () =>
@@ -581,7 +494,6 @@ describe("lifecycleService — watchdog → recovery", () => {
     const state = useAssistantLifecycleStore.getState().assistantState;
     expect(state.kind).toBe("error");
     if (state.kind === "error") {
-      // Should be the timeout-specific error, not a generic one.
       expect(state.message).toEqual(buildInitializingTimeoutError().message);
     }
   });
