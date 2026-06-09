@@ -861,6 +861,7 @@ export async function runAgentLoopImpl(
       modelProfileKey,
       turnCallSite,
       config.llm,
+      ctx.conversationId,
     );
     if (modelProfileKey != null) {
       // Record the notification for persistence on delivery rather than here:

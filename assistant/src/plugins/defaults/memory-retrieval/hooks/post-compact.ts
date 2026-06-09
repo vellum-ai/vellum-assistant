@@ -134,6 +134,7 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
     modelProfileKey,
     conversation?.currentCallSite ?? "mainAgent",
     config.llm,
+    conversationId,
   );
   const result = await applyRuntimeInjections(history, {
     isNonInteractive,
