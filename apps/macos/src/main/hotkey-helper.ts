@@ -206,18 +206,20 @@ const setHelperRegistration = async (
 const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
   if (helperRegistrationSync) return helperRegistrationSync;
 
-  helperRegistrationSync = (async () => {
-    try {
-      while (helperRegistered !== shouldRegisterHelper()) {
-        const shouldRegister = shouldRegisterHelper();
-        const result = await setHelperRegistration(shouldRegister);
-        if (!result.ok) return result;
-      }
-      return { ok: true, enabled: helperRegistered };
-    } finally {
+  const sync = (async () => {
+    while (helperRegistered !== shouldRegisterHelper()) {
+      const shouldRegister = shouldRegisterHelper();
+      const result = await setHelperRegistration(shouldRegister);
+      if (!result.ok) return result;
+    }
+    return { ok: true, enabled: helperRegistered };
+  })();
+  helperRegistrationSync = sync;
+  void sync.finally(() => {
+    if (helperRegistrationSync === sync) {
       helperRegistrationSync = null;
     }
-  })();
+  });
 
   return helperRegistrationSync;
 };
