@@ -4,6 +4,7 @@ import {
   type MiddlewareFunction,
 } from "react-router";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isSessionSettled } from "@/stores/session-status";
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
@@ -14,6 +15,7 @@ import { whenStoreState } from "@/utils/when-store-state";
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
 const PLATFORM_SESSION_PROBE_TIMEOUT_MS = 5_000;
+const ASSISTANT_CHECK_TIMEOUT_MS = 10_000;
 
 export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
   const url = new URL(request.url);
@@ -34,6 +36,11 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
         { timeoutMs: PLATFORM_SESSION_PROBE_TIMEOUT_MS },
       );
     }
+    await whenStoreState(
+      useAssistantLifecycleStore,
+      (s) => s.assistantState.kind !== "loading",
+      { timeoutMs: ASSISTANT_CHECK_TIMEOUT_MS },
+    );
     return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
   }
 

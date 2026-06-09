@@ -10,6 +10,7 @@ export interface NavigationState {
   isLocalMode: boolean;
   isGatewayAuth: boolean;
   hasAssistants: boolean;
+  assistantCheckPending: boolean;
   sessionSettled: boolean;
   isAuthenticated: boolean;
   platformSession: PlatformSessionStatus;
@@ -244,6 +245,7 @@ function allowSetupRoutes(
 
 function requireAssistant(state: NavigationState): NavigationDecision | null {
   if (state.hasAssistants) return null;
+  if (state.assistantCheckPending) return { action: "wait" };
 
   if (state.isLocalMode) {
     if (state.platformSession === "unknown") return { action: "wait" };

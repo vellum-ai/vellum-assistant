@@ -11,6 +11,7 @@ const base: NavigationState = {
   isLocalMode: false,
   isGatewayAuth: false,
   hasAssistants: true,
+  assistantCheckPending: false,
   sessionSettled: true,
   isAuthenticated: true,
   platformSession: "present",
