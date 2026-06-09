@@ -40,7 +40,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     queryComplexityRouting: () => false,
-    openAICompatibleEndpoints: () => false,
     chatgptSubscriptionAuth: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
