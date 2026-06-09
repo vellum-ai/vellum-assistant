@@ -6,93 +6,27 @@ import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
-import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
+import {
+  AUTO_PROFILE_KEY,
+  type BuiltinProfileDefinition,
+  createAutoProfileEntry,
+  MANAGED_PROFILE_NAMES,
+  MANAGED_PROFILE_TEMPLATES,
+  materializeProfile,
+} from "./builtin-inference-profiles.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
+// Re-exported so existing importers of the seeder keep working; the canonical
+// home for built-in profile definitions is `builtin-inference-profiles.ts`.
+export { AUTO_PROFILE_KEY, MANAGED_PROFILE_NAMES };
+
 const log = getLogger("seed-inference-profiles");
-
-/**
- * Template for a daemon-managed inference profile. The profile's model is
- * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
- * single source of truth for "which model does this intent map to?".
- */
-type ManagedProfileTemplate = Omit<
-  ProfileEntry,
-  "provider" | "model" | "provider_connection"
-> & {
-  intent: ModelIntent;
-  provider: NonNullable<ProfileEntry["provider"]>;
-  connectionName: string;
-};
-
-/**
- * Managed profiles. Overwritten on every daemon boot so Vellum can push
- * model/config updates to customers in new releases. Platform overlays
- * (`preserveProfileNames`) take precedence when present.
- */
-const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  balanced: {
-    intent: "balanced",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Quality",
-    description: "Best results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
-    source: "managed",
-    label: "Speed",
-    description: "Fastest responses at lower cost",
-    maxTokens: 8192,
-    effort: "low",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Open-weight economy option: Kimi K2.6 served by Fireworks via managed
-  // platform inference. Carries the `suppress-cjk` logit-bias preset to
-  // discourage the model from spontaneously emitting Chinese in English
-  // output; the preset is profile-scoped and only forwarded on the Fireworks
-  // path (see `providers/inference/logit-bias.ts`).
-  "balanced-economy": {
-    intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
-    source: "managed",
-    label: "Balanced Economy",
-    description: "Strong open model (Kimi K2.6) at a lower price point",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    logitBias: "suppress-cjk",
-  },
-};
 
 /**
  * User profile templates. Materialized at hatch time for off-platform
@@ -101,7 +35,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  * fields are placeholders — they are overridden at hatch time with the
  * user's chosen provider and personal connection name.
  */
-const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+const USER_PROFILE_TEMPLATES: Record<string, BuiltinProfileDefinition> = {
   "custom-balanced": {
     intent: "balanced",
     provider: "anthropic",
@@ -139,19 +73,6 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
 };
-
-/**
- * The "auto" profile key. When active, the daemon injects the
- * `switch_inference_profile` tool and lets the model self-select a profile
- * per query. No provider/model — the resolver falls through to the call-site
- * default (balanced or custom-balanced for BYOK).
- */
-export const AUTO_PROFILE_KEY = "auto";
-
-export const MANAGED_PROFILE_NAMES = new Set([
-  ...Object.keys(MANAGED_PROFILE_TEMPLATES),
-  AUTO_PROFILE_KEY,
-]);
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -256,7 +177,7 @@ export function seedInferenceProfiles(
     if (isPlatform && readObject(profiles[name]) !== null) continue;
 
     const previous = readObject(profiles[name]);
-    const effectiveTemplate: ManagedProfileTemplate = isByokMode
+    const effectiveTemplate: BuiltinProfileDefinition = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
     const next = materializeProfile(
@@ -295,12 +216,7 @@ export function seedInferenceProfiles(
   //     switch_inference_profile tool so the model can self-select per query.
   if (!preservedProfileNames.has(AUTO_PROFILE_KEY)) {
     const previousAuto = readObject(profiles[AUTO_PROFILE_KEY]);
-    const autoEntry: Record<string, unknown> = {
-      source: "managed",
-      label: "Auto",
-      description:
-        "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones",
-    };
+    const autoEntry = createAutoProfileEntry() as Record<string, unknown>;
     if (previousAuto) {
       if ("label" in previousAuto) autoEntry.label = previousAuto.label;
       if ("status" in previousAuto) autoEntry.status = previousAuto.status;
@@ -407,20 +323,6 @@ export function seedInferenceProfiles(
   }
 
   saveRawConfig(config);
-}
-
-function materializeProfile(
-  template: ManagedProfileTemplate,
-  provider: NonNullable<ProfileEntry["provider"]>,
-  connectionName: string,
-): ProfileEntry {
-  const { intent, provider: _p, connectionName: _c, ...rest } = template;
-  return {
-    ...rest,
-    provider,
-    provider_connection: connectionName,
-    model: resolveModelIntent(provider, intent),
-  };
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
