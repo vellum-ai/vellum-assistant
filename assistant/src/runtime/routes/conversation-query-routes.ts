@@ -1512,6 +1512,11 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
     tags: ["config"],
+    // The handler validates against the full `ProfileEntry` Zod schema (with
+    // nullable clear-sentinels and managed-profile field restrictions), so
+    // the spec advertises an open object — same approach as `config_patch`.
+    requestBody: z.record(z.string(), z.unknown()),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleReplaceInferenceProfile,
   },
   {
