@@ -836,7 +836,7 @@ export function loadSkillCatalog(
   // Discover skills shipped on disk inside installed plugins. They sit above
   // bundled/extra but below managed and workspace so a user-authored
   // filesystem skill can override a plugin-provided skill by declaring the
-  // same id under `~/.vellum/workspace/skills/`.
+  // same id under `$VELLUM_WORKSPACE_DIR/skills/`.
   const pluginSkills = discoverPluginResidentSkills();
   for (const skill of pluginSkills) {
     if (seenIds.has(skill.id)) {
@@ -1075,7 +1075,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
     loaded = readBundledSkillFromDirectory(skill.directoryPath);
   } else if (skill.source === "workspace" || skill.source === "plugin") {
     // Workspace and plugin-resident skills live outside
-    // ~/.vellum/workspace/skills, so use the skill's parent directory as the
+    // $VELLUM_WORKSPACE_DIR/skills, so use the skill's parent directory as the
     // root to avoid the isOutsideSkillsRoot rejection.
     loaded = readSkillFromDirectory(
       skill.directoryPath,
