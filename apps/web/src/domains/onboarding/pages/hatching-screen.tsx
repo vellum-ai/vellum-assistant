@@ -24,7 +24,9 @@ import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -142,6 +144,7 @@ export function HatchingScreen() {
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
+    let hatchedAssistantId: string | undefined;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -303,6 +306,9 @@ export function HatchingScreen() {
         const result = await platformHatchPromise;
         platformHatchPromise = null;
         if (cancelled) return;
+        if (result.ok) {
+          hatchedAssistantId = result.data.id;
+        }
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -353,12 +359,21 @@ export function HatchingScreen() {
         return;
       }
       try {
-        const result = await getAssistant();
+        let result = await getAssistant(hatchedAssistantId);
         if (cancelled) return;
+        // If the hatched ID 404s (e.g. stale after refresh, or backend
+        // assigned a different ID), fall back to list-based discovery.
+        if (hatchedAssistantId && !result.ok && result.status === 404) {
+          hatchedAssistantId = undefined;
+          result = await getAssistant();
+          if (cancelled) return;
+        }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
+            useResolvedAssistantsStore.getState().upsertFromApi(result.data);
+            void selectPlatformAssistant(assistantId);
             fetchCharacterTraits(assistantId).then((existing) => {
               if (existing) return;
               return saveCharacterTraits(assistantId, hatchTraits);

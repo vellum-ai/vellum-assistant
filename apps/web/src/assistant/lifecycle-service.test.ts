@@ -313,74 +313,29 @@ describe("lifecycleService — bootstrap branches", () => {
   });
 });
 
-describe("lifecycleService — auto-hatch cascade", () => {
-  test("404 → auto_hatch path issues hatchAssistant and lands the seeded id", async () => {
-    // checkAssistant fetches the cache, gets a 404, which
-    // resolves to `auto_hatch`. With no onboarding redirect, the
-    // service then issues hatchAssistant,
-    // which succeeds and seeds the cache.
-    getAssistantMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 404,
-    }));
-    hatchAssistantMock.mockImplementationOnce(async () => ({
-      ok: true,
-      status: 201,
-      data: { id: "asst-hatched-1", status: "initializing" },
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
-
-    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
-    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "initializing",
-    );
-  });
-
-  test("auto_hatch + isRetired transitions to retired (no hatch)", async () => {
+describe("lifecycleService — 404 (no assistant)", () => {
+  test("404 is a no-op — no hatch, no redirect, no state transition", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
     }));
 
+    const onRedirect = mock(() => {});
     lifecycleService.setInputs({
       ...baseInputs,
-      isRetired: true,
+      onRedirect,
       queryClient: makeQueryClient(),
     });
     await lifecycleService.checkAssistant();
 
     expect(hatchAssistantMock).not.toHaveBeenCalled();
+    expect(onRedirect).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "retired",
+      "loading",
     );
   });
 
-  test("vanilla auto_hatch marks expecting-first-message — chat-page consumes it on mount", async () => {
-    getAssistantMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 404,
-    }));
-    hatchAssistantMock.mockImplementationOnce(async () => ({
-      ok: true,
-      status: 201,
-      data: { id: "asst-fresh", status: "initializing" },
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
-
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
-  });
-
-  test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
+  test("404 does not mark expecting-first-message", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -388,7 +343,6 @@ describe("lifecycleService — auto-hatch cascade", () => {
 
     lifecycleService.setInputs({
       ...baseInputs,
-      isRetired: true,
       queryClient: makeQueryClient(),
     });
     await lifecycleService.checkAssistant();
@@ -481,20 +435,10 @@ describe("lifecycleService — stuck-initializing watchdog", () => {
 });
 
 describe("lifecycleService — retry budget exhaustion", () => {
-  test("3 recoverable hatch failures in the auto-hatch poll loop surface as error", async () => {
-    // Server says 404 (no assistant) → service hits the auto_hatch
-    // branch → calls hatchAssistant. The mock returns a recoverable
-    // 5xx, so each pass increments `hatchRetryCount` without ever
-    // succeeding. Three failed `checkAssistant`s reach the budget;
-    // the fourth surfaces the terminal error state.
+  test("repeated 404s are no-ops — no hatch retries, no state change", async () => {
     getAssistantMock.mockImplementation(async () => ({
       ok: false,
       status: 404,
-    }));
-    hatchAssistantMock.mockImplementation(async () => ({
-      ok: false,
-      status: 502,
-      error: { message: "bad gateway" },
     }));
 
     lifecycleService.setInputs({
@@ -505,13 +449,10 @@ describe("lifecycleService — retry budget exhaustion", () => {
     await lifecycleService.checkAssistant();
     await lifecycleService.checkAssistant();
     await lifecycleService.checkAssistant();
-    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "initializing",
-    );
 
-    await lifecycleService.checkAssistant();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "error",
+      "loading",
     );
   });
 });

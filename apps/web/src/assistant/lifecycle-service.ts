@@ -412,26 +412,9 @@ class AssistantLifecycleService {
     }
 
     if (nextState.kind === "auto_hatch") {
-      // If we just retired, show the retired screen instead of auto-hatching.
-      if (this.inputs.isRetired) {
-        this.transition({ kind: "retired" });
-        return;
-      }
-      // New signups without completed onboarding land on
-      // `/onboarding/privacy` before we hatch an assistant for them.
-      const onboardingRedirect = this.inputs.resolveOnboardingRedirect({
-        intendedDestination: window.location.pathname,
-      });
-      if (onboardingRedirect) {
-        this.inputs.onRedirect(onboardingRedirect);
-        return;
-      }
-      // Auto-hatch: a new signup with no assistant lands here.
-      // Mark the auto-greet one-shot so the next `ChatPage` mount
-      // shows the loading gate until the server's greeting SSE
-      // arrives.
-      this.markExpectingFirstMessage();
-      await this.hatchAndCheck();
+      // No assistant found. Don't hatch or redirect — the navigation
+      // resolver's requireAssistant step handles routing to the
+      // correct onboarding screen. Just leave the current state as-is.
       return;
     }
 
