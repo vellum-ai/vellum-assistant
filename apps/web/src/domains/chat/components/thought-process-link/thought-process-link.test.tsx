@@ -2,8 +2,8 @@
  * Tests for the inline `ThoughtProcessLink` — the minimal, container-less
  * affordance that replaces the boxed `ThinkingBlock` for a lone thinking run
  * in the flag-on path. Covers the label, the brain + chevron glyphs, the
- * drawer-open click contract, the streaming label, and the empty-content
- * no-render case.
+ * drawer-open click contract, the streaming loading state (three-dot indicator
+ * + "Thinking", still clickable), and the empty-content render rules.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -72,16 +72,41 @@ describe("ThoughtProcessLink", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
-  test("shows 'Thinking…' while streaming", () => {
-    const { getByText, queryByText } = render(
+  test("while streaming, shows the three-dot loader + 'Thinking' (no brain)", () => {
+    const { getByTestId, getByText, queryByText, container } = render(
       <ThoughtProcessLink content={CONTENT} isStreaming />,
     );
 
-    expect(getByText("Thinking…")).toBeTruthy();
+    expect(getByText("Thinking")).toBeTruthy();
     expect(queryByText("Thought process")).toBeNull();
+    // The brain glyph is swapped for the three-dot indicator, so only the
+    // trailing chevron remains as an svg.
+    expect(getByTestId("thought-process-loading")).toBeTruthy();
+    expect(container.querySelectorAll("svg").length).toBe(1);
   });
 
-  test("renders nothing when content is empty", () => {
+  test("stays clickable while streaming — opens the live reasoning in the drawer", () => {
+    const { getByLabelText } = render(
+      <ThoughtProcessLink content={CONTENT} isStreaming />,
+    );
+
+    fireEvent.click(getByLabelText("View thinking"));
+
+    const detail = useViewerStore.getState().activeToolDetail;
+    expect(detail?.kind).toBe("thinking");
+    expect(detail?.thinkingText).toBe(CONTENT);
+    expect(useViewerStore.getState().mainView).toBe("tool-detail");
+  });
+
+  test("renders while streaming even before any reasoning text arrives", () => {
+    const { getByTestId } = render(
+      <ThoughtProcessLink content="" isStreaming />,
+    );
+    expect(getByTestId("thought-process-link")).toBeTruthy();
+    expect(getByTestId("thought-process-loading")).toBeTruthy();
+  });
+
+  test("renders nothing when content is empty and not streaming", () => {
     const { queryByTestId } = render(<ThoughtProcessLink content="" />);
     expect(queryByTestId("thought-process-link")).toBeNull();
   });

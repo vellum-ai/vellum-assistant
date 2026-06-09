@@ -56,6 +56,7 @@ function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): Conve
 
 const DEFAULT_UI_CONTEXT: UIContext = {
   hasStreamingAssistantMessage: false,
+  hasStreamingAssistantThinking: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,

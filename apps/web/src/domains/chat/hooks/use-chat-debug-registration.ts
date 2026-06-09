@@ -42,6 +42,7 @@ export interface UseChatDebugRegistrationOptions {
  */
 const EMPTY_UI_CONTEXT: UIContext = {
   hasStreamingAssistantMessage: false,
+  hasStreamingAssistantThinking: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,
