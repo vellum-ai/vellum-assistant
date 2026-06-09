@@ -168,9 +168,9 @@ export function docsUrl(path: string): string {
 export function adminUrl(): string {
   if (isElectron()) {
     const config = (
-      window as unknown as { __VELLUM_CONFIG__?: { platformUrl?: string } }
+      window as unknown as { __VELLUM_CONFIG__?: { webUrl?: string } }
     ).__VELLUM_CONFIG__;
-    return `${config?.platformUrl ?? window.location.origin}${routes.admin.root}`;
+    return `${config?.webUrl ?? window.location.origin}${routes.admin.root}`;
   }
   if (import.meta.env.DEV) {
     return `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`;
