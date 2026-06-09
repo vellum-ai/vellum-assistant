@@ -8,11 +8,121 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { Stats } from "node:fs";
 
 import type { HostProxyExecutor } from "../host-proxy-router";
 import type { HostProxyPoster } from "../host-proxy-poster";
 import type { HostProxySseMessage } from "../host-proxy-sse";
 import log from "../logger";
+
+// ---------------------------------------------------------------------------
+// Host filesystem safety checks
+// ---------------------------------------------------------------------------
+
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function validateHostPath(rawPath: string): { ok: true; path: string } | { ok: false; content: string; isError: true } {
+  if (!path.isAbsolute(rawPath)) {
+    return { content: `path must be absolute for host file access: ${rawPath}`, isError: true, ok: false };
+  }
+
+  const basename = path.basename(rawPath);
+  if (DENIED_BASENAMES.has(basename)) {
+    return { content: `Access to "${basename}" is denied`, isError: true, ok: false };
+  }
+
+  return { ok: true, path: rawPath };
+}
+
+function validateRegularFile(filePath: string): { ok: true; stat: Stats } | { ok: false; content: string; isError: true } {
+  const resolved = fs.realpathSync(filePath);
+  const resolvedBasename = path.basename(resolved);
+  if (DENIED_BASENAMES.has(resolvedBasename)) {
+    return { content: `Access to "${resolvedBasename}" is denied`, isError: true, ok: false };
+  }
+
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile()) {
+    return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+  }
+  return { ok: true, stat };
+}
+
+function validateFileSize(filePath: string, size: number): { ok: true } | { ok: false; content: string; isError: true } {
+  if (size > MAX_FILE_SIZE_BYTES) {
+    return {
+      content: `File size (${formatBytes(size)}) exceeds the ${formatBytes(MAX_FILE_SIZE_BYTES)} limit: ${filePath}`,
+      isError: true,
+      ok: false,
+    };
+  }
+  return { ok: true };
+}
+
+function validateContentSize(content: string, filePath: string): { ok: true } | { ok: false; content: string; isError: true } {
+  const size = Buffer.byteLength(content, "utf-8");
+  if (size > MAX_FILE_SIZE_BYTES) {
+    return {
+      content: `Content size (${formatBytes(size)}) exceeds the ${formatBytes(MAX_FILE_SIZE_BYTES)} limit for: ${filePath}`,
+      isError: true,
+      ok: false,
+    };
+  }
+  return { ok: true };
+}
+
+function resolveSymlinkChain(startPath: string): string {
+  let current = startPath;
+  const seen = new Set<string>();
+  for (;;) {
+    if (seen.has(current)) return current;
+    seen.add(current);
+    let st: Stats;
+    try {
+      st = fs.lstatSync(current);
+    } catch {
+      return current;
+    }
+    if (!st.isSymbolicLink()) return current;
+    const target = fs.readlinkSync(current);
+    current = path.isAbsolute(target) ? target : path.resolve(path.dirname(current), target);
+  }
+}
+
+function validateWriteTarget(filePath: string): { ok: true } | { ok: false; content: string; isError: true } {
+  let lstat: Stats;
+  try {
+    lstat = fs.lstatSync(filePath);
+  } catch {
+    return { ok: true };
+  }
+
+  if (lstat.isSymbolicLink()) {
+    const resolved = resolveSymlinkChain(filePath);
+    if (DENIED_BASENAMES.has(path.basename(resolved))) {
+      return { content: `Access to "${path.basename(resolved)}" is denied`, isError: true, ok: false };
+    }
+    try {
+      const targetStat = fs.statSync(filePath);
+      if (!targetStat.isFile()) {
+        return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+      }
+    } catch {
+      // Dangling symlink with allowed target basename — write will create regular file
+    }
+  } else if (!lstat.isFile()) {
+    return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+  }
+
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------------
 // Magic-byte detection helpers
@@ -84,7 +194,16 @@ function executeRead(fields: ReadFields): {
   audioMimeType?: string;
   isError?: boolean;
 } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const fileCheck = validateRegularFile(filePath);
+  if (!fileCheck.ok) return fileCheck;
+
+  const sizeCheck = validateFileSize(filePath, fileCheck.stat.size);
+  if (!sizeCheck.ok) return sizeCheck;
+
   const raw = fs.readFileSync(filePath);
 
   // Check for image
@@ -117,7 +236,16 @@ interface WriteFields {
 }
 
 function executeWrite(fields: WriteFields): { content?: string; isError?: boolean } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const sizeCheck = validateContentSize(fields.content, filePath);
+  if (!sizeCheck.ok) return sizeCheck;
+
+  const targetCheck = validateWriteTarget(filePath);
+  if (!targetCheck.ok) return targetCheck;
+
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, fields.content, "utf-8");
@@ -136,7 +264,16 @@ interface EditFields {
 }
 
 function executeEdit(fields: EditFields): { content?: string; isError?: boolean } {
-  const filePath = fields.path;
+  const pathCheck = validateHostPath(fields.path);
+  if (!pathCheck.ok) return pathCheck;
+
+  const filePath = pathCheck.path;
+  const fileCheck = validateRegularFile(filePath);
+  if (!fileCheck.ok) return fileCheck;
+
+  const sizeCheck = validateFileSize(filePath, fileCheck.stat.size);
+  if (!sizeCheck.ok) return sizeCheck;
+
   const existing = fs.readFileSync(filePath, "utf-8");
   const { old_string, new_string, replace_all } = fields;
 
@@ -145,17 +282,21 @@ function executeEdit(fields: EditFields): { content?: string; isError?: boolean 
     return { content: `old_string not found in ${filePath}`, isError: true };
   }
 
+  let updated: string;
   if (!replace_all) {
     const secondIdx = existing.indexOf(old_string, firstIdx + 1);
     if (secondIdx !== -1) {
       return { content: `old_string is not unique in ${filePath} (use replace_all to replace all occurrences)`, isError: true };
     }
-    const updated = existing.slice(0, firstIdx) + new_string + existing.slice(firstIdx + old_string.length);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    updated = existing.slice(0, firstIdx) + new_string + existing.slice(firstIdx + old_string.length);
   } else {
-    const updated = existing.split(old_string).join(new_string);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    updated = existing.split(old_string).join(new_string);
   }
+
+  const outputSizeCheck = validateContentSize(updated, filePath);
+  if (!outputSizeCheck.ok) return outputSizeCheck;
+
+  fs.writeFileSync(filePath, updated, "utf-8");
 
   return { content: `Edited ${filePath}` };
 }
@@ -246,6 +387,11 @@ export const __testing = {
   executeRead,
   executeWrite,
   executeEdit,
+  validateHostPath,
+  validateRegularFile,
+  validateFileSize,
+  validateContentSize,
+  validateWriteTarget,
   get pendingRequests() {
     return pendingRequests;
   },
