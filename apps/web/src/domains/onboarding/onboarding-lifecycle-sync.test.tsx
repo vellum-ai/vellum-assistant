@@ -694,4 +694,26 @@ describe("onboarding lifecycle sync", () => {
     expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
     expect(invalidateQueriesMock).not.toHaveBeenCalled();
   });
+
+  test("a returning user whose pre-flight check fails transiently is not re-seeded via the poll path", async () => {
+    // The early-return guard relies on a pre-flight getAssistant(); when that
+    // throws transiently, the flow falls through to hatch + poll. hatchAssistant
+    // then returns 200 (an existing assistant, not a fresh 201 creation), so the
+    // poll path must NOT seed a random avatar over the returning user's avatar.
+    let assistantCalls = 0;
+    getAssistantImpl = async () => {
+      assistantCalls += 1;
+      if (assistantCalls === 1) throw new Error("transient pre-flight failure");
+      return assistantResult("active");
+    };
+    hatchAssistantMock.mockResolvedValueOnce(assistantResult("active"));
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+    expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
+    expect(invalidateQueriesMock).not.toHaveBeenCalled();
+  });
 });

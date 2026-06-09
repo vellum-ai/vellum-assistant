@@ -145,6 +145,12 @@ export function HatchingScreen() {
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
+    // Whether this run created a brand-new assistant (hatch returned 201). Only
+    // a fresh creation may be seeded with a random avatar in the poll path: a
+    // returning user whose pre-flight `getAssistant()` fails transiently falls
+    // through to hatch/poll, and seeding their already-active assistant would
+    // overwrite an existing image avatar (which has no character-traits sidecar).
+    let createdFreshAssistant = false;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -334,6 +340,8 @@ export function HatchingScreen() {
         const result = await platformHatchPromise;
         platformHatchPromise = null;
         if (cancelled) return;
+        // 201 = newly created; 200 = an existing assistant was returned.
+        createdFreshAssistant = result.ok && result.status === 201;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -390,8 +398,10 @@ export function HatchingScreen() {
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
-            await persistHatchAvatar(assistantId);
-            if (cancelled) return;
+            if (createdFreshAssistant) {
+              await persistHatchAvatar(assistantId);
+              if (cancelled) return;
+            }
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
