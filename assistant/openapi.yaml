@@ -15977,6 +15977,8 @@ paths:
                               - sizeBytes
                               - kind
                             additionalProperties: false
+                          deprecated: true
+                          description: "Deprecated: superseded by contentBlocks (the attachment variant). Flat list of attachment metadata."
                         toolCalls:
                           type: array
                           items:
@@ -16251,6 +16253,8 @@ paths:
                               - name
                               - input
                             additionalProperties: false
+                          deprecated: true
+                          description: "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls."
                         surfaces:
                           type: array
                           items:
@@ -16302,6 +16306,8 @@ paths:
                               - surfaceType
                               - data
                             additionalProperties: false
+                          deprecated: true
+                          description: "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces."
                         textSegments:
                           type: array
                           items:

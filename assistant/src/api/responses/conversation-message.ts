@@ -374,9 +374,39 @@ export const ConversationMessageSchema = z.object({
     .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
-  attachments: z.array(ConversationMessageAttachmentSchema),
-  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
-  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `attachment` variant).
+   * Flat list of attachment metadata for the row.
+   */
+  attachments: z.array(ConversationMessageAttachmentSchema).meta({
+    deprecated: true,
+    description:
+      "Deprecated: superseded by contentBlocks (the attachment variant). Flat list of attachment metadata.",
+  }),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
+   * list of tool calls for the row.
+   */
+  toolCalls: z
+    .array(ConversationMessageToolCallSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `surface` variant). Flat
+   * list of surfaces for the row.
+   */
+  surfaces: z
+    .array(ConversationMessageSurfaceSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces.",
+    })
+    .optional(),
   /**
    * @deprecated Superseded by `contentBlocks`. Text split by tool-call
    * boundaries; positional sibling of `contentOrder`.
