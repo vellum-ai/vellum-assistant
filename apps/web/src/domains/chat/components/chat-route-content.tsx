@@ -200,7 +200,6 @@ export function ChatMainPanel({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
@@ -437,13 +436,13 @@ export function ChatMainPanel({
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
-        actions: doctorEnabled ? (
+        actions: (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
             </Link>
           </Button>
-        ) : undefined,
+        ),
       }
     : null;
 
