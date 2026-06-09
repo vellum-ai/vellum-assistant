@@ -13,6 +13,7 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  ConfirmationDecision,
   WorkspaceFileWrite,
 } from "../../adapter";
 import type { TestSetupCommand } from "../../setup-command";
@@ -55,6 +56,15 @@ function readyEvent(): AgentEvent {
   return textEvent("\nReady.");
 }
 
+/**
+ * A pending tool-confirmation event, the kind a hatched assistant emits
+ * when it reaches for a tool above the auto-approve risk threshold. In a
+ * headless run nothing answers it unless the runner auto-confirms.
+ */
+function confirmationRequestEvent(requestId: string): AgentEvent {
+  return { message: { type: "confirmation_request", requestId } };
+}
+
 interface FakeAgentOptions {
   /**
    * Events to yield per turn. Index 0 = after the ingest send, index
@@ -70,6 +80,10 @@ interface FakeAgentOptions {
   omitNewConversation?: boolean;
   /** When true, `newConversation()` does NOT rotate `conversationKey`. */
   newConversationNoOp?: boolean;
+  /** Omit `confirm` entirely (capability missing). */
+  omitConfirm?: boolean;
+  /** When set, `confirm()` throws with the given message. */
+  confirmFailure?: string;
 }
 
 interface FakeAgentHarness {
@@ -78,6 +92,7 @@ interface FakeAgentHarness {
   shutdownCount: () => number;
   writes: () => WorkspaceFileWrite[];
   sends: () => string[];
+  confirms: () => ConfirmationDecision[];
 }
 
 /**
@@ -93,6 +108,7 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
   let shutdowns = 0;
   const writes: WorkspaceFileWrite[] = [];
   const sends: string[] = [];
+  const confirms: ConfirmationDecision[] = [];
   const queues: AgentEvent[][] = (
     opts.responses ?? [[textEvent("ack"), readyEvent()], [textEvent("hypothesis")]]
   ).map((q) => q.slice());
@@ -152,6 +168,14 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
       }
     };
   }
+  if (!opts.omitConfirm) {
+    agent.confirm = async (input) => {
+      if (opts.confirmFailure) {
+        throw new Error(opts.confirmFailure);
+      }
+      confirms.push(input);
+    };
+  }
 
   return {
     agent,
@@ -159,6 +183,7 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
     shutdownCount: () => shutdowns,
     writes: () => writes.slice(),
     sends: () => sends.slice(),
+    confirms: () => confirms.slice(),
   };
 }
 
@@ -228,6 +253,108 @@ describe("runIngestAsk — happy path", () => {
       "consolidate what you remember",
       "what did the user say?",
     ]);
+    expect(result.hypothesis).toBe("answer");
+  });
+});
+
+describe("runIngestAsk — confirmation auto-approval", () => {
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("auto-approves confirmation_request events raised during ingest", async () => {
+    // GIVEN an ingest turn whose stream carries a pending tool confirmation
+    // before the agent finishes and emits the sentinel
+    const harness = makeFakeAgent({
+      responses: [
+        [
+          textEvent("reading trajectories"),
+          confirmationRequestEvent("req-42"),
+          textEvent(" committed to memory"),
+          readyEvent(),
+        ],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn
+    const result = await runIngestAsk({
+      profile: profileFor("p-confirm"),
+      runId: "r-confirm",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the pending confirmation was approved so the turn could complete
+    expect(harness.confirms()).toEqual([
+      { requestId: "req-42", decision: "allow" },
+    ]);
+    // AND the ingest reached its completion sentinel and the run produced a
+    // hypothesis rather than stalling on the unresolved confirmation
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("does not stall when the adapter cannot confirm", async () => {
+    // GIVEN an adapter that lacks the optional confirm() capability but whose
+    // ingest still completes (e.g. a species that never gates on confirmation)
+    const harness = makeFakeAgent({
+      omitConfirm: true,
+      responses: [
+        [textEvent("done"), readyEvent()],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn
+    const result = await runIngestAsk({
+      profile: profileFor("p-no-confirm"),
+      runId: "r-no-confirm",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the run completes normally without requiring confirm()
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("a failed confirmation is not fatal; the sentinel still governs completion", async () => {
+    // GIVEN an adapter whose confirm() throws, with a confirmation raised
+    // mid-ingest that the agent recovers from to reach the sentinel
+    const harness = makeFakeAgent({
+      confirmFailure: "gateway unreachable",
+      responses: [
+        [
+          textEvent("working"),
+          confirmationRequestEvent("req-7"),
+          textEvent(" recovered"),
+          readyEvent(),
+        ],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn and the approval call fails
+    const result = await runIngestAsk({
+      profile: profileFor("p-confirm-fail"),
+      runId: "r-confirm-fail",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the failed approval does not abort the drain; the sentinel is what
+    // decides the turn completed
+    expect(result.ingestSentinelSeen).toBe(true);
     expect(result.hypothesis).toBe("answer");
   });
 });

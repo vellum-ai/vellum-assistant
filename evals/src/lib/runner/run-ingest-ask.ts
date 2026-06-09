@@ -182,6 +182,21 @@ function joinAssistantText(events: readonly AgentEvent[]): string {
   return out;
 }
 
+/**
+ * Extract the `requestId` from a pending tool-confirmation event, or
+ * `undefined` if the event isn't a `confirmation_request`. A hatched
+ * assistant runs headless with no interactive approver, so any tool the
+ * agent reaches for above the auto-approve risk threshold stalls on such
+ * an event until something answers it.
+ */
+function confirmationRequestId(event: AgentEvent): string | undefined {
+  if (event.message.type !== "confirmation_request") return undefined;
+  const requestId = event.message.requestId;
+  return typeof requestId === "string" && requestId.length > 0
+    ? requestId
+    : undefined;
+}
+
 export async function runIngestAsk(
   input: IngestAskInput,
 ): Promise<IngestAskResult> {
@@ -222,16 +237,41 @@ export async function runIngestAsk(
       agent.events()[Symbol.asyncIterator](),
     );
     await agent.send({ content: input.ingestMessage });
+
+    // Auto-approve tool confirmations during ingest. The agent legitimately
+    // reaches for tools above the auto-approve risk threshold to process the
+    // staged trajectories; in a headless hatch nothing answers the resulting
+    // `confirmation_request`, so the turn would hang until the hard cap and
+    // never reach the sentinel. Approving on receipt unblocks the turn. A
+    // failed approval is logged but not fatal — the sentinel wait still fails
+    // loudly if the turn never completes, and the captured events are
+    // persisted for inspection.
+    const autoConfirm = async (event: AgentEvent): Promise<void> => {
+      const requestId = confirmationRequestId(event);
+      if (requestId === undefined || typeof agent.confirm !== "function") {
+        return;
+      }
+      try {
+        await agent.confirm({ requestId, decision: "allow" });
+      } catch (err) {
+        console.warn(
+          `[run-ingest-ask] failed to auto-confirm ${requestId}: ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    };
+
     // Wait for the agent to declare completion via the sentinel rather
     // than treating an event-quiet gap as "done". A truncated or stalled
-    // ingest (e.g. an unresolved tool confirmation) would otherwise be
-    // graded as a real run; recall in conversation B depends on the agent
-    // having actually finished reading *and* committing to memory here.
+    // ingest would otherwise be graded as a real run; recall in conversation
+    // B depends on the agent having actually finished reading *and*
+    // committing to memory here.
     const { events: ingestEvents, sentinelSeen: ingestSentinelSeen } =
       await ingestCollector.collectUntilSentinel({
         isDone: (events) => isIngestDone(joinAssistantText(events)),
         maxMs: ingestMaxMs,
         quietMs,
+        onEvent: autoConfirm,
       });
     if (ingestEvents.length === 0) {
       throw new IngestAskError(

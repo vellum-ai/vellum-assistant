@@ -27,8 +27,9 @@ export class AgentEventCollector {
   private async drain(input: {
     quietMs: number;
     maxMs: number;
+    onEvent?: (event: AgentEvent) => void | Promise<void>;
   }): Promise<AgentEvent[]> {
-    const { quietMs, maxMs } = input;
+    const { quietMs, maxMs, onEvent } = input;
     const events: AgentEvent[] = [];
     const hardDeadline = Date.now() + maxMs;
     let quietDeadline = Date.now() + quietMs;
@@ -47,6 +48,12 @@ export class AgentEventCollector {
       if (result.done) break;
 
       events.push(result.value);
+      // Let the caller react to the event (e.g. approve a pending tool
+      // confirmation) before resetting the quiet timer, so the reaction's
+      // latency doesn't count against the quiet window — and so the next
+      // event, which the daemon only emits once the reaction unblocks the
+      // turn, still gets a full window to arrive.
+      if (onEvent) await onEvent(result.value);
       quietDeadline = Date.now() + quietMs;
     }
 
@@ -84,10 +91,12 @@ export class AgentEventCollector {
     isDone: (events: readonly AgentEvent[]) => boolean;
     maxMs: number;
     quietMs: number;
+    onEvent?: (event: AgentEvent) => void | Promise<void>;
   }): Promise<{ events: AgentEvent[]; sentinelSeen: boolean }> {
     const events = await this.drain({
       quietMs: input.quietMs,
       maxMs: input.maxMs,
+      onEvent: input.onEvent,
     });
     return { events, sentinelSeen: input.isDone(events) };
   }

@@ -101,6 +101,69 @@ describe("AgentEventCollector.collectUntilSentinel", () => {
     expect(events.length).toBe(2);
   });
 
+  test("invokes onEvent for each event before reporting the sentinel", async () => {
+    // GIVEN a stream carrying a confirmation_request ahead of the sentinel
+    const collector = new AgentEventCollector(
+      arrayIterator([
+        textEvent("reading"),
+        {
+          message: { type: "confirmation_request", requestId: "req-1" },
+        },
+        textEvent("\nReady."),
+      ]),
+    );
+    const seen: string[] = [];
+
+    // WHEN we collect with an onEvent hook
+    const { events, sentinelSeen } = await collector.collectUntilSentinel({
+      isDone: (evts) => joinText(evts).includes("Ready."),
+      maxMs: 1_000,
+      quietMs: 1_000,
+      onEvent: (event) => {
+        seen.push(event.message.type);
+      },
+    });
+
+    // THEN every event was observed in order AND the sentinel still reports
+    expect(seen).toEqual([
+      "assistant_text_delta",
+      "confirmation_request",
+      "assistant_text_delta",
+    ]);
+    expect(sentinelSeen).toBe(true);
+    expect(events.length).toBe(3);
+  });
+
+  test("awaits an async onEvent before draining the next event", async () => {
+    // GIVEN an onEvent hook that resolves asynchronously
+    const collector = new AgentEventCollector(
+      arrayIterator([
+        { message: { type: "confirmation_request", requestId: "req-1" } },
+        textEvent("\nReady."),
+      ]),
+    );
+    let confirmResolved = false;
+    let confirmResolvedBeforeNextEvent: boolean | undefined;
+
+    // WHEN the hook reacts to the confirmation_request asynchronously
+    await collector.collectUntilSentinel({
+      isDone: (evts) => joinText(evts).includes("Ready."),
+      maxMs: 1_000,
+      quietMs: 1_000,
+      onEvent: async (event) => {
+        if (event.message.type === "confirmation_request") {
+          await Promise.resolve();
+          confirmResolved = true;
+        } else if (confirmResolvedBeforeNextEvent === undefined) {
+          confirmResolvedBeforeNextEvent = confirmResolved;
+        }
+      },
+    });
+
+    // THEN the async hook completed before the following event was processed
+    expect(confirmResolvedBeforeNextEvent).toBe(true);
+  });
+
   test("reports sentinelSeen=false when a stalled stream goes quiet", async () => {
     // GIVEN a stream that emits one event then hangs indefinitely
     const blocked = deferred<IteratorResult<AgentEvent>>();
