@@ -14,7 +14,10 @@ import type { Message } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { PluginExecutionError } from "../../types.js";
 import { getContextWindowManager } from "./manager-store.js";
-import type { ContextWindowResult } from "./window-manager.js";
+import type {
+  ContextWindowResult,
+  EmergencyCompactOptions,
+} from "./window-manager.js";
 
 /**
  * Name under which the default compaction plugin registers. Exposed so call
@@ -65,4 +68,39 @@ export async function defaultCompact(
     );
   }
   return manager.maybeCompact(messages, signal, options);
+}
+
+/**
+ * Self-describing emergency-compaction request handed to
+ * {@link defaultEmergencyCompact}. Mirrors {@link CompactionContext} but
+ * carries the provider-reported token estimate at the overflow that triggered
+ * recovery, which sizes the summarize-around-last-tool-pair cut.
+ */
+export interface EmergencyCompactionContext extends EmergencyCompactOptions {
+  /** Conversation whose manager performs the emergency compaction. */
+  conversationId: string;
+  /** Message history to summarize around the last tool_use/tool_result pair. */
+  messages: Message[];
+  /** Abort signal forwarded to the compaction summary call. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Run emergency mid-turn compaction for the turn: resolves the conversation's
+ * context window manager from the compaction store and summarizes everything
+ * before the last tool_use/tool_result pair, preserving the agent's most recent
+ * action context while aggressively compressing earlier history.
+ */
+export async function defaultEmergencyCompact(
+  context: EmergencyCompactionContext,
+): Promise<ContextWindowResult> {
+  const { conversationId, messages, signal, ...options } = context;
+  const manager = getContextWindowManager(conversationId);
+  if (manager == null) {
+    throw new PluginExecutionError(
+      `default-compaction: no ContextWindowManager registered for conversation ${conversationId} — the conversation must register one before emergency compaction runs`,
+      DEFAULT_COMPACTION_PLUGIN_NAME,
+    );
+  }
+  return manager.emergencyCompact(messages, options, signal);
 }

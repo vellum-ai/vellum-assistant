@@ -1721,28 +1721,30 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return 170_000;
     };
 
-    // Convergence reducer becomes exhausted on the second tier so the
-    // loop escalates from convergence to the action-resolution block.
+    // The reduction ladder applies a middle tier first, then escalates to its
+    // terminal auto-compress-latest-turn rung and reports exhaustion. The
+    // terminal rung is what produces a `budget_yield_unrecovered` outcome when
+    // its rerun still yields at the mid-loop checkpoint.
     let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
-      const exhausted = reducerCallCount >= 2;
+      const terminal = reducerCallCount >= 2;
       return {
         messages: msgs,
-        tier: exhausted ? "tool_result_truncation" : "forced_compaction",
+        tier: terminal ? "auto_compress_latest_turn" : "forced_compaction",
         state: {
-          appliedTiers: exhausted
-            ? ["forced_compaction", "tool_result_truncation"]
+          appliedTiers: terminal
+            ? ["forced_compaction", "auto_compress_latest_turn"]
             : ["forced_compaction"],
           injectionMode: "full" as const,
-          exhausted,
+          exhausted: terminal,
         },
-        estimatedTokens: exhausted ? 60_000 : 80_000,
+        estimatedTokens: terminal ? 60_000 : 80_000,
       };
     };
 
-    // The overflow policy directs us into auto_compress_latest_turn so the
-    // emergency compaction + final agentLoop.run path executes.
+    // The overflow policy permits the terminal auto-compress-latest-turn rung,
+    // so the ladder runs it as its final step.
     mockOverflowAction = "auto_compress_latest_turn";
 
     // Every provider call returns a tool_use, so each loop run does a tool
@@ -1752,19 +1754,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       toolUseResponse("tu-1", "bash", { command: "ls" }),
     ]);
 
-    // Every forced `maybeCompact` is invoked through three distinct call
-    // sites, all owned by the loop's pre-call budget gate / recovery ladder:
-    //   1. First-call (turn-start) gate (`force: true`) — the loop now owns
-    //      the turn-start compaction. It succeeds, but the mocked estimate
-    //      stays above the mid-loop threshold, so the turn proceeds and the
-    //      mid-loop gate still trips on the next iteration.
+    // Forced `maybeCompact` is invoked through the loop's own pre-call budget
+    // gate at two call sites (the reduction-ladder rungs are mocked out, so
+    // their summary calls don't reach this manager):
+    //   1. First-call (turn-start) gate (`force: true`) — the loop owns the
+    //      turn-start compaction. It succeeds, but the mocked estimate stays
+    //      above the mid-loop threshold, so the turn proceeds and the mid-loop
+    //      gate still trips on the next iteration.
     //   2. Mid-loop after the first tool turn (`force: true`) — must signal
     //      `exhausted: true` so the daemon escalates to the convergence
     //      reducer instead of looping forever.
-    //   3. auto_compress_latest_turn emergency compaction (`force: true`,
-    //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
-    //      threshold; the subsequent rerun yields again and is classified
-    //      as BUDGET_YIELD_UNRECOVERED.
     let forcedMaybeCompactCallCount = 0;
     const ctx = makeCtx({
       loopProvider: provider,
@@ -1843,7 +1842,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               exhausted: true,
             };
           }
-          // Emergency compaction call from auto_compress_latest_turn.
+          // Defensive fallback for any additional forced probe; the two gate
+          // call sites above are the only ones this test exercises.
           return {
             compacted: true,
             messages: [
@@ -1853,7 +1853,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               },
             ] as Message[],
             compactedPersistedMessages: 5,
-            summaryText: "Emergency summary",
+            summaryText: "Fallback summary",
             previousEstimatedInputTokens: 170_000,
             estimatedInputTokens: 90_000,
             maxInputTokens: 200_000,
