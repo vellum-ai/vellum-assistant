@@ -190,6 +190,11 @@ export function HatchingScreen() {
     // fetch; the post-save invalidate then closes the race when that fetch
     // already cached an avatar-less result, since the query holds results with
     // `staleTime: Infinity` and never refetches on its own.
+    //
+    // Only call this for a freshly hatched assistant, never for an
+    // already-active one: a returning user may have an uploaded/AI image
+    // avatar, which deletes the character-traits sidecar, so a "no traits"
+    // read would wrongly seed random traits over their image.
     const persistHatchAvatar = async (assistantId: string): Promise<void> => {
       try {
         const existing = await fetchCharacterTraits(assistantId);
@@ -223,8 +228,6 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
-            await persistHatchAvatar(existing.data.id);
-            if (cancelled) return;
             handleHatchReady();
             return;
           }

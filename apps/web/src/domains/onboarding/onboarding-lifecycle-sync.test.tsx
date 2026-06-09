@@ -36,16 +36,19 @@ const hatchAssistantMock = mock(async () => ({
   },
 }));
 
-const getAssistantMock = mock(async () => ({
+const assistantResult = (status: string) => ({
   ok: true,
   status: 200,
   data: {
     id: "asst-1",
-    status: "active",
+    status,
     is_local: false,
     maintenance_mode: { enabled: false },
   },
-}));
+});
+let getAssistantImpl: () => Promise<unknown> = async () =>
+  assistantResult("active");
+const getAssistantMock = mock(() => getAssistantImpl());
 
 let fetchTraitsImpl: () => Promise<unknown> = async () => null;
 const fetchCharacterTraitsMock = mock(() => fetchTraitsImpl());
@@ -368,6 +371,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   fetchTraitsImpl = async () => null;
+  getAssistantImpl = async () => assistantResult("active");
   preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = "control";
   selfIntroGreeting = true;
@@ -639,6 +643,12 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("hatching persists the random avatar and invalidates the avatar query before leaving onboarding", async () => {
+    // Route through the hatch + poll path (a freshly provisioned assistant),
+    // not the already-active early return — only a fresh hatch may be seeded.
+    let assistantCalls = 0;
+    getAssistantImpl = async () =>
+      assistantResult(++assistantCalls === 1 ? "initializing" : "active");
+
     let resolveLifecycle!: () => void;
     checkAssistantImpl = () =>
       new Promise<void>((resolve) => {
@@ -647,7 +657,6 @@ describe("onboarding lifecycle sync", () => {
 
     render(<HatchingScreen />);
 
-    // The randomized avatar is saved (no existing traits) before completing.
     await waitFor(() =>
       expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", {
         bodyShape: "round",
@@ -655,8 +664,6 @@ describe("onboarding lifecycle sync", () => {
         color: "green",
       }),
     );
-    // The avatar query is invalidated so the Dock/menu-bar icons, favicon, and
-    // in-app avatar refetch the freshly persisted traits at first landing.
     await waitFor(() =>
       expect(invalidateQueriesMock).toHaveBeenCalledWith({
         queryKey: ["assistantAvatar", "asst-1"],
@@ -664,7 +671,9 @@ describe("onboarding lifecycle sync", () => {
     );
 
     // Persisting the avatar must not block the lifecycle hand-off.
-    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
     resolveLifecycle();
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat, {
@@ -673,20 +682,16 @@ describe("onboarding lifecycle sync", () => {
     );
   });
 
-  test("hatching skips the avatar save when the assistant already has traits but still invalidates", async () => {
-    fetchTraitsImpl = async () => ({
-      bodyShape: "square",
-      eyeStyle: "line",
-      color: "blue",
-    });
-
+  test("an already-active assistant (returning user) is not re-seeded with a random avatar", async () => {
+    // getAssistantImpl defaults to active → the early-return path. A returning
+    // user's avatar must be left untouched: an image avatar has no traits
+    // sidecar, so seeding would overwrite it (see persistHatchAvatar).
     render(<HatchingScreen />);
 
-    await waitFor(() =>
-      expect(invalidateQueriesMock).toHaveBeenCalledWith({
-        queryKey: ["assistantAvatar", "asst-1"],
-      }),
-    );
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
     expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
+    expect(invalidateQueriesMock).not.toHaveBeenCalled();
   });
 });
