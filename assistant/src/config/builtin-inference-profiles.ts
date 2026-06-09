@@ -89,6 +89,7 @@ export const MANAGED_PROFILE_TEMPLATES: Record<
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
     logitBias: "suppress-cjk",
+    featureFlag: "balanced-economy-profile",
   },
 };
 
