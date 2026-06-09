@@ -898,6 +898,7 @@ contextBridge.exposeInMainWorld("vellum", bridge);
 const vellumConfig = ipcRenderer.sendSync("vellum:config:get") as {
   webUrl: string;
   platformUrl: string;
+  deviceId: string | null;
 } | null;
 if (vellumConfig) {
   contextBridge.exposeInMainWorld("__VELLUM_CONFIG__", vellumConfig);
