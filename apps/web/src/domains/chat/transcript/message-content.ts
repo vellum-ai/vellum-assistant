@@ -101,13 +101,9 @@ export function resolveToolCall(
  * the unified `contentBlocks` projection and falling back to the positional
  * `thinkingSegments` per index. Thinking blocks are built in lockstep with
  * `thinkingSegments`, so the i-th thinking block carries the same text as
- * `thinkingSegments[i]`. The adjacent-assistant fold keeps that lockstep by
- * carrying a survivor's blocks onto the folded row only when they still span
- * its thinking segments, dropping them otherwise. The per-index fallback then
- * covers the indices the projection doesn't span: rows with no `contentBlocks`
- * at all (older daemons, in-flight streaming rows), folded rows whose blocks
- * were dropped because the survivor's projection was partial, and rows whose
- * server-healed reasoning (`mergeThinkingSegments`) outran their blocks.
+ * `thinkingSegments[i]`. The per-index fallback covers rows that have no
+ * `contentBlocks` projection yet — older daemons that never emit blocks and
+ * in-flight streaming rows whose blocks have not been built.
  */
 export function resolveThinkingContent(
   message: DisplayMessage,

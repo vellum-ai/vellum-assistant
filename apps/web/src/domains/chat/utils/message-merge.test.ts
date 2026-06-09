@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { mergeAdjacentAssistantMessages, mergeThinkingSegments } from "@/domains/chat/utils/message-merge";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { resolveThinkingContent } from "@/domains/chat/transcript/message-content";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -445,70 +445,6 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
   });
 });
 
-describe("mergeThinkingSegments", () => {
-  test("returns the populated side when the other is missing or empty", () => {
-    // GIVEN one side has thinking and the other is undefined / empty
-    const segments = ["reasoning"];
-
-    // WHEN merging in either direction
-    // THEN the populated side is returned untouched
-    expect(mergeThinkingSegments(segments, undefined)).toEqual(segments);
-    expect(mergeThinkingSegments(undefined, segments)).toEqual(segments);
-    expect(mergeThinkingSegments(segments, [])).toEqual(segments);
-    expect(mergeThinkingSegments([], segments)).toEqual(segments);
-    expect(mergeThinkingSegments(undefined, undefined)).toBeUndefined();
-  });
-
-  test("keeps the locally-accumulated block while the live stream is ahead", () => {
-    // GIVEN the local row has streamed more reasoning than the server snapshot
-    const local = ["The full local reasoning so far"];
-
-    // AND the server's periodic snapshot still lags behind
-    const server = ["The full local"];
-
-    // WHEN reconciliation merges them
-    const merged = mergeThinkingSegments(local, server);
-
-    // THEN the richer local block is preserved (no rewind)
-    expect(merged).toEqual(local);
-  });
-
-  test("heals a block truncated by dropped deltas from the server snapshot", () => {
-    // GIVEN deltas dropped while the stream was torn down, so the local block
-    // is missing its leading reasoning
-    const local = [") and so I will summarize the options."];
-
-    // AND the server persisted the complete reasoning for that block
-    const server = [
-      "Let me think about this carefully (weighing the trade-offs) and so I will summarize the options.",
-    ];
-
-    // WHEN reconciliation merges them
-    const merged = mergeThinkingSegments(local, server);
-
-    // THEN the truncated block is healed from the server's fuller copy
-    expect(merged).toEqual(server);
-  });
-
-  test("merges per index and appends extra trailing blocks from either side", () => {
-    // GIVEN the local row is ahead on its first block but never saw a later one
-    const local = ["full first block reasoning", "partial"];
-
-    // AND the server has a shorter first block but a complete second + third
-    const server = ["full first", "partial third-party block", "trailing"];
-
-    // WHEN reconciliation merges them
-    const merged = mergeThinkingSegments(local, server);
-
-    // THEN each position keeps the longer text and trailing blocks are unioned
-    expect(merged).toEqual([
-      "full first block reasoning",
-      "partial third-party block",
-      "trailing",
-    ]);
-  });
-});
-
 describe("mergeAdjacentAssistantMessages · contentBlocks lockstep", () => {
   test("concatenates both sides' blocks so a folded turn resolves thinking without the fallback", () => {
     // GIVEN two settled assistant pages of one logical turn, each carrying a
@@ -540,80 +476,6 @@ describe("mergeAdjacentAssistantMessages · contentBlocks lockstep", () => {
     const ids = merged!.contentOrder!.map((entry) => entry.id);
     expect(resolveThinkingContent(merged!, ids)).toBe(
       "survivor reasoning\ndonor reasoning",
-    );
-  });
-
-  test("drops blocks when the survivor has none so the donor's are not misaligned to index 0", () => {
-    // GIVEN a survivor still mid-stream (positional thinking, blocks not yet
-    // built) folded with a donor that already carries blocks
-    const survivor = makeAssistant({
-      id: "page-A",
-      thinkingSegments: ["survivor reasoning"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      timestamp: 1000,
-    });
-    const donor = makeAssistant({
-      id: "page-B",
-      ...thinkingBodyWithBlocks("donor reasoning"),
-      timestamp: 1010,
-    });
-
-    // WHEN the fold merges them
-    const [merged] = mergeAdjacentAssistantMessages([survivor, donor]);
-
-    // THEN the merged row carries no blocks: keeping only the donor's would
-    // align its reasoning to index 0 while thinkingSegments lead with the
-    // survivor's, and the block-first reader would mask the survivor's reasoning
-    expect(merged!.contentBlocks).toBeUndefined();
-
-    // AND the reader still resolves the whole run via the positional fallback
-    const ids = merged!.contentOrder!.map((entry) => entry.id);
-    expect(resolveThinkingContent(merged!, ids)).toBe(
-      "survivor reasoning\ndonor reasoning",
-    );
-  });
-
-  test("drops blocks once the running survivor's projection no longer spans its thinking", () => {
-    // GIVEN a run of three assistant pages where the middle page is still
-    // mid-stream (positional thinking, no blocks yet) between two pages that
-    // carry blocks. Folding the first two leaves a survivor whose blocks cover
-    // only its own reasoning while its thinkingSegments already carry the
-    // blockless page's — a partial projection that the third fold must not
-    // append onto.
-    const first = makeAssistant({
-      id: "page-A",
-      ...thinkingBodyWithBlocks("first reasoning"),
-      timestamp: 1000,
-    });
-    const middleNoBlocks = makeAssistant({
-      id: "page-B",
-      thinkingSegments: ["middle reasoning"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      timestamp: 1010,
-    });
-    const last = makeAssistant({
-      id: "page-C",
-      ...thinkingBodyWithBlocks("last reasoning"),
-      timestamp: 1020,
-    });
-
-    // WHEN the fold walks the whole run
-    const [merged] = mergeAdjacentAssistantMessages([
-      first,
-      middleNoBlocks,
-      last,
-    ]);
-
-    // THEN the merged row carries no blocks: appending the last page's block
-    // onto the partial survivor would have slotted "last reasoning" into the
-    // middle page's unfilled thinking index, masking it
-    expect(merged!.contentBlocks).toBeUndefined();
-
-    // AND the reader resolves all three pages in order via the positional
-    // fallback instead
-    const ids = merged!.contentOrder!.map((entry) => entry.id);
-    expect(resolveThinkingContent(merged!, ids)).toBe(
-      "first reasoning\nmiddle reasoning\nlast reasoning",
     );
   });
 });

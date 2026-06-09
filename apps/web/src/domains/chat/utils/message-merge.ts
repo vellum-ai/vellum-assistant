@@ -58,42 +58,6 @@ function mergeStringArrays(
 }
 
 /**
- * Merge locally-accumulated thinking segments with the server's snapshot,
- * keeping the longer text at each position and appending any extra trailing
- * segments from either side.
- *
- * The live SSE stream is normally ahead of the server's periodic snapshot, so
- * reconciliation defaults to the local copy. But thinking deltas that arrive
- * while the stream is torn down (e.g. the tab is backgrounded and the stream
- * reconnects mid-turn) are never replayed, leaving the local block truncated.
- * Picking the longer text per index lets the local copy stay ahead during
- * normal streaming while healing a truncated block once the server's snapshot
- * carries the fuller reasoning. Position alignment is preserved so the row's
- * `contentOrder` thinking ids keep resolving to the right segment.
- */
-export function mergeThinkingSegments(
-  local: string[] | undefined,
-  server: string[] | undefined,
-): string[] | undefined {
-  if (!local || local.length === 0) return server;
-  if (!server || server.length === 0) return local;
-  const length = Math.max(local.length, server.length);
-  const merged: string[] = [];
-  for (let i = 0; i < length; i++) {
-    const localSegment = local[i];
-    const serverSegment = server[i];
-    if (localSegment == null) {
-      merged.push(serverSegment!);
-    } else if (serverSegment == null) {
-      merged.push(localSegment);
-    } else {
-      merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
-    }
-  }
-  return merged;
-}
-
-/**
  * Concatenate two arrays, returning whichever side is populated when the
  * other is empty / undefined. Used by the adjacent-assistant fold to avoid
  * materialising `[...undefined, ...x]` and stripping the undefined slot in
@@ -202,31 +166,6 @@ function canFoldAdjacentAssistant(
   return true;
 }
 
-/**
- * Whether a row's thinking blocks span every one of its `thinkingSegments`.
- *
- * The block-first thinking reader indexes the row's thinking blocks against its
- * `thinkingSegments` positionally, so concatenating a donor's blocks after a
- * survivor whose own thinking blocks fall short of its segments would slot the
- * donor's reasoning into the survivor's unfilled indices — the reader would
- * then surface the donor's text for a survivor segment. A survivor that already
- * spans its thinking is safe to append onto; one that doesn't must drop blocks
- * so the whole row resolves via the positional fallback instead.
- *
- * Donor shortfalls are harmless: a donor block missing at index `i` leaves the
- * concatenated thinking-block list short there too, so the reader falls back to
- * the (correct) positional segment.
- */
-function thinkingBlocksSpanSegments(message: DisplayMessage): boolean {
-  const segmentCount = message.thinkingSegments?.length ?? 0;
-  if (segmentCount === 0) {
-    return true;
-  }
-  const thinkingBlockCount =
-    message.contentBlocks?.filter((b) => b.type === "thinking").length ?? 0;
-  return thinkingBlockCount >= segmentCount;
-}
-
 function foldAdjacentAssistant(
   survivor: DisplayMessage,
   donor: DisplayMessage,
@@ -269,22 +208,14 @@ function foldAdjacentAssistant(
   // Concatenate the unified block projections in the same survivor→donor order
   // as the positional arrays. Blocks embed their full referents (no positional
   // ids), so unlike `contentOrder` they need no offset remap — the donor's
-  // blocks simply append after the survivor's.
-  //
-  // Only carry blocks when the survivor's projection already spans its own
-  // `thinkingSegments`. A survivor with no blocks (mid-stream) or a partial
-  // projection — e.g. one left by an earlier fold whose donor had no blocks, so
-  // its `thinkingSegments` carry both sides while its blocks carry one — would
-  // misalign once the donor's blocks append into the survivor's unfilled
-  // thinking indices, and the block-first reader would surface the donor's
-  // reasoning for a survivor segment. Dropping blocks in that case lets the
-  // whole row resolve via the reader's positional fallback. A donor shortfall
-  // is safe: the concatenated thinking-block list stays short there too, so the
-  // reader falls back to the (correct) positional segment.
-  const contentBlocks =
-    survivor.contentBlocks && thinkingBlocksSpanSegments(survivor)
-      ? [...survivor.contentBlocks, ...(donor.contentBlocks ?? [])]
-      : undefined;
+  // blocks simply append after the survivor's. Every row reaching the fold has
+  // been normalized (`normalizeContentBlocks`), so its blocks already span its
+  // own `thinkingSegments`; concatenating two such rows keeps the merged row in
+  // lockstep, and the block-first reader resolves each thinking index from the
+  // right side.
+  const contentBlocks = survivor.contentBlocks
+    ? [...survivor.contentBlocks, ...(donor.contentBlocks ?? [])]
+    : donor.contentBlocks;
 
   // Donor's id becomes a merged alias on the survivor so subsequent
   // reconcile / SSE lookups by donor id still resolve to the survivor.
@@ -304,14 +235,7 @@ function foldAdjacentAssistant(
   if (surfaces) merged.surfaces = surfaces;
   if (attachments) merged.attachments = attachments;
   if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
-  // `merged` spreads the survivor, so a dropped projection must be deleted
-  // explicitly — otherwise the survivor's now-partial blocks would leak onto
-  // the folded row and the block-first reader would mask the donor's reasoning.
-  if (contentBlocks) {
-    merged.contentBlocks = contentBlocks;
-  } else {
-    delete merged.contentBlocks;
-  }
+  if (contentBlocks) merged.contentBlocks = contentBlocks;
   if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
