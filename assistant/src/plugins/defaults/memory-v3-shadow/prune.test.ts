@@ -1,10 +1,14 @@
 /**
  * Tests for `prune.ts` — the memory-v3 resident-footprint prune valve:
  *   - `filterPrunedCardSections`: card-boundary parsing, byte-identical
- *     remainders, all-pruned → `""`, no-op → same reference;
+ *     remainders, all-pruned → `""`, no-op → same reference, capability
+ *     chunks (`# Skill:` / `# CLI command:` headers) terminating a card and
+ *     surviving its prune;
  *   - `planPrune`: no-op below the cap, oldest-first selection-recency
  *     ranking down to the target, core/hot exemption, `injected_at` fallback,
- *     zero-byte (fork-seed) rows skipped, idempotence below the cap;
+ *     zero-byte (fork-seed) rows skipped, unlocatable slugs excluded from
+ *     candidacy AND the freeable measure (no loop-fire), idempotence below
+ *     the cap;
  *   - `runPruneValve` + the live strip: v3-owned blocks stripped in place,
  *     v2-lookalike blocks untouched, all-pruned blocks removed, and the
  *     rehydration filter (the same `filterPrunedCardSections` over persisted
@@ -46,7 +50,7 @@ function makeDb() {
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
   migrateAddMemoryV3Selections(db);
-  // Minimal `messages` shape — `collectPersistedV3CardSections` reads only
+  // Minimal `messages` shape — `collectPersistedV3Cards` reads only
   // `conversation_id` and `metadata`.
   testSqlite.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS messages (
@@ -79,7 +83,7 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 const {
-  collectPersistedV3CardSections,
+  collectPersistedV3Cards,
   filterPrunedCardSections,
   flushPruneValveForTests,
   parseCardSections,
@@ -99,6 +103,10 @@ const { V3_CARDS_INJECTION_HEADER, renderCardsBlockInner } =
 function card(slug: string): string {
   return `# memory/concepts/${slug}.md\nlead for ${slug}\n\n[sections: §One · §Two]`;
 }
+
+/** A capability chunk exactly as `renderCapabilityContent` shapes it: its own
+ *  non-concept top-level header plus the capability content. */
+const CAPABILITY_CHUNK = "# Skill: meet-join\nJoin a video meeting on request.";
 
 function insertSelection(
   conversationId: string,
@@ -194,6 +202,43 @@ describe("parseCardSections / filterPrunedCardSections", () => {
     const plain = "remember: user prefers tea";
     expect(filterPrunedCardSections(plain, new Set(["page-a"]))).toBe(plain);
   });
+
+  test("a capability chunk terminates the preceding card's section", () => {
+    const mixed = renderCardsBlockInner([
+      card("page-a"),
+      CAPABILITY_CHUNK,
+      card("page-b"),
+    ]);
+    const parsed = parseCardSections(mixed);
+    expect(parsed.sections.map((s) => s.slug)).toEqual(["page-a", "page-b"]);
+    // page-a's section stops AT the capability header — it must not absorb it.
+    expect(parsed.sections[0]!.text).toBe(card("page-a"));
+    expect(parsed.pieces.map((p) => p.kind)).toEqual(["card", "other", "card"]);
+    expect(parsed.pieces[1]!.text).toBe(CAPABILITY_CHUNK);
+  });
+
+  test("pruning a concept card never swallows a trailing capability chunk", () => {
+    const mixed = renderCardsBlockInner([
+      card("page-a"),
+      CAPABILITY_CHUNK,
+      card("page-b"),
+    ]);
+    expect(filterPrunedCardSections(mixed, new Set(["page-a"]))).toBe(
+      renderCardsBlockInner([CAPABILITY_CHUNK, card("page-b")]),
+    );
+    // Capability chunk at the block END survives the prune of the last card.
+    const trailing = renderCardsBlockInner([card("page-a"), CAPABILITY_CHUNK]);
+    expect(filterPrunedCardSections(trailing, new Set(["page-a"]))).toBe(
+      renderCardsBlockInner([CAPABILITY_CHUNK]),
+    );
+  });
+
+  test("all cards pruned keeps the preamble + capability chunks", () => {
+    const mixed = renderCardsBlockInner([card("page-a"), CAPABILITY_CHUNK]);
+    expect(
+      filterPrunedCardSections(mixed, new Set(["page-a", "page-b", "page-c"])),
+    ).toBe(renderCardsBlockInner([CAPABILITY_CHUNK]));
+  });
 });
 
 // ─── planPrune ───────────────────────────────────────────────────────────────
@@ -203,6 +248,18 @@ describe("planPrune", () => {
     maxResidentBytes: 300,
     targetResidentBytes: 200,
     exemptSlugs: new Set<string>(),
+    // Every concept slug these tests record, locatable by default; the
+    // unlocatable-exclusion tests override this per-case.
+    locatableSlugs: new Set([
+      "page-a",
+      "page-b",
+      "page-c",
+      "page-d",
+      "page-old",
+      "page-new",
+      "core-page",
+      "seeded",
+    ]),
   };
 
   test("no-op below (or at) the cap", () => {
@@ -300,6 +357,43 @@ describe("planPrune", () => {
       planPrune({ ...deps, exemptSlugs: new Set(["core-page"]) }, "conv-1"),
     ).toBeNull();
   });
+
+  test("unlocatable slugs (capability rows, drift) are invisible: no loop-fire against unfreeable bytes", () => {
+    // A capability row's bytes can never be stripped from context, so they
+    // must not count toward the freeable footprint — even when they alone
+    // push the raw store total over the cap.
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "skills/meet-join", bytes: 500 }, // not locatable
+        { slug: "page-a", bytes: 100 },
+      ],
+      1_000,
+    );
+    expect(planPrune(deps, "conv-1")).toBeNull();
+    expect(getPrunedSlugs("conv-1").size).toBe(0);
+  });
+
+  test("plans down to the target over freeable bytes only, never tombstoning unlocatable slugs", () => {
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "skills/meet-join", bytes: 500 }, // not locatable
+        { slug: "page-a", bytes: 200 },
+        { slug: "page-b", bytes: 200 },
+      ],
+      1_000,
+    );
+    insertSelection("conv-1", 0, "page-a", 1_000);
+    insertSelection("conv-1", 0, "page-b", 2_000);
+
+    // Freeable resident = 400 > max 300; pruning page-a reaches the 200
+    // target. The 500 unfreeable bytes neither inflate the measure (which
+    // would over-tombstone real cards chasing an unreachable target) nor
+    // enter candidacy.
+    const plan = planPrune(deps, "conv-1");
+    expect(plan).toEqual({ slugs: ["page-a"], bytesFreed: 200 });
+  });
 });
 
 // ─── live strip & v3-block identification ────────────────────────────────────
@@ -365,6 +459,31 @@ describe("stripPrunedCardsFromMessages", () => {
     ]);
   });
 
+  test("stripping a card from a capability-bearing v3 block keeps the capability chunk", () => {
+    const mixedInner = renderCardsBlockInner([
+      card("page-a"),
+      CAPABILITY_CHUNK,
+      card("page-b"),
+    ]);
+    const message = userMessage(wrapMemoryBlock(mixedInner), "hello");
+
+    // Ownership is judged on the card sections only — the capability chunk
+    // (a non-card piece on both the persisted and live side) doesn't break it.
+    const stripped = stripPrunedCardsFromMessages(
+      [message],
+      new Set(["page-a"]),
+      knownSections,
+    );
+
+    expect(stripped).toBe(1);
+    expect(message.content[0]).toEqual({
+      type: "text",
+      text: wrapMemoryBlock(
+        renderCardsBlockInner([CAPABILITY_CHUNK, card("page-b")]),
+      ),
+    });
+  });
+
   test("ignores assistant messages, non-memory blocks, and unpruned v3 blocks", () => {
     const assistant: Message = {
       role: "assistant",
@@ -389,8 +508,8 @@ describe("stripPrunedCardsFromMessages", () => {
   });
 });
 
-describe("collectPersistedV3CardSections", () => {
-  test("collects card sections from persisted v3 metadata, skipping malformed rows", () => {
+describe("collectPersistedV3Cards", () => {
+  test("collects card sections AND locatable slugs from persisted v3 metadata, skipping malformed rows", () => {
     insertUserRowWithV3Block(
       "conv-1",
       "m1",
@@ -410,9 +529,24 @@ describe("collectPersistedV3CardSections", () => {
       )
       .run();
 
-    const sections = collectPersistedV3CardSections("conv-1");
-    expect(sections).toEqual(new Set([card("page-a"), card("page-b")]));
-    expect(collectPersistedV3CardSections("conv-other").size).toBe(0);
+    const collected = collectPersistedV3Cards("conv-1");
+    expect(collected.sections).toEqual(
+      new Set([card("page-a"), card("page-b")]),
+    );
+    expect(collected.slugs).toEqual(new Set(["page-a", "page-b"]));
+    expect(collectPersistedV3Cards("conv-other").sections.size).toBe(0);
+  });
+
+  test("capability chunks contribute neither a section nor a locatable slug", () => {
+    insertUserRowWithV3Block(
+      "conv-1",
+      "m1",
+      renderCardsBlockInner([card("page-a"), CAPABILITY_CHUNK]),
+    );
+
+    const collected = collectPersistedV3Cards("conv-1");
+    expect(collected.sections).toEqual(new Set([card("page-a")]));
+    expect(collected.slugs).toEqual(new Set(["page-a"]));
   });
 });
 
@@ -438,6 +572,34 @@ describe("runPruneValve", () => {
     expect(
       await runPruneValve("conv-1", { exemptSlugs: new Set() }),
     ).toBeNull();
+  });
+
+  test("unfreeable capability bytes over the raw cap: no-op, nothing tombstoned", async () => {
+    // The capability row inflates the store total past the cap, but its
+    // content has no locatable card section — the valve must not loop-fire
+    // (tombstoning real cards turn after turn against an unreachable target).
+    insertUserRowWithV3Block(
+      "conv-1",
+      "m1",
+      renderCardsBlockInner([card("page-a"), CAPABILITY_CHUNK]),
+    );
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "page-a", bytes: 100 },
+        { slug: "skills/meet-join", bytes: 500 },
+      ],
+      1_000,
+    );
+
+    pruneConfig = { maxResidentBytes: 300, targetResidentBytes: 200 };
+    expect(
+      await runPruneValve("conv-1", { exemptSlugs: new Set() }),
+    ).toBeNull();
+    expect(
+      await runPruneValve("conv-1", { exemptSlugs: new Set() }),
+    ).toBeNull();
+    expect(getPrunedSlugs("conv-1").size).toBe(0);
   });
 
   test("over the cap: marks pruned, strips the live history, and converges with rehydration", async () => {
@@ -568,6 +730,11 @@ describe("schedulePruneValve", () => {
 
   test("valve failures are swallowed (never affect the turn)", async () => {
     pruneConfig = { maxResidentBytes: 0, targetResidentBytes: 0 };
+    insertUserRowWithV3Block(
+      "conv-1",
+      "m1",
+      renderCardsBlockInner([card("page-a")]),
+    );
     recordInjected("conv-1", [{ slug: "page-a", bytes: 100 }], 1_000);
     schedulePruneValve("conv-1", {
       exemptSlugs: new Set(),
