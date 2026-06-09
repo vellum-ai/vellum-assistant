@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import HotkeyHelperCore
+@testable import MacHelperCore
 
 private func parseObject(_ line: String) throws -> [String: Any] {
     let data = Data(line.utf8)
