@@ -241,6 +241,26 @@ export function DoctorPanel() {
     historyDetailQuery.error,
   ]);
 
+  // Reset all doctor state when active assistant changes (e.g. user switches
+  // assistant via the app-level selector while this panel is open). Without this,
+  // an existing SSE stream + sessionId would remain keyed to the old assistant.
+  const prevAssistantIdRef = useRef(assistantId);
+  useEffect(() => {
+    if (prevAssistantIdRef.current === assistantId) return;
+    prevAssistantIdRef.current = assistantId;
+    abort();
+    setEntries([]);
+    setSessionId(null);
+    setSessionStatus("idle");
+    setThinking(false);
+    setPendingApproval(false);
+    setPendingBackup(false);
+    setInputValue("");
+    setSelectedHistorySessionId(null);
+    setAppliedHistorySessionId(null);
+    setHistoryAutoLoadAttempted(false);
+  }, [assistantId, abort]);
+
   // Cleanup SSE on unmount
   useEffect(() => {
     return () => {
