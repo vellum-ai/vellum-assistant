@@ -276,6 +276,19 @@ describe("host-file-executor", () => {
       expect(fs.readFileSync(target, "utf-8")).toBe("original");
     });
 
+    test("rejects writing through dangling symlink to denied basename", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, "backup.key");
+      const link = path.join(dir, "harmless.txt");
+      // Target doesn't exist — symlink is dangling
+      fs.symlinkSync(target, link);
+
+      const result = __testing.executeWrite({ path: link, content: "secret" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to "backup.key" is denied');
+      expect(fs.existsSync(target)).toBe(false);
+    });
+
     test("rejects writing to existing non-regular file", () => {
       const result = __testing.executeWrite({ path: "/dev/null", content: "data" });
       expect(result.isError).toBe(true);

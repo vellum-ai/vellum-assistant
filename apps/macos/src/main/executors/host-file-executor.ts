@@ -78,6 +78,35 @@ function validateContentSize(content: string, filePath: string): { ok: true } | 
   return { ok: true };
 }
 
+function validateWriteTarget(filePath: string): { ok: true } | { ok: false; content: string; isError: true } {
+  let lstat: Stats;
+  try {
+    lstat = fs.lstatSync(filePath);
+  } catch {
+    return { ok: true };
+  }
+
+  if (lstat.isSymbolicLink()) {
+    const target = fs.readlinkSync(filePath);
+    const resolved = path.isAbsolute(target) ? target : path.resolve(path.dirname(filePath), target);
+    if (DENIED_BASENAMES.has(path.basename(resolved))) {
+      return { content: `Access to "${path.basename(resolved)}" is denied`, isError: true, ok: false };
+    }
+    try {
+      const targetStat = fs.statSync(filePath);
+      if (!targetStat.isFile()) {
+        return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+      }
+    } catch {
+      // Dangling symlink with allowed target basename — write will create regular file
+    }
+  } else if (!lstat.isFile()) {
+    return { content: `Not a regular file: ${filePath}`, isError: true, ok: false };
+  }
+
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Magic-byte detection helpers
 // ---------------------------------------------------------------------------
@@ -197,10 +226,8 @@ function executeWrite(fields: WriteFields): { content?: string; isError?: boolea
   const sizeCheck = validateContentSize(fields.content, filePath);
   if (!sizeCheck.ok) return sizeCheck;
 
-  if (fs.existsSync(filePath)) {
-    const fileCheck = validateRegularFile(filePath);
-    if (!fileCheck.ok) return fileCheck;
-  }
+  const targetCheck = validateWriteTarget(filePath);
+  if (!targetCheck.ok) return targetCheck;
 
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
@@ -347,6 +374,7 @@ export const __testing = {
   validateRegularFile,
   validateFileSize,
   validateContentSize,
+  validateWriteTarget,
   get pendingRequests() {
     return pendingRequests;
   },
