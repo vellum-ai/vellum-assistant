@@ -2,13 +2,13 @@ import { useMemo, useRef, useState } from "react";
 
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfileOverridePatch, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
@@ -17,6 +17,8 @@ import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configLlmProfilesByNamePut } from "@/generated/daemon/sdk.gen";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +47,7 @@ export function ManageProfilesModal({
     callSites,
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
+  const queryClient = useQueryClient();
 
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
@@ -76,12 +79,26 @@ export function ManageProfilesModal({
     const mode = options?.mode ?? "replace";
     const isNew = !(name in profiles);
 
-    // Merge mode (view-mode managed-profile policy edits): send a single
-    // deep-merge PATCH so the caller's partial `entry` (typically just
-    // `{label, status}`) layers on top of the existing record without
-    // wiping seed-owned fields.
+    // Merge mode (view-mode managed-profile policy edits): managed profiles
+    // are code-defined on the daemon, so label/status edits go through the
+    // dedicated replace endpoint (`config_llm_profiles_replace`), which
+    // persists them as sparse `llm.profileOverrides` entries instead of
+    // writing into `llm.profiles`.
     if (mode === "merge" && !isNew) {
-      await configMutation.mutateAsync({ llm: { profiles: { [name]: entry } } });
+      const override: ProfileOverridePatch = {
+        label: entry.label,
+        status: entry.status,
+      };
+      await configLlmProfilesByNamePut({
+        path: { assistant_id: assistantId, name },
+        body: override,
+        throwOnError: true,
+      });
+      // Replicate `useDaemonConfigMutation`'s settle-time invalidation so
+      // every consumer of the config query refetches the updated profile.
+      void queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
       setEditorOpen(false);
       setEditingProfile(null);
       return;

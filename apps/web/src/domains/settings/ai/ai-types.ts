@@ -60,6 +60,18 @@ export interface ProfileEntry {
 
 export type ProfileWithName = { name: string } & ProfileEntry;
 
+/**
+ * Body for the dedicated profile replace endpoint
+ * (`PUT /v1/config/llm/profiles/:name`, operation
+ * `config_llm_profiles_replace`) when editing a managed profile.
+ *
+ * Built-in profiles are code-defined on the daemon; only the user-policy
+ * leaves (display label, enabled status) may be edited. The daemon persists
+ * them as sparse `llm.profileOverrides` entries. `null` is a clear
+ * sentinel; an absent key leaves the stored override untouched.
+ */
+export type ProfileOverridePatch = Pick<ProfileEntry, "label" | "status">;
+
 export interface DaemonConfig {
   services?: {
     "web-search"?: { mode?: string; provider?: string };
