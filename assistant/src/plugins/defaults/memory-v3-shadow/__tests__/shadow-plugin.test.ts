@@ -429,8 +429,8 @@ describe("memory-v3 shadow plugin", () => {
     const rows = readRows();
     // Each selection is attributed to the lane that pooled it
     // (`result.lanes`), not re-derived from section presence — so the
-    // dense-only page-2 logs "dense", not "needle". No carry-forward rows are
-    // emitted anymore: the result is current-turn selections only.
+    // dense-only page-2 logs "dense", not "needle". The result is
+    // current-turn selections only.
     expect(rows).toEqual([
       // page-1 was surfaced by the needle lane → "needle", pinned.
       { slug: "page-1", source: "needle", pinned: 1 },

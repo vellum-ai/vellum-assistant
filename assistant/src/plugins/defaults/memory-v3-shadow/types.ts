@@ -48,13 +48,6 @@ export interface SelectedPage {
   pinned: boolean;
 }
 
-export interface WorkingSetEntry {
-  slug: Slug;
-  selectedAtTurn: number;
-  pinned: boolean;
-  lastSeenTurn: number;
-}
-
 export interface MemoryRoutingTurn {
   conversationId: string;
   turnNumber: number;
@@ -78,12 +71,11 @@ export interface MemoryRoutingTurn {
  *
  * `core` / `hot` are the stable-prefix lanes (curated core set, frecency hot
  * set); `needle` / `dense` / `edge` are the per-turn finder lanes.
- * `carry-forward` is no longer emitted (the working-set carry was removed from
- * orchestration); it stays listed so historical rows still aggregate.
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
- * needs no migration: any historical rows with older labels still read back
- * fine via the permissive `z.string()` row schema.
+ * needs no migration: any historical rows with retired labels (e.g. the old
+ * per-turn carry source) still read back fine via the permissive `z.string()`
+ * row schema — they just don't aggregate into a named bucket.
  */
 export const SELECTION_SOURCES = [
   "core",
@@ -91,7 +83,6 @@ export const SELECTION_SOURCES = [
   "needle",
   "dense",
   "edge",
-  "carry-forward",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
@@ -99,12 +90,8 @@ export type SelectionSource = (typeof SELECTION_SOURCES)[number];
 /**
  * The per-turn finder lanes — the strict subset of {@link SelectionSource} a
  * finder candidate can be tagged with at pool-build time. (`core` / `hot` are
- * assigned by stable-prefix membership, not by a finder; `carry-forward` is a
- * historical-rows-only label.) Defined via `Exclude` so it can never drift from
- * {@link SELECTION_SOURCES}: adding a finder lane there widens this
- * automatically.
+ * assigned by stable-prefix membership, not by a finder.) Defined via
+ * `Exclude` so it can never drift from {@link SELECTION_SOURCES}: adding a
+ * finder lane there widens this automatically.
  */
-export type FinderLane = Exclude<
-  SelectionSource,
-  "core" | "hot" | "carry-forward"
->;
+export type FinderLane = Exclude<SelectionSource, "core" | "hot">;

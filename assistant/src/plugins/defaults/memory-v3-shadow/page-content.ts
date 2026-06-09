@@ -17,7 +17,7 @@ function withConceptHeader(slug: Slug, body: string): string {
 /**
  * Render a selected page's full content for the v3 `<memory>` block. Mirrors
  * the v2 dynamic-memory layout (`# memory/concepts/<slug>.md\n<frontmatter+body>`)
- * so the working-set block reads like v2's. A missing page (or any read
+ * so the v3 block reads like v2's. A missing page (or any read
  * failure) degrades to "" — `renderMemoryBlock` still emits a line for the
  * slug, and a blank section is preferable to throwing into the turn.
  *

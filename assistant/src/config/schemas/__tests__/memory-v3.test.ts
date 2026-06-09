@@ -6,7 +6,6 @@ describe("MemoryV3ConfigSchema", () => {
   test("parses an empty object to documented defaults", () => {
     const parsed = MemoryV3ConfigSchema.parse({});
     expect(parsed).toEqual({
-      workingSet: { maxPages: 150, evictWindow: 5 },
       prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
       hotSet: { k: 40, halfLifeDays: 14 },
       spotlight: { n: 6, windowTurns: 2 },
@@ -14,6 +13,17 @@ describe("MemoryV3ConfigSchema", () => {
       denseK: 100,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
+  });
+
+  test("accepts and ignores the retired workingSet key from legacy configs", () => {
+    // Existing user config files may still carry the removed `workingSet`
+    // sub-config; it must parse (unknown-key strip), not throw.
+    const parsed = MemoryV3ConfigSchema.parse({
+      workingSet: { maxPages: 150, evictWindow: 5 },
+      needleK: 50,
+    });
+    expect(parsed.needleK).toBe(50);
+    expect("workingSet" in parsed).toBe(false);
   });
 
   test("prune: accepts partial overrides and enforces target < max", () => {
