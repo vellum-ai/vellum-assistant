@@ -70,7 +70,11 @@ import {
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
-import { forkActivationState } from "./v2/activation-store.js";
+import {
+  forkActivationState,
+  seedForkActivationState,
+} from "./v2/activation-store.js";
+import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
 
@@ -164,6 +168,25 @@ function cloneForkMessageMetadata(
   }
 
   return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+}
+
+/**
+ * Read the persisted `memoryInjectedBlock` off a message's metadata JSON, or
+ * `null` when absent/malformed. The block is what the request builder
+ * re-attaches as the message's `<memory>` content each turn.
+ */
+function readMemoryInjectedBlock(metadata: string | null): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const block = (parsed as Record<string, unknown>).memoryInjectedBlock;
+      if (typeof block === "string") return block;
+    }
+  } catch {
+    // Malformed metadata — treat as no block.
+  }
+  return null;
 }
 
 /**
@@ -1034,6 +1057,26 @@ export function forkConversation(params: {
     if (isFullHistoryFork) {
       forkActivationState(db, sourceConversation.id, fc.id);
       forkGraphMemoryState(sourceConversation.id, fc.id);
+    } else {
+      // Truncated fork: the wholesale copy above would over-claim, but
+      // seeding nothing makes the child re-select and re-attach every page
+      // whose `<memory>` attachment it already inherited (observed in
+      // production: 89 duplicate page injections on one fork). Derive
+      // `everInjected` from the inherited attachments themselves — scoped to
+      // the child's visible window, since attachments behind an inherited
+      // compaction boundary are not rendered and must stay re-injectable.
+      const visibleStartIndex = preserveSourceCompactionState
+        ? visibleWindowStartIndex
+        : 0;
+      const inheritedSlugs = new Set<string>();
+      for (const message of messagesToCopy.slice(visibleStartIndex)) {
+        const block = readMemoryInjectedBlock(message.metadata);
+        if (!block) continue;
+        for (const slug of extractInjectedConceptSlugs(block)) {
+          inheritedSlugs.add(slug);
+        }
+      }
+      seedForkActivationState(db, fc.id, [...inheritedSlugs]);
     }
     forkRetrospectiveState({
       database: db,
