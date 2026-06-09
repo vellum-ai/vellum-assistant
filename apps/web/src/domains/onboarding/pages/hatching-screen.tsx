@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, hatchAssistant } from "@/assistant/api";
+import { getAssistant, hatchAssistant, type Assistant } from "@/assistant/api";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import {
     isPlatformHostedDisabled,
@@ -292,7 +292,7 @@ export function HatchingScreen() {
               status: "active",
               is_local: true,
               created: new Date().toISOString(),
-            } as import("@/assistant/api").Assistant);
+            } as Assistant);
             void selectPlatformAssistant(result.assistantId);
           }
 
