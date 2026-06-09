@@ -29,7 +29,6 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
-import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-helpers.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { providerConnections } from "../../../memory/schema/inference.js";
@@ -91,7 +90,6 @@ function seedConnection(opts: {
 beforeEach(() => {
   clearConnections();
   fakeConfig = {};
-  setOverridesForTesting({ "openai-compatible-endpoints": true });
 });
 
 // ── GET list ─────────────────────────────────────────────────────────────────
@@ -160,36 +158,6 @@ describe("GET inference/provider-connections (list)", () => {
     expect(result.connections).toEqual([]);
   });
 
-  test("hides openai-compatible rows when the feature flag is disabled", async () => {
-    setOverridesForTesting({ "openai-compatible-endpoints": false });
-    seedConnection({
-      name: "my-openai",
-      provider: "openai",
-      auth: { type: "platform" },
-    });
-    seedConnection({
-      name: "my-compatible",
-      provider: "openai-compatible",
-      auth: { type: "api_key", credential: "ref/k" },
-    });
-
-    const result = (await call(
-      findHandler("inference_provider_connections_list"),
-      {},
-    )) as { connections: Array<{ name: string }> };
-
-    expect(result.connections.map((c) => c.name)).toEqual(["my-openai"]);
-  });
-
-  test("rejects openai-compatible provider filter when the feature flag is disabled", async () => {
-    setOverridesForTesting({ "openai-compatible-endpoints": false });
-
-    await expect(
-      call(findHandler("inference_provider_connections_list"), {
-        queryParams: { provider: "openai-compatible" },
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-  });
 });
 
 // ── GET single ────────────────────────────────────────────────────────────────
@@ -219,20 +187,6 @@ describe("GET inference/provider-connections/:name (single)", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  test("throws 404 for openai-compatible row when the feature flag is disabled", async () => {
-    setOverridesForTesting({ "openai-compatible-endpoints": false });
-    seedConnection({
-      name: "my-compatible",
-      provider: "openai-compatible",
-      auth: { type: "api_key", credential: "ref/k" },
-    });
-
-    await expect(
-      call(findHandler("inference_provider_connections_get"), {
-        pathParams: { name: "my-compatible" },
-      }),
-    ).rejects.toBeInstanceOf(NotFoundError);
-  });
 });
 
 // ── POST create ───────────────────────────────────────────────────────────────
@@ -312,22 +266,6 @@ describe("POST inference/provider-connections (create)", () => {
           name: "test",
           provider: "bogus-provider",
           auth: { type: "platform" },
-        },
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-  });
-
-  test("rejects openai-compatible creation when the feature flag is disabled", async () => {
-    setOverridesForTesting({ "openai-compatible-endpoints": false });
-
-    await expect(
-      call(findHandler("inference_provider_connections_create"), {
-        body: {
-          name: "my-compatible",
-          provider: "openai-compatible",
-          auth: { type: "api_key", credential: "ref/k" },
-          base_url: "http://localhost:8080/v1",
-          models: [{ id: "local-model" }],
         },
       }),
     ).rejects.toBeInstanceOf(BadRequestError);

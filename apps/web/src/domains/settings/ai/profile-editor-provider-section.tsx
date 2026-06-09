@@ -40,7 +40,6 @@ interface ProfileEditorProviderSectionProps {
   onModelChange: (newModel: string) => void;
   onConnectionChange: (newConnection: string) => void;
   connections: ProviderConnection[] | undefined;
-  openAICompatibleEndpointsEnabled: boolean;
   isReadOnly: boolean;
   /** Connections matching the current provider, computed by the parent
    *  (the save handler also needs this for binding resolution). */
@@ -76,7 +75,6 @@ export function ProfileEditorProviderSection({
   onModelChange,
   onConnectionChange,
   connections,
-  openAICompatibleEndpointsEnabled,
   isReadOnly,
   availableConnectionsForProvider,
   connectionNotFound,
@@ -85,13 +83,7 @@ export function ProfileEditorProviderSection({
   const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
-  const allProvidersForPicker = useMemo(
-    () =>
-      openAICompatibleEndpointsEnabled
-        ? ALL_PROVIDERS
-        : ALL_PROVIDERS.filter((p) => p !== OPENAI_COMPATIBLE_PROVIDER),
-    [openAICompatibleEndpointsEnabled],
-  );
+  const allProvidersForPicker = ALL_PROVIDERS;
 
   // Filter to providers with at least one connection — picking a provider
   // with zero connections binds a profile to a route the daemon can't
@@ -100,25 +92,15 @@ export function ProfileEditorProviderSection({
   const visibleProviders = useMemo(() => {
     const providerSet = new Set<string>();
     for (const c of connections ?? []) {
-      if (
-        openAICompatibleEndpointsEnabled ||
-        c.provider !== OPENAI_COMPATIBLE_PROVIDER
-      ) {
-        providerSet.add(c.provider);
-      }
+      providerSet.add(c.provider);
     }
-    if (
-      provider &&
-      (openAICompatibleEndpointsEnabled ||
-        provider !== OPENAI_COMPATIBLE_PROVIDER)
-    ) {
+    if (provider) {
       providerSet.add(provider);
     }
     return allProvidersForPicker.filter((p) => providerSet.has(p));
   }, [
     allProvidersForPicker,
     connections,
-    openAICompatibleEndpointsEnabled,
     provider,
   ]);
 
@@ -144,12 +126,6 @@ export function ProfileEditorProviderSection({
   // selected, merge models from all available openai-compatible connections.
   const availableModels: readonly { id: string; displayName: string }[] = useMemo(() => {
     if (!provider) return [];
-    if (
-      provider === OPENAI_COMPATIBLE_PROVIDER &&
-      !openAICompatibleEndpointsEnabled
-    ) {
-      return [];
-    }
     const catalogModels = getModelsForProvider(provider);
     if (catalogModels.length > 0) {
       const selectedConn = providerConnection
@@ -187,7 +163,6 @@ export function ProfileEditorProviderSection({
     return merged;
   }, [
     provider,
-    openAICompatibleEndpointsEnabled,
     providerConnection,
     availableConnectionsForProvider,
   ]);

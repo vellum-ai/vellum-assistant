@@ -116,14 +116,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "chatgpt-subscription-auth",
-      "scope": "assistant",
-      "key": "chatgpt-subscription-auth",
-      "label": "ChatGPT Subscription Auth",
-      "description": "Enable ChatGPT subscription OAuth as a provider auth type for OpenAI models, using the Codex device-code flow.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -161,14 +153,6 @@
       "key": "message-tts",
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
-      "defaultEnabled": false
-    },
-    {
-      "id": "openai-compatible-endpoints",
-      "scope": "assistant",
-      "key": "openai-compatible-endpoints",
-      "label": "OpenAI-Compatible Endpoints",
-      "description": "Enable user-configured OpenAI-compatible inference endpoints with custom base URLs and model identifiers",
       "defaultEnabled": false
     },
     {
@@ -337,14 +321,6 @@
       "key": "chat-pull-to-refresh-enabled",
       "label": "Chat Pull to Refresh",
       "description": "Enable pull-to-refresh gesture in the chat view.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "home-page",
-      "scope": "client",
-      "key": "home-page",
-      "label": "Home Page",
-      "description": "Enable the Home page as the default landing view.",
       "defaultEnabled": false
     },
     {
