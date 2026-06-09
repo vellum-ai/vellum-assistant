@@ -8,6 +8,8 @@ import {
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
@@ -289,6 +291,75 @@ describe("AssistantConfigSchema", () => {
       },
     };
     expect(() => AssistantConfigSchema.parse(input)).toThrow(/missing-profile/);
+  });
+
+  test("accepts llm.profileOverrides with label rename, status toggle, and explicit nulls", () => {
+    const input = {
+      llm: {
+        profileOverrides: {
+          balanced: { label: "My Balanced" },
+          "cost-optimized": { status: "disabled" as const },
+          turbo: { label: null, status: null },
+        },
+      },
+    };
+    const result = AssistantConfigSchema.parse(input);
+    expect(result.llm.profileOverrides).toEqual({
+      balanced: { label: "My Balanced" },
+      "cost-optimized": { status: "disabled" },
+      turbo: { label: null, status: null },
+    });
+  });
+
+  test("parses fine when llm.profileOverrides is absent", () => {
+    const result = AssistantConfigSchema.parse({ llm: {} });
+    expect(result.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("rejects an llm.profileOverrides entry carrying non-override keys", () => {
+    for (const extra of [
+      { model: "claude-opus-4-8" },
+      { provider: "anthropic" },
+      { maxTokens: 1000 },
+      { description: "nope" },
+    ]) {
+      const input = {
+        llm: {
+          profileOverrides: {
+            balanced: { label: "My Balanced", ...extra },
+          },
+        },
+      };
+      expect(() => AssistantConfigSchema.parse(input)).toThrow(
+        /Unrecognized key/,
+      );
+    }
+  });
+
+  test("rejects an empty-string label in llm.profileOverrides", () => {
+    const input = {
+      llm: { profileOverrides: { balanced: { label: "" } } },
+    };
+    expect(() => AssistantConfigSchema.parse(input)).toThrow();
+  });
+
+  test("config schema endpoint output includes llm.profileOverrides", () => {
+    // Mirrors handleGetConfigSchema, which derives the GET /v1/config/schema
+    // payload from AssistantConfigSchema with these exact options.
+    const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
+      unrepresentable: "any",
+      io: "input",
+    }) as Record<string, unknown>;
+    const llm = (jsonSchema.properties as Record<string, unknown>)
+      .llm as Record<string, unknown>;
+    const llmProps = llm.properties as Record<string, unknown>;
+    expect(llmProps.profileOverrides).toBeDefined();
+    const overrides = llmProps.profileOverrides as Record<string, unknown>;
+    const entryProps = (
+      overrides.additionalProperties as Record<string, unknown>
+    ).properties as Record<string, unknown>;
+    expect(entryProps.label).toBeDefined();
+    expect(entryProps.status).toBeDefined();
   });
 
   test("legacy top-level inference keys are ignored after PR 19 cleanup", () => {

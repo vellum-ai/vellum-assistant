@@ -429,6 +429,26 @@ export const ProfileEntry = LLMConfigFragment.extend({
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
 /**
+ * A sparse user override for a code-defined built-in profile. Built-in profile
+ * definitions live only in code and are merged into the parsed config at load
+ * time; the only user-editable facets are presentation (`label`) and
+ * enablement (`status`), persisted under `llm.profileOverrides`.
+ *
+ * `.strict()` is deliberate: it rejects attempts to smuggle config fields
+ * (`model`, `provider`, `maxTokens`, ...) through the override store — that
+ * drift vector is exactly what built-in profiles exist to close. `.nullable()`
+ * on both fields mirrors `ProfileEntry`: `null` is the "clear this override"
+ * sentinel used by the PUT profile route (see `patchManagedProfileFields`).
+ */
+export const ProfileOverrideEntry = z
+  .object({
+    label: z.string().min(1).nullable().optional(),
+    status: ProfileStatusSchema.nullable().optional(),
+  })
+  .strict();
+export type ProfileOverrideEntry = z.infer<typeof ProfileOverrideEntry>;
+
+/**
  * Per-call-site config: a fragment plus an optional `profile` reference.
  * The resolver merges in the named profile (if any) before applying
  * call-site-level overrides.
@@ -446,6 +466,11 @@ export const LLMSchema = z
   .object({
     default: LLMConfigBase.default(LLMConfigBase.parse({})),
     profiles: z.record(z.string().min(1), ProfileEntry).default({}),
+    // Sparse user overrides (label/status only) for code-defined built-in
+    // profiles, keyed by built-in profile id. See `ProfileOverrideEntry`.
+    profileOverrides: z
+      .record(z.string().min(1), ProfileOverrideEntry)
+      .optional(),
     // Presentation-only order for named profiles. The resolver ignores this;
     // clients use it to render profile pickers consistently.
     profileOrder: z.array(z.string().min(1)).default([]),
