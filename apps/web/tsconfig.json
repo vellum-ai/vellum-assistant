@@ -16,7 +16,9 @@
     "isolatedModules": true,
     "types": ["bun"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@vellumai/design-library": ["./node_modules/@vellumai/design-library/src/index.ts"],
+      "@vellumai/design-library/*": ["./node_modules/@vellumai/design-library/src/*"]
     }
   },
   "include": [

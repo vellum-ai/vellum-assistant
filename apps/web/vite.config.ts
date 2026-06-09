@@ -105,6 +105,13 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         {
+          // Resolve the design library to its source via the node_modules
+          // symlink — the same module paths as the old exports-to-src route —
+          // so the package's exports can point at dist for npm consumers.
+          find: "@vellumai/design-library",
+          replacement: DESIGN_LIBRARY_SYMLINK,
+        },
+        {
           find: /^@\//,
           replacement: path.resolve(import.meta.dirname, "src") + "/",
         },
