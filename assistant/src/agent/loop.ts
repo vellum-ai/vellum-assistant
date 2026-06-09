@@ -418,6 +418,20 @@ function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
 }
 
 /**
+ * Whether `content` carries native server-tool blocks (e.g. web search).
+ * These render their own UI and carry state `handleMessageComplete` persists
+ * for the activity/card, so a turn holding them is not an empty bubble and
+ * must not have its content replaced by the empty-response fallback.
+ */
+function hasServerToolContent(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) =>
+      block.type === "server_tool_use" ||
+      block.type === "web_search_tool_result",
+  );
+}
+
+/**
  * User-config HTTP status codes that should never page the on-call: billing
  * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
  * The user-facing error path already surfaces an actionable message (e.g.
@@ -1475,19 +1489,31 @@ export class AgentLoop {
         // Safety net for the stop boundary: a no-tool turn with no visible text
         // would otherwise reach the user as an empty assistant bubble (e.g. a
         // provider `refusal` after the `stop` hook's nudge budget is spent).
-        // Substitute a user-facing fallback and stream it, since nothing was
-        // emitted live for an empty turn. Scoped to runs that produced no
-        // visible text at all: when an earlier turn this run already replied
-        // (e.g. text alongside a tool call), an empty trailing turn is expected
-        // and must not append a spurious apology beneath the real answer.
+        // Append a user-facing fallback and stream it, since nothing was
+        // emitted live for an empty turn. Two scopes guard against firing when
+        // the turn is not actually a blank bubble:
+        //  - `producedVisibleTextThisRun`: when an earlier turn this run already
+        //    replied (e.g. text alongside a tool call), an empty trailing turn
+        //    is expected and must not gain a spurious apology beneath the real
+        //    answer.
+        //  - `hasServerToolContent`: a native web-search turn can land here with
+        //    no text but with `server_tool_use`/`web_search_tool_result` blocks
+        //    that render the search card; it is not an empty bubble, and
+        //    replacing or apologizing over it would drop the card.
+        // The fallback is appended (not substituted) so any other non-text
+        // blocks the turn carries are preserved.
         if (
           toolUseBlocks.length === 0 &&
           !producedVisibleTextThisRun &&
-          !hasVisibleText(assistantMessage.content)
+          !hasVisibleText(assistantMessage.content) &&
+          !hasServerToolContent(assistantMessage.content)
         ) {
           assistantMessage = {
             role: "assistant",
-            content: [{ type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT }],
+            content: [
+              ...assistantMessage.content,
+              { type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT },
+            ],
           };
           onEvent({ type: "text_delta", text: EMPTY_RESPONSE_FALLBACK_TEXT });
         }

@@ -2299,6 +2299,64 @@ describe("AgentLoop", () => {
     expect(fallbackInHistory).toBe(false);
   });
 
+  // A native web-search turn lands at the stop boundary with no `tool_use` and
+  // no visible text, but its `server_tool_use`/`web_search_tool_result` blocks
+  // render the search card and back its persistence. The fallback must not fire
+  // here — replacing the content would drop those blocks and erase the card.
+  test("does not substitute a fallback for a server-tool turn with no text", async () => {
+    // GIVEN a turn carrying only native web-search blocks (no text, no
+    // client-side tool_use).
+    const serverToolBlocks: ContentBlock[] = [
+      {
+        type: "server_tool_use",
+        id: "srv1",
+        name: "web_search",
+        input: { query: "weather" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srv1",
+        content: [{ title: "result" }],
+      },
+    ];
+    const webSearchResponse: ProviderResponse = {
+      content: serverToolBlocks,
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "end_turn",
+    };
+    const { provider, calls } = createMockProvider([webSearchResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider is called once (no nudge for a non-refusal turn) and
+    // the server-tool blocks are persisted untouched, with no fallback added.
+    expect(calls).toHaveLength(1);
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual(serverToolBlocks);
+
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          EMPTY_RESPONSE_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
+  });
+
   // PR 6: callSite threading from AgentLoop.run() into provider config.
   // Verifies the per-call config exposes `callSite` so RetryProvider can route
   // through `resolveCallSiteConfig` instead of the legacy `modelIntent` path.
