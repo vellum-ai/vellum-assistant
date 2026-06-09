@@ -19,6 +19,7 @@ import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -819,7 +820,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // up-front reduction.
     mockEstimateTokens = 185_000;
 
-    // AND the post-run convergence reducer successfully compacts
+    // AND the reactive reduction ladder successfully compacts
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCalled = true;
       return {
@@ -852,7 +853,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // AND a provider that rejects the first call as too long (revealing the
     // real 242k count the estimator missed), then succeeds on the rerun.
     const { provider, calls } = createMockProvider([
-      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      new ContextOverflowError(
+        "prompt is too long: 242201 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 242_201, maxTokens: 200_000 },
+      ),
       textResponse("recovered"),
     ]);
 
@@ -868,7 +873,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // WHEN the turn runs
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // THEN the convergence reducer ran and the rerun recovered without a
+    // THEN the reduction ladder ran and the rerun recovered without a
     // user-facing conversation_error.
     expect(reducerCalled).toBe(true);
     const conversationError = events.find(
@@ -1374,23 +1379,17 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   );
 
   // ── Test 8 ────────────────────────────────────────────────────────
-  // When mid-loop compaction exhausts maxAttempts but the agent loop
-  // still yields (yieldedForBudget remains true), the incomplete turn
-  // must escalate to the convergence loop instead of being silently
-  // treated as a completed turn.
-  test("exhausted mid-loop compaction attempts escalate to convergence loop", async () => {
+  // When the reduction ladder is exhausted and the provider still rejects,
+  // the loop owns the terminal exit and stamps `context_too_large` (no
+  // auto-compress rung ran, so the give-up is genuinely unrecoverable).
+  test("reactive recovery stamps context_too_large once the ladder is exhausted", async () => {
     const events: ServerMessage[] = [];
 
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    // Every estimate is above the threshold, so the first-call gate compacts
-    // before the first provider call and every checkpoint trips the yield.
-    mockEstimateTokens = 170_000;
-
-    // The convergence reducer reduces tokens enough for the rerun to recover.
-    let convergenceReducerCalled = false;
+    // The ladder applies one rung and reports exhaustion (no auto-compress
+    // rung), so the next rejection has no further rung to run.
+    let reducerCalled = false;
     mockReducerStepFn = (msgs: Message[]) => {
-      convergenceReducerCalled = true;
+      reducerCalled = true;
       return {
         messages: msgs,
         tier: "forced_compaction",
@@ -1403,83 +1402,36 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
     };
 
-    // Every provider call returns a tool_use, so each loop run does a tool
-    // turn that trips the mid-loop budget gate. On the initial run the gate
-    // calls compaction (which surfaces `exhausted: true`); the convergence
-    // rerun runs without a compaction hook and yields "budget" directly.
-    // With the reducer exhausted, the convergence loop terminates with the
-    // turn still over budget and the orchestrator stamps `context_too_large`.
+    // The provider rejects every call as context-too-large: the first
+    // rejection drives the one ladder rung (which reports exhaustion); the
+    // second rejection finds the ladder exhausted and ends the turn.
     const { provider, calls } = createMockProvider([
-      toolUseResponse("tu-1", "bash", { command: "ls" }),
+      new ContextOverflowError("context_length_exceeded", "mock-provider", {
+        actualTokens: 242_000,
+        maxTokens: 200_000,
+      }),
     ]);
 
-    let compactionCallCount = 0;
     const ctx = makeCtx({
       loopProvider: provider,
-      loopTools: [
-        {
-          name: "bash",
-          description: "Run a shell command",
-          input_schema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-          },
-        },
-      ],
-      toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
         updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => {
-          compactionCallCount++;
-          // Compaction's internal retry budget is exhausted — the
-          // compactor itself ran maxAttempts passes and still couldn't
-          // drop below the auto-threshold. `maybeCompact` surfaces this
-          // via `exhausted: true` so the loop yields "budget" and the
-          // orchestrator escalates straight to the convergence loop
-          // instead of looping on a stuck compactor.
-          return {
-            compacted: true,
-            exhausted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "Hello" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Compaction summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 165_000, // barely reduced
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
+        maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 1 mid-loop compaction = 2 total. The
-    // first mid-loop call surfaces `exhausted: true`, so the
-    // orchestrator escalates immediately without retrying maybeCompact
-    // — the retry budget for the compactor itself lives inside
-    // `ContextWindowManager.maybeCompact`.
-    expect(compactionCallCount).toBe(2);
+    // The ladder ran a rung before exhausting.
+    expect(reducerCalled).toBe(true);
 
-    // Provider calls: 1 initial tool turn (yields budget) + 1 convergence
-    // rerun that recovers. No mid-loop re-entries because the orchestrator
-    // broke out on `exhausted` before re-invoking the loop.
+    // Provider calls: 1 initial rejection (drives the rung) + 1 retry that
+    // finds the ladder exhausted and ends the turn.
     expect(calls.length).toBe(2);
 
-    // After the compactor exhausted itself, the convergence loop
-    // should have been triggered (contextTooLargeDetected set to true)
-    expect(convergenceReducerCalled).toBe(true);
+    // No auto-compress rung ran, so the give-up is the unrecoverable
+    // `context_too_large` rather than a budget yield.
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
@@ -1487,90 +1439,56 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 8b ───────────────────────────────────────────────────────
-  // Counterpart to Test 8: when a mid-loop `maybeCompact` returns
-  // productive (`compacted: true`, no `exhausted` flag), the loop
-  // compacts in place and continues the run itself — it never yields
-  // "budget", so the orchestrator does not escalate to the convergence
-  // loop. Mid-loop iteration is now wholly internal to `AgentLoop.run`;
-  // the orchestrator only reacts to the binary `exhausted`/timeout
-  // signal carried back as a "budget" exit.
-  test("productive mid-loop compaction continues in place without escalating", async () => {
+  // Counterpart to Test 8: when a ladder rung is productive (not exhausted),
+  // the loop retries and the rerun completes the turn — no terminal overflow
+  // reason is stamped and no user-facing error surfaces.
+  test("reactive recovery via a productive rung recovers without stamping context_too_large", async () => {
     const events: ServerMessage[] = [];
 
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    // Every estimate is above the threshold: the first-call gate compacts
-    // before the first provider call, and each subsequent checkpoint trips
-    // the yield even after a successful compaction (each tool result inflates
-    // the context back past 85%).
-    mockEstimateTokens = 170_000;
+    // The ladder applies a productive rung (not exhausted), so the loop
+    // retries and the rerun completes the turn.
+    let reducerCalled = false;
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 100_000,
+      };
+    };
 
-    // A single tool round reaches one checkpoint; the in-loop budget gate
-    // trips there and compaction runs in place. The loop continues the run
-    // itself — the following provider call returns plain text and the turn
-    // completes — so the orchestrator never re-enters the convergence loop.
+    // The provider rejects the first call as context-too-large, then succeeds
+    // once the loop's reactive recovery has reduced the context.
     const { provider, calls } = createMockProvider([
-      toolUseResponse("tu-1", "bash", { command: "ls" }),
+      new ContextOverflowError("context_length_exceeded", "mock-provider", {
+        actualTokens: 242_000,
+        maxTokens: 200_000,
+      }),
       textResponse("final answer"),
     ]);
 
-    // Compaction reports `estimatedInputTokens` well below the 161_500
-    // threshold — the "compaction is productive" signal (no `exhausted`
-    // flag) that lets the loop continue in place.
-    let compactionCallCount = 0;
     const ctx = makeCtx({
       loopProvider: provider,
-      loopTools: [
-        {
-          name: "bash",
-          description: "Run a shell command",
-          input_schema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-          },
-        },
-      ],
-      toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
         updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => {
-          compactionCallCount++;
-          return {
-            compacted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "Hello" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Compaction summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 100_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
+        maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 1 productive mid-loop compaction.
-    expect(compactionCallCount).toBe(2);
-    // The loop continued in place after compacting: a tool turn followed by
-    // the post-compaction text turn, both within a single run.
+    expect(reducerCalled).toBe(true);
+    // 1 rejected call (drives a rung) + 1 successful rerun.
     expect(calls.length).toBe(2);
 
-    // No escalation to the convergence loop because the mid-loop
-    // `maybeCompact` returned productive (no `exhausted` flag), and the turn
-    // completed normally.
+    // The turn recovered, so no terminal overflow reason is stamped and no
+    // user-facing error surfaces.
     expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
@@ -1579,33 +1497,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 9 ────────────────────────────────────────────────────────
-  // When the convergence loop reruns the agent loop and it still yields
-  // at checkpoint (yieldedForBudget), the loop must continue reducing
-  // through additional tiers instead of silently dropping the incomplete
-  // turn.
-  test("post-convergence yieldedForBudget continues reduction", async () => {
+  // When successive rejections drive the ladder through multiple rungs, the
+  // loop escalates one rung per rerun and only surfaces the terminal exit once
+  // the ladder reports exhaustion — it never silently drops the turn.
+  test("reactive recovery escalates across rungs before stamping context_too_large", async () => {
     const events: ServerMessage[] = [];
 
-    // Budget = 200_000 * 0.95 = 190_000
-    // Mid-loop threshold = 190_000 * 0.85 = 161_500
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      // Preflight: below budget
-      if (estimateCallCount === 1) return 100_000;
-      // Every checkpoint call: above threshold — always triggers yield
-      return 170_000;
-    };
-
-    // Every provider call returns a tool_use, so each loop run does a tool
-    // turn that trips the mid-loop budget gate and yields "budget". The
-    // initial run's gate calls compaction (exhausted); the convergence
-    // reruns run without a compaction hook and yield directly.
-    const { provider, calls } = createMockProvider([
-      toolUseResponse("tu-1", "bash", { command: "ls" }),
-    ]);
-
-    // Convergence reducer: first call returns non-exhausted, second returns exhausted
+    // The ladder applies a productive rung first, then a second rung that
+    // reports exhaustion — escalation across successive rejections.
     let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
@@ -1621,7 +1520,6 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           estimatedTokens: 80_000,
         };
       }
-      // Second call: exhausted
       return {
         messages: msgs,
         tier: "tool_result_truncation",
@@ -1634,61 +1532,31 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
     };
 
+    // The provider rejects every call as context-too-large, so each rejection
+    // drives the next ladder rung until the ladder is exhausted.
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("context_length_exceeded", "mock-provider", {
+        actualTokens: 242_000,
+        maxTokens: 200_000,
+      }),
+    ]);
+
     const ctx = makeCtx({
       loopProvider: provider,
-      loopTools: [
-        {
-          name: "bash",
-          description: "Run a shell command",
-          input_schema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-          },
-        },
-      ],
-      toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
         updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
-        // the retry budget lives inside `ContextWindowManager._maybeCompact`,
-        // so a single daemon-level call represents the full manager retry
-        // sequence. Signal `exhausted: true` immediately to escalate the
-        // mid-loop to the convergence reducer.
-        maybeCompact: async () => ({
-          compacted: true,
-          messages: [
-            {
-              role: "user" as const,
-              content: [{ type: "text", text: "Hello" }],
-            },
-          ] as Message[],
-          compactedPersistedMessages: 5,
-          summaryText: "Compaction summary",
-          previousEstimatedInputTokens: 170_000,
-          estimatedInputTokens: 165_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-          exhausted: true,
-        }),
+        maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
     });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // Reducer should have been called twice: once for first convergence tier,
-    // once more after yieldedForBudget triggered re-entry
+    // Two rungs ran across two rejections before the ladder exhausted.
     expect(reducerCallCount).toBe(2);
 
-    // Provider calls: 1 initial run + 2 convergence reruns = 3 calls, each a
-    // tool turn that yields "budget". The mid-loop no longer drives
-    // daemon-level retries — the manager owns its retry budget and signals
-    // exhaustion via the `exhausted` flag.
+    // Provider calls: rejection→rung1, rejection→rung2 (exhausts), rejection→
+    // terminal exit = 3 calls.
     expect(calls.length).toBe(3);
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
       "test-conv",
@@ -1696,35 +1564,25 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     );
   });
 
-  // ── Test 9 ────────────────────────────────────────────────────────
-  // When the `auto_compress_latest_turn` rerun (the last layer of the
-  // overflow-recovery ladder) still yields at the mid-loop checkpoint,
-  // the turn cannot proceed. Before PR 1 of the Compaction Visibility
-  // workstream this terminated silently — no `agent_loop_exit_reason`,
-  // no client notice, no durable transcript row. Now the loop must:
-  //   1. emit a `conversation_error` event with code
-  //      `BUDGET_YIELD_UNRECOVERED`,
-  //   2. persist a `role="assistant"` notice via the persistence
+  // ── Test 10 ───────────────────────────────────────────────────────
+  // When the ladder applies its terminal `auto_compress_latest_turn` rung and
+  // the provider still rejects, the loop owns a `budget_yield_unrecovered`
+  // terminal exit (distinct from a genuine unrecoverable `context_too_large`).
+  // The daemon wrapper then renders the matching user-facing notice and stamps
+  // the exit reason, so:
+  //   1. a `conversation_error` event with code `BUDGET_YIELD_UNRECOVERED`
+  //      reaches the client,
+  //   2. a `role="assistant"` notice is persisted via the persistence
   //      pipeline (so reloads keep the message),
-  //   3. stamp `budget_yield_unrecovered` onto the latest llm_request_logs
-  //      row.
+  //   3. `budget_yield_unrecovered` is stamped onto the latest
+  //      llm_request_logs row.
   test("budget_yield_unrecovered: classified error emitted, persisted, and stamped", async () => {
     const events: ServerMessage[] = [];
 
-    // Every estimate after the very first preflight is above the mid-loop
-    // threshold (190_000 × 0.85 = 161_500). This makes every checkpoint
-    // yield, including the one inside the auto_compress rerun.
-    let estimateCallCount = 0;
-    mockEstimateTokens = () => {
-      estimateCallCount++;
-      if (estimateCallCount === 1) return 100_000;
-      return 170_000;
-    };
-
-    // The reduction ladder applies a middle tier first, then escalates to its
-    // terminal auto-compress-latest-turn rung and reports exhaustion. The
-    // terminal rung is what produces a `budget_yield_unrecovered` outcome when
-    // its rerun still yields at the mid-loop checkpoint.
+    // The ladder applies a productive middle rung first, then escalates to its
+    // terminal auto-compress-latest-turn rung and reports exhaustion. Because
+    // that policy-gated rung ran, the loop's terminal exit is
+    // `budget_yield_unrecovered` rather than `context_too_large`.
     let reducerCallCount = 0;
     mockReducerStepFn = (msgs: Message[]) => {
       reducerCallCount++;
@@ -1743,128 +1601,22 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
     };
 
-    // The overflow policy permits the terminal auto-compress-latest-turn rung,
-    // so the ladder runs it as its final step.
-    mockOverflowAction = "auto_compress_latest_turn";
-
-    // Every provider call returns a tool_use, so each loop run does a tool
-    // turn that trips the mid-loop budget gate and yields "budget" —
-    // including the final auto_compress rerun.
+    // The provider rejects every call as context-too-large, so each rejection
+    // drives the next ladder rung until the terminal auto-compress rung runs
+    // and the ladder is exhausted.
     const { provider } = createMockProvider([
-      toolUseResponse("tu-1", "bash", { command: "ls" }),
+      new ContextOverflowError("context_length_exceeded", "mock-provider", {
+        actualTokens: 242_000,
+        maxTokens: 200_000,
+      }),
     ]);
 
-    // Forced `maybeCompact` is invoked through the loop's own pre-call budget
-    // gate at two call sites (the reduction-ladder rungs are mocked out, so
-    // their summary calls don't reach this manager):
-    //   1. First-call (turn-start) gate (`force: true`) — the loop owns the
-    //      turn-start compaction. It succeeds, but the mocked estimate stays
-    //      above the mid-loop threshold, so the turn proceeds and the mid-loop
-    //      gate still trips on the next iteration.
-    //   2. Mid-loop after the first tool turn (`force: true`) — must signal
-    //      `exhausted: true` so the daemon escalates to the convergence
-    //      reducer instead of looping forever.
-    let forcedMaybeCompactCallCount = 0;
     const ctx = makeCtx({
       loopProvider: provider,
-      loopTools: [
-        {
-          name: "bash",
-          description: "Run a shell command",
-          input_schema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-          },
-        },
-      ],
-      toolExecutor: async () => ({ content: "output", isError: false }),
       contextWindowManager: {
         updateConfig: () => {},
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async (
-          _msgs: Message[],
-          _signal: AbortSignal,
-          opts?: { force?: boolean },
-        ) => {
-          // Only forced compactions drive this test; any non-forced probe is
-          // a no-op.
-          if (!opts?.force) {
-            return { compacted: false };
-          }
-          forcedMaybeCompactCallCount++;
-          if (forcedMaybeCompactCallCount === 1) {
-            // First-call (turn-start) gate: succeeds, but the mocked estimate
-            // stays above the threshold so the turn proceeds to the call and
-            // the mid-loop gate still trips next iteration.
-            return {
-              compacted: true,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text", text: "turn-start compacted" }],
-                },
-              ] as Message[],
-              compactedPersistedMessages: 5,
-              summaryText: "Turn-start summary",
-              previousEstimatedInputTokens: 170_000,
-              estimatedInputTokens: 165_000,
-              maxInputTokens: 200_000,
-              thresholdTokens: 160_000,
-              compactedMessages: 10,
-              summaryCalls: 1,
-              summaryInputTokens: 500,
-              summaryOutputTokens: 200,
-              summaryModel: "mock-model",
-            };
-          }
-          if (forcedMaybeCompactCallCount === 2) {
-            // Mid-loop call — the manager owns its own retry budget; signal
-            // exhaustion to escalate to convergence.
-            return {
-              compacted: true,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text", text: "mid-loop compacted" }],
-                },
-              ] as Message[],
-              compactedPersistedMessages: 5,
-              summaryText: "Mid-loop summary",
-              previousEstimatedInputTokens: 170_000,
-              estimatedInputTokens: 165_000,
-              maxInputTokens: 200_000,
-              thresholdTokens: 160_000,
-              compactedMessages: 10,
-              summaryCalls: 1,
-              summaryInputTokens: 500,
-              summaryOutputTokens: 200,
-              summaryModel: "mock-model",
-              exhausted: true,
-            };
-          }
-          // Defensive fallback for any additional forced probe; the two gate
-          // call sites above are the only ones this test exercises.
-          return {
-            compacted: true,
-            messages: [
-              {
-                role: "user" as const,
-                content: [{ type: "text", text: "compacted" }],
-              },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Fallback summary",
-            previousEstimatedInputTokens: 170_000,
-            estimatedInputTokens: 90_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          };
-        },
+        maybeCompact: async () => ({ compacted: false }),
       } as unknown as Conversation["contextWindowManager"],
     });
 

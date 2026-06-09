@@ -13,6 +13,7 @@ import type { LoopToolExecutor } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -1511,11 +1512,14 @@ describe("session-agent-loop", () => {
         },
       });
 
-      // The provider rejects the first call as too large; the convergence
-      // reducer compacts and the rerun completes the turn, forwarding the
+      // The provider rejects the first call as too large; the loop's reactive
+      // recovery compacts and the rerun completes the turn, forwarding the
       // compaction's cache-aware usage to recordUsage.
       const { provider } = createMockProvider([
-        new Error("context_length_exceeded"),
+        new ContextOverflowError("context_length_exceeded", "mock-provider", {
+          actualTokens: 242_000,
+          maxTokens: 200_000,
+        }),
         textResponse("recovered"),
       ]);
       const ctx = makeCtx({
@@ -1562,7 +1566,7 @@ describe("session-agent-loop", () => {
       });
     });
 
-    test("convergence loop applies reducer and retries when context-too-large is detected", async () => {
+    test("reactive recovery applies the reducer and retries when context-too-large is detected", async () => {
       const events: ServerMessage[] = [];
       let reducerCalled = false;
 
@@ -1597,10 +1601,13 @@ describe("session-agent-loop", () => {
         };
       };
 
-      // The provider rejects the first call with a context-too-large error,
-      // then succeeds once the orchestrator has reduced the context.
+      // The provider rejects the first call as context-too-large, then
+      // succeeds once the loop's reactive recovery has reduced the context.
       const { provider, calls } = createMockProvider([
-        new Error("context_length_exceeded"),
+        new ContextOverflowError("context_length_exceeded", "mock-provider", {
+          actualTokens: 242_000,
+          maxTokens: 200_000,
+        }),
         textResponse("recovered"),
       ]);
 
@@ -1621,46 +1628,35 @@ describe("session-agent-loop", () => {
       expect(compactEvent).toBeDefined();
     });
 
-    test("emits conversation_error when context stays too large after all recovery attempts", async () => {
+    test("emits conversation_error when the ladder exhausts and the provider still rejects", async () => {
       const events: ServerMessage[] = [];
 
-      // The provider rejects every call with a context-too-large error, so the
-      // orchestrator exhausts its recovery attempts.
+      // The default reducer mock exhausts its non-auto-compress rungs on the
+      // first rung. The provider rejects every call, so once the ladder is
+      // exhausted the loop emits a terminal `context_too_large` exit and the
+      // wrapper surfaces the matching conversation_error.
       const ctx = makeCtx({
-        providerResponses: [new Error("context_length_exceeded")],
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          // Compaction succeeds but context is still too large
-          maybeCompact: async () => ({
-            compacted: true,
-            messages: [
-              { role: "user", content: [{ type: "text", text: "Hello" }] },
-            ] as Message[],
-            compactedPersistedMessages: 5,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 90000,
-            estimatedInputTokens: 85000,
-            maxInputTokens: 100000,
-            thresholdTokens: 80000,
-            compactedMessages: 2,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
+        providerResponses: [
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
           }),
-        } as unknown as Conversation["contextWindowManager"],
+        ],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
+      expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+        "test-conv",
+        "context_too_large",
+      );
       const conversationError = events.find(
         (e) => e.type === "conversation_error",
       );
       expect(conversationError).toBeDefined();
     });
 
-    test("bounded convergence loop applies reducer tiers and recovers", async () => {
+    test("reactive recovery via a non-summary rung recovers without error", async () => {
       const events: ServerMessage[] = [];
       let reducerCalls = 0;
 
@@ -1679,11 +1675,14 @@ describe("session-agent-loop", () => {
         };
       };
 
-      // The provider rejects the first call with a context-too-large error,
-      // then succeeds once the orchestrator has reduced the context.
+      // The provider rejects the first call as context-too-large, then
+      // succeeds once the loop's reactive recovery has reduced the context.
       const { provider, calls } = createMockProvider([
-        new Error("context_length_exceeded"),
-        textResponse("recovered via convergence"),
+        new ContextOverflowError("context_length_exceeded", "mock-provider", {
+          actualTokens: 242_000,
+          maxTokens: 200_000,
+        }),
+        textResponse("recovered via reactive recovery"),
       ]);
 
       const ctx = makeCtx({
@@ -1733,12 +1732,18 @@ describe("session-agent-loop", () => {
 
       mockOverflowAction = "auto_compress_latest_turn";
 
-      // The provider rejects the first two calls with context-too-large errors,
-      // then succeeds after the terminal auto-compress rung runs.
+      // The provider rejects the first two calls as context-too-large, then
+      // succeeds after the terminal auto-compress rung runs.
       const ctx = makeCtx({
         providerResponses: [
-          new Error("context_length_exceeded"),
-          new Error("context_length_exceeded"),
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
+          }),
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
+          }),
           textResponse("auto-recovered"),
         ],
         hasNoClient: true,
@@ -1776,22 +1781,16 @@ describe("session-agent-loop", () => {
       expect(complete).toBeDefined();
     });
 
-    test("emits budget_yield_unrecovered when auto_compress rerun yields at mid-loop budget", async () => {
-      // Regression test for the silent-stall failure mode:
-      // when every recovery layer has been applied (tier reducer
-      // exhausted + auto_compress_latest_turn emergency compaction)
-      // and the final `agentLoop.run` STILL yields at the mid-loop
-      // budget checkpoint, the orchestrator used to fall through to
-      // post-turn cleanup with NO `agent_loop_exit_reason` emitted —
-      // the turn just stopped mid-action and `llm_request_logs` showed
-      // a NULL exit reason on the final row. We now emit
-      // `budget_yield_unrecovered` so the inspector and dashboards can
-      // attribute the silent stall.
+    test("emits budget_yield_unrecovered when the auto-compress rung is exhausted and the provider still rejects", async () => {
+      // When the ladder's terminal auto-compress-latest-turn rung has run and
+      // the provider STILL rejects the rerun, the loop has exhausted every
+      // policy-permitted recovery layer. It emits `budget_yield_unrecovered`
+      // (rather than the unrecoverable `context_too_large`) so the inspector
+      // and dashboards can attribute the give-up to the auto-compress path.
       const events: ServerMessage[] = [];
 
       // The ladder applies a middle tier, then runs its terminal
-      // auto-compress-latest-turn rung and reports exhaustion. Its rerun is the
-      // one that still yields at the mid-loop budget checkpoint.
+      // auto-compress-latest-turn rung and reports exhaustion.
       let reducerCalls = 0;
       mockReducerStepFn = (msgs: Message[]) => {
         reducerCalls++;
@@ -1812,60 +1811,18 @@ describe("session-agent-loop", () => {
 
       mockOverflowAction = "auto_compress_latest_turn";
 
-      // Sits between the preflight budget (preflightBudget =
-      // 100k * 0.95 = 95k — anything above triggers preflight reducer
-      // *before* we get to the convergence/auto_compress path under
-      // test) and the mid-loop threshold (preflightBudget * 0.85 =
-      // ≈80.75k — anything above flips yieldedForBudget on a checkpoint
-      // call). 90k satisfies both so the path reaches call 3.
-      mockEstimateTokens = 90_000;
-
-      // Calls 1 (initial) and 2 (convergence rerun) reject with
-      // context-too-large so `contextTooLargeDetected` stays true through the
-      // convergence exit and the orchestrator enters the auto_compress branch.
-      // Call 3 (the auto_compress rerun) is a tool turn: the loop runs it
-      // without a compaction hook, so when its mid-loop budget gate trips on
-      // the still-oversized estimate it yields `exitReason = "budget"` rather
-      // than recovering — the silent-stall path under test.
+      // Every call rejects as context-too-large: call 1 applies the middle
+      // tier, call 2 applies the terminal auto-compress rung (exhausting the
+      // ladder), and call 3's rejection trips the exhausted-state branch that
+      // emits the terminal `budget_yield_unrecovered` exit.
       const ctx = makeCtx({
         providerResponses: [
-          new Error("context_length_exceeded"),
-          new Error("context_length_exceeded"),
-          toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-        ],
-        loopTools: [
-          {
-            name: "read_file",
-            description: "Read a file",
-            input_schema: {
-              type: "object",
-              properties: { path: { type: "string" } },
-            },
-          },
-        ],
-        toolExecutor: async () => ({ content: "data", isError: false }),
-        hasNoClient: true,
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({
-            compacted: true,
-            messages: [
-              { role: "user", content: [{ type: "text", text: "Hello" }] },
-            ] as Message[],
-            compactedPersistedMessages: 3,
-            summaryText: "Compressed summary",
-            previousEstimatedInputTokens: 120000,
-            estimatedInputTokens: 30000,
-            maxInputTokens: 100000,
-            thresholdTokens: 80000,
-            compactedMessages: 5,
-            summaryCalls: 1,
-            summaryInputTokens: 300,
-            summaryOutputTokens: 100,
-            summaryModel: "mock-model",
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
           }),
-        } as unknown as Conversation["contextWindowManager"],
+        ],
+        hasNoClient: true,
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
@@ -1877,21 +1834,19 @@ describe("session-agent-loop", () => {
         "budget_yield_unrecovered",
       );
 
-      // We did NOT also emit context_too_large — the auto_compress
-      // branch resets `contextTooLargeDetected` before its rerun and
-      // the rerun's yield-for-budget keeps it false, so the error
-      // branch above stays skipped.
+      // The auto-compress rung was applied, so the loop classifies the give-up
+      // as a budget yield rather than the unrecoverable `context_too_large`.
       expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
         "test-conv",
         "context_too_large",
       );
 
-      // User-facing emit: the classified BUDGET_YIELD_UNRECOVERED
-      // error is sent to the client so the UI can render a notice
-      // instead of leaving the turn looking like a silent ghost. The
-      // assistant-side notice persistence is exercised in the overflow
-      // suite (`conversation-agent-loop-overflow.test.ts`); this test
-      // owns the observability + emit contract.
+      // User-facing emit: the classified BUDGET_YIELD_UNRECOVERED error is sent
+      // to the client so the UI can render a notice instead of leaving the turn
+      // looking like a silent ghost. The assistant-side notice persistence is
+      // exercised in the overflow suite
+      // (`conversation-agent-loop-overflow.test.ts`); this test owns the
+      // observability + emit contract.
       const conversationError = events.find(
         (e) => e.type === "conversation_error",
       );
@@ -1905,45 +1860,6 @@ describe("session-agent-loop", () => {
       } else {
         throw new Error("conversation_error missing `code` field");
       }
-    });
-
-    test("recovery loop is bounded by maxAttempts", async () => {
-      const events: ServerMessage[] = [];
-      let reducerCalls = 0;
-
-      // Reducer never exhausts — always returns non-exhausted state
-      // but context always stays too large
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalls++;
-        return {
-          messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 120000,
-        };
-      };
-
-      // The provider rejects every call with a context-too-large error, so the
-      // orchestrator keeps retrying until it hits the attempt ceiling.
-      const ctx = makeCtx({
-        providerResponses: [new Error("context_length_exceeded")],
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      // A misbehaving reducer that never reports exhaustion is bounded by the
-      // driver's safety backstop: at most the middle-tier budget plus the
-      // emergency and terminal rungs (maxAttempts + 2 = 5).
-      expect(reducerCalls).toBeLessThanOrEqual(5);
     });
   });
 
@@ -2599,8 +2515,8 @@ describe("session-agent-loop", () => {
       // Indexer/projector mocks default to no-op; no finalized row in this
       // test, so `mockMessageById` stays null.
 
-      // A single reducer tier converges the oversized context so the
-      // orchestrator re-enters the loop after the first call fails.
+      // A single reducer tier reduces the oversized context so the loop
+      // re-enters after the first call's rejection.
       mockReducerStepFn = (msgs: Message[]) => ({
         messages: msgs,
         tier: "forced_compaction",
@@ -2613,12 +2529,15 @@ describe("session-agent-loop", () => {
       });
 
       // GIVEN a real loop whose first call rejects with context-too-large
-      // (reserving msg-strand-A but never finalizing it), then recovers via
-      // convergence on re-entry. The re-entry's `llm_call_started` must
-      // delete the stranded msg-strand-A before reserving msg-strand-B.
+      // (reserving msg-strand-A but never finalizing it), then recovers via the
+      // loop's reactive recovery on re-entry. The re-entry's `llm_call_started`
+      // must delete the stranded msg-strand-A before reserving msg-strand-B.
       const ctx = makeCtx({
         providerResponses: [
-          new Error("context_length_exceeded"),
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
+          }),
           textResponse("retry succeeded"),
         ],
         contextWindowManager: {
@@ -3578,7 +3497,7 @@ describe("session-agent-loop", () => {
   });
 
   describe("compaction-strip marker persistence", () => {
-    test("records historyStrippedAt when convergence strip runs", async () => {
+    test("records historyStrippedAt when the reactive strip runs", async () => {
       // Reducer: succeed on first call, returning reduced messages.
       mockReducerStepFn = (msgs: Message[]) => ({
         messages: msgs,
@@ -3593,13 +3512,15 @@ describe("session-agent-loop", () => {
 
       // GIVEN a real loop that appends a tool turn (so the run reports
       // `appendedNewMessages`) and then rejects with a context-too-large
-      // error on the following call — the orchestrator strips that appended
-      // history during its bounded convergence path before a final call
-      // recovers.
+      // error on the following call — the loop's reactive recovery strips that
+      // appended history before a final call recovers.
       const ctx = makeCtx({
         providerResponses: [
           toolUseResponse("t1", "file_read", {}),
-          new Error("context_length_exceeded"),
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
+          }),
           textResponse("recovered"),
         ],
         loopTools: [
@@ -3643,13 +3564,16 @@ describe("session-agent-loop", () => {
       });
 
       // GIVEN a real loop that appends a tool turn and then rejects with a
-      // context-too-large error on the following call, driving the
-      // convergence strip whose marker-write helper is stubbed to throw,
-      // before a final call recovers.
+      // context-too-large error on the following call, driving the reactive
+      // strip whose marker-write helper is stubbed to throw, before a final
+      // call recovers.
       const ctx = makeCtx({
         providerResponses: [
           toolUseResponse("t1", "file_read", {}),
-          new Error("context_length_exceeded"),
+          new ContextOverflowError("context_length_exceeded", "mock-provider", {
+            actualTokens: 242_000,
+            maxTokens: 200_000,
+          }),
           textResponse("recovered"),
         ],
         loopTools: [

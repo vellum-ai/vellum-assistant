@@ -23,6 +23,10 @@ import type {
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import type {
+  ReducerState,
+  ReducerStepResult,
+} from "../plugins/defaults/compaction/context-overflow-reducer.js";
 import {
   createContextWindowManager,
   disposeContextWindowManager,
@@ -36,6 +40,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 
 // The agent loop invokes the default post-compaction re-injection hook directly
 // when it compacts in place. Stub it so these unit tests can drive the
@@ -56,6 +61,55 @@ mock.module(
     },
   }),
 );
+
+// The reactive overflow ladder delegates rung selection to the compaction
+// plugin's reducer. Stub it so these unit tests can drive each rung's outcome —
+// in particular whether the ladder reports `exhausted` and which terminal tier
+// it applied — without the real summary machinery. When `reduceOverflowImpl` is
+// unset the reducer reports a single non-terminal forced-compaction rung.
+let reduceOverflowImpl:
+  | ((state: ReducerState | undefined) => ReducerStepResult)
+  | null = null;
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: (): ReducerState => ({
+      appliedTiers: [],
+      injectionMode: "full",
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (
+      messages: Message[],
+      _config: unknown,
+      state: ReducerState | undefined,
+    ): Promise<ReducerStepResult> =>
+      reduceOverflowImpl
+        ? reduceOverflowImpl(state)
+        : {
+            messages,
+            tier: "forced_compaction",
+            state: {
+              appliedTiers: ["forced_compaction"],
+              injectionMode: "full",
+              exhausted: false,
+            },
+            estimatedTokens: 0,
+          },
+  }),
+);
+
+function overflowProvider(): Provider {
+  return {
+    name: "mock",
+    async sendMessage(): Promise<ProviderResponse> {
+      throw new ContextOverflowError(
+        "prompt is too long: 242201 tokens > 200000 maximum",
+        "mock",
+        { actualTokens: 242201, maxTokens: 200000 },
+      );
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -168,6 +222,8 @@ function countExitEvents(events: AgentEvent[]): number {
 describe("AgentLoop exit-reason instrumentation", () => {
   afterEach(() => {
     disposeContextWindowManager("test-conversation");
+    postCompactImpl = null;
+    reduceOverflowImpl = null;
   });
 
   test("recognizes provider output-token stop reasons", () => {
@@ -347,7 +403,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
   });
 
-  test("does not emit agent_loop_exit when onCheckpoint yields control", async () => {
+  test("does not emit agent_loop_exit when onCheckpoint hands off", async () => {
+    // GIVEN a tool round that reaches a checkpoint where the wrapper hands the
+    // turn off (e.g. a queued message takes over).
     const { provider } = createMockProvider([
       toolUseResponse("t1", "read_file", { path: "/a.txt" }),
       textResponse("never reached"),
@@ -362,8 +420,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "budget";
+      "handoff";
 
+    // WHEN the checkpoint yields control back to the wrapper
     const events: AgentEvent[] = [];
     await loop.run({
       messages: [userMessage],
@@ -374,71 +433,91 @@ describe("AgentLoop exit-reason instrumentation", () => {
       onCheckpoint,
     });
 
+    // THEN no terminal exit event is emitted — a handoff is an orchestration
+    // yield, not a turn-ending exit, so the wrapper owns the follow-up.
     expect(countExitEvents(events)).toBe(0);
   });
 
-  test("yields with 'budget' when the in-loop budget gate trips", async () => {
-    // GIVEN a provider that calls a tool (reaching a checkpoint) before it
-    // would continue with a text response.
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
+  test("emits 'context_too_large' when the reactive ladder exhausts without auto-compress", async () => {
+    // GIVEN a provider that always rejects the call as context-too-large.
     const loop = new AgentLoop({
-      provider: provider,
+      provider: overflowProvider(),
       systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
-      toolExecutor: toolExecutor,
     });
 
-    // AND an effective context window so small that any real token estimate
-    // of the running history exceeds the mid-loop threshold.
-    // WHEN the loop checkpoints after the tool results land
-    const result = await loop.run({
+    // AND a reducer whose single rung immediately reports the ladder exhausted
+    // without ever reaching the policy-gated auto-compress tier.
+    reduceOverflowImpl = (_state) => ({
       messages: [userMessage],
-      onEvent: () => {},
+      tier: "injection_downgrade",
+      state: {
+        appliedTiers: ["forced_compaction", "injection_downgrade"],
+        injectionMode: "minimal",
+        exhausted: true,
+      },
+      estimatedTokens: 0,
+    });
+
+    // WHEN the loop drives the ladder one rung, retries, and the provider
+    // rejects again with the ladder already exhausted
+    const events: AgentEvent[] = [];
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        maxInputTokens: 1_000_000,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+        },
       }),
+      compactInPlace: true,
     });
 
-    // THEN it yields for budget before issuing the next provider call.
-    expect(result.exitReason).toBe("budget");
+    // THEN the loop owns the terminal exit and reports an unrecoverable
+    // context-too-large since no auto-compress rung ran.
+    expect(lastExitEvent(events)?.reason).toBe("context_too_large");
   });
 
-  test("does not yield for budget when overflow recovery is disabled", async () => {
-    // GIVEN the same tiny context window but overflow recovery disabled — the
-    // agent-wake configuration, which must never yield for budget.
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("done"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
+  test("does not engage reactive recovery when overflow recovery is disabled", async () => {
+    // GIVEN a provider that rejects the call as context-too-large, under the
+    // agent-wake configuration where overflow recovery is disabled.
     const loop = new AgentLoop({
-      provider: provider,
+      provider: overflowProvider(),
       systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
-      toolExecutor: toolExecutor,
     });
 
-    // WHEN the loop runs to completion
-    const result = await loop.run({
+    // WHEN the loop runs with overflow recovery turned off
+    const events: AgentEvent[] = [];
+    await loop.run({
       messages: [userMessage],
-      onEvent: () => {},
+      onEvent: (e) => {
+        events.push(e);
+      },
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+        maxInputTokens: 1_000_000,
+        overflowRecovery: {
+          enabled: false,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+        },
       }),
+      compactInPlace: true,
     });
 
-    // THEN it never yields for budget.
-    expect(result.exitReason).not.toBe("budget");
+    // THEN the rejection surfaces as a plain error instead of being recovered.
+    expect(lastExitEvent(events)?.reason).toBe("error");
   });
 
   test("compacts in place and continues when the budget gate trips with a compaction hook", async () => {
@@ -472,7 +551,12 @@ describe("AgentLoop exit-reason instrumentation", () => {
       },
       resolveContextWindow: () => ({
         maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+        },
       }),
       compactInPlace: true,
       ...fakeCompaction("test-conversation", {
@@ -482,52 +566,60 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     // THEN the loop runs the compaction ceremony in place and continues to a
-    // clean exit instead of yielding for budget. The durable commit is
-    // signalled via a `compaction_completed` event rather than an injected hook.
+    // clean exit. The durable commit is signalled via a `compaction_completed`
+    // event rather than an injected hook.
     expect(events.some((event) => event.type === "compaction_completed")).toBe(
       true,
     );
     expect(reinjected).toBe(true);
-    expect(result.exitReason).not.toBe("budget");
+    expect(result.exitReason).toBeNull();
   });
 
-  test("yields 'budget' when inline compaction reports exhausted", async () => {
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
+  test("emits 'budget_yield_unrecovered' when the reactive ladder exhausts after auto-compress", async () => {
+    // GIVEN a provider that always rejects the call as context-too-large.
     const loop = new AgentLoop({
-      provider: provider,
+      provider: overflowProvider(),
       systemPrompt: "system",
       conversationId: "test-conversation",
       tools: dummyTools,
-      toolExecutor: toolExecutor,
     });
 
-    postCompactImpl = async () => {
-      throw new Error(
-        "post-compaction re-injection must not run when exhausted",
-      );
-    };
-
-    // WHEN compaction exhausts its retry budget
-    const result = await loop.run({
+    // AND a reducer whose rung applies the terminal auto-compress tier and
+    // reports the ladder exhausted.
+    reduceOverflowImpl = (_state) => ({
       messages: [userMessage],
-      onEvent: () => {},
+      tier: "auto_compress_latest_turn",
+      state: {
+        appliedTiers: ["forced_compaction", "auto_compress_latest_turn"],
+        injectionMode: "minimal",
+        exhausted: true,
+      },
+      estimatedTokens: 0,
+    });
+
+    // WHEN the ladder runs the auto-compress rung and the provider still rejects
+    const events: AgentEvent[] = [];
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        maxInputTokens: 1_000_000,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: true,
+        },
       }),
       compactInPlace: true,
-      ...fakeCompaction("test-conversation", {
-        compacted: false,
-        exhausted: true,
-      }),
     });
 
-    // THEN the loop yields for budget so the orchestrator can escalate.
-    expect(result.exitReason).toBe("budget");
+    // THEN the loop reports that even the terminal auto-compress rung could not
+    // bring the turn under budget.
+    expect(lastExitEvent(events)?.reason).toBe("budget_yield_unrecovered");
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {

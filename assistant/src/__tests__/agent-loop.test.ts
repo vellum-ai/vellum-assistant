@@ -200,7 +200,12 @@ describe("AgentLoop", () => {
       callSite: "mainAgent",
       resolveContextWindow: () => ({
         maxInputTokens,
-        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+        overflowRecovery: {
+          enabled: false,
+          safetyMarginRatio: 0,
+          maxAttempts: 0,
+          allowAutoCompressLatestTurn: false,
+        },
       }),
     });
 
@@ -1036,7 +1041,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
 
-    const onCheckpoint = (): CheckpointDecision => "budget";
+    const onCheckpoint = (): CheckpointDecision => "handoff";
 
     const { history } = await loop.run({
       messages: [userMessage],
@@ -1235,7 +1240,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "budget" : "continue";
+      return checkpoint.turnIndex === 3 ? "handoff" : "continue";
     };
 
     const events: AgentEvent[] = [];
@@ -1308,7 +1313,7 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "budget" : "continue";
+      return checkpoint.turnIndex === 1 ? "handoff" : "continue";
     };
 
     const { history } = await loop.run({

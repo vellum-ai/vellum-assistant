@@ -81,20 +81,6 @@ function makeConfig(overrides?: Partial<ReducerConfig>): ReducerConfig {
   return {
     providerName: "mock",
     systemPrompt: SYSTEM_PROMPT,
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 2000,
-      targetBudgetRatio: 0.65,
-      compactThreshold: 0.6,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
-      },
-    },
     targetTokens: 1000,
     conversationId: "conv-overflow-test",
     previousEstimatedInputTokens: 2000,

@@ -25,7 +25,6 @@
  * `state.exhausted` is true.
  */
 
-import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   estimateContentBlockTokens,
   estimatePromptTokens,
@@ -116,8 +115,6 @@ export interface ReducerConfig {
   providerName: string;
   /** The system prompt (needed for accurate token estimation). */
   systemPrompt: string;
-  /** The context window config from the assistant config. */
-  contextWindow: ContextWindowConfig;
   /** Target token budget — the reducer tries to get below this. */
   targetTokens: number;
   /** Pre-computed tool token budget to include in estimations. */

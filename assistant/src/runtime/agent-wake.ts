@@ -852,7 +852,12 @@ export async function wakeAgentForOpportunity(
           // truncation.
           resolveContextWindow: () => ({
             maxInputTokens: effectiveContextWindow.maxInputTokens,
-            overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+            overflowRecovery: {
+              enabled: false,
+              safetyMarginRatio: 0,
+              maxAttempts: 0,
+              allowAutoCompressLatestTurn: false,
+            },
           }),
         }));
       } catch (err) {
