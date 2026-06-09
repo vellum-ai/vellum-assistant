@@ -41,25 +41,24 @@ import {
   resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
 import type { Message } from "../../../../providers/types.js";
+import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
 
 /**
  * Context threaded through the `user-prompt-submit-temp` hook. The
  * conversation-scoped retrieval state (graph handle, abort signal, trust
- * class) is self-resolved from the live conversation by id; the readonly
- * fields here carry the event sink and the turn-start injection snapshot,
- * while `latestMessages` straddles input and output — the loop seeds it with
- * the pre-injection array and the hook overwrites it with the injected result.
+ * class) is self-resolved from the live conversation by id; the turn's client
+ * event sink is the shared `broadcastMessage` hub; the readonly fields here
+ * carry the turn-start injection snapshot, while
+ * `latestMessages` straddles input and output — the loop seeds it with the
+ * pre-injection array and the hook overwrites it with the injected result.
  */
 export interface MemoryRetrievalHookContext {
-  /** Event sink used by the graph retriever and `memory_recalled` emission. */
-  readonly onEvent: (msg: ServerMessage) => void;
   /** Conversation the turn belongs to — keys the recall-log row. */
   readonly conversationId: string;
   /** User message the injected memory block is persisted onto. */
@@ -176,7 +175,7 @@ function recordRecallSideEffects(
         recency: c.recencyBoost,
       })),
     };
-    ctx.onEvent(memoryRecalledEvent);
+    broadcastMessage(memoryRecalledEvent);
   }
 }
 
@@ -262,11 +261,15 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   );
 
   if (conversation && isTrustedActor && abortSignal) {
+    // Retrieval progress (`memory_status`) and the `memory_recalled` summary
+    // publish to the shared `broadcastMessage` hub — the sink every turn
+    // publisher converges to — rather than a threaded event callback. This
+    // keeps any raw client-emit capability off the hook contract.
     const graphResult = await conversation.graphMemory.prepareMemory(
       ctx.latestMessages,
       config,
       abortSignal,
-      ctx.onEvent,
+      broadcastMessage,
     );
 
     recordRecallSideEffects(graphResult, ctx);

@@ -4,6 +4,8 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
+import { randomUUID } from "node:crypto";
+
 import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -13,16 +15,20 @@ import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { AcpResumeError } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
+import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
+import type { UserDecision } from "../../permissions/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
   ConflictError,
   FailedDependencyError,
+  ForbiddenError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -53,7 +59,109 @@ type SessionEntry = z.infer<typeof sessionEntrySchema>;
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function spawnSession({ body }: RouteHandlerArgs) {
+/**
+ * Surface a high-risk confirmation for an ACP route that starts a host agent
+ * subprocess (`POST /v1/acp/spawn`, and the resume branch of
+ * `POST /v1/acp/:id/steer`) and resolve to the guardian's decision.
+ *
+ * Unlike the `acp_spawn` / `acp_steer` skill tools (which are dispatched
+ * through `ToolExecutor`/`PermissionChecker` and so inherit the descriptors'
+ * `risk: "high"` approval prompt), these HTTP/IPC routes reach the ACP
+ * session manager directly. A spawned ACP agent is a host subprocess with
+ * advertised filesystem + terminal access whose in-session permission
+ * requests are auto-allowed, so starting one is exactly the high-risk action
+ * the descriptors gate. Without this prompt a caller holding only
+ * `chat.write` could start one with no human in the loop — directly via
+ * spawn (arbitrary `cwd`), or by resuming a terminal session via steer (its
+ * persisted `cwd`, enumerable through `GET /v1/acp/sessions`) (ATL-822).
+ *
+ * The confirmation is registered with `directResolve` so `POST /v1/confirm`
+ * resolves it without a live `Conversation` object. That route requires the
+ * bound guardian (`approval.write` + `requireGuardian`) — a strictly higher
+ * bar than the `chat.write` these routes demand — so the `chat.write` caller
+ * cannot self-approve. Timeout and client disconnect both deny, matching the
+ * tool path's "no interactive client → do not run" posture.
+ */
+function awaitRouteApproval(args: {
+  toolName: string;
+  input: Record<string, unknown>;
+  conversationId: string;
+  signal?: AbortSignal;
+}): Promise<UserDecision> {
+  const { toolName, input, conversationId, signal } = args;
+  const requestId = randomUUID();
+  // Mirror the interactive prompt timeout; fall back to the schema default
+  // (300s) if the timeouts block is somehow absent so the gate never wedges.
+  const timeoutMs = (getConfig().timeouts?.permissionTimeoutSec ?? 300) * 1000;
+
+  return new Promise<UserDecision>((resolve) => {
+    let settled = false;
+    const settle = (
+      decision: UserDecision,
+      state: "approved" | "rejected" | "cancelled",
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      // Idempotent: the `/v1/confirm` directResolve path already removed the
+      // entry before invoking us, so this is a no-op there and only fires
+      // `interaction_resolved` for the timeout/abort paths.
+      pendingInteractions.resolve(requestId, state);
+      resolve(decision);
+    };
+
+    const timer = setTimeout(() => {
+      log.warn(
+        { requestId, toolName, conversationId },
+        "ACP route approval timed out — denying",
+      );
+      settle("deny", "cancelled");
+    }, timeoutMs);
+
+    const onAbort = () => settle("deny", "cancelled");
+    if (signal?.aborted) {
+      clearTimeout(timer);
+      resolve("deny");
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingInteractions.register(requestId, {
+      conversationId,
+      kind: "confirmation",
+      confirmationDetails: {
+        toolName,
+        input,
+        riskLevel: "high",
+        executionTarget: "host",
+        allowlistOptions: [],
+        scopeOptions: [],
+        persistentDecisionsAllowed: false,
+      },
+      directResolve: (decision) =>
+        settle(decision, decision === "allow" ? "approved" : "rejected"),
+    });
+
+    broadcastMessage(
+      {
+        type: "confirmation_request",
+        requestId,
+        toolName,
+        input,
+        riskLevel: "high",
+        executionTarget: "host",
+        allowlistOptions: [],
+        scopeOptions: [],
+        conversationId,
+        persistentDecisionsAllowed: false,
+      },
+      conversationId,
+    );
+  });
+}
+
+async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   const agent = body?.agent as string | undefined;
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
@@ -61,6 +169,22 @@ async function spawnSession({ body }: RouteHandlerArgs) {
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
+  }
+
+  // High-risk approval gate. Block BEFORE any side effects — resolution can
+  // trigger a `bun` global install (auto-install.ts) and `manager.spawn`
+  // launches the host subprocess — so an unapproved request mutates nothing.
+  const decision = await awaitRouteApproval({
+    toolName: "acp_spawn",
+    input: { agent, task, cwd },
+    conversationId,
+    signal: abortSignal,
+  });
+  if (decision !== "allow") {
+    throw new ForbiddenError(
+      "Spawning an ACP coding agent requires guardian approval, which was " +
+        "not granted.",
+    );
   }
 
   // Resolve the agent, silently auto-installing a missing allowlisted
@@ -117,6 +241,43 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
   // broadcastMessage plays the sender role spawnSession gives it, so
   // connected clients render the session.
   const manager = getAcpSessionManager();
+
+  // Resume re-spawns the host agent subprocess, so it crosses the same
+  // high-risk boundary as spawn and needs guardian approval (ATL-822). A
+  // steer of a session still active in memory only redirects an
+  // already-running, already-approved process, so it is left unprompted —
+  // matching "gate before spawning". A resume only happens when the id is
+  // absent from memory AND a resumable history row (non-null cwd) exists.
+  if (!manager.getActiveAndPendingIds().includes(id)) {
+    const resumable = getDb()
+      .select({
+        cwd: acpSessionHistory.cwd,
+        agentId: acpSessionHistory.agentId,
+        parentConversationId: acpSessionHistory.parentConversationId,
+      })
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, id))
+      .get();
+    if (resumable?.cwd != null) {
+      // Guardian approval is an out-of-band human action that can take far
+      // longer than a client's ack timeout (the macOS client uses 10s; the
+      // approval window is permissionTimeoutSec, default 300s). Blocking the
+      // HTTP response here would surface as a client transport failure even
+      // on an eventual approval. Acknowledge immediately and run approval +
+      // resume in the background, streaming via SSE like any other ACP
+      // activity. The request abortSignal is deliberately NOT threaded into
+      // the wait — the request is already complete.
+      void approveThenResume({
+        id,
+        instruction,
+        agentId: resumable.agentId,
+        cwd: resumable.cwd,
+        conversationId: resumable.parentConversationId,
+      });
+      return { acpSessionId: id, steered: false, approvalPending: true };
+    }
+  }
+
   try {
     const { resumed } = await manager.steerOrResume(
       id,
@@ -135,6 +296,81 @@ async function steerSession({ pathParams, body }: RouteHandlerArgs) {
     // Unknown ids (no in-memory session, no history row) and plain steer
     // failures both map to 404, as before.
     throw new NotFoundError("ACP session not found");
+  }
+}
+
+/**
+ * Background worker for an approval-gated ACP resume initiated over the steer
+ * route. Awaits the guardian decision (see `awaitRouteApproval`), then resumes
+ * via the session manager so the agent's output streams back over SSE. A
+ * denial, timeout, or resume failure is surfaced as an `acp_session_error` on
+ * the parent conversation so the client isn't left with an optimistic steer
+ * row and no follow-up. Never throws — it owns the request lifecycle after the
+ * route has already acked.
+ */
+async function approveThenResume(args: {
+  id: string;
+  instruction: string;
+  agentId: string;
+  cwd: string;
+  conversationId: string;
+}): Promise<void> {
+  const decision = await awaitRouteApproval({
+    toolName: "acp_steer",
+    input: {
+      acp_session_id: args.id,
+      instruction: args.instruction,
+      agent: args.agentId,
+      cwd: args.cwd,
+    },
+    conversationId: args.conversationId,
+  });
+
+  if (decision !== "allow") {
+    log.info(
+      { acpSessionId: args.id, conversationId: args.conversationId },
+      "ACP resume approval not granted — skipping resume",
+    );
+    broadcastMessage(
+      {
+        type: "acp_session_error",
+        // Key the error by the daemon session id (the value the steer route
+        // accepts and ACP SSE consumers index by — see registerSession, where
+        // state.id is the broadcast acpSessionId), NOT the persisted protocol
+        // id. A denied resume never emits acp_session_spawned to map the
+        // protocol id, so a protocol-keyed error would be dropped.
+        acpSessionId: args.id,
+        error: "Resume was not approved.",
+      },
+      args.conversationId,
+    );
+    return;
+  }
+
+  try {
+    await getAcpSessionManager().steerOrResume(
+      args.id,
+      args.instruction,
+      broadcastMessage,
+    );
+  } catch (err) {
+    const message =
+      err instanceof AcpResumeError || err instanceof Error
+        ? err.message
+        : String(err);
+    log.warn(
+      { acpSessionId: args.id, conversationId: args.conversationId, err },
+      "Approved ACP resume failed",
+    );
+    broadcastMessage(
+      {
+        type: "acp_session_error",
+        // Daemon session id (route + SSE key), not the protocol id — see above.
+        acpSessionId: args.id,
+        error: message,
+      },
+      args.conversationId,
+    );
   }
 }
 
@@ -276,7 +512,10 @@ export const ROUTES: RouteDefinition[] = [
       "Send a steering instruction to an ACP session. Sessions no longer " +
       "in memory (completed, or lost to a daemon restart) are " +
       "transparently resumed from persisted history first, when the agent " +
-      "supports ACP session loading.",
+      "supports ACP session loading. Resuming a terminal session re-spawns " +
+      "the host agent, so it requires guardian approval: the route acks " +
+      "immediately with approvalPending=true and performs the resume in the " +
+      "background once approved, streaming results over SSE.",
     tags: ["acp"],
     requestBody: z.object({
       instruction: z.string(),
@@ -289,6 +528,13 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "True when the session was resumed from persisted history before steering.",
+        ),
+      approvalPending: z
+        .boolean()
+        .optional()
+        .describe(
+          "True when the steer triggered a guardian-approval-gated resume " +
+            "that will run asynchronously; watch SSE for the outcome.",
         ),
     }),
   },

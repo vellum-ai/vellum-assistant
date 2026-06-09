@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {

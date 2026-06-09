@@ -442,7 +442,7 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
+      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
@@ -450,8 +450,8 @@
           "display-name": "MCP Setup"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
+      "updatedAt": "2026-06-08T20:48:43.000Z"
     },
     {
       "id": "meet-join",

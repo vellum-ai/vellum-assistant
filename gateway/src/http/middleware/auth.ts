@@ -105,6 +105,7 @@ export function logAuthBypassState(): void {
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
   getClientIp: GetClientIp,
+  trustProxy = false,
 ) {
   /**
    * Cross-check `X-Vellum-User-Id` against the stored
@@ -372,7 +373,13 @@ export function createAuthMiddleware(
     guard: string,
     extra?: Record<string, unknown>,
   ): boolean {
-    if (!server || !isLoopbackPeer(server, req)) return false;
+    // When a trusted reverse proxy is declared, judge loopback-ness by the
+    // real client IP (first X-Forwarded-For entry) rather than the raw socket
+    // peer. A same-host proxy/tunnel always connects over 127.0.0.1, so without
+    // this a proxied remote caller would be misclassified as local and granted
+    // the loopback grace period. trustProxy defaults false, so direct-loopback
+    // local clients (no X-Forwarded-For) are unaffected. See is-loopback-address.ts.
+    if (!server || !isLoopbackPeer(server, req, { trustProxy })) return false;
 
     const path = new URL(req.url).pathname;
     const failureKind =

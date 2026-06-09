@@ -48,9 +48,9 @@ const { createAuthMiddleware, loopbackFallbackCountTracker } =
 
 const PLATFORM_USER_ID = "user-abc-123";
 
-function makeMiddleware() {
+function makeMiddleware(trustProxy = false) {
   const rl = new AuthRateLimiter();
-  return createAuthMiddleware(rl, () => "1.2.3.4");
+  return createAuthMiddleware(rl, () => "1.2.3.4", trustProxy);
 }
 
 function makeReq(headers: Record<string, string> = {}): Request {
@@ -408,6 +408,73 @@ describe("requireEdgeAuthWithScope — JWT mode", () => {
   test("401 when bearer token missing", async () => {
     const { requireEdgeAuthWithScope } = makeMiddleware();
     const res = await requireEdgeAuthWithScope(makeReq(), "chat.write");
+    expect(res?.status).toBe(401);
+  });
+});
+
+// =========================================================================
+// Loopback fallback + trustProxy — proxied-remote vs direct-local
+//
+// A same-host reverse proxy / tunnel always connects over 127.0.0.1, so the
+// raw socket peer is loopback for every forwarded request. trustProxy tells the
+// guard to judge by the real client IP (first X-Forwarded-For entry) instead,
+// which closes the loopback grace period for proxied REMOTE callers while
+// keeping it for genuinely-local clients (no X-Forwarded-For). trustProxy
+// defaults false, so existing deployments are unaffected.
+// =========================================================================
+
+describe("requireEdgeAuth — trustProxy loopback fallback", () => {
+  test("trustProxy=true: proxied remote caller (XFF non-loopback) is NOT granted the fallback → 401", async () => {
+    const { requireEdgeAuth } = makeMiddleware(true);
+    const res = await requireEdgeAuth(
+      makeReq({ "x-forwarded-for": "203.0.113.5" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("trustProxy=true: direct-local caller (no XFF, loopback socket) still gets the fallback → null", async () => {
+    const { requireEdgeAuth } = makeMiddleware(true);
+    const res = await requireEdgeAuth(makeReq(), makeLoopbackServer());
+    expect(res).toBeNull();
+  });
+
+  test("trustProxy=true: caller proxied from localhost (XFF=127.0.0.1) still gets the fallback → null", async () => {
+    const { requireEdgeAuth } = makeMiddleware(true);
+    const res = await requireEdgeAuth(
+      makeReq({ "x-forwarded-for": "127.0.0.1" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+  });
+
+  test("trustProxy=true: direct non-loopback peer cannot spoof XFF=127.0.0.1 → 401", async () => {
+    // Raw socket peer is NOT loopback (e.g. gateway port exposed directly), so
+    // X-Forwarded-For is not trusted and the fallback is refused.
+    const { requireEdgeAuth } = makeMiddleware(true);
+    const res = await requireEdgeAuth(
+      makeReq({ "x-forwarded-for": "127.0.0.1" }),
+      makeLoopbackServer("203.0.113.9"),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("trustProxy=false (default): X-Forwarded-For is ignored, loopback socket still gets the fallback → null", async () => {
+    const { requireEdgeAuth } = makeMiddleware(false);
+    const res = await requireEdgeAuth(
+      makeReq({ "x-forwarded-for": "203.0.113.5" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+  });
+
+  test("platform bypass short-circuits before the fallback regardless of trustProxy", async () => {
+    process.env.DISABLE_HTTP_AUTH = "true";
+    process.env.IS_PLATFORM = "true";
+    const { requireEdgeAuth } = makeMiddleware(true);
+    // Missing X-Vellum-User-Id, loopback socket, trustProxy on: still the
+    // platform 401 (missing user header), NOT a loopback free pass.
+    const res = await requireEdgeAuth(makeReq(), makeLoopbackServer());
     expect(res?.status).toBe(401);
   });
 });

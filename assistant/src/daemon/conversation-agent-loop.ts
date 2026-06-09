@@ -888,7 +888,6 @@ export async function runAgentLoopImpl(
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
     const memoryCtx: MemoryRetrievalHookContext = {
-      onEvent,
       conversationId: ctx.conversationId,
       userMessageId,
       logger: rlog,

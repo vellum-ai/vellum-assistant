@@ -3,7 +3,8 @@
 // messages + interaction state and emits a flat item array that the
 // Transcript component renders via a virtualised list.
 
-import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { dedupeDisplayMessages } from "@/domains/chat/utils/message-merge";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   MessageItem,
   PendingContactRequestItem,

@@ -139,9 +139,13 @@ export function loadConfig(): GatewayConfig {
   // from X-Forwarded-For for logging and rate limiting instead of the proxy's
   // loopback socket address. Defaults OFF — it must be explicitly opted into,
   // and only behind a proxy that overwrites client-supplied X-Forwarded-For.
-  // NOTE: loopback-only endpoint guards do NOT rely on this flag (or on the
-  // spoofable X-Forwarded-For); they use the unspoofable edge marker — see
-  // gateway/src/http/edge-forwarded-header.ts.
+  // The loopback auth fallback (allowLegacyLoopbackFallback) and the
+  // /auth/token loopback gate also honor this flag via isLoopbackPeer, so a
+  // proxied remote caller is judged by its real X-Forwarded-For IP rather than
+  // the proxy's loopback socket (X-Forwarded-For is only trusted when the raw
+  // peer is itself loopback). The strictly loopback-only mint endpoints
+  // (/v1/guardian/init, /v1/pair) do NOT rely on this flag — they use the
+  // unspoofable edge marker, see gateway/src/http/edge-forwarded-header.ts.
   const trustProxy =
     process.env.GATEWAY_TRUST_PROXY !== undefined
       ? process.env.GATEWAY_TRUST_PROXY === "true" ||

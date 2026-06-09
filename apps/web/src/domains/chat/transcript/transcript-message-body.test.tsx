@@ -83,8 +83,7 @@ mock.module(
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { Surface } from "@/domains/chat/types/types";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 

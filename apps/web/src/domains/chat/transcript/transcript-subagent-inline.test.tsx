@@ -52,7 +52,7 @@ mock.module(
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
