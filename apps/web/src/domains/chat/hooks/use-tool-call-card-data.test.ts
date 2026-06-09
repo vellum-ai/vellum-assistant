@@ -387,6 +387,45 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
     expect(data.stepCount).toBe("3 steps");
   });
 
+  test("derives a thinking step's duration label from its timestamps", () => {
+    /**
+     * A thinking step carrying start/completion timestamps should surface the
+     * same `formatMs` duration label as a tool step, so the phase renders "3s"
+     * and a "Started at …" hover.
+     */
+
+    // GIVEN a thinking item that spans 3 seconds and one with no timestamps
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "thinking",
+        text: "stamped reasoning",
+        startedAt: 1_000,
+        completedAt: 4_000,
+      },
+      { kind: "thinking", text: "unstamped reasoning" },
+    ];
+
+    // WHEN the card data is computed
+    const data = computeToolCallCardDataFromItems(items, {});
+
+    // THEN the stamped step carries the formatted duration plus its bounds
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "3s",
+      text: "stamped reasoning",
+      startedAt: 1_000,
+      completedAt: 4_000,
+    });
+    // AND the unstamped step hides its duration, exactly as a tool with no timing
+    expect(data.steps[1]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "unstamped reasoning",
+      startedAt: undefined,
+      completedAt: undefined,
+    });
+  });
+
   test("skips empty thinking items and subagent_spawn tool items", () => {
     const items: ToolCallCardItem[] = [
       { kind: "thinking", text: "" },

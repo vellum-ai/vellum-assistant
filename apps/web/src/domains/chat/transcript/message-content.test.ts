@@ -8,6 +8,7 @@ import {
   isSuppressedUiTool,
   isTaskProgressSurface,
   resolveThinkingContent,
+  resolveThinkingTiming,
   resolveToolCall,
 } from "@/domains/chat/transcript/message-content";
 
@@ -149,6 +150,74 @@ describe("resolveThinkingContent", () => {
     // THEN the donor reasoning resolves through the positional fallback instead
     // of being silently dropped
     expect(resolveThinkingContent(message, ["0", "1"])).toBe("survivor\ndonor");
+  });
+});
+
+describe("resolveThinkingTiming", () => {
+  test("spans earliest start and latest completion across the referenced blocks", () => {
+    /**
+     * A thinking run's duration is the wall-clock span of its blocks, so the
+     * timing must be the earliest start and latest completion — not the bounds
+     * of whichever block happens to be first in the list.
+     */
+
+    // GIVEN thinking blocks whose timestamps are out of order
+    const message = assistant({
+      contentBlocks: [
+        { type: "thinking", thinking: "a", startedAt: 300, completedAt: 500 },
+        { type: "thinking", thinking: "b", startedAt: 100, completedAt: 250 },
+        { type: "thinking", thinking: "c", startedAt: 700, completedAt: 900 },
+      ],
+    });
+
+    // WHEN the run references a subset of those blocks
+    const timing = resolveThinkingTiming(message, ["0", "1"]);
+
+    // THEN the span covers the earliest start and latest completion
+    expect(timing).toEqual({ startedAt: 100, completedAt: 500 });
+    // AND extending the run to a later block widens the completion bound
+    expect(resolveThinkingTiming(message, ["0", "1", "2"])).toEqual({
+      startedAt: 100,
+      completedAt: 900,
+    });
+  });
+
+  test("reports only the bounds the blocks actually carry", () => {
+    /**
+     * Blocks may carry one bound without the other (e.g. a still-streaming run
+     * has a start but no completion); the resolver must surface only what's set.
+     */
+
+    // GIVEN one block with only a start and one with only a completion
+    const message = assistant({
+      contentBlocks: [
+        { type: "thinking", thinking: "a", startedAt: 100 },
+        { type: "thinking", thinking: "b", completedAt: 400 },
+      ],
+    });
+
+    // WHEN resolving timing over each / both blocks
+    // THEN only the bounds that exist are reported
+    expect(resolveThinkingTiming(message, ["0"])).toEqual({ startedAt: 100 });
+    expect(resolveThinkingTiming(message, ["0", "1"])).toEqual({
+      startedAt: 100,
+      completedAt: 400,
+    });
+  });
+
+  test("returns empty timing for rows without contentBlocks (older daemons)", () => {
+    /**
+     * Positional thinkingSegments carry no timestamps, so a row that predates
+     * the unified projection resolves to empty timing and the UI hides the
+     * duration — exactly as a tool call with no startedAt does.
+     */
+
+    // GIVEN a row that only has positional thinkingSegments
+    const message = assistant({ thinkingSegments: ["first", "second"] });
+
+    // WHEN resolving its thinking timing
+    // THEN no bounds are reported
+    expect(resolveThinkingTiming(message, ["0", "1"])).toEqual({});
   });
 });
 
