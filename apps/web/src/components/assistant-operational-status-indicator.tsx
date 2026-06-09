@@ -5,6 +5,7 @@ import {
   type AssistantOperationalState,
   useAssistantOperationalStatus,
 } from "@/assistant/operational-status";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 type IndicatorTone = "info" | "warning" | "danger" | "muted";
@@ -74,7 +75,10 @@ function dotClassName(tone: IndicatorTone): string {
 }
 
 export function AssistantOperationalStatusIndicator() {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const operationalStatusAssistantId =
+    useAssistantLifecycleStore.use.operationalStatusAssistantId();
+  const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
   const status = statusQuery.data ?? null;
 

@@ -154,11 +154,43 @@ describe("lifecycleService — server state projection", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-1");
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "active",
       isLocal: false,
       maintenanceMode: { enabled: false },
     });
+  });
+
+  test("cleanup result publishes an operational-status polling id without activating the assistant", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-cleanup",
+        status: "to_be_deleted",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "cleaning_up",
+    );
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-cleanup");
   });
 
   test("self_hosted result primes the self-hosted connection and writes the id", async () => {
@@ -227,6 +259,9 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
     });
@@ -258,6 +293,9 @@ describe("lifecycleService — bootstrap branches", () => {
 
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
@@ -367,6 +405,9 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "initializing",
     );
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-hatched-1");
   });
 
   test("auto_hatch + nonprod transitions to awaiting_version_selection instead of hatching", async () => {
@@ -722,5 +763,3 @@ describe("lifecycleService — watchdog → recovery", () => {
     }
   });
 });
-
-

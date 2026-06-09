@@ -158,6 +158,7 @@ class AssistantLifecycleService {
     if (useResolvedAssistantsStore.getState().activeAssistantId !== null) {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
+    this.setOperationalStatusAssistantId(null);
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -365,6 +366,7 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
+    this.setOperationalStatusAssistantId(result.data.id);
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(result.data.id);
@@ -396,6 +398,7 @@ class AssistantLifecycleService {
   private projectSelfHosted(
     result: GetAssistantResult & { ok: true },
   ): void {
+    this.setOperationalStatusAssistantId(result.data.id);
     setSelfHostedConnection({
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
@@ -416,6 +419,7 @@ class AssistantLifecycleService {
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
@@ -427,10 +431,16 @@ class AssistantLifecycleService {
   ): Promise<void> {
     const generation = this.generation;
     const nextState = resolveAssistantLifecycleState(result);
-    if (result.ok && nextState.kind === "initializing") {
-      this.initializingAssistantId = result.data.id;
-    } else if (nextState.kind !== "initializing") {
+    if (result.ok) {
+      if (nextState.kind === "initializing") {
+        this.initializingAssistantId = result.data.id;
+      } else {
+        this.initializingAssistantId = null;
+      }
+      this.setOperationalStatusAssistantId(result.data.id);
+    } else {
       this.initializingAssistantId = null;
+      this.setOperationalStatusAssistantId(null);
     }
 
     if (nextState.kind === "auto_hatch") {
@@ -507,6 +517,7 @@ class AssistantLifecycleService {
       if (generation !== this.generation) return;
       if (result.ok) {
         this.initializingAssistantId = result.data.id;
+        this.setOperationalStatusAssistantId(result.data.id);
         // Seed the assistant-query cache with the hatch response so
         // post-hatch polling actually begins. The initial
         // `/assistant/` read for a fresh user caches a 404; without
@@ -621,9 +632,15 @@ class AssistantLifecycleService {
         if (generation !== this.generation) return;
         if (result.ok && result.data.status === "initializing") {
           assistantIdToRetire = result.data.id;
+          this.setOperationalStatusAssistantId(result.data.id);
         } else {
           const nextState = resolveAssistantLifecycleState(result);
           this.initializingAssistantId = null;
+          if (result.ok) {
+            this.setOperationalStatusAssistantId(result.data.id);
+          } else {
+            this.setOperationalStatusAssistantId(null);
+          }
           if (nextState.kind === "auto_hatch") {
             await this.hatchAndCheck(this.hatchingVersion);
           } else if (nextState.kind === "active" && result.ok) {
@@ -677,6 +694,7 @@ class AssistantLifecycleService {
       }
 
       this.initializingAssistantId = null;
+      this.setOperationalStatusAssistantId(null);
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
       this.hatching = false;
       await this.hatchAndCheck(this.hatchingVersion);
@@ -702,11 +720,15 @@ class AssistantLifecycleService {
     this.hatching = false;
     this.hatchRetryCount = 0;
     this.initializingAssistantId = null;
+    this.setOperationalStatusAssistantId(null);
     this.initializingRecoveryCount = 0;
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
+    useAssistantLifecycleStore.setState({
+      expectingFirstMessage: false,
+      operationalStatusAssistantId: null,
+    });
     this.inputs = {
       sessionStatus: "initializing",
       isRetired: false,
@@ -718,6 +740,18 @@ class AssistantLifecycleService {
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  }
+
+  private setOperationalStatusAssistantId(assistantId: string | null): void {
+    if (
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId ===
+      assistantId
+    ) {
+      return;
+    }
+    useAssistantLifecycleStore.setState({
+      operationalStatusAssistantId: assistantId,
+    });
   }
 }
 

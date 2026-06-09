@@ -64,6 +64,7 @@ function canPollOperationalStatus(assistantState: AssistantState): boolean {
     case "initializing":
     case "cleaning_up":
     case "platform_hosted":
+    case "error":
       return true;
     case "active":
       return !assistantState.isLocal;
