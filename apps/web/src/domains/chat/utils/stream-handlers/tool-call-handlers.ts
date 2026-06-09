@@ -66,6 +66,7 @@ export function handleToolResult(
       riskScopeOptions: event.riskScopeOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
+      completedAt: event.completedAt,
     }),
   );
 }

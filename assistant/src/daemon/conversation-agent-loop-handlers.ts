@@ -1254,8 +1254,9 @@ export async function handleToolResult(
   });
 
   // Record tool completion timestamp
+  const completedAt = Date.now();
   const ts = state.toolCallTimestamps.get(event.toolUseId);
-  if (ts) ts.completedAt = Date.now();
+  if (ts) ts.completedAt = completedAt;
   state.currentToolUseId = undefined;
 
   // Capture risk metadata when present. autoApproved is true when the tool
@@ -1374,6 +1375,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    completedAt,
   });
 
   // Capture the seq synchronously (before the persist await) so it reflects the
