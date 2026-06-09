@@ -29,6 +29,7 @@ import {
   isSubagentSpawnCall,
   isSuppressedUiTool,
   resolveThinkingContent,
+  resolveThinkingTiming,
   resolveToolCall,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
@@ -635,7 +636,11 @@ export function TranscriptMessageBody({
           const text = resolveThinkingContent(message, item.ids);
           if (text) {
             thinkingContents.push(text);
-            cardItems.push({ kind: "thinking", text });
+            const { startedAt, completedAt } = resolveThinkingTiming(
+              message,
+              item.ids,
+            );
+            cardItems.push({ kind: "thinking", text, startedAt, completedAt });
           }
         } else {
           const tc = resolveToolCall(message, item.id);

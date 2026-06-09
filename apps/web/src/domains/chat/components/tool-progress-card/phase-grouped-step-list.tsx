@@ -101,13 +101,18 @@ function parseDurationLabel(label: string): number {
 }
 
 /**
- * Earliest known start time (epoch ms) across a phase's tool steps, or `null`
- * when none carry timing. Drives the "Started at …" hover on the duration.
+ * Earliest known start time (epoch ms) across a phase's steps, or `null` when
+ * none carry timing. Both `tool` and `thinking` steps stamp `startedAt`, so a
+ * thinking phase surfaces the same "Started at …" hover on its duration as a
+ * tool phase.
  */
 function phaseStartedAt(steps: ToolCallCardStep[]): number | null {
   let earliest: number | null = null;
   for (const step of steps) {
-    if (step.kind === "tool" && step.startedAt != null) {
+    if (
+      (step.kind === "tool" || step.kind === "thinking") &&
+      step.startedAt != null
+    ) {
       earliest =
         earliest == null ? step.startedAt : Math.min(earliest, step.startedAt);
     }

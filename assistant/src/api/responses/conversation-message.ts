@@ -301,7 +301,14 @@ export type ConversationSlackMessage = z.infer<
  */
 export const ConversationContentBlockSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("thinking"), thinking: z.string() }),
+  z.object({
+    type: z.literal("thinking"),
+    thinking: z.string(),
+    /** Unix ms when the model began emitting this reasoning block. */
+    startedAt: z.number().optional(),
+    /** Unix ms when this reasoning block completed. */
+    completedAt: z.number().optional(),
+  }),
   z.object({
     type: z.literal("tool_use"),
     toolCall: ConversationMessageToolCallSchema,

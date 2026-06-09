@@ -128,6 +128,52 @@ export function resolveThinkingContent(
     .join("\n");
 }
 
+/** Earliest start and latest completion (epoch ms) across a run of thinking blocks. */
+export interface ThinkingTiming {
+  startedAt?: number;
+  completedAt?: number;
+}
+
+/**
+ * Resolve the timing of a run of `thinking` contentOrder ids: the earliest
+ * `startedAt` and latest `completedAt` across the referenced thinking blocks.
+ *
+ * Only the unified `contentBlocks` projection carries timestamps — the
+ * positional `thinkingSegments` array has no place for them — so rows without
+ * `contentBlocks` (older daemons, in-flight streaming rows) resolve to empty
+ * timing. The UI then hides the duration, exactly as a tool call with no
+ * `startedAt` does.
+ */
+export function resolveThinkingTiming(
+  message: DisplayMessage,
+  ids: string[],
+): ThinkingTiming {
+  const thinkingBlocks = message.contentBlocks?.filter(
+    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
+      b.type === "thinking",
+  );
+  if (!thinkingBlocks) return {};
+  let startedAt: number | undefined;
+  let completedAt: number | undefined;
+  for (const id of ids) {
+    const idx = parseInt(id, 10);
+    if (isNaN(idx)) continue;
+    const block = thinkingBlocks[idx];
+    if (!block) continue;
+    if (block.startedAt != null) {
+      startedAt =
+        startedAt == null ? block.startedAt : Math.min(startedAt, block.startedAt);
+    }
+    if (block.completedAt != null) {
+      completedAt =
+        completedAt == null
+          ? block.completedAt
+          : Math.max(completedAt, block.completedAt);
+    }
+  }
+  return { startedAt, completedAt };
+}
+
 /**
  * UI surface tools are rendered by the inline surface widget, not as tool-call
  * chips — unless they carry a pending confirmation, in which case the chip must
