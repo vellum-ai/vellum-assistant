@@ -385,8 +385,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
 
         // A resource tier change persisted server-side even though another
         // dimension failed — still open the resize flow so the assistant
-        // picks up the new entitlement.
-        if (resourceSucceeded && onTierUpgraded) {
+        // picks up the new entitlement. Skip for downgrades (smaller compute
+        // doesn't need an immediate resize prompt).
+        if (resourceSucceeded && !isMachineDowngrade && onTierUpgraded) {
           onClose();
           onTierUpgraded();
         }
@@ -394,7 +395,12 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       }
 
       // All succeeded — trigger the resize flow if resource tiers changed.
-      if ((machineChanged || storageChanged) && onTierUpgraded) {
+      // Downgrades skip the resize modal (smaller compute doesn't need a prompt).
+      if (
+        (machineChanged || storageChanged) &&
+        !isMachineDowngrade &&
+        onTierUpgraded
+      ) {
         onClose();
         onTierUpgraded();
       } else {
