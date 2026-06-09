@@ -252,7 +252,6 @@ export function ActiveChatView() {
     startReconciliationLoop,
     cancelReconciliation,
     reconcileActiveConversation,
-    refreshLatestMessages,
   } = useMessageLifecycle({
     assistantId,
     assistantStateKind: assistantState.kind,
@@ -362,6 +361,14 @@ export function ActiveChatView() {
     switchConversation,
   });
 
+  // Manual "Refresh" menu item — re-fetch the latest history page through the
+  // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
+  // transcript reconciles through the seq frontier exactly like a page reload.
+  const invalidateHistory = historyResult.pagination.invalidate;
+  const handleRefreshLatest = useCallback(() => {
+    void invalidateHistory();
+  }, [invalidateHistory]);
+
   // -------------------------------------------------------------------------
   // Layout header slot registration — supplements, top bar right
   // -------------------------------------------------------------------------
@@ -372,7 +379,7 @@ export function ActiveChatView() {
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
-    refreshLatestMessages,
+    onRefresh: handleRefreshLatest,
   });
 
   // -------------------------------------------------------------------------

@@ -245,15 +245,6 @@ export function mergeDuplicateMessages(
   return merged;
 }
 
-function pickMoreCompleteArray<T>(
-  current: T[] | undefined,
-  incoming: T[] | undefined,
-): T[] | undefined {
-  if (!current || current.length === 0) return incoming;
-  if (!incoming || incoming.length === 0) return current;
-  return incoming.length >= current.length ? incoming : current;
-}
-
 /**
  * Merge locally-accumulated thinking segments with the server's snapshot,
  * keeping the longer text at each position and appending any extra trailing
@@ -287,83 +278,6 @@ export function mergeThinkingSegments(
       merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
     }
   }
-  return merged;
-}
-
-export function mergeLatestHistoryMessage(
-  current: DisplayMessage,
-  incoming: DisplayMessage,
-): DisplayMessage {
-  const currentHasMoreText =
-    segmentsToPlainText(current.textSegments).length >
-    segmentsToPlainText(incoming.textSegments).length;
-  const merged: DisplayMessage = {
-    ...current,
-    ...incoming,
-  };
-
-  if (currentHasMoreText) {
-    merged.textSegments = current.textSegments ?? incoming.textSegments;
-  }
-
-  if (incoming.role === "user" && incoming.id) {
-    delete merged.queueStatus;
-    delete merged.queuePosition;
-  }
-
-  // Server id arrived → the row is no longer optimistic.
-  if (incoming.id && current.isOptimistic) {
-    delete merged.isOptimistic;
-  }
-
-  const toolCalls = mergeToolCallsForMessage(current, incoming);
-  if (toolCalls) merged.toolCalls = toolCalls;
-
-  const surfaces = mergeByKey(
-    current.surfaces,
-    incoming.surfaces,
-    (surface) => surface.surfaceId,
-    mergeSurface,
-  );
-  if (surfaces) merged.surfaces = surfaces;
-
-  const attachments = mergeByKey(
-    current.attachments,
-    incoming.attachments,
-    (attachment) => attachment.id || attachment.filename,
-  );
-  if (attachments) merged.attachments = attachments;
-
-  const contentOrder = pickMoreCompleteArray(
-    current.contentOrder,
-    incoming.contentOrder,
-  );
-  if (contentOrder) merged.contentOrder = contentOrder;
-
-  const textSegments = currentHasMoreText
-    ? current.textSegments ?? incoming.textSegments
-    : pickMoreCompleteArray(current.textSegments, incoming.textSegments);
-  if (textSegments) merged.textSegments = textSegments;
-
-  const thinkingSegments = pickMoreCompleteArray(
-    current.thinkingSegments,
-    incoming.thinkingSegments,
-  );
-  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
-
-  if (current.slackMessage || incoming.slackMessage) {
-    merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
-  }
-  const mergedMessageIds = mergeStringArrays(
-    current.mergedMessageIds,
-    incoming.mergedMessageIds,
-  );
-  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
-
-  if (merged.timestamp == null) {
-    merged.timestamp = current.timestamp ?? incoming.timestamp;
-  }
-
   return merged;
 }
 
