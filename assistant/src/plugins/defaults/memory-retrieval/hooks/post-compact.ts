@@ -25,10 +25,12 @@
 
 import type { PluginHookFn } from "@vellumai/plugin-api";
 
+import { getConfig } from "../../../../config/loader.js";
+import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
   type InboundActorContext,
-  type InjectionMode,
+  resolveTurnModelProfileLabel,
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import {
   resolveTrustClass,
@@ -87,21 +89,15 @@ export interface PostCompactContext {
    */
   isNonInteractive: boolean;
   /**
-   * Injection volume for the re-applied blocks. Owned by the agent loop, which
-   * drops to `"minimal"` when overflow reduction trims the prompt; handed to
-   * the hook here so re-injection matches the loop's committed decision instead
-   * of re-deriving it.
+   * The turn's resolved inference-profile key, or `null` when the active
+   * profile is unchanged since the last notified one. The agent loop resolves
+   * it once at turn start (notifying the model only on change — a decision that
+   * flips mid-turn once the notification is persisted, so it cannot be
+   * re-derived) and hands it here; the hook renders the `model_profile:` label
+   * from it via {@link resolveTurnModelProfileLabel}, using the call site
+   * self-resolved from the live conversation.
    */
-  mode: InjectionMode;
-  /**
-   * The `model_profile:` turn-context label, or `null` when the active
-   * inference profile is unchanged since the last notified one. The agent loop
-   * resolves it once at turn start from config and the turn's profile override,
-   * and notifies the model only on change — a decision that flips mid-turn once
-   * the notification is persisted, so it cannot be re-derived. Handed to the
-   * hook here so re-injection re-emits the loop's turn-start value.
-   */
-  modelProfile: string | null;
+  modelProfileKey: string | null;
   /**
    * Inbound actor identity and trust fields for the unified `<turn_context>`
    * block, or `null` on guardian turns (which suppress the actor section). The
@@ -114,15 +110,36 @@ export interface PostCompactContext {
 }
 
 const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
-  const { history, requestId, conversationId, trust, ...options } = ctx;
-  // The remaining `options` carry the non-identity injection inputs
-  // (`isNonInteractive`, `mode`, `modelProfile`, `actorContext`). Forward the
+  const {
+    history,
+    requestId,
+    conversationId,
+    trust,
+    isNonInteractive,
+    modelProfileKey,
+    actorContext,
+  } = ctx;
+  // Render the `model_profile:` label from the turn's resolved profile key,
+  // using the call site self-resolved from the live conversation — the same
+  // derivation the first-call user-prompt-submit assembly uses. Mid-loop
+  // re-injection always runs at `"full"` volume; only the orchestrator's
+  // post-rejection convergence re-injection ever downgrades the mode. The
   // turn-identity fields the live conversation can't supply (`requestId`,
-  // `conversationId`, `trust`); `turnIndex` and `callSite` self-resolve from
-  // the live conversation so the re-injection matches the turn's initial
-  // assembly.
+  // `conversationId`, `trust`) are forwarded; `turnIndex` and `callSite`
+  // self-resolve from the live conversation so the re-injection matches the
+  // turn's initial assembly.
+  const config = getConfig();
+  const conversation = findConversationOrSubagent(conversationId);
+  const modelProfile = resolveTurnModelProfileLabel(
+    modelProfileKey,
+    conversation?.currentCallSite ?? "mainAgent",
+    config.llm,
+  );
   const result = await applyRuntimeInjections(history, {
-    ...options,
+    isNonInteractive,
+    modelProfile,
+    actorContext,
+    mode: "full",
     requestId,
     conversationId,
     trust,
@@ -131,15 +148,14 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
   // reads it from there once the hook settles.
   ctx.history = result.messages;
   // Re-track the nodes the memory graph last injected so they survive against
-  // the re-injected history. Untrusted actors and minimal-mode turns never
-  // received a memory-graph injection, so there is nothing to re-track. The
-  // actor's trust class is derived from the turn's own trust context (the same
-  // value the injector chain resolves). The live graph handle is looked up
-  // from the plugin's own registry by the turn's conversation id — the same
-  // instance the turn's retrieval mutated, so re-tracking sees the real
-  // cached-node state.
+  // the re-injected history. Untrusted actors never received a memory-graph
+  // injection, so there is nothing to re-track. The actor's trust class is
+  // derived from the turn's own trust context (the same value the injector
+  // chain resolves). The live graph handle is looked up from the plugin's own
+  // registry by the turn's conversation id — the same instance the turn's
+  // retrieval mutated, so re-tracking sees the real cached-node state.
   const isTrustedActor = resolveTrustClass(trust) === "guardian";
-  if (isTrustedActor && options.mode !== "minimal") {
+  if (isTrustedActor) {
     getLiveGraphMemory(conversationId)?.retrackCachedNodes();
   }
 };

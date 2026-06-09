@@ -799,9 +799,9 @@ export async function runAgentLoopImpl(
     // Unified `<turn_context>` actor input for this turn (model-facing grounding
     // metadata; the conversation runtime context remains the source for policy
     // gating). Resolved once at turn start and threaded per call site (like
-    // `modelProfile`) so post-compaction re-injection receives it as an explicit
-    // hook input rather than re-deriving it from live state that can flip
-    // mid-turn.
+    // `modelProfileKey`) so post-compaction re-injection receives it as an
+    // explicit hook input rather than re-deriving it from live state that can
+    // flip mid-turn.
     const actorContext = resolveTurnInboundActorContext(
       ctx.trustContext,
       ctx.assistantId,
@@ -852,9 +852,11 @@ export async function runAgentLoopImpl(
       effectiveProfileKey != null && effectiveProfileKey !== lastNotified
         ? effectiveProfileKey
         : null;
-    // The key is threaded to the memory hook as plain turn data; the rendered
-    // `Label (model)` line for the mid-loop re-injection sites is resolved from
-    // it here so both paths share one derivation.
+    // The key is threaded as plain turn data to the user-prompt-submit and
+    // post-compaction hooks, which render the `Label (model)` line from it
+    // themselves. The post-rejection convergence re-injection further down is a
+    // direct assembly call rather than a hook, so its label is still rendered
+    // here from the same key.
     const modelProfileStr = resolveTurnModelProfileLabel(
       modelProfileKey,
       turnCallSite,
@@ -984,7 +986,7 @@ export async function runAgentLoopImpl(
           resolveContextWindow,
           compactInPlace,
           isNonInteractive,
-          modelProfile: modelProfileStr,
+          modelProfileKey,
           actorContext,
         });
       lastRunAppendedNewMessages = appendedNewMessages;

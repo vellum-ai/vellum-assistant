@@ -1037,8 +1037,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       conversationId: "injection-mode-conv",
       trust: { sourceChannel: "vellum", trustClass: "guardian" },
       isNonInteractive: false,
-      mode: "full",
-      modelProfile: null,
+      modelProfileKey: null,
       actorContext: null,
     };
     await postCompact(postCompactCtx);
