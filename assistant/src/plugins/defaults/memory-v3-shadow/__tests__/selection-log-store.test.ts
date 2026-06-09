@@ -198,6 +198,8 @@ describe("summarizeSelections", () => {
 
     const summary = summarizeSelections("conv-a");
     expect(summary.bySource).toEqual({
+      core: 0,
+      hot: 0,
       needle: 2,
       dense: 0,
       edge: 1,
@@ -210,7 +212,14 @@ describe("summarizeSelections", () => {
 
   test("returns zeroed counts for a conversation with no rows", () => {
     expect(summarizeSelections("conv-none")).toEqual({
-      bySource: { needle: 0, dense: 0, edge: 0, "carry-forward": 0 },
+      bySource: {
+        core: 0,
+        hot: 0,
+        needle: 0,
+        dense: 0,
+        edge: 0,
+        "carry-forward": 0,
+      },
       turns: 0,
       distinctSlugs: 0,
     });

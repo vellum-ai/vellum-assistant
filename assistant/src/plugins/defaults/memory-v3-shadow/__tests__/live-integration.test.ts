@@ -6,16 +6,18 @@
  * for a unit test. Instead this composes the REAL v3 live-path units with a
  * mocked select provider + stubbed dense lane and synthetic fixtures:
  *
- *   orchestrate (needle ∪ dense ∪ edge → selectPool over a shared WorkingSet)
- *     → renderMemoryBlock (the rendered `<memory>` working-set block)
+ *   orchestrate (cache-ordered pool → ONE selectPool call → this turn's
+ *     selections)
+ *     → renderMemoryBlock (the rendered `<memory>` selections block)
  *     → stripAllMemoryInjections (all-turns history strip)
  *
  * That is exactly the behavioral contract the live path wires together: the
- * plugin's `produce()` renders `orchestrate(...).finalInjection` via
- * `renderMemoryBlock`, and assembly strips `<memory>` from every historical user
- * message so exactly one block exists. Driving these real units across turns
- * exercises carry-forward, eviction, single-source, and strip-all end-to-end at
- * the v3 layer without the daemon. The provider is stubbed (no network).
+ * plugin's `produce()` renders this turn's `orchestrate(...).selections` via
+ * `renderMemoryBlock`, and assembly strips `<memory>` from every historical
+ * user message so exactly one block exists. INTERIM SHAPE: the block reflects
+ * current-turn selections only — the working-set carry was removed from
+ * orchestration; cross-turn persistence (net-new blocks frozen into history)
+ * replaces it in a follow-up. The provider is stubbed (no network).
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -66,7 +68,6 @@ mock.module("../dense.js", () => ({
 }));
 
 const { orchestrate } = await import("../orchestrate.js");
-const { WorkingSet } = await import("../working-set.js");
 const { renderMemoryBlock } = await import("../render-injection.js");
 
 // ---------------------------------------------------------------------------
@@ -163,7 +164,7 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
   };
 }
 
-/** Run one turn through orchestrate over the shared working set + render it. */
+/** Run one turn through orchestrate + render this turn's selections. */
 async function runTurn(
   turnNumber: number,
   query: string,
@@ -171,7 +172,8 @@ async function runTurn(
   pin: Slug[],
   deps: {
     lanes: Awaited<ReturnType<typeof buildLanes>>;
-    workingSet: InstanceType<typeof WorkingSet>;
+    core?: Slug[];
+    hot?: Slug[];
   },
 ) {
   providerStub = selectProvider(keep, pin);
@@ -180,11 +182,12 @@ async function runTurn(
     needle: deps.lanes.needle,
     denseConfig: config,
     edgeGraph: deps.lanes.edgeGraph,
-    workingSet: deps.workingSet,
+    coreSlugs: deps.core ?? [],
+    hotSlugs: deps.hot ?? [],
   });
   const block = await renderMemoryBlock(
-    result.finalInjection,
-    result.sectionBySlug,
+    result.selections.map((s) => s.slug),
+    result.matchedSections,
     contentOf,
   );
   return { result, block };
@@ -205,75 +208,40 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Carry-forward: a page pinned in turn 1 appears in turn 2's injected block
-// WITHOUT being re-selected in turn 2 (same WorkingSet reused across turns).
+// Selections-only block (interim shape): the rendered block reflects THIS
+// turn's selections; a page selected on an earlier turn and not re-selected
+// does not reappear — cross-turn persistence moves to the injector (net-new
+// blocks frozen into history) in a follow-up.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 live — carry-forward across turns", () => {
-  test("a page pinned in turn 1 is injected in turn 2 without re-selection", async () => {
+describe("memory-v3 live — selections-only block", () => {
+  test("a page selected in turn 1 is absent from turn 2's block unless re-selected", async () => {
     const lanes = await buildLanes();
-    const workingSet = new WorkingSet();
 
-    const t1 = await runTurn(1, "apple", ["page-a"], ["page-a"], {
-      lanes,
-      workingSet,
-    });
-    expect(t1.result.currentSelections.map((s) => s.slug)).toContain("page-a");
+    const t1 = await runTurn(1, "apple", ["page-a"], ["page-a"], { lanes });
+    expect(t1.result.selections.map((s) => s.slug)).toContain("page-a");
     expect(t1.block).toContain("body for page-a");
 
-    const t2 = await runTurn(2, "cherry", ["page-c"], [], {
-      lanes,
-      workingSet,
-    });
-    expect(t2.result.currentSelections.map((s) => s.slug)).not.toContain(
-      "page-a",
-    );
-    expect(t2.result.finalInjection).toContain("page-a");
-    expect(t2.block).toContain("body for page-a");
+    const t2 = await runTurn(2, "cherry", ["page-c"], [], { lanes });
+    expect(t2.result.selections.map((s) => s.slug)).toEqual(["page-c"]);
+    expect(t2.block).toContain("body for page-c");
+    expect(t2.block).not.toContain("body for page-a");
   });
-});
 
-// ---------------------------------------------------------------------------
-// Eviction reflected: a non-pinned page selected only early ages past the
-// eviction window and drops out of a later turn's injected block.
-// ---------------------------------------------------------------------------
-
-describe("memory-v3 live — eviction reflected in the injected block", () => {
-  test("a stale non-pinned page drops out; the pinned page persists", async () => {
+  test("a selected stable-prefix page renders in the block", async () => {
     const lanes = await buildLanes();
-    // Small window: a non-pinned entry unseen for >2 turns evicts. page-b is
-    // selected only in turn 1, so by turn 4 (4-1=3 > 2) it ages out; pinned
-    // page-a never evicts; page-c is re-selected every later turn.
-    const workingSet = new WorkingSet(150, 2);
-
-    const t1 = await runTurn(
-      1,
-      "apple banana",
-      ["page-a", "page-b"],
-      ["page-a"],
-      { lanes, workingSet },
-    );
-    expect(t1.result.finalInjection).toContain("page-b");
+    // page-b is HOT; the query never matches it, but the selector keeps it
+    // from the stable prefix and it renders like any other selection.
+    const t1 = await runTurn(1, "apple", ["page-a", "page-b"], [], {
+      lanes,
+      hot: ["page-b"],
+    });
+    expect(t1.result.selections.map((s) => s.slug)).toEqual([
+      "page-b",
+      "page-a",
+    ]);
     expect(t1.block).toContain("body for page-b");
-
-    // Turns 2–3 keep page-b inside the window (3-1=2, not > 2); re-select page-c.
-    await runTurn(2, "cherry", ["page-c"], [], { lanes, workingSet });
-    const t3 = await runTurn(3, "cherry", ["page-c"], [], {
-      lanes,
-      workingSet,
-    });
-    expect(t3.result.finalInjection).toContain("page-b");
-
-    // Turn 4: page-b is now stale (4-1=3 > 2) and must be gone from the block;
-    // pinned page-a and freshly-selected page-c remain.
-    const t4 = await runTurn(4, "cherry", ["page-c"], [], {
-      lanes,
-      workingSet,
-    });
-    expect(t4.result.finalInjection).not.toContain("page-b");
-    expect(t4.block).not.toContain("body for page-b");
-    expect(t4.result.finalInjection).toContain("page-a");
-    expect(t4.result.finalInjection).toContain("page-c");
+    expect(t1.block).toContain("body for page-a");
   });
 });
 
@@ -285,13 +253,11 @@ describe("memory-v3 live — eviction reflected in the injected block", () => {
 describe("memory-v3 live — single memory source", () => {
   test("each turn renders exactly one <memory> block", async () => {
     const lanes = await buildLanes();
-    const workingSet = new WorkingSet();
 
     const queries = ["apple", "banana", "cherry"];
     for (const [i, query] of queries.entries()) {
       const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
         lanes,
-        workingSet,
       });
       expect(countMemoryBlocks(block)).toBe(1);
       expect(block.startsWith("<memory>\n")).toBe(true);
@@ -308,7 +274,6 @@ describe("memory-v3 live — single memory source", () => {
 describe("memory-v3 live — all-turns history strip", () => {
   test("historical <memory> blocks strip back to byte-stable user history", async () => {
     const lanes = await buildLanes();
-    const workingSet = new WorkingSet();
 
     const baseHistory: Message[] = [
       { role: "user", content: [{ type: "text", text: "first user message" }] },
@@ -327,7 +292,6 @@ describe("memory-v3 live — all-turns history strip", () => {
     for (const [i, query] of queries.entries()) {
       const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
         lanes,
-        workingSet,
       });
       const stripped = stripAllMemoryInjections(injected);
       injected = stripped.map((m) =>

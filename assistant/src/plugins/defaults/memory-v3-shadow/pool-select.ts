@@ -8,11 +8,10 @@
  * the pool selector only decides which of those candidates the reply will draw
  * on.
  *
- * No cache breakpoint. The pool is recomputed from per-turn section matches and
- * is therefore dynamic per turn, so it carries no `cache_control` breakpoint:
- * caching a prefix that changes every turn would never hit. Carry-forward (the
- * working set unioned in by the orchestrator) is the cache mechanism here, not a
- * static prefix breakpoint.
+ * No cache breakpoint YET. The orchestrator now hands the pool over in cache
+ * order — a stable core+hot prefix followed by the per-turn finder tail — but
+ * this module still renders one flat block; the stable-prefix `cache_control`
+ * breakpoint lands with the card-grain selector input rework.
  *
  * Failure handling is recall-safe by construction:
  *   - explicit `ids` → select exactly those candidates,
@@ -140,9 +139,10 @@ export async function selectPool(
     return [];
   }
 
-  // The pool is dynamic per turn, so there is no static cache breakpoint here;
-  // carry-forward is the cache mechanism. The candidate list and the per-turn
-  // context go in a single plain text block.
+  // No cache breakpoint yet: the caller orders the pool stable-prefix-first,
+  // but the breakpoint lands with the card-grain selector input rework (see
+  // the module doc). The candidate list and the per-turn context go in a
+  // single plain text block.
   const userMsg: Message = {
     role: "user",
     content: [

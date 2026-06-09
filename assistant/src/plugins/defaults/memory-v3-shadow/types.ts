@@ -68,11 +68,18 @@ export interface MemoryRoutingTurn {
  * exactly one place and the runtime list (used for telemetry roll-ups and
  * source validation) can never drift from the type.
  *
+ * `core` / `hot` are the stable-prefix lanes (curated core set, frecency hot
+ * set); `needle` / `dense` / `edge` are the per-turn finder lanes.
+ * `carry-forward` is no longer emitted (the working-set carry was removed from
+ * orchestration); it stays listed so historical rows still aggregate.
+ *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with older labels still read back
  * fine via the permissive `z.string()` row schema.
  */
 export const SELECTION_SOURCES = [
+  "core",
+  "hot",
   "needle",
   "dense",
   "edge",
@@ -82,11 +89,14 @@ export const SELECTION_SOURCES = [
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
 
 /**
- * The candidate-generation lanes — the strict subset of {@link SelectionSource}
- * a pooled candidate can be tagged with at pool-build time. (`carry-forward` is
- * the one source assigned later, by the orchestrator's working-set union, not by
- * a candgen lane.) Defined as `Exclude<SelectionSource, "carry-forward">` so it
- * can never drift from {@link SELECTION_SOURCES}: adding a lane there widens this
+ * The per-turn finder lanes — the strict subset of {@link SelectionSource} a
+ * finder candidate can be tagged with at pool-build time. (`core` / `hot` are
+ * assigned by stable-prefix membership, not by a finder; `carry-forward` is a
+ * historical-rows-only label.) Defined via `Exclude` so it can never drift from
+ * {@link SELECTION_SOURCES}: adding a finder lane there widens this
  * automatically.
  */
-export type CandidateLane = Exclude<SelectionSource, "carry-forward">;
+export type FinderLane = Exclude<
+  SelectionSource,
+  "core" | "hot" | "carry-forward"
+>;

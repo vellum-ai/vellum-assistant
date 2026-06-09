@@ -29,7 +29,9 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import * as schema from "../../../../memory/schema.js";
-import type { CandidateLane, SectionIndex, SelectionSource } from "../types.js";
+import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
+import type { OrchestrateResult } from "../orchestrate.js";
+import type { SectionIndex, SelectionSource } from "../types.js";
 
 // `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
 // re-mock in `afterAll` reverts it for files that load LATER in the same
@@ -62,6 +64,8 @@ const realSkillStore = {
 const realCliCommandStore = {
   ...(await import("../../../../memory/v2/cli-command-store.js")),
 };
+const realCoreSet = { ...(await import("../core-set.js")) };
+const realHotSet = { ...(await import("../hot-set.js")) };
 
 let shadowMockActive = false;
 
@@ -77,36 +81,50 @@ let messages: Array<{ role: string; content: string }> = [];
 const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
-// The orchestrate result the spy returns. `laneBySlug` records the lane that
-// surfaced each pooled slug: page-1 → "needle", page-2 → "dense", page-3 →
-// "edge"; `attributeSelections` reads it directly. `carried` is a carry-forward
-// slug not re-selected this turn. `sectionBySlug` carries the matched section
-// for the slugs that had one (page-1/page-2) — consumed by the live injector's
-// progressive disclosure, independent of source attribution.
-const orchestrateSpy = mock(async () => ({
-  currentSelections: [
-    { slug: "page-1", pinned: true },
-    { slug: "page-2", pinned: false },
-    { slug: "page-3", pinned: false },
-  ],
-  workingSetUnion: new Set<string>(["page-1", "page-2", "page-3"]),
-  finalInjection: ["page-1", "page-2", "page-3", "carried"],
-  sectionBySlug: new Map([
-    ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
-    ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
-  ]),
-  laneBySlug: new Map<string, CandidateLane>([
-    ["page-1", "needle"],
-    ["page-2", "dense"],
-    ["page-3", "edge"],
-  ]),
-}));
+// The orchestrate result the spy returns. `lanes` records where each pooled
+// slug lived: page-core in the core lane, page-hot in the hot lane, and the
+// finder entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
+// `attributeSelections` reads it directly. `matchedSections` carries the
+// matched section for the slugs that had one (page-1/page-2) — consumed by the
+// live injector's progressive disclosure, independent of source attribution.
+const orchestrateSpy = mock(
+  async (): Promise<OrchestrateResult> => ({
+    selections: [
+      { slug: "page-core", pinned: false },
+      { slug: "page-hot", pinned: false },
+      { slug: "page-1", pinned: true },
+      { slug: "page-2", pinned: false },
+      { slug: "page-3", pinned: false },
+    ],
+    matchedSections: new Map([
+      ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
+      ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
+    ]),
+    lanes: {
+      core: ["page-core"],
+      hot: ["page-hot"],
+      finder: [
+        { slug: "page-1", descriptor: "", lane: "needle" },
+        { slug: "page-2", descriptor: "", lane: "dense" },
+        { slug: "page-3", descriptor: "", lane: "edge" },
+      ],
+    },
+  }),
+);
 
 let sectionBuilds = 0;
 let needleBuilds = 0;
 let edgeBuilds = 0;
 let ensureCollectionCalls = 0;
 let ensureCollectionThrows = false;
+
+// Stable-prefix lane inputs, driven per test: what the curated core file
+// yields and what the frecency hot set computes. `hotSetOpts` captures the
+// options `initLanes` passed so the test can assert the core exclusion and the
+// config plumbing.
+let coreSetSlugs: string[] = [];
+let hotSetResult: HotSetEntry[] = [];
+let hotSetOpts: HotSetOptions | null = null;
 
 // The `pageBody` resolver `initLanes` passes to `buildSectionIndex` (its second
 // arg), captured by the stub below so a test can drive it directly: a capability
@@ -125,9 +143,16 @@ function makeDb() {
   return db;
 }
 
+// The fake index lists the LIVE pages — `initLanes` filters the core and hot
+// lanes against `byArticle`, so membership here is what "the page exists"
+// means to the stable-prefix lanes.
 const FAKE_SECTION_INDEX: SectionIndex = {
   sections: [],
-  byArticle: new Map(),
+  byArticle: new Map([
+    ["page-1", []],
+    ["page-2", []],
+    [CAPABILITY_SLUG, []],
+  ]),
 };
 
 // ─── module mocks (installed before the plugin import) ──────────────────────
@@ -145,7 +170,7 @@ mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
       v3: {
-        workingSet: { maxPages: 150, evictWindow: 5 },
+        hotSet: { k: 40, halfLifeDays: 14 },
         needleK: 100,
         denseK: 100,
         edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
@@ -153,6 +178,26 @@ mock.module("../../../../config/loader.js", () => ({
       qdrant: { vectorSize: 8, onDisk: false },
     },
   }),
+}));
+
+// Stable-prefix lanes: the curated core loader and the frecency hot set are
+// stubbed to controllable values; `initLanes` owns the existence filtering and
+// the core exclusion these tests assert.
+mock.module("../core-set.js", () => ({
+  ...realCoreSet,
+  loadCoreSet: (...args: Parameters<typeof realCoreSet.loadCoreSet>) =>
+    shadowMockActive ? coreSetSlugs : realCoreSet.loadCoreSet(...args),
+}));
+
+mock.module("../hot-set.js", () => ({
+  ...realHotSet,
+  computeHotSet: (
+    ...args: Parameters<typeof realHotSet.computeHotSet>
+  ): HotSetEntry[] => {
+    if (!shadowMockActive) return realHotSet.computeHotSet(...args);
+    hotSetOpts = args[1];
+    return hotSetResult;
+  },
 }));
 
 // Spread the real module so every export the live path transitively imports
@@ -305,8 +350,12 @@ mock.module("../orchestrate.js", () => ({
 }));
 
 // Import AFTER mocks so the plugin binds to them.
-const { runShadowObservation, resetShadowLanesForTests, invalidateLanes } =
-  await import("../shadow-plugin.js");
+const {
+  runShadowObservation,
+  resetShadowLanesForTests,
+  invalidateLanes,
+  attributeSelections,
+} = await import("../shadow-plugin.js");
 const { memoryV3Injector } = await import("../injector.js");
 
 afterAll(() => {
@@ -338,6 +387,9 @@ beforeEach(() => {
   ensureCollectionCalls = 0;
   ensureCollectionThrows = false;
   capturedPageBody = null;
+  coreSetSlugs = [];
+  hotSetResult = [];
+  hotSetOpts = null;
   testDb = makeDb();
   resetShadowLanesForTests();
 });
@@ -367,18 +419,36 @@ describe("memory-v3 shadow plugin", () => {
 
     expect(orchestrateSpy).toHaveBeenCalledTimes(1);
     const rows = readRows();
-    // Each selection is attributed to the lane that surfaced it
-    // (`result.laneBySlug`), not re-derived from section presence — so the
-    // dense-only page-2 logs "dense", not "needle".
+    // Each selection is attributed to the lane that pooled it
+    // (`result.lanes`), not re-derived from section presence — so the
+    // dense-only page-2 logs "dense", not "needle". No carry-forward rows are
+    // emitted anymore: the result is current-turn selections only.
     expect(rows).toEqual([
-      { slug: "carried", source: "carry-forward", pinned: 0 },
       // page-1 was surfaced by the needle lane → "needle", pinned.
       { slug: "page-1", source: "needle", pinned: 1 },
       // page-2 was surfaced by the dense lane → "dense".
       { slug: "page-2", source: "dense", pinned: 0 },
       // page-3 was surfaced by the edge lane → "edge".
       { slug: "page-3", source: "edge", pinned: 0 },
+      // page-core / page-hot sit in the stable prefix → "core" / "hot".
+      { slug: "page-core", source: "core", pinned: 0 },
+      { slug: "page-hot", source: "hot", pinned: 0 },
     ]);
+  });
+
+  test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
+    const rows = attributeSelections({
+      selections: [{ slug: "page-core", pinned: false }],
+      matchedSections: new Map(),
+      lanes: {
+        core: ["page-core"],
+        hot: [],
+        // The needle also hit the core page this turn — the row still logs
+        // "core" because that is where the candidate lived in the pool.
+        finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
+      },
+    });
+    expect(rows).toEqual([{ slug: "page-core", source: "core", pinned: 0 }]);
   });
 
   test("the turn passed to orchestrate carries the latest user message", async () => {
@@ -405,12 +475,38 @@ describe("memory-v3 shadow plugin", () => {
       sectionIndex?: unknown;
       needle?: unknown;
       edgeGraph?: unknown;
-      workingSet?: unknown;
+      coreSlugs?: unknown;
+      hotSlugs?: unknown;
     };
     expect(deps.sectionIndex).toBeDefined();
     expect(deps.needle).toBeDefined();
     expect(deps.edgeGraph).toBeDefined();
-    expect(deps.workingSet).toBeDefined();
+    expect(deps.coreSlugs).toEqual([]);
+    expect(deps.hotSlugs).toEqual([]);
+  });
+
+  test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
+    shadowEnabled = true;
+    // The core file lists a live page and a dangling slug; the hot set returns
+    // a live page and a deleted one (selection rows can outlive their pages).
+    coreSetSlugs = ["page-1", "missing-page"];
+    hotSetResult = [
+      { slug: "page-2", score: 2 },
+      { slug: "gone-page", score: 1 },
+    ];
+    await runShadowObservation("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { coreSlugs: string[]; hotSlugs: string[] };
+    // Dangling core entries and deleted hot pages never reach the pool.
+    expect(deps.coreSlugs).toEqual(["page-1"]);
+    expect(deps.hotSlugs).toEqual(["page-2"]);
+    // The hot set was computed with the (filtered) core excluded and the
+    // configured k / half-life (14 days, in ms).
+    expect(hotSetOpts?.excludeSlugs).toEqual(new Set(["page-1"]));
+    expect(hotSetOpts?.k).toBe(40);
+    expect(hotSetOpts?.halfLifeMs).toBe(14 * 24 * 60 * 60 * 1000);
   });
 
   test("both flags OFF → produce returns null, no orchestrate, no writes", async () => {
@@ -443,8 +539,9 @@ describe("memory-v3 shadow plugin", () => {
     // section's text (page-1 → "x"), NOT the full page body.
     expect(block!.text).toContain("# memory/concepts/page-1.md\nx");
     expect(block!.text).not.toContain("body for page-1");
-    // A slug with no matched section (carry-forward) falls back to the full body.
-    expect(block!.text).toContain("body for carried");
+    // A selected slug with no matched section (edge-surfaced page-3) falls
+    // back to the full body.
+    expect(block!.text).toContain("body for page-3");
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
   });
@@ -453,11 +550,9 @@ describe("memory-v3 shadow plugin", () => {
     liveEnabled = true;
     shadowEnabled = false;
     orchestrateSpy.mockImplementationOnce(async () => ({
-      currentSelections: [],
-      workingSetUnion: new Set<string>(),
-      finalInjection: [],
-      sectionBySlug: new Map(),
-      laneBySlug: new Map(),
+      selections: [],
+      matchedSections: new Map(),
+      lanes: { core: [], hot: [], finder: [] },
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();

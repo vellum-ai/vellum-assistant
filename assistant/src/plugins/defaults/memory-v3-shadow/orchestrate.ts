@@ -1,36 +1,39 @@
 /**
- * Memory v3 — orchestrator composing the section-grain lanes into one turn.
+ * Memory v3 — orchestrator composing the candidate lanes into one turn.
  *
  * Each turn runs:
- *   1. Candidate generation over three deterministic lanes:
+ *   1. Candidate generation over three deterministic finder lanes:
  *        - the section-grain BM25 needle (`SectionNeedle.query`, KB articles),
  *        - the dense lane (`denseLane`, KD articles), and
  *        - link-graph edge expansion (`edgeExpand`) over the top needle+dense
  *          article seeds.
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
- *   2. Build the unified candidate pool of `{ slug, descriptor }`. The
- *      descriptor is the matched section's text for needle/dense hits (resolved
- *      via the section index); for edge-only pages it is the curated `links`
- *      description when the traversed edge carried one, else the page's best
- *      section against the query. Edge-only pages record NO matched section, so
- *      they inject the FULL page (the lead the query never hit is often empty;
- *      the link-relevant content is elsewhere) — the best-section text is only a
- *      descriptor fallback. Synthetic capability pages (skills / CLI commands)
- *      carry sections in the section index too, so they enter the pool through
- *      the lanes like any other page rather than being always-added.
+ *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
+ *      `[...core (file order), ...hot (score order)]`, both computed at lane
+ *      init — followed by the finder candidates (needle → dense → edge
+ *      surfacing order). The stable prefix is identical across consecutive
+ *      turns while the lanes are unchanged (lane invalidation at consolidation
+ *      is the recompute cadence), so the selector input's leading segment can
+ *      ride the provider KV cache.
+ *
+ *      Finder hits are deduped against the stable prefix for the POOL list
+ *      (a slug never appears twice in the numbered candidate list), but a
+ *      finder hit on a core/hot page KEEPS its matched-section ref in
+ *      `matchedSections` and its entry in `lanes.finder` — so the selector
+ *      tail and the section spotlight can still surface that page's CURRENT
+ *      relevance even though the page itself sits in the stable prefix.
+ *
+ *      Per-candidate descriptors: a finder candidate carries its matched
+ *      section's text (or the curated `links` description for an edge hit); a
+ *      stable-prefix candidate carries its LEAD section's text — deliberately
+ *      query-independent so the rendered prefix stays byte-identical across
+ *      turns.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
- *      result is this turn's selections.
- *   4. Age the carry-forward working set to this turn (evict stale non-pinned
- *      entries, then the cap) and snapshot it — the pages carried in from
- *      EARLIER turns.
- *   5. Final injection = unique union of this turn's selected slugs and that
- *      carried-forward set, so pages selected on earlier turns carry forward
- *      even when this turn does not re-select them.
- *   6. Record this turn's selections into the working set for LATER turns. This
- *      runs AFTER the snapshot so the cap is spent on genuinely carried pages,
- *      not on this turn's selections (which are injected directly) — otherwise a
- *      turn selecting more pages than the cap would evict the entire carry.
+ *      result is this turn's selections — current turn only. There is no
+ *      working-set union or eviction here anymore: cross-turn persistence is
+ *      the injector's job (net-new blocks frozen into history), not a per-turn
+ *      re-rendered carry set.
  */
 
 import type { AssistantConfig } from "../../../config/schema.js";
@@ -41,14 +44,13 @@ import type { PoolCandidate } from "./pool-select.js";
 import { selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
-  CandidateLane,
+  FinderLane,
   MemoryRoutingTurn,
   Section,
   SectionIndex,
   SelectedPage,
   Slug,
 } from "./types.js";
-import { WorkingSet } from "./working-set.js";
 
 /** Default number of BM25 needle articles to fold into the pool. */
 export const DEFAULT_NEEDLE_K = 100;
@@ -62,7 +64,12 @@ export interface OrchestrateDeps {
    *  collection. */
   denseConfig: AssistantConfig;
   edgeGraph: EdgeGraph;
-  workingSet: WorkingSet;
+  /** The curated core set in file order (existence-filtered at lane init).
+   *  Heads the stable prefix of the candidate pool. */
+  coreSlugs: Slug[];
+  /** The frecency hot set in score order (computed at lane init with the core
+   *  set excluded). Follows core in the stable prefix. */
+  hotSlugs: Slug[];
   /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
@@ -78,23 +85,42 @@ export interface OrchestrateDeps {
   edgeCap?: number;
 }
 
+/** A finder-lane candidate: the slug, the descriptor that justified it, and
+ *  the finder lane that FIRST surfaced it (needle → dense → edge precedence). */
+export interface FinderCandidate {
+  slug: Slug;
+  descriptor: string;
+  lane: FinderLane;
+}
+
+/**
+ * The three candidate lanes in cache order. `core` and `hot` are the stable
+ * prefix (byte-identical across turns while lanes are unchanged); `finder` is
+ * the dynamic tail and MAY repeat a stable-prefix slug (a finder hit on a
+ * core/hot page is kept so its current relevance stays visible downstream).
+ */
+export interface OrchestrateLanes {
+  /** Curated core set, file order. */
+  core: Slug[];
+  /** Frecency hot set, score order (never overlaps core). */
+  hot: Slug[];
+  /** Finder candidates in surfacing order, deduped among themselves only. */
+  finder: FinderCandidate[];
+}
+
 export interface OrchestrateResult {
-  /** This turn's selections, deduped by slug (pinned flags ORed). */
-  currentSelections: SelectedPage[];
-  /** The carried-forward set: selections from EARLIER turns, aged to this turn
-   *  (snapshotted before this turn's selections are recorded). */
-  workingSetUnion: Set<Slug>;
-  /** Slugs to inject: this turn's selections ∪ the carried-forward working set. */
-  finalInjection: Slug[];
-  /** The matched `Section` for each pooled slug that had one, keyed by slug.
-   *  Populated from the lane hits and consumed by the injector to render each
-   *  selected slug's matched section (progressive disclosure). */
-  sectionBySlug: Map<Slug, Section>;
-  /** The candgen lane that FIRST surfaced each pooled slug, keyed by slug.
-   *  Insertion order is needle → dense → edge, so a page surfaced by more than
-   *  one lane records the highest-precedence one. Consumed by the selection
-   *  telemetry to attribute each selection to its true lane. */
-  laneBySlug: Map<Slug, CandidateLane>;
+  /** This turn's selections, deduped by slug (pinned flags ORed). Current turn
+   *  only — there is no carried-forward set unioned in. */
+  selections: SelectedPage[];
+  /** The matched `Section` for each candidate slug that had one, keyed by slug.
+   *  Populated from the finder-lane hits — including hits on core/hot pages —
+   *  and consumed by the injector to render each selected slug's matched
+   *  section (progressive disclosure). */
+  matchedSections: Map<Slug, Section>;
+  /** The candidate lanes in cache order; see {@link OrchestrateLanes}. Consumed
+   *  by the selection telemetry (lane attribution) and the downstream selector
+   *  rendering/spotlight. */
+  lanes: OrchestrateLanes;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -110,6 +136,13 @@ export async function orchestrate(
   const denseK = deps.denseK ?? DEFAULT_DENSE_K;
   const { sections } = deps.sectionIndex;
 
+  // The stable prefix: core (file order) then hot (score order). Hot is
+  // computed with core excluded at lane init; the filter here is a cheap
+  // defensive dedup so a misbehaving lane can never double-list a slug.
+  const core = deps.coreSlugs;
+  const hot = deps.hotSlugs.filter((slug) => !core.includes(slug));
+  const stablePrefix = new Set<Slug>([...core, ...hot]);
+
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
   // parallel. Both return distinct articles each tagged with their best-scoring
   // section index/ordinal.
@@ -118,43 +151,42 @@ export async function orchestrate(
     denseLane(deps.denseConfig, turn.currentMessage, denseK),
   ]);
 
-  // The pool accumulates one entry per distinct article. `sectionBySlug` records
-  // the matched `Section` (when one is known) for downstream injection;
-  // `laneBySlug` records the lane that first surfaced each slug for telemetry.
-  const poolBySlug = new Map<Slug, PoolCandidate>();
-  const sectionBySlug = new Map<Slug, Section>();
-  const laneBySlug = new Map<Slug, CandidateLane>();
+  // `matchedSections` records the matched `Section` (when one is known) for
+  // every finder hit — INCLUDING hits on stable-prefix slugs — for downstream
+  // injection/spotlight. `finder` accumulates one entry per distinct
+  // finder-surfaced article; the first lane to surface a slug wins the entry,
+  // so the needle → dense → edge call order encodes lane precedence.
+  const matchedSections = new Map<Slug, Section>();
+  const finder: FinderCandidate[] = [];
+  const finderSeen = new Set<Slug>();
 
-  // Add one pool candidate, recording its matched `Section` (when known) for
-  // downstream injection and the `lane` that surfaced it for telemetry.
-  // `descriptor` overrides the section text when supplied (the edge lane prefers
-  // a curated `links` description). The first lane to surface a slug wins the
-  // pool entry, the recorded section, AND the recorded lane — so the
-  // needle → dense → edge call order encodes lane precedence.
-  const addCandidate = (
+  // `descriptor` overrides the section text when supplied (the edge lane
+  // prefers a curated `links` description).
+  const addFinder = (
     slug: Slug,
     section: Section | undefined,
     descriptor: string | undefined,
-    lane: CandidateLane,
+    lane: FinderLane,
   ): void => {
-    if (section && !sectionBySlug.has(slug)) {
-      sectionBySlug.set(slug, section);
+    if (section && !matchedSections.has(slug)) {
+      matchedSections.set(slug, section);
     }
-    if (poolBySlug.has(slug)) return;
-    laneBySlug.set(slug, lane);
-    poolBySlug.set(slug, {
+    if (finderSeen.has(slug)) return;
+    finderSeen.add(slug);
+    finder.push({
       slug,
       descriptor: descriptor ?? section?.text ?? "",
+      lane,
     });
   };
 
-  // Step 2a: needle hits — descriptor is the matched section's text. `section`
+  // Step 1a: needle hits — descriptor is the matched section's text. `section`
   // is an index into `sections`.
   for (const hit of needled) {
-    addCandidate(hit.article, sections[hit.section], undefined, "needle");
+    addFinder(hit.article, sections[hit.section], undefined, "needle");
   }
 
-  // Step 2b: dense hits — `section` is the matched ORDINAL; resolve it to the
+  // Step 1b: dense hits — `section` is the matched ORDINAL; resolve it to the
   // concrete `Section` via the section index. Falls back to undefined (blank
   // descriptor) if the ordinal is not in the in-memory index.
   for (const hit of densed) {
@@ -163,7 +195,7 @@ export async function orchestrate(
     // so `byArticle` holds exactly the live pages (synthetic capability slugs
     // included) — only truly-deleted pages are dropped here.
     if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
-    addCandidate(
+    addFinder(
       hit.article,
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
       undefined,
@@ -171,16 +203,19 @@ export async function orchestrate(
     );
   }
 
-  // Step 2c: edge expansion over the top needle+dense article seeds. `alive`
-  // skips slugs already pooled. An edge-only page was surfaced because its
-  // NEIGHBOUR matched — the query did not lexically hit the page itself, so
-  // `bestSection` returns its first/lead section on a zero-score match. That
-  // lead is often empty for heading-structured pages, and it is the curated
-  // `links` description (not the lead) that made the candidate relevant. So we
-  // record NO matched section for edge-only pages (pass `undefined`), which
-  // makes injection fall back to the FULL page — where the link-relevant content
-  // lives. `bestSection`'s text is kept only as the select-pool DESCRIPTOR
-  // fallback for when the traversed edge carried no curated `links` description.
+  // Step 1c: edge expansion over the top needle+dense article seeds. `alive`
+  // skips slugs already in the pool — finder-surfaced AND stable-prefix slugs
+  // (an edge hit carries no matched section, so re-surfacing a core/hot page
+  // adds nothing; needle/dense hits on those pages ARE kept for their
+  // sections). An edge-only page was surfaced because its NEIGHBOUR matched —
+  // the query did not lexically hit the page itself, so `bestSection` returns
+  // its first/lead section on a zero-score match. That lead is often empty for
+  // heading-structured pages, and it is the curated `links` description (not
+  // the lead) that made the candidate relevant. So we record NO matched
+  // section for edge-only pages (pass `undefined`), which makes injection fall
+  // back to the FULL page — where the link-relevant content lives.
+  // `bestSection`'s text is kept only as the select-pool DESCRIPTOR fallback
+  // for when the traversed edge carried no curated `links` description.
   const seeds = unique<Slug>([
     ...needled.map((h) => h.article),
     ...densed.map((h) => h.article),
@@ -189,12 +224,12 @@ export async function orchestrate(
     seedCount: deps.edgeSeeds,
     perSeed: deps.edgePerSeed,
     cap: deps.edgeCap,
-    alive: (slug) => !poolBySlug.has(slug),
+    alive: (slug) => !finderSeen.has(slug) && !stablePrefix.has(slug),
   });
   for (const neighbor of surfaced) {
     const best = deps.needle.bestSection(neighbor.article, turn.currentMessage);
     const fallbackDescriptor = best >= 0 ? sections[best]?.text : undefined;
-    addCandidate(
+    addFinder(
       neighbor.article,
       undefined,
       neighbor.description ?? fallbackDescriptor,
@@ -202,8 +237,23 @@ export async function orchestrate(
     );
   }
 
-  // Step 3: a SINGLE forced-tool select over the unified pool.
-  const selected = await selectPool([...poolBySlug.values()], turn);
+  // Step 2: assemble the pool in cache order — stable prefix (core then hot)
+  // first, then the finder tail deduped against the prefix. Stable-prefix
+  // descriptors are the page's LEAD section text: query-INDEPENDENT by design,
+  // so the rendered prefix is byte-identical across turns while the lanes are
+  // unchanged.
+  const pool: PoolCandidate[] = [
+    ...[...core, ...hot].map((slug) => ({
+      slug,
+      descriptor: leadSectionText(deps.sectionIndex, slug),
+    })),
+    ...finder
+      .filter((c) => !stablePrefix.has(c.slug))
+      .map((c) => ({ slug: c.slug, descriptor: c.descriptor })),
+  ];
+
+  // Step 3: a SINGLE forced-tool select over the cache-ordered pool.
+  const selected = await selectPool(pool, turn);
   const bySlug = new Map<Slug, SelectedPage>();
   for (const page of selected) {
     const existing = bySlug.get(page.slug);
@@ -212,35 +262,11 @@ export async function orchestrate(
       pinned: (existing?.pinned ?? false) || page.pinned,
     });
   }
-  const currentSelections = [...bySlug.values()];
-
-  // Step 4: age the carry-forward set to this turn (drop stale non-pinned
-  // entries, then the cap) and snapshot it. This is the set carried in from
-  // EARLIER turns; recording this turn happens afterward (step 6) so the cap is
-  // spent on genuinely carried pages, not on this turn's selections (which are
-  // injected directly anyway).
-  deps.workingSet.evict(turn.turnNumber);
-  const workingSetUnion = deps.workingSet.union();
-
-  // Step 5: final injection = this turn's selections ∪ the carried-forward set,
-  // so pages selected on earlier turns carry forward even when this turn does
-  // not re-select them.
-  const finalInjection = unique<Slug>([
-    ...currentSelections.map((s) => s.slug),
-    ...workingSetUnion,
-  ]);
-
-  // Step 6: record this turn's selections so they carry forward to LATER turns.
-  for (const sel of currentSelections) {
-    deps.workingSet.recordSelection(sel.slug, turn.turnNumber, sel.pinned);
-  }
 
   return {
-    currentSelections,
-    workingSetUnion,
-    finalInjection,
-    sectionBySlug,
-    laneBySlug,
+    selections: [...bySlug.values()],
+    matchedSections,
+    lanes: { core, hot, finder },
   };
 }
 
@@ -263,4 +289,15 @@ function sectionByOrdinal(
     if (section && section.ordinal === ordinal) return section;
   }
   return undefined;
+}
+
+/**
+ * The text of an article's LEAD (first) section, or `""` when the article has
+ * no indexed sections. Used as the stable-prefix candidates' descriptor: it
+ * depends only on the page content, never on the turn's query, so the rendered
+ * prefix stays byte-identical across turns.
+ */
+function leadSectionText(index: SectionIndex, article: Slug): string {
+  const first = index.byArticle.get(article)?.[0];
+  return first === undefined ? "" : (index.sections[first]?.text ?? "");
 }
