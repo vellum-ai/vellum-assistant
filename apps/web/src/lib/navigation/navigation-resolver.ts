@@ -161,7 +161,9 @@ function resolveRouteGuard(
     };
   }
 
-  // 4a. Authenticated, local-only standalone paths (welcome, select-assistant)
+  // 4. Authenticated — special-purpose routes
+
+  // 4a. Local-only standalone paths (welcome, select-assistant)
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
     if (!state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
@@ -172,10 +174,10 @@ function resolveRouteGuard(
     return { action: "allow" };
   }
 
-  // 4b. Authenticated, review-terms (consent gate for existing users)
+  // 4b. Review-terms (consent gate for existing users)
   if (path === routes.reviewTerms) return { action: "allow" };
 
-  // 4c. Authenticated, on an onboarding route
+  // 4c. Onboarding routes
   if (isOnboardingPath(path)) {
     if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
       return { action: "redirect", to: routes.assistant };
@@ -193,7 +195,9 @@ function resolveRouteGuard(
     return { action: "allow" };
   }
 
-  // 5. Authenticated, local mode, no assistants — needs onboarding
+  // 5. Authenticated, no assistants — onboarding / hatching
+
+  // 5a. Local mode: check platform session to choose entry point
   if (state.isLocalMode && !state.hasAssistants) {
     if (state.platformSession === "unknown") return { action: "wait" };
     if (state.platformSession === "present") {
@@ -202,13 +206,20 @@ function resolveRouteGuard(
     return { action: "redirect", to: routes.welcome };
   }
 
-  // 6. Authenticated, platform mode, onboarding not completed
-  if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
-    if (state.hasAssistants) {
-      const returnTo = encodeURIComponent(pathnameWithSearch);
-      return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
-    }
+  // 5b. Platform mode, onboarding not completed
+  if (!state.isLocalMode && !state.hasAssistants && !(state.tosAccepted && state.aiDataConsent)) {
     return { action: "redirect", to: routes.onboarding.privacy };
+  }
+
+  // 5c. Platform mode, onboarded — show hatching UX
+  if (!state.isLocalMode && !state.hasAssistants) {
+    return { action: "redirect", to: routes.onboarding.hatching };
+  }
+
+  // 6. Authenticated, has assistants, onboarding not completed
+  if (!state.isLocalMode && !(state.tosAccepted && state.aiDataConsent)) {
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
   }
 
   // 7. All clear

@@ -263,7 +263,7 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant" });
     });
 
-    test("redirects platform-mode user without consent and no assistants to privacy without returnTo", () => {
+    test("redirects platform-mode user without consent and no assistants to privacy, not hatching", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: false, aiDataConsent: false, hasAssistants: false })),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
@@ -281,8 +281,20 @@ describe("resolveNavigation", () => {
       expect(guard(s({}))).toEqual(ALLOW);
     });
 
-    test("allows authenticated platform user without assistants on non-local mode", () => {
-      expect(guard(s({ hasAssistants: false }))).toEqual(ALLOW);
+    test("redirects authenticated platform user without assistants to hatching", () => {
+      expect(guard(s({ hasAssistants: false }))).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
+    });
+
+    test("redirects platform user with consent but no assistants to hatching from deep path", () => {
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/home"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
     });
   });
 
