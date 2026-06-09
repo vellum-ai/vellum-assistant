@@ -14,8 +14,8 @@ import {
   sleep,
 } from "../util/retry.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
+import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
-  isAdaptiveThinkingOnlyModel,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";

@@ -41,6 +41,15 @@ export interface CatalogModel {
   longContextPricingThresholdTokens?: number;
   longContextMode?: LongContextMode;
   supportsThinking?: boolean;
+  /**
+   * When true, the model always reasons with adaptive (always-on) thinking and
+   * rejects an explicit `thinking: { type: "disabled" }` request (Anthropic
+   * 400s such calls). Clients hide the enable/disable thinking toggle for these
+   * models — effort stays adjustable — and the daemon drops a disabled thinking
+   * config (and any non-1 `temperature`, which adaptive mode also rejects)
+   * before dispatching. Implies `supportsThinking`.
+   */
+  adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
@@ -151,6 +160,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
+        adaptiveThinkingOnly: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -744,6 +754,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         longContextPricingThresholdTokens: 200000,
         supportsThinking: true,
+        adaptiveThinkingOnly: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1260,4 +1271,16 @@ export function getCatalogProviderForModel(
     p.models.some((m) => m.id === modelId),
   );
   return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+/**
+ * Whether the given model only supports adaptive (always-on) thinking, driven
+ * by the `adaptiveThinkingOnly` capability in the catalog. Matches the model ID
+ * across every provider (a model carries the same id under each provider it is
+ * offered by, e.g. `claude-fable-5` and OpenRouter's `anthropic/claude-fable-5`).
+ */
+export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
 }

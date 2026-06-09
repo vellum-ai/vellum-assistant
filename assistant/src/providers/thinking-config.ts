@@ -57,15 +57,3 @@ export function isThinkingConfigEnabled(thinking: unknown): boolean {
   const normalized = normalizeThinkingConfigForWire(thinking);
   return normalized !== undefined && normalized.type !== "disabled";
 }
-
-/**
- * Claude Fable always reasons with adaptive (always-on) thinking and rejects an
- * explicit `thinking: { type: "disabled" }` request — Anthropic 400s such calls.
- * Detect these models by id so callers can omit a disabled thinking config and
- * fall back to the model's always-on adaptive thinking. Matches both the native
- * Anthropic id (`claude-fable-5`) and the OpenRouter-proxied form
- * (`anthropic/claude-fable-5`).
- */
-export function isAdaptiveThinkingOnlyModel(model: string): boolean {
-  return /(?:^|\/)claude-fable-/.test(model.toLowerCase());
-}

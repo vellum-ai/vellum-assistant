@@ -58,9 +58,7 @@ struct InferenceProfileParameterVisibility: Equatable {
             speed: provider == "anthropic" && modelId.contains("opus"),
             verbosity: provider == "openai" && isOpenAIGPT5Family(modelId),
             temperature: usesAnthropicWire,
-            thinking: (provider == "anthropic" || provider == "openrouter")
-                && supportsThinking
-                && !isAdaptiveThinkingOnlyAnthropicModel(modelId),
+            thinking: (provider == "anthropic" || provider == "openrouter") && supportsThinking,
             thinkingLevel: provider == "gemini" && supportsThinking
         )
     }
@@ -131,14 +129,6 @@ struct InferenceProfileParameterVisibility: Equatable {
     /// `assistant/src/providers/gemini/client.ts`.
     private static func isGeminiProModel(_ modelId: String) -> Bool {
         modelId.range(of: #"^gemini-3.*pro"#, options: .regularExpression) != nil
-    }
-
-    /// Claude Fable always reasons with adaptive (always-on) thinking and rejects
-    /// an explicit "disable thinking" request, so the enable/disable toggle must
-    /// not be shown — effort stays adjustable. Mirrors the daemon's
-    /// `isAdaptiveThinkingOnlyModel` in `assistant/src/providers/thinking-config.ts`.
-    private static func isAdaptiveThinkingOnlyAnthropicModel(_ modelId: String) -> Bool {
-        modelId.range(of: #"(^|/)claude-fable-"#, options: .regularExpression) != nil
     }
 
     /// Thinking levels selectable for a Gemini model, lowest → highest. Pro
