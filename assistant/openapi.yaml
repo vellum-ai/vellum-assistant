@@ -15977,8 +15977,6 @@ paths:
                               - sizeBytes
                               - kind
                             additionalProperties: false
-                          deprecated: true
-                          description: "Deprecated: superseded by contentBlocks (the attachment variant). Flat list of attachment metadata."
                         toolCalls:
                           type: array
                           items:

@@ -375,14 +375,15 @@ export const ConversationMessageSchema = z.object({
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**
-   * @deprecated Superseded by `contentBlocks` (the `attachment` variant).
-   * Flat list of attachment metadata for the row.
+   * Flat list of attachment metadata for the row. Not yet supersedable by
+   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * block only for file-block refs with an inline placement, so orphan rows
+   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
+   * parity, so clients that migrate off the positional arrays don't drop those
+   * chips.
    */
-  attachments: z.array(ConversationMessageAttachmentSchema).meta({
-    deprecated: true,
-    description:
-      "Deprecated: superseded by contentBlocks (the attachment variant). Flat list of attachment metadata.",
-  }),
+  attachments: z.array(ConversationMessageAttachmentSchema),
   /**
    * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
    * list of tool calls for the row.
