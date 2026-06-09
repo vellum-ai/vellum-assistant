@@ -17,7 +17,7 @@ import {
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { getSelectedAssistant } from "@/lib/local-mode";
 import { useVellumCommands } from "@/runtime/vellum-commands";
-import { clearConsentForUser } from "@/utils/onboarding-cleanup";
+
 import { routes } from "@/utils/routes";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
@@ -192,13 +192,10 @@ export function RootLayout() {
       );
     },
     replayOnboarding: () => {
-      const userId = useAuthStore.getState().user?.id ?? null;
-      clearConsentForUser(userId);
-      toast.success("Onboarding flags cleared.");
-      void navigate(routes.onboarding.privacy);
+      void navigate(`${routes.onboarding.privacy}?preview=true`);
     },
     previewPrechat: () => {
-      void navigate(routes.onboarding.prechat);
+      void navigate(`${routes.onboarding.prechat}?preview=true`);
     },
   });
 

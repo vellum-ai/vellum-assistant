@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
@@ -73,6 +73,8 @@ function readLocalPlatformAssistantId(): string | null {
 
 export function PreChatFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isPreview = searchParams.get("preview") === "true";
   const user = useAuthStore.use.user();
   const isAuthenticated = useIsAuthenticated();
   const isAuthInitializing = useIsSessionInitializing();
@@ -294,6 +296,11 @@ export function PreChatFlow() {
     connectedScopes?: string[];
     selectedPriorAssistants?: Set<string>;
   }): Promise<void> {
+    if (isPreview) {
+      navigate(-1);
+      return;
+    }
+
     const context = buildPreChatContext({
       mode: paredDownPrechat ? "paredDown" : "control",
       recipe,
@@ -322,6 +329,11 @@ export function PreChatFlow() {
   }
 
   function finishNativePreChat(): void {
+    if (isPreview) {
+      navigate(-1);
+      return;
+    }
+
     const context = buildPreChatContext({
       mode: "native",
       recipe: null,

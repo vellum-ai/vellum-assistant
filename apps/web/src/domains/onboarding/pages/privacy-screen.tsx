@@ -89,7 +89,14 @@ export function PrivacyScreen() {
     }
   }, [isNative]);
 
+  const isPreview = searchParams.get("preview") === "true";
+
   const onStart = useCallback(() => {
+    if (isPreview) {
+      navigate(-1);
+      return;
+    }
+
     saveConsent({ userId, tos: tosAccepted, ai: aiDataConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
@@ -108,6 +115,7 @@ export function PrivacyScreen() {
     aiDataConsent,
     hasPlatformSession,
     isNative,
+    isPreview,
     navigate,
     preferredFunnelVariant,
     searchParams,
