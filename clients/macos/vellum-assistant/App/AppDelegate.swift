@@ -660,7 +660,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
 
-        SoundManager.shared.start(featureFlagStore: featureFlagStore)
+        SoundManager.shared.start()
         RandomSoundTimer.shared.start()
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true
