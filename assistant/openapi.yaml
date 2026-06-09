@@ -16326,6 +16326,10 @@ paths:
                                     const: thinking
                                   thinking:
                                     type: string
+                                  startedAt:
+                                    type: number
+                                  completedAt:
+                                    type: number
                                 required:
                                   - type
                                   - thinking
