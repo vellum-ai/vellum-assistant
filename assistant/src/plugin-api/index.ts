@@ -20,19 +20,17 @@
  * the host hands to plugin hooks, and the logger shape they include.
  *
  * Alongside those types, the module exposes a small set of **runtime
- * handles** for plugins that need to register imperatively from their
- * module body or reach the daemon's live singletons (subscribe to runtime
- * events, read secrets). These resolve to the daemon's own instances: the
- * host parks the loaded plugin-api namespace on `globalThis` at boot, and
- * the workspace-level shim re-binds each runtime export from there — so a
- * plugin's `import { assistantEventHub } from "@vellumai/plugin-api"` lands
- * on the same singleton the daemon uses, even when the daemon is a
+ * handles** for plugins that need to reach the assistant's live singletons
+ * (subscribe to runtime events, read secrets). These resolve to the
+ * assistant's own instances: the host parks the loaded plugin-api namespace
+ * on `globalThis` at boot, and the workspace-level shim re-binds each
+ * runtime export from there — so a plugin's
+ * `import { assistantEventHub } from "@vellumai/plugin-api"` lands on the
+ * same singleton the assistant uses, even when the daemon is a
  * `bun --compile` binary where an absolute-path import would load a
  * disjoint module copy.
  *
- * - {@link registerPlugin} — imperatively register a {@link Plugin} from a
- *   workspace-local plugin's module body
- * - {@link assistantEventHub} — the daemon's pub/sub hub for runtime events
+ * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getSecureKeyAsync} — read a secret from secure storage
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
@@ -77,10 +75,8 @@ export { RiskLevel } from "./types.js";
 // ─── Runtime handles ─────────────────────────────────────────────────────────
 // Values (not just types) that plugins consume at module-load / init time.
 // Workspace-local plugins resolve these via the boot-time shim, which
-// re-binds each from the daemon's globalThis-parked namespace so they share
-// module identity with the daemon's own singletons.
-export { registerPlugin } from "../plugins/registry.js";
-export type { Plugin, PluginHooks, PluginManifest } from "../plugins/types.js";
+// re-binds each from the assistant's globalThis-parked namespace so they
+// share module identity with the assistant's own singletons.
 export type { AssistantEvent } from "../runtime/assistant-event.js";
 export type {
   AssistantEventCallback,
