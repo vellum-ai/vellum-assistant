@@ -549,11 +549,13 @@ const POSTINSTALL_TIMEOUT_MS = 60_000;
  * The stub lives at `experimental/plugins/<name>/` in our own repo and carries
  * a `package.json` (with a `scripts.postinstall` adapter command) plus the
  * adapter script it names. We fetch it via the Contents API — a couple of
- * small files, well within the rate limit — and copy it over the clone, which
- * deliberately overwrites the clone's `package.json` so the postinstall we run
- * is ours, never the upstream repo's lifecycle script. Absent a stub (the
- * common case for a plugin already in Vellum shape), nothing is overlaid and
- * the clone is installed as-is.
+ * small files, well within the rate limit — and copy it over the clone so the
+ * postinstall we run is ours, never the upstream repo's lifecycle script. The
+ * overlaid stub `package.json` exists only to name that adapter; the installed
+ * plugin's manifest is rebuilt from the upstream `package.json` afterwards (see
+ * {@link normalizeInstalledManifest}). Absent a stub (the common case for a
+ * plugin already in Vellum shape), nothing is overlaid and the clone is
+ * installed as-is.
  *
  * On any adapter failure the error propagates so {@link installPlugin} rolls
  * back staging — better to fail loudly than ship a half-transformed plugin.
@@ -564,6 +566,11 @@ async function applyAdapterStub(
   stagingDir: string,
   deps: InstallPluginDeps,
 ): Promise<boolean> {
+  // Capture the cloned upstream manifest before the stub overlay replaces it,
+  // so the installed plugin can preserve it verbatim except for the two fields
+  // the Vellum loader requires (name + plugin-api peer dep).
+  const upstreamPkg = readPackageJson(join(stagingDir, "package.json"));
+
   const stubFileCount = await copyDir(
     PLUGIN_SOURCE_OWNER,
     PLUGIN_SOURCE_REPO,
@@ -583,7 +590,87 @@ async function applyAdapterStub(
   } catch (err) {
     throw new PluginPostinstallError(name, subprocessErrorText(err));
   }
+
+  normalizeInstalledManifest(name, stagingDir, upstreamPkg);
   return true;
+}
+
+/**
+ * Default `@vellumai/plugin-api` peer-dependency range stamped onto an adapted
+ * plugin that doesn't already declare one.
+ */
+const PLUGIN_API_PEER_RANGE = ">=0.8.0";
+
+type PackageManifest = Record<string, unknown>;
+
+/** Parse the `package.json` at `path`, or null if it's absent or unparseable. */
+function readPackageJson(path: string): PackageManifest | null {
+  if (!existsSync(path)) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? (parsed as PackageManifest)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the installed plugin's final `package.json` after the adapter has run.
+ *
+ * A curated adapter stub deliberately overlays its own `package.json` onto the
+ * clone so the installer can find and run the stub's `scripts.postinstall`.
+ * That stub is install-time machinery, not the plugin's manifest, so once the
+ * adapter has run we rebuild the manifest from the upstream `package.json`
+ * captured before the overlay — preserving its `version`, `description`,
+ * `license`, and every other field — and mutate only what the Vellum loader
+ * requires: `name` must equal the install directory, and `@vellumai/plugin-api`
+ * must be declared as a peer dependency. The spent `postinstall` script is
+ * dropped so the installed plugin carries no install-time machinery.
+ *
+ * When the upstream repo shipped no `package.json`, the overlaid stub is the
+ * only manifest available, so it becomes the base instead.
+ */
+function normalizeInstalledManifest(
+  name: string,
+  stagingDir: string,
+  upstreamPkg: PackageManifest | null,
+): void {
+  const manifestPath = join(stagingDir, "package.json");
+  const base = upstreamPkg ?? readPackageJson(manifestPath) ?? {};
+
+  const peer =
+    typeof base.peerDependencies === "object" && base.peerDependencies !== null
+      ? (base.peerDependencies as Record<string, unknown>)
+      : {};
+  const existingRange = peer["@vellumai/plugin-api"];
+
+  const manifest: PackageManifest = {
+    ...base,
+    name,
+    peerDependencies: {
+      ...peer,
+      "@vellumai/plugin-api":
+        typeof existingRange === "string"
+          ? existingRange
+          : PLUGIN_API_PEER_RANGE,
+    },
+  };
+
+  if (typeof manifest.scripts === "object" && manifest.scripts !== null) {
+    const scripts = { ...(manifest.scripts as Record<string, unknown>) };
+    delete scripts.postinstall;
+    if (Object.keys(scripts).length === 0) {
+      delete manifest.scripts;
+    } else {
+      manifest.scripts = scripts;
+    }
+  }
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 /**

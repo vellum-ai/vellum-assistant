@@ -697,7 +697,12 @@ describe("installPlugin — marketplace resolution", () => {
     // terse-mode ruleset in skills/caveman/SKILL.md
     const runGit = fakeGitRunner({
       tree: {
-        "package.json": '{"name":"caveman-installer"}',
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+          description: "Caveman installer.",
+          license: "MIT",
+        }),
         ".claude-plugin/plugin.json": JSON.stringify({
           name: "caveman",
           description: "Ultra-compressed communication mode.",
@@ -723,6 +728,12 @@ describe("installPlugin — marketplace resolution", () => {
     expect(pkg.name).toBe("caveman");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
     expect(pkg.scripts?.postinstall).toBeUndefined();
+    // AND every other upstream manifest field is preserved verbatim — only
+    // `name` and the peer dep are touched, so the installed plugin reports the
+    // upstream `version` (and description, license, …) rather than the stub's
+    expect(pkg.version).toBe("0.1.0");
+    expect(pkg.description).toBe("Caveman installer.");
+    expect(pkg.license).toBe("MIT");
 
     // AND a pre-model-call hook is synthesized carrying the upstream ruleset,
     // so caveman actually runs (terse mode injected on the user-facing call)
@@ -735,6 +746,40 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).toContain("CAVEMAN MODE. Drop filler words.");
     // AND the ruleset is sourced verbatim — the YAML frontmatter is stripped
     expect(hook).not.toContain("description: terse mode");
+  });
+
+  test("falls back to the stub manifest when the upstream ships no package.json", async () => {
+    // GIVEN caveman is whitelisted with the real curated adapter stub
+    const fetch = makeContentsFetch({
+      tree: readRealCavemanStub(),
+      manifest: CAVEMAN_MANIFEST,
+    });
+    // AND the upstream clone has NO package.json — only the Claude Code
+    // manifest and the terse-mode ruleset the adapter reads
+    const runGit = fakeGitRunner({
+      tree: {
+        ".claude-plugin/plugin.json": JSON.stringify({ name: "caveman" }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    });
+
+    // WHEN we install (real postinstall runner)
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the overlaid stub is the only manifest available, so it becomes the
+    // base: the loader still gets a matching `name` and the peer dep, and the
+    // spent stub `postinstall` is dropped so no install machinery is shipped
+    const pkg = JSON.parse(
+      readFileSync(join(pluginsDir, "caveman", "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
   });
 
   test("strips a clone-supplied bunfig.toml so its preload can't run before the adapter", async () => {
