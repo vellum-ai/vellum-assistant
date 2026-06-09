@@ -1429,11 +1429,15 @@ export class AgentLoop {
           // rerun. The ladder escalates across successive rejections (the
           // reducer state is held across iterations); when it is exhausted and
           // the provider still rejects, the loop owns the terminal exit.
+          //
+          // This is independent of `compactInPlace` (which gates only the
+          // proactive turn-start budget pass): a provider rejection is worth
+          // recovering on every run, including the wrapper's deep-repair and
+          // image-recovery reruns, which do not arm the proactive gate.
           const overflowWindow = resolveContextWindow?.();
           if (
             !signal?.aborted &&
             isContextOverflowError(llmCallError) &&
-            compactInPlace &&
             overflowWindow?.overflowRecovery.enabled
           ) {
             const actualTokens = parseActualTokensFromError(llmCallError);

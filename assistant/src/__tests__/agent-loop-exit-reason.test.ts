@@ -486,6 +486,53 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(lastExitEvent(events)?.reason).toBe("context_too_large");
   });
 
+  test("engages reactive recovery on reruns that do not arm the proactive gate", async () => {
+    // GIVEN a provider that always rejects the call as context-too-large.
+    const loop = new AgentLoop({
+      provider: overflowProvider(),
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+    });
+
+    // AND a reducer whose single rung immediately reports the ladder exhausted.
+    reduceOverflowImpl = (_state) => ({
+      messages: [userMessage],
+      tier: "injection_downgrade",
+      state: {
+        appliedTiers: ["forced_compaction", "injection_downgrade"],
+        injectionMode: "minimal",
+        exhausted: true,
+      },
+      estimatedTokens: 0,
+    });
+
+    // WHEN the loop runs WITHOUT `compactInPlace` — mirroring the wrapper's
+    // deep-repair and image-recovery reruns, which do not arm the proactive
+    // turn-start gate.
+    const events: AgentEvent[] = [];
+    await loop.run({
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      resolveContextWindow: () => ({
+        maxInputTokens: 1_000_000,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0,
+          maxAttempts: 4,
+          allowAutoCompressLatestTurn: false,
+        },
+      }),
+    });
+
+    // THEN the loop still drives the ladder and owns the terminal exit — the
+    // rejection is recovered, not surfaced as a plain `error`.
+    expect(lastExitEvent(events)?.reason).toBe("context_too_large");
+  });
+
   test("does not engage reactive recovery when overflow recovery is disabled", async () => {
     // GIVEN a provider that rejects the call as context-too-large, under the
     // agent-wake configuration where overflow recovery is disabled.
