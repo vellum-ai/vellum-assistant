@@ -2,17 +2,17 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE_DIR="$ROOT_DIR/native/hotkey-helper"
+PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
-OUTPUT="$OUTPUT_DIR/hotkey-helper"
+OUTPUT="$OUTPUT_DIR/vellum-mac-helper"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "build-hotkey-helper: skipping non-macOS host"
+  echo "build-mac-helper: skipping non-macOS host"
   exit 0
 fi
 
 if ! command -v xcrun >/dev/null 2>&1; then
-  echo "build-hotkey-helper: xcrun not found; install Xcode command line tools" >&2
+  echo "build-mac-helper: xcrun not found; install Xcode command line tools" >&2
   exit 1
 fi
 
@@ -25,7 +25,8 @@ if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
+rm -f "$OUTPUT_DIR/hotkey-helper"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-cp "$BUILD_DIR/hotkey-helper" "$OUTPUT"
+cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
 chmod 755 "$OUTPUT"

@@ -30,7 +30,11 @@ const concurrency = Math.max(
 const files =
   args.length > 0
     ? args
-    : [...new Glob("src/**/*.test.ts").scanSync(".")].sort();
+    : [
+        ...new Glob("src/**/*.test.ts").scanSync("."),
+        ...new Glob("scripts/**/*.test.js").scanSync("."),
+        ...new Glob("scripts/**/*.test.ts").scanSync("."),
+      ].sort();
 
 let passed = 0;
 let failed = 0;

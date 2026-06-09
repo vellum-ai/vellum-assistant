@@ -25,17 +25,18 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { client as platformClient } from "@/generated/api/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import {
-  getSelfHostedActorToken,
-  getSelfHostedIngressUrl,
-} from "@/lib/self-hosted/connection";
 import { isLocalMode } from "@/lib/local-mode";
+import {
+    getSelfHostedActorToken,
+    getSelfHostedIngressUrl,
+} from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getElectronSessionToken } from "@/runtime/session-token";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -191,6 +192,12 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
+    }
+
+    // Electron app provides a session token header. This is no-ops on web.
+    const sessionToken = getElectronSessionToken();
+    if (sessionToken) {
+      newRequest.headers.set("X-Session-Token", sessionToken);
     }
 
     if (MUTATING_METHODS.has(request.method)) {
