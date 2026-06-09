@@ -385,22 +385,44 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
   });
 
   test("a live lock holder blocks a second concurrent invocation", async () => {
-    // Pre-seed a lock file with the current process's PID so the liveness
-    // probe sees a running holder and the second invocation correctly
-    // reports `locked` rather than taking over.
+    // GIVEN a lock seeded with the current process's PID and a fresh
+    // timestamp, so the liveness probe sees a running holder AND the lock is
+    // well within the staleness TTL (i.e. a genuinely in-flight run).
     mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
-    writeFileSync(lockPath(), `${process.pid} 1700000000000\n`);
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
 
+    // WHEN a second invocation tries to acquire the lock
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
+    // THEN it reports `locked` rather than taking over
     expect(result.kind).toBe("locked");
     if (result.kind === "locked") {
       expect(result.holder).toContain(`${process.pid}`);
     }
     expect(runnerCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // The live holder's lock must NOT be removed by a contender.
+    // AND the live holder's lock must NOT be removed by a contender.
     expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a lock from a live PID but older than the TTL is taken over (container PID-1 collision)", async () => {
+    // GIVEN a lock held by a live PID (the current process stands in for the
+    // container's PID-1 daemon, which always probes as alive) whose timestamp
+    // is far older than the staleness TTL. This is the wedge from the
+    // incident: a restarted daemon reuses the dead holder's PID, so the
+    // liveness probe alone could never reclaim the abandoned lock.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    const ancient = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    writeFileSync(lockPath(), `${process.pid} ${ancient}\n`);
+
+    // WHEN consolidation runs
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // THEN the expired lock is taken over and consolidation proceeds
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
+    // AND the lock is released in the finally block after a successful run.
+    expect(existsSync(lockPath())).toBe(false);
   });
 
   test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
