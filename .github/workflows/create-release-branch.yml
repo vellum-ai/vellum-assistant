@@ -35,10 +35,18 @@ jobs:
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # The schedule fires at both 13:00 and 14:00 UTC to cover EDT/EST.
-          # Only the entry that lands on 9am America/New_York should proceed.
-          HOUR=$(TZ=America/New_York date +%H)
-          if [ "$HOUR" = "09" ]; then
+          # Two cron entries fire (13:00 and 14:00 UTC) to cover EDT/EST. Run
+          # only the entry matching today's Eastern offset so the release fires
+          # once at 9am ET. Keying off the triggering cron (not the wall-clock
+          # hour at job start) keeps this correct even when GitHub delays the
+          # scheduled run past the top of the hour.
+          OFFSET=$(TZ=America/New_York date +%z)
+          if [ "$OFFSET" = "-0400" ]; then
+            EXPECTED="0 13 * * 2,5"  # EDT: 9am ET = 13:00 UTC
+          else
+            EXPECTED="0 14 * * 2,5"  # EST: 9am ET = 14:00 UTC
+          fi
+          if [ "${{ github.event.schedule }}" = "$EXPECTED" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-run=false" >> "$GITHUB_OUTPUT"
