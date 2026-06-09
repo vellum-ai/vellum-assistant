@@ -246,21 +246,23 @@ export function ScheduleDetailView({
                 Source
               </Button>
             ) : null}
-            <Button
-              variant="outlined"
-              size="compact"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )
-              }
-              onClick={handleRunNow}
-              disabled={isRunning}
-            >
-              {isRunning ? "Running…" : "Run now"}
-            </Button>
+            {schedule.mode === "script" && (
+              <Button
+                variant="outlined"
+                size="compact"
+                leftIcon={
+                  isRunning ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )
+                }
+                onClick={handleRunNow}
+                disabled={isRunning}
+              >
+                {isRunning ? "Running…" : "Run now"}
+              </Button>
+            )}
           </div>
         }
       >
