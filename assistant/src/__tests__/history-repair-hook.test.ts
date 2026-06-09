@@ -42,6 +42,7 @@ function makeCtx(messages: Message[]): UserPromptSubmitContext {
     conversationId: "conv-test",
     userMessageId: "msg-test",
     requestId: "req-test",
+    modelProfileKey: null,
     prompt: "",
     originalMessages: messages,
     latestMessages: messages,

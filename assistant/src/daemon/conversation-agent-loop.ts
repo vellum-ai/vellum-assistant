@@ -122,6 +122,7 @@ import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
+  resolveTurnModelProfileLabel,
   type SlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -849,20 +850,25 @@ export async function runAgentLoopImpl(
       config.llm.activeProfile ??
       resolveDefaultProfileKey("mainAgent", config.llm);
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    let modelProfileStr: string | null = null;
-    if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
-      const profileEntry = config.llm.profiles?.[effectiveProfileKey];
-      const resolved = resolveCallSiteConfig(turnCallSite, config.llm, {
-        overrideProfile: turnOverrideProfile ?? undefined,
-      });
-      const label = profileEntry?.label ?? effectiveProfileKey;
-      modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
+    const modelProfileKey =
+      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
+        ? effectiveProfileKey
+        : null;
+    // The key is threaded to the memory hook as plain turn data; the rendered
+    // `Label (model)` line for the mid-loop re-injection sites is resolved from
+    // it here so both paths share one derivation.
+    const modelProfileStr = resolveTurnModelProfileLabel(
+      modelProfileKey,
+      turnCallSite,
+      config.llm,
+    );
+    if (modelProfileKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = effectiveProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileKey;
     }
 
     // Memory retrieval + runtime injection — fetches PKB / NOW.md / memory-graph
@@ -874,9 +880,11 @@ export async function runAgentLoopImpl(
     // `user-prompt-submit-temp` hook handler but invoked directly for now,
     // separate from the canonical late `user-prompt-submit` hook (history
     // repair, title) that fires just before the loop.
-    // The injection inputs (`isNonInteractive`, `modelProfile`) are resolved
-    // once at turn start and threaded in so post-compaction re-injection reuses
-    // the same snapshot rather than live state that can flip mid-turn.
+    // The injection input `isNonInteractive` is resolved once at turn start and
+    // threaded in so post-compaction re-injection reuses the same snapshot
+    // rather than live state that can flip mid-turn; `modelProfileKey` is the
+    // turn's resolved profile key, from which the hook renders the
+    // `model_profile` label.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
     const memoryCtx: MemoryRetrievalHookContext = {
@@ -887,7 +895,7 @@ export async function runAgentLoopImpl(
       latestMessages: ctx.messages,
       requestId: reqId,
       isNonInteractive,
-      modelProfile: modelProfileStr,
+      modelProfileKey,
     };
     await userPromptSubmitMemoryRetrieval(memoryCtx);
 
@@ -917,6 +925,7 @@ export async function runAgentLoopImpl(
       originalMessages: ctx.messages,
       latestMessages: runMessages,
       logger: rlog,
+      modelProfileKey,
     };
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
