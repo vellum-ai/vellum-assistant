@@ -18,12 +18,17 @@ export class AgentEventCollector {
     return this.pending;
   }
 
-  async collectUntilQuiet(input: {
+  /**
+   * Drain events until the stream ends, the stream goes quiet for
+   * `quietMs`, or the `maxMs` hard cap elapses — whichever comes first.
+   * Each event resets the quiet timer, so an actively-streaming turn runs
+   * up to `maxMs`. Shared by both public collectors.
+   */
+  private async drain(input: {
     quietMs: number;
-    maxMs?: number;
+    maxMs: number;
   }): Promise<AgentEvent[]> {
-    const quietMs = input.quietMs;
-    const maxMs = input.maxMs ?? Math.max(quietMs * 6, quietMs);
+    const { quietMs, maxMs } = input;
     const events: AgentEvent[] = [];
     const hardDeadline = Date.now() + maxMs;
     let quietDeadline = Date.now() + quietMs;
@@ -46,5 +51,44 @@ export class AgentEventCollector {
     }
 
     return events;
+  }
+
+  async collectUntilQuiet(input: {
+    quietMs: number;
+    maxMs?: number;
+  }): Promise<AgentEvent[]> {
+    const quietMs = input.quietMs;
+    const maxMs = input.maxMs ?? Math.max(quietMs * 6, quietMs);
+    return this.drain({ quietMs, maxMs });
+  }
+
+  /**
+   * Like `collectUntilQuiet`, but reports whether the turn completed via
+   * an explicit completion signal rather than treating "events stopped
+   * arriving" as success.
+   *
+   * The turn is still drained to quiet (or `maxMs`) so trailing events
+   * that arrive *after* the agent's completion line — e.g. the
+   * `assistant_usage` / `message_complete` events the daemon emits at the
+   * end of a turn — are captured for cost accounting. We do not stop the
+   * instant the sentinel appears.
+   *
+   * `isDone` is evaluated against the full captured event list once the
+   * drain settles, keeping content semantics (what counts as the
+   * sentinel) out of the collector. A `false` result means the turn went
+   * quiet or hit the hard cap without ever signalling completion (a
+   * truncated or stalled ingest), letting the caller fail loudly instead
+   * of grading it.
+   */
+  async collectUntilSentinel(input: {
+    isDone: (events: readonly AgentEvent[]) => boolean;
+    maxMs: number;
+    quietMs: number;
+  }): Promise<{ events: AgentEvent[]; sentinelSeen: boolean }> {
+    const events = await this.drain({
+      quietMs: input.quietMs,
+      maxMs: input.maxMs,
+    });
+    return { events, sentinelSeen: input.isDone(events) };
   }
 }

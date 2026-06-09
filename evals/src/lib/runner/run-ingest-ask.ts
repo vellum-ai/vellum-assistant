@@ -68,9 +68,26 @@ export interface IngestAskInput {
   /**
    * Quiet timeout in milliseconds for the post-message event drain.
    * Both conversations use the same quiet window. Defaults to 30s.
-   * `maxMs` is derived as `quietMs * 6` per `AgentEventCollector`.
+   * The question turn derives `maxMs` as `quietMs * 6` per
+   * `AgentEventCollector`; the ingest turn uses `ingestMaxMs` (below).
    */
   quietMs?: number;
+  /**
+   * Literal completion sentinel the ingest prompt instructs the agent to
+   * emit once it has finished reading *and* committed what matters to
+   * memory. The ingest turn ends only when this line appears in the
+   * assistant's output; if it never arrives, the run fails loudly rather
+   * than grading a truncated ingest. Defaults to `"Ready."`. Matching is
+   * line-oriented and tolerant of surrounding quotes/punctuation and case.
+   */
+  ingestSentinel?: string;
+  /**
+   * Hard cap (ms) for the ingest turn's sentinel wait. A genuine
+   * 100-trajectory ingest with inline memory commits can run for several
+   * minutes, so this is generous; it exists to fail loudly if the turn
+   * never completes. Defaults to 10 minutes.
+   */
+  ingestMaxMs?: number;
 }
 
 export interface IngestAskResult {
@@ -86,11 +103,46 @@ export interface IngestAskResult {
   ingestEvents: AgentEvent[];
   /** Raw events captured during conversation B's drain. */
   questionEvents: AgentEvent[];
+  /**
+   * Whether the ingest turn ended on the completion sentinel (vs. being
+   * cut short). Always `true` on a successful return — a missing sentinel
+   * throws before this result is produced — but surfaced for callers that
+   * want to record it on the run.
+   */
+  ingestSentinelSeen: boolean;
 }
 
 const DEFAULT_QUIET_MS = 30_000;
+const DEFAULT_INGEST_SENTINEL = "Ready.";
+const DEFAULT_INGEST_MAX_MS = 600_000;
 
 class IngestAskError extends Error {}
+
+/**
+ * Normalize a single line for sentinel comparison: trim, strip wrapping
+ * quotes and trailing sentence punctuation, lowercase. So `"Ready."`,
+ * `Ready`, and `ready!` all reduce to `ready`.
+ */
+function normalizeSentinelLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Build a predicate that reports whether the assistant has emitted the
+ * completion sentinel as a standalone line. Line-oriented (not a loose
+ * substring) so an in-passing mention like "I'm getting ready" does not
+ * trip it, while tolerating the quotes/punctuation models tend to add.
+ */
+function makeSentinelPredicate(sentinel: string): (text: string) => boolean {
+  const target = normalizeSentinelLine(sentinel);
+  return (text) =>
+    text.split(/\r?\n/).some((line) => normalizeSentinelLine(line) === target);
+}
 
 function assertCapability(
   agent: BaseAgent,
@@ -106,7 +158,7 @@ function assertCapability(
   }
 }
 
-function joinAssistantText(events: AgentEvent[]): string {
+function joinAssistantText(events: readonly AgentEvent[]): string {
   let out = "";
   for (const event of events) {
     const text = assistantContent(event);
@@ -119,6 +171,9 @@ export async function runIngestAsk(
   input: IngestAskInput,
 ): Promise<IngestAskResult> {
   const quietMs = input.quietMs ?? DEFAULT_QUIET_MS;
+  const ingestSentinel = input.ingestSentinel ?? DEFAULT_INGEST_SENTINEL;
+  const ingestMaxMs = input.ingestMaxMs ?? DEFAULT_INGEST_MAX_MS;
+  const isIngestDone = makeSentinelPredicate(ingestSentinel);
 
   const hatchInput: AgentHatchInput = {
     profile: input.profile,
@@ -152,10 +207,30 @@ export async function runIngestAsk(
       agent.events()[Symbol.asyncIterator](),
     );
     await agent.send({ content: input.ingestMessage });
-    const ingestEvents = await ingestCollector.collectUntilQuiet({ quietMs });
+    // Wait for the agent to declare completion via the sentinel rather
+    // than treating an event-quiet gap as "done". A truncated or stalled
+    // ingest (e.g. an unresolved tool confirmation) would otherwise be
+    // graded as a real run; recall in conversation B depends on the agent
+    // having actually finished reading *and* committing to memory here.
+    const { events: ingestEvents, sentinelSeen: ingestSentinelSeen } =
+      await ingestCollector.collectUntilSentinel({
+        isDone: (events) => isIngestDone(joinAssistantText(events)),
+        maxMs: ingestMaxMs,
+        quietMs,
+      });
     if (ingestEvents.length === 0) {
       throw new IngestAskError(
         `Ingest turn produced no events for conversation ${ingestConversationKey}.`,
+      );
+    }
+    if (!ingestSentinelSeen) {
+      throw new IngestAskError(
+        `Ingest turn for conversation ${ingestConversationKey} never emitted the ` +
+          `completion sentinel ("${ingestSentinel}") within ${ingestMaxMs}ms ` +
+          `(captured ${ingestEvents.length} event(s)). The ingest likely stalled or was ` +
+          `truncated — e.g. an unresolved tool confirmation, or the agent did not finish ` +
+          `committing to memory. Refusing to grade a truncated ingest; conversation B would ` +
+          `have nothing reliable to recall.`,
       );
     }
 
@@ -204,6 +279,7 @@ export async function runIngestAsk(
       hypothesis,
       ingestEvents,
       questionEvents,
+      ingestSentinelSeen,
     };
   } finally {
     // Best-effort shutdown — never swallow the original throw.
