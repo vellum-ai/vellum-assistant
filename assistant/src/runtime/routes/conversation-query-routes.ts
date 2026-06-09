@@ -36,7 +36,10 @@ import {
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import { ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  ProfileEntry,
+  ProfileOverrideEntry,
+} from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
@@ -172,13 +175,8 @@ function replaceInferenceProfileConfig(
   name: string,
   fragment: Record<string, unknown>,
 ): void {
-  const existingLlm = asMutablePlainObject(raw.llm);
-  const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
-
-  const existingProfiles = asMutablePlainObject(llm.profiles);
-  const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
+  const llm = ensureObjectAt(raw, "llm");
+  const profiles = ensureObjectAt(llm, "profiles");
 
   const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
   const nextProfile: Record<string, unknown> = { ...existingProfile };
@@ -538,6 +536,292 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 }
 
 /**
+ * Read `parent[key]` as a plain object, creating (and assigning) an empty one
+ * when the current value is absent or not a plain object.
+ */
+function ensureObjectAt(
+  parent: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const existing = asMutablePlainObject(parent[key]);
+  if (existing) return existing;
+  const created: Record<string, unknown> = {};
+  parent[key] = created;
+  return created;
+}
+
+/**
+ * Effective (built-ins merged) view of the given raw config's `llm.profiles`.
+ * Works on a clone — `applyBuiltinProfiles` mutates its argument and `raw`
+ * may be destined for disk, where built-in entries must never land.
+ */
+function effectiveLlmProfiles(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = structuredClone(raw);
+  applyBuiltinProfiles(merged);
+  const llm = asMutablePlainObject(merged.llm);
+  return (llm && asMutablePlainObject(llm.profiles)) ?? {};
+}
+
+/**
+ * Whether `value` is persistable under `llm.profileOverrides[*][key]`. Defers
+ * to the `ProfileOverrideEntry` schema so the legality rule has one source of
+ * truth (the explicit `undefined` check exists because Zod treats it as
+ * "absent", which would otherwise lift a key that JSON can't round-trip).
+ */
+function isLegalBuiltinOverrideValue(
+  key: "label" | "status",
+  value: unknown,
+): boolean {
+  if (value === undefined) return false;
+  return ProfileOverrideEntry.safeParse({ [key]: value }).success;
+}
+
+/**
+ * Split a built-in profile entry arriving on a generic config write into the
+ * override fragment to persist and the keys to drop.
+ *
+ * - Only `label`/`status` are user-ownable on built-ins; everything else is
+ *   dropped (callers warn) rather than rejected, because clients round-trip
+ *   `GET /v1/config` output, which contains the fully merged built-in
+ *   entries.
+ * - A key equal to the current effective value is skipped: an unmodified
+ *   GET → write round trip must not materialize overrides that would pin the
+ *   template's label/status forever.
+ * - Values outside the override shape (empty label, unknown status) are
+ *   dropped too — persisting them would fail `ProfileOverrideEntry`'s strict
+ *   parse and poison the next full config load.
+ */
+function extractBuiltinProfileOverride(
+  entry: Record<string, unknown>,
+  effectiveEntry: Record<string, unknown> | null,
+): { lifted: Record<string, unknown>; dropped: string[] } {
+  const lifted: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(entry)) {
+    if (key !== "label" && key !== "status") {
+      dropped.push(key);
+      continue;
+    }
+    if (!isLegalBuiltinOverrideValue(key, value)) {
+      dropped.push(key);
+      continue;
+    }
+    if (value === effectiveEntry?.[key]) continue;
+    lifted[key] = value;
+  }
+  return { lifted, dropped };
+}
+
+function warnDroppedBuiltinProfileFields(
+  name: string,
+  dropped: string[],
+): void {
+  if (dropped.length === 0) return;
+  log.warn(
+    { profile: name, droppedKeys: dropped },
+    `Dropped non-overridable fields [${dropped.join(", ")}] from built-in profile "${name}" config write — only label and status are user-editable`,
+  );
+}
+
+/**
+ * Merge a lifted `{label?, status?}` fragment into the raw config's
+ * `llm.profileOverrides[name]`. With `explicitWins`, keys already present on
+ * the stored override entry are kept (used when that entry was itself part
+ * of the incoming write — the override store is the canonical write surface
+ * for built-ins, so an explicit override beats a value lifted from a merged
+ * `llm.profiles` entry in the same write).
+ */
+function liftIntoRawProfileOverrides(
+  raw: Record<string, unknown>,
+  name: string,
+  lifted: Record<string, unknown>,
+  opts: { explicitWins?: boolean } = {},
+): void {
+  if (Object.keys(lifted).length === 0) return;
+  const llm = ensureObjectAt(raw, "llm");
+  const overrides = ensureObjectAt(llm, "profileOverrides");
+  const existing = asMutablePlainObject(overrides[name]);
+  if (!existing) {
+    overrides[name] = lifted;
+    return;
+  }
+  overrides[name] = opts.explicitWins
+    ? { ...lifted, ...existing }
+    : { ...existing, ...lifted };
+}
+
+/**
+ * Re-route built-in profile edits arriving on the generic `PATCH /v1/config`
+ * body into `llm.profileOverrides`, and drop everything else.
+ *
+ * Built-in profiles are code-defined and merged into reads at load time, so
+ * clients legitimately round-trip `GET /v1/config` bodies that contain fully
+ * materialized built-in entries (the web manage-profiles modal's managed
+ * edit does exactly this). Rejecting would break those clients; instead:
+ *
+ * - `label`/`status` keys (including the `null` clear sentinel) move into
+ *   the write's `llm.profileOverrides[name]`, but only when they differ from
+ *   the current effective merged value — an unmodified round trip persists
+ *   no override.
+ * - When the body also carries an explicit `llm.profileOverrides[name]`
+ *   value for the same key, the explicit override wins.
+ * - All other fields are dropped with a warning; the templates in
+ *   `builtin-inference-profiles.ts` are authoritative.
+ *
+ * `currentRaw` is only read (effective-value comparisons); `body` is mutated
+ * in place. `rejectManagedProfileDeletion` runs before this, so built-in
+ * entries here are never `null`.
+ */
+function sanitizeBuiltinProfileWrites(
+  body: Record<string, unknown>,
+  currentRaw: Record<string, unknown>,
+): void {
+  const llm = asMutablePlainObject(body.llm);
+  const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
+  if (!llm || !profiles) return;
+  const builtinNames = Object.keys(profiles).filter((name) =>
+    MANAGED_PROFILE_NAMES.has(name),
+  );
+  if (builtinNames.length === 0) return;
+
+  const effective = effectiveLlmProfiles(currentRaw);
+  for (const name of builtinNames) {
+    const entry = asMutablePlainObject(profiles[name]);
+    delete profiles[name];
+    if (!entry) {
+      warnDroppedBuiltinProfileFields(name, ["<non-object entry>"]);
+      continue;
+    }
+    const { lifted, dropped } = extractBuiltinProfileOverride(
+      entry,
+      asMutablePlainObject(effective[name]),
+    );
+    warnDroppedBuiltinProfileFields(name, dropped);
+    // The body is root-shaped, so the raw-config lift applies directly.
+    liftIntoRawProfileOverrides(body, name, lifted, { explicitWins: true });
+  }
+}
+
+/**
+ * `setNestedValue` with built-in-profile sanitization for the direct-path
+ * config set (`assistant config set <key> <value>`). The same contract as
+ * PATCH applies — built-in profile edits land in `llm.profileOverrides`,
+ * never as materialized `llm.profiles` entries — but the replace-at-path
+ * semantics need path-aware handling:
+ *
+ * - `llm` / `llm.profiles`: the written profiles map replaces the old one.
+ *   Built-in entries are stripped from what lands on disk; their
+ *   label/status lift into `llm.profileOverrides` when they differ from
+ *   what the template + remaining override store resolve to, so a
+ *   round-tripped `GET /v1/config` body neither re-materializes built-ins
+ *   on disk nor creates redundant overrides. For `set llm`, an explicit
+ *   `profileOverrides` carried by the written value wins over lifted values.
+ * - `llm.profiles.<builtin>`: replace semantics for the entry — any
+ *   materialized entry is removed from disk and the written label/status
+ *   lift into the override store.
+ * - `llm.profiles.<builtin>.label|status`: single-field set routes straight
+ *   to the override store (when it differs from the current effective
+ *   value). A still-materialized transition-state entry is left untouched —
+ *   cleaning those up is the collapse migration's job.
+ * - Any other/deeper field under a built-in entry is dropped with a warning
+ *   (only label and status are user-editable on built-ins).
+ */
+function setConfigValueWithBuiltinSanitizer(
+  raw: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const segments = path.split(".");
+  const touchesProfiles =
+    segments[0] === "llm" &&
+    (segments.length === 1 || segments[1] === "profiles");
+  if (!touchesProfiles) {
+    setNestedValue(raw, path, value);
+    return;
+  }
+
+  if (segments.length <= 2) {
+    // Whole-map (`llm.profiles`) or whole-subtree (`llm`) replacement.
+    setNestedValue(raw, path, value);
+    const llm = asMutablePlainObject(raw.llm);
+    const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
+    if (!llm || !profiles) return;
+    const builtinEntries = new Map<string, Record<string, unknown> | null>();
+    for (const name of Object.keys(profiles)) {
+      if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+      builtinEntries.set(name, asMutablePlainObject(profiles[name]));
+      delete profiles[name];
+    }
+    if (builtinEntries.size === 0) return;
+    // Baseline AFTER stripping: what each built-in resolves to from the
+    // template plus the override store this write leaves in place. A
+    // transition-state seeder entry's label/status that the round-tripped
+    // body carries differs from this baseline and is lifted instead of lost.
+    const effective = effectiveLlmProfiles(raw);
+    for (const [name, entry] of builtinEntries) {
+      if (!entry) {
+        warnDroppedBuiltinProfileFields(name, ["<non-object entry>"]);
+        continue;
+      }
+      const { lifted, dropped } = extractBuiltinProfileOverride(
+        entry,
+        asMutablePlainObject(effective[name]),
+      );
+      warnDroppedBuiltinProfileFields(name, dropped);
+      liftIntoRawProfileOverrides(raw, name, lifted, {
+        // For `set llm`, raw.llm.profileOverrides is the write's own payload.
+        explicitWins: segments.length === 1,
+      });
+    }
+    return;
+  }
+
+  const name = segments[2];
+  if (!MANAGED_PROFILE_NAMES.has(name)) {
+    setNestedValue(raw, path, value);
+    return;
+  }
+
+  if (segments.length === 3) {
+    // Replace a single built-in entry: nothing lands under `llm.profiles`,
+    // and any previous materialized entry is removed per replace semantics.
+    const llm = asMutablePlainObject(raw.llm);
+    const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
+    if (profiles) delete profiles[name];
+    const entry = asMutablePlainObject(value);
+    if (!entry) {
+      warnDroppedBuiltinProfileFields(name, ["<non-object entry>"]);
+      return;
+    }
+    const { lifted, dropped } = extractBuiltinProfileOverride(
+      entry,
+      asMutablePlainObject(effectiveLlmProfiles(raw)[name]),
+    );
+    warnDroppedBuiltinProfileFields(name, dropped);
+    liftIntoRawProfileOverrides(raw, name, lifted);
+    return;
+  }
+
+  // Single-field set inside a built-in entry.
+  const key = segments[3];
+  if (
+    segments.length === 4 &&
+    (key === "label" || key === "status") &&
+    isLegalBuiltinOverrideValue(key, value)
+  ) {
+    const effectiveEntry = asMutablePlainObject(
+      effectiveLlmProfiles(raw)[name],
+    );
+    if (value === effectiveEntry?.[key]) return;
+    liftIntoRawProfileOverrides(raw, name, { [key]: value });
+    return;
+  }
+  warnDroppedBuiltinProfileFields(name, [segments.slice(3).join(".")]);
+}
+
+/**
  * Persist a mutated raw config object to disk and synchronize the running
  * daemon (file-watcher, embedding cache, provider registry).
  *
@@ -602,6 +886,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
+  sanitizeBuiltinProfileWrites(patch, raw);
   deepMergeOverwrite(raw, patch);
 
   await commitConfigWrite(raw, "patch");
@@ -650,7 +935,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   rejectManagedProfileDeletion(patchShape);
 
   const raw = loadRawConfig();
-  setNestedValue(raw, path, value);
+  setConfigValueWithBuiltinSanitizer(raw, path, value);
 
   await commitConfigWrite(raw, "set");
   return { ok: true };
@@ -703,11 +988,12 @@ async function handleReplaceInferenceProfile({
   }
   const isManaged = MANAGED_PROFILE_NAMES.has(name);
   if (isManaged) {
-    // Managed profiles are daemon-seeded — provider, model, advanced params,
-    // and the connection binding all belong to the seed contract and can't
-    // be reshaped by the user. The two fields that ARE user policy (display
-    // label and enabled status) are allowed through so users can rename a
-    // managed profile or temporarily disable it without duplicating it.
+    // Built-in profiles are code-defined — provider, model, advanced params,
+    // and the connection binding all belong to the template contract and
+    // can't be reshaped by the user. The two fields that ARE user policy
+    // (display label and enabled status) are allowed through so users can
+    // rename a built-in profile or temporarily disable it without
+    // duplicating it.
     const requestedKeys = Object.keys(parsed.data);
     const disallowed = requestedKeys.filter(
       (k) => k !== "label" && k !== "status",
@@ -719,12 +1005,15 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
+  const raw = loadRawConfig();
   // Mix profiles reference other profiles by name. `ProfileEntry.safeParse`
   // above validates the fragment in isolation, so the cross-profile integrity
   // rules `LLMSchema.superRefine` enforces on full-config load (every arm
   // exists, no nesting, no self-reference, no config fields) must be checked
   // here against the live profile set — otherwise an invalid mix would persist
-  // and break the next full config reparse.
+  // and break the next full config reparse. Validation runs against the
+  // EFFECTIVE profile set (built-ins merged), not the raw one: mixes may
+  // reference built-in profiles, which no longer live in config.json.
   if (parsed.data.mix != null) {
     const MIX_ALLOWED_KEYS = new Set([
       "mix",
@@ -741,14 +1030,14 @@ async function handleReplaceInferenceProfile({
         `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
       );
     }
-    const existingProfiles = getConfig().llm.profiles ?? {};
+    const existingProfiles = effectiveLlmProfiles(raw);
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(
           `Mix profile "${name}" cannot reference itself (arm ${index}).`,
         );
       }
-      const target = existingProfiles[arm.profile];
+      const target = asMutablePlainObject(existingProfiles[arm.profile]);
       if (target == null) {
         throw new BadRequestError(
           `Mix profile "${name}" references profile "${arm.profile}" which is not defined.`,
@@ -791,14 +1080,11 @@ async function handleReplaceInferenceProfile({
     }
   }
 
-  const raw = loadRawConfig();
   if (isManaged) {
-    // Partial overlay: keep every existing key intact, only update label
-    // and/or status from the fragment. Using `replaceInferenceProfileConfig`
-    // here would wipe the UI-owned seed fields (provider, model, advanced
-    // params) because that function assumes the body carries the full UI
-    // surface.
-    patchManagedProfileFields(raw, name, fragment);
+    // Built-in profile edits live in the sparse `llm.profileOverrides`
+    // store — nothing is written under `llm.profiles`, whose built-in
+    // entries are code-defined and merged at load time.
+    writeBuiltinProfileOverride(raw, name, fragment);
   } else {
     replaceInferenceProfileConfig(raw, name, fragment);
   }
@@ -816,42 +1102,23 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply a `{label?, status?}` patch to a managed profile entry, preserving
- * every other field already on disk (provider, model, advanced params, etc).
+ * Persist a `{label?, status?}` edit for a built-in profile into the sparse
+ * `llm.profileOverrides` store. Key-presence semantics: a key present with
+ * `null` stores the null sentinel ("explicitly cleared" — it masks any
+ * stale label/status still carried by a transition-state materialized entry
+ * at merge time); an absent key leaves the existing override key untouched.
  * Caller is responsible for having already restricted the fragment to the
- * managed-allowed keys.
+ * override-allowed keys.
  */
-function patchManagedProfileFields(
+function writeBuiltinProfileOverride(
   raw: Record<string, unknown>,
   name: string,
   fragment: Record<string, unknown>,
 ): void {
-  const existingLlm = asMutablePlainObject(raw.llm);
-  const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
-
-  const existingProfiles = asMutablePlainObject(llm.profiles);
-  const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
-
-  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
-  const nextProfile: Record<string, unknown> = { ...existingProfile };
-  // Send `null` to clear; omit to leave untouched.
-  if ("label" in fragment) {
-    if (fragment.label === null) {
-      delete nextProfile.label;
-    } else {
-      nextProfile.label = fragment.label;
-    }
-  }
-  if ("status" in fragment) {
-    if (fragment.status === null) {
-      delete nextProfile.status;
-    } else {
-      nextProfile.status = fragment.status;
-    }
-  }
-  profiles[name] = nextProfile;
+  const next: Record<string, unknown> = {};
+  if ("label" in fragment) next.label = fragment.label;
+  if ("status" in fragment) next.status = fragment.status;
+  liftIntoRawProfileOverrides(raw, name, next);
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
