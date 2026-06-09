@@ -1,3 +1,4 @@
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   Copy,
@@ -6,28 +7,55 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-  createOAuthApp,
-  deleteOAuthApp,
-  deleteOAuthAppConnection,
-  formatOAuthTimestamp,
-  listOAuthAppConnections,
-  listOAuthApps,
-  maskClientId,
-  startOAuthAppConnect,
-  type OAuthApp,
-  type OAuthAppConnection,
-} from "@/domains/settings/api/oauth-apps";
-import { fetchOAuthProviderDetail } from "@/domains/settings/api/oauth-providers";
-import { captureError } from "@/lib/sentry/capture-error";
+  oauthAppsByAppIdConnectionsGetOptions,
+  oauthAppsByAppIdConnectionsGetQueryKey,
+  oauthAppsByAppIdConnectPostMutation,
+  oauthAppsByIdDeleteMutation,
+  oauthAppsGetOptions,
+  oauthAppsGetQueryKey,
+  oauthAppsPostMutation,
+  oauthConnectionsByIdDeleteMutation,
+  oauthProvidersByProviderKeyGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type {
+  OauthAppsByAppIdConnectionsGetResponses,
+  OauthAppsGetResponses,
+} from "@/generated/daemon/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
+
+type OAuthApp = OauthAppsGetResponses[200]["apps"][number];
+type OAuthAppConnection =
+  OauthAppsByAppIdConnectionsGetResponses[200]["connections"][number];
+
+function maskClientId(clientId: string): string {
+  if (clientId.length > 16) {
+    return `${clientId.slice(0, 12)}…${clientId.slice(-4)}`;
+  }
+  if (clientId.length > 8) {
+    return `${clientId.slice(0, 8)}…`;
+  }
+  return clientId;
+}
+
+function formatOAuthTimestamp(ms: number): string {
+  try {
+    return new Date(ms).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
 
 interface YourOwnTabProps {
   assistantId: string;
@@ -42,184 +70,181 @@ export function YourOwnTab({
   displayName,
   logoUrl,
 }: YourOwnTabProps) {
-  const [apps, setApps] = useState<OAuthApp[]>([]);
-  const [connectionsMap, setConnectionsMap] = useState<
-    Record<string, OAuthAppConnection[]>
-  >({});
-  const [loadingApps, setLoadingApps] = useState(true);
+  const queryClient = useQueryClient();
+
+  // --- Server state via TanStack Query ---
+
+  const appsQuery = useQuery({
+    ...oauthAppsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { provider_key: providerKey },
+    }),
+    select: (data) => data.apps,
+  });
+
+  const providerDetailQuery = useQuery({
+    ...oauthProvidersByProviderKeyGetOptions({
+      path: { assistant_id: assistantId, providerKey },
+    }),
+    select: (data) => data.oauth_callback_url,
+  });
+
+  const apps = appsQuery.data ?? [];
+  const oauthCallbackUrl = providerDetailQuery.data ?? null;
+
+  const connectionsQueries = useQueries({
+    queries: apps.map((app) => ({
+      ...oauthAppsByAppIdConnectionsGetOptions({
+        path: { assistant_id: assistantId, appId: app.id },
+      }),
+      select: (data: OauthAppsByAppIdConnectionsGetResponses[200]) =>
+        data.connections,
+    })),
+  });
+
+  const connectionsMap: Record<string, OAuthAppConnection[]> = {};
+  apps.forEach((app, i) => {
+    connectionsMap[app.id] = connectionsQueries[i]?.data ?? [];
+  });
+
+  // --- Mutations ---
+
+  const appsQueryKey = oauthAppsGetQueryKey({
+    path: { assistant_id: assistantId },
+    query: { provider_key: providerKey },
+  });
+
+  const createAppMutation = useMutation({
+    ...oauthAppsPostMutation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: appsQueryKey });
+      setClientId("");
+      setClientSecret("");
+      setIsShowingAddAppForm(false);
+      toast.success(`${displayName} OAuth app added.`);
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to create OAuth app");
+    },
+  });
+
+  const deleteAppMutation = useMutation({
+    ...oauthAppsByIdDeleteMutation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: appsQueryKey });
+      toast.success("OAuth app deleted.");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to delete OAuth app");
+    },
+  });
+
+  const connectMutation = useMutation({
+    ...oauthAppsByAppIdConnectPostMutation(),
+    onSuccess: (data) => {
+      if ("auth_url" in data) {
+        window.location.href = data.auth_url;
+      }
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to start OAuth flow");
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    ...oauthConnectionsByIdDeleteMutation(),
+  });
+
+  // --- Ephemeral UI state ---
+
   const [isShowingAddAppForm, setIsShowingAddAppForm] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
-  const [creatingApp, setCreatingApp] = useState(false);
-  const [oauthCallbackUrl, setOauthCallbackUrl] = useState<string | null>(null);
   const [callbackUrlCopied, setCallbackUrlCopied] = useState(false);
-  const [deletingAppId, setDeletingAppId] = useState<string | null>(null);
-  const [connectingAppId, setConnectingAppId] = useState<string | null>(null);
-  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [appPendingDeletion, setAppPendingDeletion] = useState<OAuthApp | null>(
     null,
   );
   const [connectionPendingDisconnect, setConnectionPendingDisconnect] =
     useState<{ appId: string; connection: OAuthAppConnection } | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    setLoadingApps(true);
+  // --- Derived loading states from mutations (via the UI pattern) ---
 
-    void (async () => {
-      try {
-        const result = await listOAuthApps(assistantId, providerKey);
-        if (!active) return;
-        setApps(result);
-        const connectionResults = await Promise.all(
-          result.map((app) => listOAuthAppConnections(assistantId, app.id)),
-        );
-        if (!active) return;
-        const map: Record<string, OAuthAppConnection[]> = {};
-        result.forEach((app, i) => {
-          map[app.id] = connectionResults[i];
-        });
-        setConnectionsMap(map);
-      } catch (err) {
-        if (!active) return;
-        const message =
-          err instanceof Error ? err.message : "Failed to load OAuth apps";
-        toast.error(message);
-      } finally {
-        if (active) setLoadingApps(false);
-      }
-    })();
+  const creatingApp = createAppMutation.isPending;
+  const deletingAppId = deleteAppMutation.isPending
+    ? (deleteAppMutation.variables?.path?.id ?? null)
+    : null;
+  const connectingAppId = connectMutation.isPending
+    ? (connectMutation.variables?.path?.appId ?? null)
+    : null;
+  const disconnectingId = disconnectMutation.isPending
+    ? (disconnectMutation.variables?.path?.id ?? null)
+    : null;
 
-    return () => {
-      active = false;
-    };
-  }, [assistantId, providerKey]);
+  // --- Handlers ---
 
-  useEffect(() => {
-    let active = true;
-    void fetchOAuthProviderDetail(assistantId, providerKey).then(
-      (detail) => {
-        if (active) setOauthCallbackUrl(detail.oauth_callback_url);
-      },
-      (err) => {
-        if (active) {
-          captureError(err, { context: "YourOwnTab.fetchOAuthProviderDetail", tags: { domain: "settings" } });
-        }
-      },
-    );
-    return () => { active = false; };
-  }, [assistantId, providerKey]);
-
-  const shouldShowForm = apps.length === 0 || isShowingAddAppForm;
-
-  const handleCreateApp = async () => {
-    if (!clientId.trim() || !clientSecret.trim()) {
-      return;
-    }
-    setCreatingApp(true);
-    try {
-      const trimmedId = clientId.trim();
-      const trimmedSecret = clientSecret.trim();
-      const app = await createOAuthApp(assistantId, {
+  const handleCreateApp = () => {
+    const trimmedId = clientId.trim();
+    const trimmedSecret = clientSecret.trim();
+    if (!trimmedId || !trimmedSecret) return;
+    createAppMutation.mutate({
+      path: { assistant_id: assistantId },
+      body: {
         provider_key: providerKey,
         client_id: trimmedId,
         client_secret: trimmedSecret,
-      });
-      setApps((prev) => [...prev, app]);
-      setConnectionsMap((prev) => ({ ...prev, [app.id]: [] }));
-      setClientId("");
-      setClientSecret("");
-      setIsShowingAddAppForm(false);
-      toast.success(`${displayName} OAuth app added.`);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to create OAuth app";
-      toast.error(message);
-    } finally {
-      setCreatingApp(false);
-    }
+      },
+    });
   };
 
-  const handleDeleteApp = (app: OAuthApp) => {
-    setAppPendingDeletion(app);
-  };
-
-  const confirmDeleteApp = async () => {
+  const confirmDeleteApp = () => {
     const app = appPendingDeletion;
     setAppPendingDeletion(null);
-    if (!app) {
-      return;
-    }
-    setDeletingAppId(app.id);
-    try {
-      await deleteOAuthApp(assistantId, app.id);
-      setApps((prev) => prev.filter((a) => a.id !== app.id));
-      setConnectionsMap((prev) => {
-        const next = { ...prev };
-        delete next[app.id];
-        return next;
-      });
-      toast.success("OAuth app deleted.");
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to delete OAuth app";
-      toast.error(message);
-    } finally {
-      setDeletingAppId(null);
-    }
+    if (!app) return;
+    deleteAppMutation.mutate({
+      path: { assistant_id: assistantId, id: app.id },
+    });
   };
 
-  const handleConnect = async (app: OAuthApp) => {
-    setConnectingAppId(app.id);
-    try {
-      const { authUrl } = await startOAuthAppConnect(assistantId, app.id);
-      window.location.href = authUrl;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to start OAuth flow";
-      toast.error(message);
-      setConnectingAppId(null);
-    }
+  const handleConnect = (app: OAuthApp) => {
+    connectMutation.mutate({
+      path: { assistant_id: assistantId, appId: app.id },
+      body: { callback_transport: "gateway", scopes: [] },
+    });
   };
 
-  const handleDisconnect = (
-    appId: string,
-    connection: OAuthAppConnection,
-  ) => {
-    setConnectionPendingDisconnect({ appId, connection });
-  };
-
-  const confirmDisconnect = async () => {
+  const confirmDisconnect = () => {
     const pending = connectionPendingDisconnect;
     setConnectionPendingDisconnect(null);
-    if (!pending) {
-      return;
-    }
-    const { appId, connection } = pending;
-    setDisconnectingId(connection.id);
-    try {
-      await deleteOAuthAppConnection(assistantId, connection.id);
-      setConnectionsMap((prev) => ({
-        ...prev,
-        [appId]: (prev[appId] ?? []).filter((c) => c.id !== connection.id),
-      }));
-      toast.success(`${displayName} account disconnected.`);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to disconnect account";
-      toast.error(message);
-    } finally {
-      setDisconnectingId(null);
-    }
+    if (!pending) return;
+    disconnectMutation.mutate(
+      { path: { assistant_id: assistantId, id: pending.connection.id } },
+      {
+        onSuccess: () => {
+          const connectionQueryKey = oauthAppsByAppIdConnectionsGetQueryKey({
+            path: { assistant_id: assistantId, appId: pending.appId },
+          });
+          void queryClient.invalidateQueries({ queryKey: connectionQueryKey });
+          void queryClient.invalidateQueries({ queryKey: appsQueryKey });
+          toast.success(`${displayName} account disconnected.`);
+        },
+        onError: (err) => {
+          toast.error(err.message || "Failed to disconnect account");
+        },
+      },
+    );
   };
 
-  if (loadingApps) {
+  // --- Render ---
+
+  if (appsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-5 w-5 animate-spin text-[var(--content-disabled)]" />
       </div>
     );
   }
+
+  const shouldShowForm = apps.length === 0 || isShowingAddAppForm;
 
   return (
     <div className="flex flex-col gap-4">
@@ -353,7 +378,7 @@ export function YourOwnTab({
                 type="button"
                 variant="dangerOutline"
                 size="compact"
-                onClick={() => handleDeleteApp(app)}
+                onClick={() => setAppPendingDeletion(app)}
                 disabled={isDeleting}
                 aria-label={`Delete OAuth app ${maskClientId(app.client_id)}`}
                 iconOnly={
@@ -388,7 +413,12 @@ export function YourOwnTab({
                         type="button"
                         variant="dangerOutline"
                         size="compact"
-                        onClick={() => handleDisconnect(app.id, connection)}
+                        onClick={() =>
+                          setConnectionPendingDisconnect({
+                            appId: app.id,
+                            connection,
+                          })
+                        }
                         disabled={isDisconnecting}
                         aria-label={`Disconnect ${connection.account_info ?? `${displayName} account`}`}
                         iconOnly={
@@ -448,9 +478,7 @@ export function YourOwnTab({
         }
         confirmLabel="Delete"
         destructive
-        onConfirm={() => {
-          void confirmDeleteApp();
-        }}
+        onConfirm={confirmDeleteApp}
         onCancel={() => setAppPendingDeletion(null)}
       />
       <ConfirmDialog
@@ -463,9 +491,7 @@ export function YourOwnTab({
         }
         confirmLabel="Disconnect"
         destructive
-        onConfirm={() => {
-          void confirmDisconnect();
-        }}
+        onConfirm={confirmDisconnect}
         onCancel={() => setConnectionPendingDisconnect(null)}
       />
     </div>
