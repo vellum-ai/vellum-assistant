@@ -12,7 +12,6 @@ import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
-import { stashSessionTokenForNavigation } from "@/runtime/session-token";
 import { routes } from "@/utils/routes";
 
 /**
@@ -264,10 +263,6 @@ export async function startAuthFlow(
       intent: options.intent,
     });
     if (result?.sessionToken) {
-      // Stash the token in sessionStorage so it survives the hard
-      // navigation below. On the next page load, getElectronSessionToken
-      // picks it up as a fallback when safeStorage failed to persist it.
-      stashSessionTokenForNavigation(result.sessionToken);
       await setMenuPlatformSession(true);
       const destination = sanitizeReturnTo(
         options.intent === "signup"
