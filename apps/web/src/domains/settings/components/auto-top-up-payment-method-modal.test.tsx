@@ -13,13 +13,24 @@
  * Coverage:
  *  - a billing-mode AddressElement renders alongside the PaymentElement once
  *    the SetupIntent `client_secret` is loaded, and the PaymentElement's own
- *    address fields are suppressed (no duplicate postal-code input),
+ *    name and address fields are suppressed (the billing AddressElement
+ *    always collects a name; no duplicate "Full name" or postal-code input),
  *  - the Save button stays disabled until BOTH elements report `onReady`,
+ *  - an element load failure surfaces an error instead of leaving Save
+ *    silently disabled,
  *  - submitting calls `stripe.confirmSetup` with `elements` and
  *    `redirect: "if_required"` (no manual billing_details plumbing).
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -30,6 +41,7 @@ import type { ReactNode } from "react";
 
 type ElementProps = {
   onReady?: () => void;
+  onLoadError?: () => void;
   options?: Record<string, unknown>;
 };
 
@@ -46,9 +58,7 @@ const fakeStripe = {
 };
 
 mock.module("@stripe/react-stripe-js", () => ({
-  Elements: ({ children }: { children: ReactNode }) => (
-    <div data-testid="stripe-elements">{children}</div>
-  ),
+  Elements: ({ children }: { children: ReactNode }) => children,
   PaymentElement: (props: ElementProps) => {
     paymentElementProps = props;
     return <div data-testid="stripe-payment-element" />;
@@ -82,20 +92,32 @@ mock.module("@/generated/api/sdk.gen", () => ({
 // the modal renders only the missing-key notice. Static imports are hoisted
 // ahead of this assignment, so the component must be imported dynamically
 // after the env var is set.
+const originalStripePk = process.env.VITE_STRIPE_PUBLISHABLE_KEY;
 process.env.VITE_STRIPE_PUBLISHABLE_KEY = "pk_test_fake";
 const { AutoTopUpPaymentMethodModal } = await import(
   "./auto-top-up-payment-method-modal"
 );
 
+// `bun test` runs all test files in one process, so restore the env var to
+// avoid leaking it into other test files.
+afterAll(() => {
+  if (originalStripePk === undefined) {
+    delete process.env.VITE_STRIPE_PUBLISHABLE_KEY;
+  } else {
+    process.env.VITE_STRIPE_PUBLISHABLE_KEY = originalStripePk;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
-function renderModal(): ReturnType<typeof render> {
+/** Wait for the SetupIntent mutation to resolve and the card form to mount. */
+async function renderModalWithForm(): Promise<ReturnType<typeof render>> {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <AutoTopUpPaymentMethodModal
         open
@@ -104,21 +126,8 @@ function renderModal(): ReturnType<typeof render> {
       />
     </QueryClientProvider>,
   );
-}
-
-/** Wait for the SetupIntent mutation to resolve and the card form to mount. */
-async function renderModalWithForm(): Promise<ReturnType<typeof render>> {
-  const result = renderModal();
   await result.findByTestId("stripe-address-element");
   return result;
-}
-
-function saveButton(): HTMLButtonElement {
-  const button = document.querySelector<HTMLButtonElement>(
-    '[data-testid="auto-top-up-pm-save-button"]',
-  );
-  if (!button) throw new Error("expected the Save button to be rendered");
-  return button;
 }
 
 function fireOnReady(props: ElementProps | null): void {
@@ -142,43 +151,49 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
   test("renders a billing-mode AddressElement alongside the PaymentElement once the client_secret loads", async () => {
     await renderModalWithForm();
 
-    expect(
-      document.querySelector('[data-testid="stripe-payment-element"]'),
-    ).not.toBeNull();
-    expect(
-      document.querySelector('[data-testid="stripe-address-element"]'),
-    ).not.toBeNull();
-
-    // The Address Element collects the billing address...
     expect(addressElementProps?.options?.mode).toBe("billing");
-    // ...and the Payment Element's own address fields are suppressed, so the
-    // user never sees two postal-code inputs.
+    // The Payment Element's own name and address fields are suppressed, so
+    // the user never sees two "Full name" or postal-code inputs (a billing
+    // AddressElement always collects a name).
     expect(paymentElementProps?.options?.fields).toEqual({
-      billingDetails: { address: "never" },
+      billingDetails: { name: "never", address: "never" },
     });
   });
 
   test("keeps Save disabled until BOTH the PaymentElement and AddressElement report ready", async () => {
-    await renderModalWithForm();
+    const { getByTestId } = await renderModalWithForm();
+    const saveButton = getByTestId(
+      "auto-top-up-pm-save-button",
+    ) as HTMLButtonElement;
 
-    // Neither element ready: disabled.
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
 
-    // Payment Element ready alone is not enough.
     fireOnReady(paymentElementProps);
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
 
-    // Address Element ready too: enabled.
     fireOnReady(addressElementProps);
-    expect(saveButton().disabled).toBe(false);
+    expect(saveButton.disabled).toBe(false);
+  });
+
+  test("surfaces an error when an element fails to load", async () => {
+    const { getByTestId } = await renderModalWithForm();
+
+    const onLoadError = paymentElementProps?.onLoadError;
+    if (!onLoadError) throw new Error("expected an onLoadError handler");
+    act(() => onLoadError());
+
+    expect(
+      getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
+    ).toContain("Failed to load");
+    expect(addressElementProps?.onLoadError).toBeDefined();
   });
 
   test("submitting calls stripe.confirmSetup with elements and redirect: 'if_required'", async () => {
-    await renderModalWithForm();
+    const { getByTestId } = await renderModalWithForm();
     fireOnReady(paymentElementProps);
     fireOnReady(addressElementProps);
 
-    fireEvent.submit(saveButton().closest("form")!);
+    fireEvent.submit(getByTestId("auto-top-up-pm-save-button").closest("form")!);
 
     await waitFor(() => {
       if (confirmSetupCalls.length === 0) {
