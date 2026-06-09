@@ -11,6 +11,18 @@ export type Slug = string;
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
 /**
+ * `meta` key under which the v3 cards block carries its attachment-commit
+ * callback. The injector defers its everInjected-store write (and the
+ * prune-valve schedule) into this callback; runtime assembly invokes it only
+ * when the turn's tail is a user message — the same gate as metadata capture
+ * — so a block that silently fails to attach never claims its cards in the
+ * dedup store. Shared between the producer (`injector.ts`) and the consumer
+ * (`conversation-runtime-assembly.ts`) so a rename is a compile error on both
+ * sides instead of a silent never-commit.
+ */
+export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
+
+/**
  * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
  * current window's matched sections, re-rendered at the user tail each turn).
  * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates

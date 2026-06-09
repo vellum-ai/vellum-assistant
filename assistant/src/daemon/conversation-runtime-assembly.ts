@@ -32,7 +32,6 @@ import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
-  stripExistingMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
 import { unwrapMemoryBlock } from "../memory/memory-marker.js";
 import {
@@ -49,7 +48,11 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
-import { MEMORY_V3_BLOCK_ID } from "../plugins/defaults/memory-v3-shadow/types.js";
+import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
+import {
+  MEMORY_V3_BLOCK_ID,
+  MEMORY_V3_COMMIT_META_KEY,
+} from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
   InjectionBlock,
   InjectionPlacement,
@@ -1698,6 +1701,50 @@ function applyInjectionBlock(
 }
 
 /**
+ * Byte prefix of a memory-v3 frozen card block: the `<memory>` wrapper opening
+ * followed by the v3 cards instruction header. v2's dynamic block carries
+ * recalled facts (no such header), so this prefix discriminates the two
+ * layers' otherwise-identical wrappers.
+ */
+const V3_CARDS_BLOCK_PREFIX = `<memory>\n${V3_CARDS_INJECTION_HEADER}`;
+
+/**
+ * Strip v2's freshly-prepended DYNAMIC memory prefix — the `<memory>` /
+ * legacy `<memory __injected>` text block plus any memory-image groups — from
+ * the tail user message, preserving every other leading memory-prefix block:
+ *
+ *  - memory-v3's frozen card block (recognized by
+ *    {@link V3_CARDS_BLOCK_PREFIX}): a same-turn re-entry assembly (overflow
+ *    convergence) sees the tail it assembled on first entry, whose leading
+ *    block may be this turn's just-frozen v3 cards when no workspace /
+ *    `<turn_context>` prepend fired. Stripping it would drop the cards from
+ *    live history while the everInjected store and metadata still claim them.
+ *  - the `<info>` static block: it counts toward the memory prefix for
+ *    splice positioning but is never prepended by `prepareMemory`, so the v2
+ *    suppression strip has no business removing it.
+ *
+ * Only v2's dynamic block is re-prepended fresh each first-entry assembly
+ * (by `prepareMemory`, before this runs), so it is the only thing this strip
+ * exists to remove.
+ */
+function stripTailV2DynamicMemoryPrefix(messages: Message[]): Message[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return messages;
+  const prefixCount = countMemoryPrefixBlocksOnContent(last.content);
+  if (prefixCount === 0) return messages;
+  const content = last.content.filter((block, i) => {
+    if (i >= prefixCount) return true;
+    return (
+      block.type === "text" &&
+      (block.text.startsWith(V3_CARDS_BLOCK_PREFIX) ||
+        block.text.startsWith("<info>\n"))
+    );
+  });
+  if (content.length === last.content.length) return messages;
+  return [...messages.slice(0, -1), { ...last, content }];
+}
+
+/**
  * Per-turn options accepted by {@link applyRuntimeInjections}.
  *
  * Most fields are layered onto the {@link TurnContext} the caller provides
@@ -2074,7 +2121,7 @@ export async function applyRuntimeInjections(
         case "memory-v2-static":
           memoryV2StaticCaptured = block.text;
           break;
-        case MEMORY_V3_BLOCK_ID:
+        case MEMORY_V3_BLOCK_ID: {
           // The v3 frozen card block is persisted UNWRAPPED (the v2
           // `memoryInjectedBlock` contract — rehydration re-wraps on use).
           // An empty-text block (all-repeat turn) attaches no content, so
@@ -2082,7 +2129,18 @@ export async function applyRuntimeInjections(
           if (block.text.length > 0) {
             memoryV3Captured = unwrapMemoryBlock(block.text);
           }
+          // Attachment is guaranteed from here (user tail — the gate this
+          // capture loop runs under), so commit the injector's deferred
+          // everInjected-store write. On a non-user tail the block silently
+          // no-ops in `applyInjectionBlock`, and skipping the commit keeps
+          // the store from claiming cards that never attached (which would
+          // suppress them until compaction).
+          const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
+          if (typeof commit === "function") {
+            (commit as () => void)();
+          }
           break;
+        }
       }
     }
   }
@@ -2113,12 +2171,17 @@ export async function applyRuntimeInjections(
   // v2 suppression: when the `memory-v3-live` flag is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
   // owns the `<memory>` layer. v2's `prepareMemory` already prepended its own
-  // fresh `<memory>` block to the tail user message — strip the TAIL's memory
-  // prefix only, so the v3 `after-memory-prefix` block (Step 2) lands at the
-  // top of the tail with no v2 prefix ahead of it. Historical user messages
-  // keep their memory blocks byte-identical: frozen v3 card blocks from prior
-  // turns AND pre-cutover v2 blocks both ride the cached prefix (the old
-  // whole-layer `stripAllMemoryInjections` replace is gone).
+  // fresh `<memory>` block to the tail user message — strip the TAIL's v2
+  // dynamic prefix only, so the v3 `after-memory-prefix` block (Step 2) lands
+  // at the top of the tail with no v2 prefix ahead of it. Historical user
+  // messages keep their memory blocks byte-identical: frozen v3 card blocks
+  // from prior turns AND pre-cutover v2 blocks both ride the cached prefix
+  // (the old whole-layer `stripAllMemoryInjections` replace is gone). The
+  // strip is SCOPED to v2's dynamic blocks ({@link
+  // stripTailV2DynamicMemoryPrefix}): a same-turn re-entry assembly's tail
+  // may lead with this turn's just-frozen v3 card block (and the `<info>`
+  // static block) when no other prepends fired, and those must survive — the
+  // v2 prefix this strip exists to remove was already stripped on first entry.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
@@ -2130,7 +2193,7 @@ export async function applyRuntimeInjections(
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
   if (memoryV3Active) {
-    runMessagesForAssembly = stripExistingMemoryInjections(
+    runMessagesForAssembly = stripTailV2DynamicMemoryPrefix(
       runMessagesForAssembly,
     );
   }

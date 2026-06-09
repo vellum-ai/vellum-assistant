@@ -4,6 +4,11 @@
  *
  *   - net-new dedup: a turn re-selecting already-injected pages renders zero
  *     new cards (empty-text block — still produced, so v2 suppression holds);
+ *   - commit deferral: the everInjected-store write happens in the block's
+ *     attachment-commit callback (invoked by assembly on user-tail turns),
+ *     never in `produce()` itself;
+ *   - trust gate: an untrusted remote actor's turn produces nothing and
+ *     records nothing (the v2 personal-memory gate);
  *   - fork dedup: a conversation whose everInjected record was seeded from
  *     inherited blocks does not re-render those slugs;
  *   - prune round-trip: a pruned slug that is re-selected re-injects;
@@ -28,8 +33,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
+import type { InjectionBlock } from "../../../types.js";
 import type { OrchestrateResult } from "../orchestrate.js";
-import type { Section, Slug } from "../types.js";
+import {
+  MEMORY_V3_COMMIT_META_KEY,
+  type Section,
+  type Slug,
+} from "../types.js";
 
 const realConfigLoader = { ...(await import("../../../../config/loader.js")) };
 const realFlags = {
@@ -198,21 +208,51 @@ function result(
   };
 }
 
-function produceCards(conversationId: string, turnIndex: number) {
+const GUARDIAN_TRUST = {
+  sourceChannel: "vellum",
+  trustClass: "guardian",
+} as const;
+
+/** Invoke the block's attachment-commit callback — simulating runtime
+ *  assembly's user-tail commit point, where the everInjected-store write
+ *  (and the prune-valve schedule) now happens. */
+function commitCardsBlock(block: InjectionBlock | null): void {
+  const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
+  if (typeof commit === "function") (commit as () => void)();
+}
+
+/** Produce the cards block WITHOUT committing — what assembly observes on a
+ *  turn whose tail is not a user message (the block never attaches). */
+function produceCardsWithoutCommit(
+  conversationId: string,
+  turnIndex: number,
+  trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
+) {
   return memoryV3Injector.produce({
     requestId: "req-1",
     conversationId,
     turnIndex,
-    trust: { sourceChannel: "vellum", trustClass: "guardian" },
+    trust: trust as never,
   });
 }
 
-function produceSpotlight(conversationId: string, turnIndex: number) {
+/** Produce the cards block and commit it (the normal user-tail turn). */
+async function produceCards(conversationId: string, turnIndex: number) {
+  const block = await produceCardsWithoutCommit(conversationId, turnIndex);
+  commitCardsBlock(block);
+  return block;
+}
+
+function produceSpotlight(
+  conversationId: string,
+  turnIndex: number,
+  trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
+) {
   return memoryV3SpotlightInjector.produce({
     requestId: "req-1",
     conversationId,
     turnIndex,
-    trust: { sourceChannel: "vellum", trustClass: "guardian" },
+    trust: trust as never,
   });
 }
 
@@ -337,6 +377,86 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     expect(block!.text).toContain("# memory/concepts/page-a.md");
     expect(block!.text).not.toContain("missing-page");
     expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+  });
+
+  test("EVERY net-new card rendering empty → null (v2 fallback), not an empty block", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["missing-page"]));
+
+    // An empty-text block would suppress v2 with nothing to show — a
+    // memory-less turn. Distinct from the all-repeat case (empty netNew),
+    // where the empty block correctly keeps v2 suppressed.
+    expect(await produceCards("conv-1", 0)).toBeNull();
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+  });
+
+  test("produce() defers the store write to the commit callback — a never-attached block records nothing", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+
+    // A turn whose tail is not a user message: assembly never invokes the
+    // commit, so the store must not claim the cards (which would suppress
+    // them until compaction despite never reaching history).
+    const block = await produceCardsWithoutCommit("conv-1", 0);
+    expect(block).not.toBeNull();
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+
+    // Assembly's user-tail commit point records them.
+    commitCardsBlock(block);
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+  });
+
+  test("untrusted remote actor → both injectors produce null, no orchestration, nothing recorded", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    const untrusted = { sourceChannel: "telegram", trustClass: "unknown" };
+
+    expect(await produceCardsWithoutCommit("conv-1", 0, untrusted)).toBeNull();
+    expect(await produceSpotlight("conv-1", 0, untrusted)).toBeNull();
+    // The gate runs before orchestration: nothing selected, nothing recorded.
+    expect(observeTurnSpy).not.toHaveBeenCalled();
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+  });
+
+  test("capability cards (skills / CLI commands) record ZERO bytes", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["skills/test-skill", "page-a"]));
+
+    const block = await produceCards("conv-1", 0);
+    // Both cards attach…
+    expect(block!.text).toContain("skills/test-skill");
+    expect(block!.text).toContain("# memory/concepts/page-a.md");
+    // …but the capability card's bytes are recorded as 0: its `# Skill:`
+    // header is invisible to the prune valve's `# memory/concepts/<slug>.md`
+    // section grammar, so non-zero bytes could never be freed and would
+    // loop-fire the valve.
+    const injected = getInjected("conv-1");
+    expect(injected.get("skills/test-skill")!.bytes).toBe(0);
+    expect(injected.get("page-a")!.bytes).toBeGreaterThan(0);
+  });
+
+  test("per-conversation memo LRU: a key refresh evicts nothing; new-key eviction prefers stale entries", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-a"]));
+    // Fill the memo to its 256-entry cap.
+    for (let i = 0; i < 256; i++) {
+      await produceCards(`conv-${i}`, 0);
+    }
+    // A new turn for a tracked conversation is a key REFRESH — nothing may be
+    // evicted for it (the pre-fix code evicted the oldest entry here).
+    await produceCards("conv-5", 1);
+    observeTurnSpy.mockClear();
+    await produceCards("conv-0", 0);
+    expect(observeTurnSpy).toHaveBeenCalledTimes(0); // still memoized
+    // A genuinely NEW key at the cap evicts the least-recently-set entry
+    // (conv-0); the refreshed conv-5 survives.
+    await produceCards("conv-new", 0);
+    observeTurnSpy.mockClear();
+    await produceCards("conv-5", 1);
+    expect(observeTurnSpy).toHaveBeenCalledTimes(0); // refreshed → survived
+    await produceCards("conv-0", 0);
+    expect(observeTurnSpy).toHaveBeenCalledTimes(1); // evicted → re-observed
   });
 
   test("empty selection → null (fallback to v2), nothing recorded", async () => {
