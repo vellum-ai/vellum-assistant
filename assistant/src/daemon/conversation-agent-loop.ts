@@ -77,6 +77,7 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
+import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -1197,25 +1198,24 @@ export async function runAgentLoopImpl(
         },
       );
       const convergenceBudget = resolveCurrentContextBudget();
-      let correctedTarget = convergenceBudget.preflightBudget;
-      if (actualTokens && estimatedTokensAtOverflow > 0) {
-        const estimationErrorRatio = actualTokens / estimatedTokensAtOverflow;
-        if (estimationErrorRatio > 1.0) {
-          correctedTarget = Math.floor(
-            convergenceBudget.preflightBudget / estimationErrorRatio,
-          );
-          rlog.warn(
-            {
-              phase: "convergence",
-              actualTokens,
-              estimatedTokens: estimatedTokensAtOverflow,
-              estimationErrorRatio: estimationErrorRatio.toFixed(2),
-              preflightBudget: convergenceBudget.preflightBudget,
-              correctedTarget,
-            },
-            "Adjusting compaction target based on observed estimation error",
-          );
-        }
+      const { targetTokens: correctedTarget, estimationErrorRatio } =
+        computeCorrectedOverflowTarget({
+          preflightBudget: convergenceBudget.preflightBudget,
+          actualTokens,
+          estimatedTokens: estimatedTokensAtOverflow,
+        });
+      if (estimationErrorRatio != null) {
+        rlog.warn(
+          {
+            phase: "convergence",
+            actualTokens,
+            estimatedTokens: estimatedTokensAtOverflow,
+            estimationErrorRatio: estimationErrorRatio.toFixed(2),
+            preflightBudget: convergenceBudget.preflightBudget,
+            correctedTarget,
+          },
+          "Adjusting compaction target based on observed estimation error",
+        );
       }
 
       // ── Bounded context-overflow convergence driver ─────────────────
