@@ -927,6 +927,7 @@ export async function runAgentLoopImpl(
       latestMessages: runMessages,
       logger: rlog,
       modelProfileKey,
+      isNonInteractive,
     };
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
