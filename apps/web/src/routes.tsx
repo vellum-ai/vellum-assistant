@@ -160,6 +160,12 @@ export const routeTree = [
         // `isOnboardingPath` redirects already-onboarded users off that prefix.
         { path: "focus-chat", lazy: { Component: () => import("@/onboarding-chat-route").then((m) => m.OnboardingChatRoute) } },
 
+        // Connect onboarding ("Show me around") — authed, app-native (design
+        // library + tokens) with the REAL managed-OAuth connect flow. Sibling of
+        // focus-chat; outside ChatLayout (its own fixed surface) and off the
+        // `/assistant/onboarding/*` prefix so it isn't redirected away.
+        { path: "connect", lazy: { Component: () => import("@/connect/connect-flow").then((m) => m.ConnectFlow) } },
+
         // Onboarding routes — redirect to /assistant when onboarding is
         // already completed (unless ?replay is present).
         {
