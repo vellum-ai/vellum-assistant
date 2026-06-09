@@ -286,6 +286,13 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            useResolvedAssistantsStore.getState().upsertFromApi({
+              id: result.assistantId,
+              name: result.assistantId,
+              status: "active",
+              is_local: true,
+              created: new Date().toISOString(),
+            } as import("@/assistant/api").Assistant);
             void selectPlatformAssistant(result.assistantId);
           }
 
