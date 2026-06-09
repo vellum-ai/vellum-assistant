@@ -33,7 +33,6 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import { runEmergencyCompaction } from "../context/compactor.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -1221,22 +1220,15 @@ export async function runAgentLoopImpl(
       // compressing history. Falls through to reducer tiers on failure.
       {
         try {
-          const emergencyConfig = getConfig().compaction;
-          const emergencyResult = await runEmergencyCompaction({
-            conversationId: ctx.conversationId,
-            messages: ctx.messages,
-            provider: ctx.provider,
-            systemPrompt: ctx.systemPrompt,
-            tools: undefined,
-            compaction: emergencyConfig,
-            maxInputTokens: resolveCurrentMaxInputTokens(),
-            previousEstimatedInputTokens: estimatedTokensAtOverflow,
-            force: true,
-            signal: abortController.signal,
-            overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            nonPersistedPrefixCount:
-              ctx.contextWindowManager.nonPersistedPrefixCount,
-          });
+          const emergencyResult =
+            await ctx.contextWindowManager.emergencyCompact(
+              ctx.messages,
+              {
+                previousEstimatedInputTokens: estimatedTokensAtOverflow,
+                overrideProfile: resolveCurrentOverrideProfile() ?? null,
+              },
+              abortController.signal,
+            );
           if (emergencyResult.compacted) {
             rlog.info(
               {
