@@ -25,6 +25,10 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import {
+  UNREACHABLE_STATUS_CODES,
+  notifyAssistantUnreachable,
+} from "@/assistant/unreachable-bus";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
@@ -240,7 +244,22 @@ export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
 });
 
+/**
+ * Daemon-only response interceptor — fires the unreachable bus on
+ * gateway-class errors. No URL filtering needed because every daemon
+ * SDK request targets the assistant runtime by definition. Not
+ * installed on platform/auth clients (a 502 from Django is a
+ * different failure domain).
+ */
+export function daemonUnreachableInterceptor(response: Response): Response {
+  if (UNREACHABLE_STATUS_CODES.has(response.status)) {
+    notifyAssistantUnreachable();
+  }
+  return response;
+}
+
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
+daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
