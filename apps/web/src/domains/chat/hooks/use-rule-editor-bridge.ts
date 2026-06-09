@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { useViewerStore } from "@/stores/viewer-store";
 import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Hook

@@ -30,6 +30,7 @@ import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDock } from "./dock";
+import { installEscapeMonitor } from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -333,6 +334,7 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    installEscapeMonitor();
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);

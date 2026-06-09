@@ -39,7 +39,7 @@ import type {
   PendingSecretState,
 } from "@/types/interaction-ui-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
@@ -90,6 +90,9 @@ export interface ChatDebugThinkingConditions {
   hasPendingContactRequest: boolean;
   hasUncompletedVisibleSurface: boolean;
   hasStreamingAssistantMessage: boolean;
+  /** True when the live assistant message already has reasoning content, so the
+   * inline `ThoughtProcessLink` owns the loading state and the dots row defers. */
+  hasStreamingAssistantThinking: boolean;
   activeConversationIsProcessing: boolean;
   hasPendingAssistantResponse: boolean;
 }
@@ -502,6 +505,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       hasPendingContactRequest: uiContext.hasPendingContactRequest,
       hasUncompletedVisibleSurface: uiContext.hasUncompletedVisibleSurface,
       hasStreamingAssistantMessage: uiContext.hasStreamingAssistantMessage,
+      hasStreamingAssistantThinking: uiContext.hasStreamingAssistantThinking,
       activeConversationIsProcessing:
         uiContext.activeConversationIsProcessing === true,
       hasPendingAssistantResponse:
@@ -538,6 +542,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       )
     ) {
       failingConditions.push("streamingAssistantMessageActive");
+    }
+    if (conditions.hasStreamingAssistantThinking) {
+      failingConditions.push("hasStreamingAssistantThinking");
     }
     if (conditions.activeToolCallCount > 0) {
       failingConditions.push("activeToolCallCount>0");

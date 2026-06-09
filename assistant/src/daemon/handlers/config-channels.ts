@@ -31,6 +31,7 @@ import {
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
+  deliverVerificationEmail,
   deliverVerificationSlack,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
@@ -555,7 +556,11 @@ export async function handleChannelVerificationSession(
           const { userId, text, assistantId: aid } = result._pendingSlackDm;
           deliverVerificationSlack(userId, text, aid);
         }
-        const { _pendingSlackDm: _, ...publicResult } = result;
+        if (result._pendingEmail) {
+          const { to, text, subject, assistantId: aid } = result._pendingEmail;
+          deliverVerificationEmail(to, text, subject, aid);
+        }
+        const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
         broadcastMessage({
           type: "channel_verification_session_response",
           ...publicResult,
@@ -600,7 +605,11 @@ export async function handleChannelVerificationSession(
         const { userId, text, assistantId: aid } = result._pendingSlackDm;
         deliverVerificationSlack(userId, text, aid);
       }
-      const { _pendingSlackDm: _, ...publicResult } = result;
+      if (result._pendingEmail) {
+        const { to, text, subject, assistantId: aid } = result._pendingEmail;
+        deliverVerificationEmail(to, text, subject, aid);
+      }
+      const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
       broadcastMessage({
         type: "channel_verification_session_response",
         ...publicResult,

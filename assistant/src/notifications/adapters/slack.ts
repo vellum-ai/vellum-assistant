@@ -5,13 +5,13 @@
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import { getLogger } from "../../util/logger.js";
-import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import {
   buildAccessRequestIdentityLine,
   buildAccessRequestInviteDirective,
-  nonEmpty,
   sanitizeIdentityField,
-} from "../copy-composer.js";
+} from "../access-request-copy.js";
+import { isConversationSeedSane } from "../conversation-seed-composer.js";
+import { nonEmpty } from "../copy-composer.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,

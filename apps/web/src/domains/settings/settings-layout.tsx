@@ -91,7 +91,7 @@ export function SettingsLayout() {
     <SidebarShell
       backHref={routes.assistant}
       sidebar={
-        <SidebarTree items={filteredItems} bottomItems={bottomItems} />
+        <SidebarTree items={filteredItems} bottomItems={bottomItems} indexPath={routes.settings.root} />
       }
       title={pageTitle}
     >

@@ -18,8 +18,12 @@ afterEach(() => {
   cleanup();
 });
 
-function thinking(text: string, duration = ""): ToolCallCardStep {
-  return { kind: "thinking", durationLabel: duration, text };
+function thinking(
+  text: string,
+  duration = "",
+  timing?: { startedAt: number; completedAt: number },
+): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: duration, text, ...timing };
 }
 
 function bash(
@@ -323,5 +327,49 @@ describe("PhaseGroupedStepList — phase header total duration", () => {
     const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
     const header = getAllByTestId("phase-header")[0]!;
     expect(header.textContent).toContain("3s");
+  });
+
+  test("a stamped thinking phase makes its duration a hover trigger", () => {
+    /**
+     * Thinking phases reuse the same duration tooltip as tool phases: when a
+     * start time is known the duration becomes a `cursor-default` hover trigger
+     * ("Started at …").
+     */
+
+    // GIVEN a thinking phase carrying start/completion timestamps
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList
+        steps={[
+          thinking("reasoning", "3s", { startedAt: 1_000, completedAt: 4_000 }),
+        ]}
+        timeline
+      />,
+    );
+
+    // WHEN inspecting the phase header's duration
+    const header = getAllByTestId("phase-header")[0]!;
+
+    // THEN the duration is wrapped in the tooltip hover trigger
+    expect(header.textContent).toContain("3s");
+    expect(header.querySelector(".cursor-default")).not.toBeNull();
+  });
+
+  test("an unstamped thinking phase keeps its duration a plain label", () => {
+    /**
+     * Without a start time the duration stays a plain label — no hover trigger
+     * — exactly as a tool phase with no timing behaves.
+     */
+
+    // GIVEN a thinking phase with a duration but no timestamps
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={[thinking("reasoning", "3s")]} timeline />,
+    );
+
+    // WHEN inspecting the phase header's duration
+    const header = getAllByTestId("phase-header")[0]!;
+
+    // THEN the duration renders without the tooltip hover trigger
+    expect(header.textContent).toContain("3s");
+    expect(header.querySelector(".cursor-default")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 /**
- * Default `user-prompt-submit-temp` hook: prepares a turn's prompt before the
- * first provider call by running memory-graph retrieval and then applying the
+ * Default `user-prompt-submit` hook: prepares a turn's prompt before the first
+ * provider call by running memory-graph retrieval and then applying the
  * runtime injections that assemble the turn.
  *
  * **Memory graph** via {@link ConversationGraphMemory.prepareMemory} —
@@ -22,16 +22,12 @@
  * post-compaction hook, which re-applies the same injections after a mid-loop
  * compaction.
  *
- * This fires at the early "prompt submitted, before context assembly" moment,
- * ahead of the canonical late `user-prompt-submit` hook (history repair,
- * title), which normalizes the assembled history after the overflow-reduction
- * transform that runs between the two moments. The `-temp` suffix marks this as
- * a transitional staging point that folds into `user-prompt-submit` once
- * compaction is cleared from the gap between the two call sites.
+ * Registered first in the `user-prompt-submit` chain, so it heads the chain
+ * ahead of history repair and title generation: those later hooks see the
+ * fully assembled, memory-injected history.
  */
 
-import type { PluginHookFn } from "@vellumai/plugin-api";
-import type { Logger } from "pino";
+import type { PluginHookFn, UserPromptSubmitContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -41,57 +37,12 @@ import {
   resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
-import type { Message } from "../../../../providers/types.js";
+import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
-
-/**
- * Context threaded through the `user-prompt-submit-temp` hook. The
- * conversation-scoped retrieval state (graph handle, abort signal, trust
- * class) is self-resolved from the live conversation by id; the readonly
- * fields here carry the event sink and the turn-start injection snapshot,
- * while `latestMessages` straddles input and output — the loop seeds it with
- * the pre-injection array and the hook overwrites it with the injected result.
- */
-export interface MemoryRetrievalHookContext {
-  /** Event sink used by the graph retriever and `memory_recalled` emission. */
-  readonly onEvent: (msg: ServerMessage) => void;
-  /** Conversation the turn belongs to — keys the recall-log row. */
-  readonly conversationId: string;
-  /** User message the injected memory block is persisted onto. */
-  readonly userMessageId: string;
-  /** Turn-scoped logger for non-fatal persistence warnings. */
-  readonly logger: Logger;
-  /**
-   * Working message list for the turn. Seeded by the loop with the
-   * pre-injection messages and consumed as the retrieval input; the hook
-   * overwrites it with the fully injected result (the memory-graph block, when
-   * the actor is trusted, plus the runtime injections). Read back by the loop.
-   */
-  latestMessages: Message[];
-  /**
-   * Stable ID for the current request, forwarded onto the injector turn
-   * context. The one turn-identity field the live conversation can't recover.
-   */
-  readonly requestId: string | undefined;
-  /**
-   * Whether the in-flight turn has no human present to answer clarification
-   * questions. Resolved once at turn start and threaded in so injection uses
-   * the turn-start snapshot rather than live state that can flip mid-turn.
-   */
-  readonly isNonInteractive: boolean;
-  /**
-   * Active inference profile key to announce in this turn's context, or `null`
-   * when the profile is unchanged since the one last delivered to the model.
-   * The hook renders the `model_profile` label (and model id) from this key
-   * via the workspace LLM config rather than receiving the rendered string.
-   */
-  readonly modelProfileKey: string | null;
-}
 
 /**
  * Persist and broadcast the retrieval's side effects: the injected block on
@@ -101,7 +52,7 @@ export interface MemoryRetrievalHookContext {
  */
 function recordRecallSideEffects(
   graphResult: GraphMemoryResult,
-  ctx: MemoryRetrievalHookContext,
+  ctx: UserPromptSubmitContext,
 ): void {
   // Persist the injected block text in message metadata so it survives
   // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -176,7 +127,7 @@ function recordRecallSideEffects(
         recency: c.recencyBoost,
       })),
     };
-    ctx.onEvent(memoryRecalledEvent);
+    broadcastMessage(memoryRecalledEvent);
   }
 }
 
@@ -191,7 +142,7 @@ function recordRecallSideEffects(
  */
 function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
-  ctx: MemoryRetrievalHookContext,
+  ctx: UserPromptSubmitContext,
 ): void {
   if (
     !blocks.unifiedTurnContext &&
@@ -245,7 +196,7 @@ function persistInjectionBlocks(
  * into `prepareMemory`.
  */
 const userPromptSubmitMemoryRetrieval: PluginHookFn<
-  MemoryRetrievalHookContext
+  UserPromptSubmitContext
 > = async (ctx) => {
   // The conversation-scoped retrieval state — graph handle, abort signal, and
   // trust class — is resolved from the live conversation by id rather than
@@ -262,11 +213,15 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   );
 
   if (conversation && isTrustedActor && abortSignal) {
+    // Retrieval progress (`memory_status`) and the `memory_recalled` summary
+    // publish to the shared `broadcastMessage` hub — the sink every turn
+    // publisher converges to — rather than a threaded event callback. This
+    // keeps any raw client-emit capability off the hook contract.
     const graphResult = await conversation.graphMemory.prepareMemory(
       ctx.latestMessages,
       config,
       abortSignal,
-      ctx.onEvent,
+      broadcastMessage,
     );
 
     recordRecallSideEffects(graphResult, ctx);

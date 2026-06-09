@@ -10,14 +10,11 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { type Assistant, getAssistant } from "@/assistant/api";
-import {
-    fetchOAuthProviders,
-    type OAuthProviderSummary,
-} from "@/domains/settings/api/oauth-providers";
 import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal";
 import { IntegrationRow } from "@/domains/settings/components/integration-row";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
+import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
@@ -102,9 +99,11 @@ function IntegrationsPanelInner() {
     data: providers,
     isLoading: providersLoading,
     isError: providersError,
-  } = useQuery<OAuthProviderSummary[]>({
-    queryKey: ["oauth-providers", assistant?.id],
-    queryFn: () => fetchOAuthProviders(assistant!.id),
+  } = useQuery({
+    ...oauthProvidersGetOptions({
+      path: { assistant_id: assistant?.id ?? "" },
+    }),
+    select: (data) => data.providers,
     enabled: !!assistant,
   });
 

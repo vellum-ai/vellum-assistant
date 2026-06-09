@@ -2,6 +2,15 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+// The legacy reasoning path now renders the real `ThoughtProcessLink`, which
+// pulls in the viewer store → the generated daemon SDK (not built in CI/worktree
+// checkouts). Stub the two endpoints it references so the module loads; the
+// component never invokes them. Mirrors the mock in `thought-process-link.test.tsx`.
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  appsByIdOpenPost: async () => ({ data: undefined }),
+  documentsByIdGet: async () => ({ data: undefined }),
+}));
+
 mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
@@ -83,8 +92,7 @@ mock.module(
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { Surface } from "@/domains/chat/types/types";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
@@ -858,7 +866,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("renders a 'Thought process' block for completed reasoning followed by text", () => {
+  test("renders a 'Thought process' link for completed reasoning followed by text", () => {
     // GIVEN a persisted assistant message whose reasoning precedes its answer
     // WHEN it is rendered (legacy path — no interleaved tool calls)
     const html = renderMessage({
@@ -873,13 +881,13 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     });
 
-    // THEN the reasoning renders as a completed, collapsed thinking block
+    // THEN the reasoning renders as a completed ThoughtProcessLink
     expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking…");
+    expect(html).not.toContain("Thinking");
   });
 
-  test("labels trailing reasoning as 'Thinking…' while the row is live", () => {
-    // GIVEN an assistant row mid-reasoning: a thinking block is the last
+  test("labels trailing reasoning as 'Thinking' while the row is live", () => {
+    // GIVEN an assistant row mid-reasoning: a thinking run is the last
     // content entry with no text or tool output after it yet
     // WHEN it is rendered as the in-flight turn (isStreaming)
     const html = renderMessage(
@@ -894,8 +902,9 @@ describe("TranscriptMessageBody", () => {
       { isStreaming: true },
     );
 
-    // THEN the block reads as still-streaming
-    expect(html).toContain("Thinking…");
+    // THEN the link reads as still-streaming ("Thinking" + the dot loader),
+    // not the settled "Thought process".
+    expect(html).toContain("Thinking");
     expect(html).not.toContain("Thought process");
   });
 
@@ -913,9 +922,9 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     });
 
-    // THEN the trailing block reads as finished, not perpetually streaming
+    // THEN the trailing link reads as finished, not perpetually streaming
     expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking…");
+    expect(html).not.toContain("Thinking");
   });
 
   test("merges interleaved thinking + tool into one activity card", () => {

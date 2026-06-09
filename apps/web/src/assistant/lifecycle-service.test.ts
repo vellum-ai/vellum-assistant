@@ -101,7 +101,6 @@ function makeQueryClient(): QueryClient {
 const baseInputs = {
   sessionStatus: "authenticated" as const,
   isRetired: false,
-  isNonProduction: false,
   hasPlatformSession: true,
   onRedirect: () => {},
   resolveOnboardingRedirect: () => null,
@@ -274,7 +273,7 @@ describe("lifecycleService — bootstrap branches", () => {
   });
 
   test("transition to error drops the auto-greet one-shot — a subsequent retry-to-existing-active won't show a spurious gate", async () => {
-    // Set the flag (as auto-hatch / hatchVersion would), then drive
+    // Set the flag (as auto-hatch would), then drive
     // the service into the error state via the network-error catch
     // in `checkAssistant` (the simplest reachable error transition
     // without exhausting the hatch-retry budget or the watchdog).
@@ -293,33 +292,6 @@ describe("lifecycleService — bootstrap branches", () => {
 
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "error",
-    );
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
-  });
-
-  test("transition to awaiting_version_selection drops the flag — a recoverable nonprod hatch failure returns to the version picker, not a stale Connecting gate", async () => {
-    // Nonprod auto-hatch lands the user on the version picker
-    // *without* setting the flag (verified in a sibling test), so
-    // simulate the recovery-after-hatch-failure case directly:
-    // mark the flag (as `hatchVersion` would), then drive the
-    // service back to `awaiting_version_selection`.
-    lifecycleService.markExpectingFirstMessage();
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
-
-    getAssistantMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 404,
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      isNonProduction: true,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
-
-    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "awaiting_version_selection",
     );
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
@@ -344,8 +316,8 @@ describe("lifecycleService — bootstrap branches", () => {
 describe("lifecycleService — auto-hatch cascade", () => {
   test("404 → auto_hatch path issues hatchAssistant and lands the seeded id", async () => {
     // checkAssistant fetches the cache, gets a 404, which
-    // resolves to `auto_hatch`. With no onboarding redirect and
-    // isNonProduction=false, the service then issues hatchAssistant,
+    // resolves to `auto_hatch`. With no onboarding redirect, the
+    // service then issues hatchAssistant,
     // which succeeds and seeds the cache.
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
@@ -366,25 +338,6 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "initializing",
-    );
-  });
-
-  test("auto_hatch + nonprod transitions to awaiting_version_selection instead of hatching", async () => {
-    getAssistantMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 404,
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      isNonProduction: true,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
-
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
-    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
-      "awaiting_version_selection",
     );
   });
 
@@ -427,25 +380,6 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
   });
 
-  test("auto_hatch + nonprod does NOT mark expecting-first-message — user has to pick a version first", async () => {
-    // The user clicking the version button is what fires the
-    // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
-    // doesn't hatch, so it shouldn't set the signal.
-    getAssistantMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 404,
-    }));
-
-    lifecycleService.setInputs({
-      ...baseInputs,
-      isNonProduction: true,
-      queryClient: makeQueryClient(),
-    });
-    await lifecycleService.checkAssistant();
-
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
-  });
-
   test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
@@ -462,16 +396,6 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
-  test("hatchVersion marks expecting-first-message — the nonprod version-selection greet", () => {
-    lifecycleService.setInputs({
-      ...baseInputs,
-      queryClient: makeQueryClient(),
-    });
-    lifecycleService.hatchVersion("v1");
-
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
-  });
-
   test("clearExpectingFirstMessage flips the store back to false; subsequent reads stay false", () => {
     lifecycleService.markExpectingFirstMessage();
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
@@ -481,7 +405,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
-  test("markExpectingFirstMessage is the public seam onboarding uses (bypasses hatchVersion / auto-hatch)", () => {
+  test("markExpectingFirstMessage is the public seam onboarding uses (bypasses auto-hatch)", () => {
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
     lifecycleService.markExpectingFirstMessage();
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
@@ -495,7 +419,6 @@ describe("lifecycleService — pre-init guards", () => {
     // `RootLayout`'s passive effect has installed inputs.
     await lifecycleService.checkAssistant();
     lifecycleService.retryAssistant();
-    lifecycleService.hatchVersion("v1");
     await lifecycleService.respondToInputs();
 
     expect(getAssistantMock).not.toHaveBeenCalled();

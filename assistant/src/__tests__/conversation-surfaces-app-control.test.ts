@@ -511,6 +511,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "client-b",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
@@ -595,6 +596,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "client-mine",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
@@ -617,7 +619,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       proxy.dispose();
     });
 
-    test("single same-user client with no target proceeds without forcing targetClientId", async () => {
+    test("single same-user client with no target resolves to that client", async () => {
       mockHubClients = [
         {
           clientId: "only-client",
@@ -630,6 +632,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.editor",
+        targetClientId: "only-client",
       });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {

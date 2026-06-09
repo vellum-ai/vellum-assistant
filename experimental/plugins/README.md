@@ -496,8 +496,8 @@ adapter is a small, curated transform we commit *here* to translate such a
 clone into Vellum's shape.
 
 To adapt an external plugin, add a directory next to this README named for the
-marketplace entry. It supplies a `package.json` (with the correct `name` and a
-`postinstall` adapter command), the adapter script, and any templates the
+marketplace entry. It supplies a `package.json` whose only job is to name the
+`postinstall` adapter command, the adapter script, and any templates the
 adapter renders:
 
 ```
@@ -510,19 +510,22 @@ experimental/plugins/<name>/
 Install flow for an entry that has a stub:
 
 1. The marketplace entry's pinned repo is shallow-cloned at its commit.
-2. This stub's files are **overlaid** onto the clone (its `package.json`
-   deliberately overwrites the upstream one, so the directory now carries the
-   correct `name`).
-3. The stub's `scripts.postinstall` is run against the staged tree to finish
-   shaping it into a valid Vellum plugin (augment `package.json` with the
-   `@vellumai/plugin-api` peer dependency, synthesize `hooks/<name>.ts`). A
-   failure aborts and rolls back the install.
+2. This stub's files are **overlaid** onto the clone so the installer can find
+   and run its `scripts.postinstall`.
+3. The stub's `scripts.postinstall` is run against the staged tree to shape it
+   into a valid Vellum plugin (e.g. synthesize `hooks/<name>.ts`). A failure
+   aborts and rolls back the install.
+4. The installer rebuilds the plugin's `package.json` from the **upstream**
+   manifest captured before the overlay — preserving its `version`,
+   `description`, `license`, and every other field — mutating only the two the
+   loader requires: `name` (set to the install directory) and the
+   `@vellumai/plugin-api` peer dependency. The spent `postinstall` script is
+   dropped. An adapter therefore never needs to touch `package.json`.
 
-See [`caveman/`](./caveman/) for a worked example: it adds the peer dependency
-to the overlaid `package.json`, reads the terse-mode ruleset from the upstream
-`skills/caveman/SKILL.md`, and renders `templates/pre-model-call.ts.tmpl` into a
-`hooks/pre-model-call.ts` that injects that ruleset on the user-facing model
-call.
+See [`caveman/`](./caveman/) for a worked example: it reads the terse-mode
+ruleset from the upstream `skills/caveman/SKILL.md` and renders
+`templates/pre-model-call.ts.tmpl` into a `hooks/pre-model-call.ts` that injects
+that ruleset on the user-facing model call.
 
 Trust boundary: only `scripts.postinstall` from a **curated stub in this repo**
 ever runs — it is reviewed Vellum code, version-pinned to the marketplace ref.

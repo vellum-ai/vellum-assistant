@@ -77,10 +77,8 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
+import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import userPromptSubmitMemoryRetrieval, {
-  type MemoryRetrievalHookContext,
-} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -871,59 +869,32 @@ export async function runAgentLoopImpl(
       state.pendingNotifiedInferenceProfile = modelProfileKey;
     }
 
-    // Memory retrieval + runtime injection — fetches PKB / NOW.md / memory-graph
-    // outputs, persists the retrieval's own side effects (injected-block
-    // metadata, recall log, `memory_recalled` event), and assembles the turn's
-    // runtime-injection blocks onto the history (persisting those blocks too).
-    // Runs at the early "prompt submitted, before context assembly" moment so
-    // its injected output is what the agent loop receives. It is shaped as the
-    // `user-prompt-submit-temp` hook handler but invoked directly for now,
-    // separate from the canonical late `user-prompt-submit` hook (history
-    // repair, title) that fires just before the loop.
-    // The injection input `isNonInteractive` is resolved once at turn start and
-    // threaded in so post-compaction re-injection reuses the same snapshot
-    // rather than live state that can flip mid-turn; `modelProfileKey` is the
-    // turn's resolved profile key, from which the hook renders the
-    // `model_profile` label.
+    // Trust class and injection mode, resolved once at turn start for the
+    // post-compaction re-injection sites further down, which re-apply the
+    // runtime injections (gated on trust) onto the compacted history.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     let currentInjectionMode: InjectionMode = "full";
-    const memoryCtx: MemoryRetrievalHookContext = {
-      onEvent,
-      conversationId: ctx.conversationId,
-      userMessageId,
-      logger: rlog,
-      latestMessages: ctx.messages,
-      requestId: reqId,
-      isNonInteractive,
-      modelProfileKey,
-    };
-    await userPromptSubmitMemoryRetrieval(memoryCtx);
 
-    // The hook owns its side effects (injected-block metadata, recall log,
-    // `memory_recalled` event, and the runtime-injection metadata persist) and
-    // records the dense/sparse PKB query pair on the graph handle for the
-    // PKB-reminder injector to read back; the loop reuses the fully injected
-    // message list downstream.
-    let runMessages = memoryCtx.latestMessages;
-
-    // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at the
-    // primary `agentLoop.run` only — the re-entry / retry calls further down
-    // in this function do not refire it (they're not new user submissions).
-    // Plugins may mutate `ctx.latestMessages` in place OR return a new
-    // context with a fresh array; `runHook` forwards whichever the chain
-    // settles on. Order is plugin registration order.
-    //
-    // Fires BEFORE the agent loop runs so the hook-emitted messages are part
-    // of the loop's input; the loop then reports its own appended output via
-    // `AgentLoopRunResult.newMessages`, which is what persistence consumes.
+    // user-prompt-submit hook chain. Fires once per user turn at the primary
+    // `agentLoop.run` (the re-entry / retry calls further down do not refire it
+    // — they're not new user submissions), before the loop runs so the
+    // hook-assembled messages are part of its input. Memory retrieval runs
+    // first — fetching PKB / NOW.md / memory-graph outputs, persisting its own
+    // side effects (injected-block metadata, recall log, `memory_recalled`
+    // event), and assembling the turn's runtime-injection blocks onto the
+    // history — followed by history repair and title generation, which see the
+    // fully injected history. Plugins may mutate `ctx.latestMessages` in place
+    // OR return a new context with a fresh array; `runHook` forwards whichever
+    // the chain settles on, in plugin registration order. The loop then reports
+    // its own appended output via `AgentLoopRunResult.newMessages`, which
+    // persistence consumes.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
       originalMessages: ctx.messages,
-      latestMessages: runMessages,
+      latestMessages: ctx.messages,
       logger: rlog,
       modelProfileKey,
       isNonInteractive,
@@ -932,7 +903,7 @@ export async function runAgentLoopImpl(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
-    runMessages = finalUserPromptCtx.latestMessages;
+    let runMessages = finalUserPromptCtx.latestMessages;
 
     // Reducer state, tool-token budget, and calibration provider key consumed
     // by the post-rejection convergence loop further down. The tool-token
@@ -1198,25 +1169,24 @@ export async function runAgentLoopImpl(
         },
       );
       const convergenceBudget = resolveCurrentContextBudget();
-      let correctedTarget = convergenceBudget.preflightBudget;
-      if (actualTokens && estimatedTokensAtOverflow > 0) {
-        const estimationErrorRatio = actualTokens / estimatedTokensAtOverflow;
-        if (estimationErrorRatio > 1.0) {
-          correctedTarget = Math.floor(
-            convergenceBudget.preflightBudget / estimationErrorRatio,
-          );
-          rlog.warn(
-            {
-              phase: "convergence",
-              actualTokens,
-              estimatedTokens: estimatedTokensAtOverflow,
-              estimationErrorRatio: estimationErrorRatio.toFixed(2),
-              preflightBudget: convergenceBudget.preflightBudget,
-              correctedTarget,
-            },
-            "Adjusting compaction target based on observed estimation error",
-          );
-        }
+      const { targetTokens: correctedTarget, estimationErrorRatio } =
+        computeCorrectedOverflowTarget({
+          preflightBudget: convergenceBudget.preflightBudget,
+          actualTokens,
+          estimatedTokens: estimatedTokensAtOverflow,
+        });
+      if (estimationErrorRatio != null) {
+        rlog.warn(
+          {
+            phase: "convergence",
+            actualTokens,
+            estimatedTokens: estimatedTokensAtOverflow,
+            estimationErrorRatio: estimationErrorRatio.toFixed(2),
+            preflightBudget: convergenceBudget.preflightBudget,
+            correctedTarget,
+          },
+          "Adjusting compaction target based on observed estimation error",
+        );
       }
 
       // ── Bounded context-overflow convergence driver ─────────────────

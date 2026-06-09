@@ -50,7 +50,20 @@ export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
  * the subagent timeline's `error` event type).
  */
 export type ToolCallCardStep =
-  | { kind: "thinking"; durationLabel: string; text: string }
+  | {
+      kind: "thinking";
+      durationLabel: string;
+      text: string;
+      /**
+       * Epoch-ms start of the reasoning run, when known. Mirrors the `tool`
+       * variant's `startedAt`: surfaced as a tooltip on the phase duration so
+       * hovering "3s" reveals when the reasoning began. Omitted when the daemon
+       * didn't stamp the thinking block.
+       */
+      startedAt?: number;
+      /** Epoch-ms end of the reasoning run, when known. */
+      completedAt?: number;
+    }
   | {
       kind: "web_search";
       title: string;
@@ -311,24 +324,38 @@ function deriveToolStepStatus(
 }
 
 /**
- * Raw per-tool duration in ms (start time `startedAt` → completion time
- * `completedAt`). Returns `null` when either timing is missing so callers can
- * distinguish "no data" from a genuine `0ms`.
+ * Raw duration in ms between a start and completion epoch. Returns `null` when
+ * either bound is missing so callers can distinguish "no data" from a genuine
+ * `0ms`. Shared by tool and thinking steps so both derive durations identically.
  */
-function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
-  if (tc.startedAt == null || tc.completedAt == null) return null;
-  return Math.max(0, tc.completedAt - tc.startedAt);
+function computeDurationMs(
+  startedAt: number | undefined,
+  completedAt: number | undefined,
+): number | null {
+  if (startedAt == null || completedAt == null) return null;
+  return Math.max(0, completedAt - startedAt);
 }
 
 /**
- * Per-tool duration, mirroring the legacy generic card: start time
- * (`startedAt`) → completion time (`completedAt`) → `formatMs`. Returns an
- * empty string when timings are missing so the row chrome can hide the
- * meta cluster rather than render a misleading `<1s`.
+ * Duration label from a start/completion epoch pair, mirroring the legacy
+ * generic card: `formatMs(completedAt - startedAt)`. Returns an empty string
+ * when timings are missing so the row chrome can hide the meta cluster rather
+ * than render a misleading `<1s`.
  */
-function computeToolDurationLabel(tc: ChatMessageToolCall): string {
-  const ms = computeToolDurationMs(tc);
+function computeDurationLabel(
+  startedAt: number | undefined,
+  completedAt: number | undefined,
+): string {
+  const ms = computeDurationMs(startedAt, completedAt);
   return ms == null ? "" : formatMs(ms);
+}
+
+function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
+  return computeDurationMs(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
+}
+
+function computeToolDurationLabel(tc: ChatMessageToolCall): string {
+  return computeDurationLabel(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
 }
 
 /**
@@ -580,7 +607,14 @@ function deriveCardState(
  * prepending a single leading-thinking step ahead of all tools.
  */
 export type ToolCallCardItem =
-  | { kind: "thinking"; text: string }
+  | {
+      kind: "thinking";
+      text: string;
+      /** Epoch-ms start of the reasoning run (earliest stamped thinking block). */
+      startedAt?: number;
+      /** Epoch-ms end of the reasoning run (latest stamped thinking block). */
+      completedAt?: number;
+    }
   | { kind: "toolCall"; toolCall: ChatMessageToolCall };
 
 /**
@@ -652,7 +686,13 @@ export function computeToolCallCardDataFromItems(
   for (const item of items) {
     if (item.kind === "thinking") {
       if (item.text) {
-        steps.push({ kind: "thinking", durationLabel: "", text: item.text });
+        steps.push({
+          kind: "thinking",
+          durationLabel: computeDurationLabel(item.startedAt, item.completedAt),
+          text: item.text,
+          startedAt: item.startedAt,
+          completedAt: item.completedAt,
+        });
         trailingThinkingText = item.text;
       }
       continue;

@@ -29,7 +29,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChatError } from "@/domains/chat/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
@@ -72,15 +72,13 @@ export interface ChatSessionState {
   // clearConfirmationToolCallMap) so mutations go through Zustand's set().
   confirmationToolCallMap: Map<string, string>;
   /**
-   * Persistent expand state for the activity/tool progress cards and thinking
-   * blocks. Held in the store (not local `Transcript` state) so a user's
-   * expand choice survives the transcript remount that happens when the
-   * tool-detail drawer opens/closes (`mainView` change moves the chat content
-   * in/out of the `ResizablePanel`). Keyed by the card's first tool-call id /
-   * the thinking block's expansion key.
+   * Persistent expand state for the activity/tool progress cards. Held in the
+   * store (not local `Transcript` state) so a user's expand choice survives the
+   * transcript remount that happens when the tool-detail drawer opens/closes
+   * (`mainView` change moves the chat content in/out of the `ResizablePanel`).
+   * Keyed by the card's first tool-call id.
    */
   expandedCardIds: Map<string, boolean>;
-  expandedThinkingKeys: Set<string>;
 
   // --- Cross-conversation cache ---
   contextWindowUsageByConversation: Map<string, ContextWindowUsage>;
@@ -159,10 +157,9 @@ export interface ChatSessionActions {
   addPendingLocalDeletion: (messageId: string) => void;
   consumePendingLocalDeletion: (messageId: string) => boolean;
 
-  // --- Expansion state (tool calls, progress cards, thinking blocks) ---
+  // --- Expansion state (tool calls, progress cards) ---
   setExpandedToolCallId: (toolCallId: string, expanded: boolean) => void;
   setExpandedCardId: (cardId: string, expanded: boolean) => void;
-  setExpandedThinkingKey: (key: string, expanded: boolean) => void;
 
   // --- Context window cache ---
   setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
@@ -205,7 +202,6 @@ function initialState(): ChatSessionState {
     confirmationToolCallMap: new Map(),
     expandedToolCallIds: new Set(),
     expandedCardIds: new Map(),
-    expandedThinkingKeys: new Set(),
     contextWindowUsageByConversation: new Map(),
     previousConversationId: null,
     previousAssistantId: null,
@@ -332,7 +328,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
       expandedCardIds: new Map(),
-      expandedThinkingKeys: new Set(),
       contextWindowUsageByConversation: usageByConversation,
       previousConversationId: activeConversationId,
       previousAssistantId: assistantId,
@@ -449,14 +444,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       const next = new Map(s.expandedCardIds);
       next.set(cardId, expanded);
       return { expandedCardIds: next };
-    }),
-
-  setExpandedThinkingKey: (key, expanded) =>
-    set((s) => {
-      const next = new Set(s.expandedThinkingKeys);
-      if (expanded) next.add(key);
-      else next.delete(key);
-      return { expandedThinkingKeys: next };
     }),
 
   // --- Context window cache ---
