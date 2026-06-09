@@ -1,7 +1,6 @@
 import { useHasPlatformSession } from "@/stores/auth-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 
 export type PlatformGateState = "full" | "disabled" | "gated";
 
@@ -40,14 +39,14 @@ export interface PlatformGateOptions {
    * | none resolved (loading etc) | yes              | `"full"`     |
    * | none resolved               | no               | `"disabled"` |
    *
-   * `platformFeaturesInLocalMode` and its hydration state do NOT apply
-   * to this branch — that flag gates daemon-side platform-API
-   * interception in local mode, which is orthogonal to whether the
-   * active assistant is platform-hosted.
+   * `VELLUM_DISABLE_PLATFORM` does NOT apply to this branch — that
+   * env var gates daemon-side platform-API interception in local mode,
+   * which is orthogonal to whether the active assistant is
+   * platform-hosted.
    *
    * Defaults to `false` — the standard `"full" / "disabled" / "gated"`
-   * behavior gated on `platformFeaturesInLocalMode`, hydration, and
-   * the platform session.
+   * behavior gated on `VELLUM_DISABLE_PLATFORM` and the platform
+   * session.
    */
   platformHostedOnly?: boolean;
 }
@@ -168,18 +167,14 @@ export function usePlatformGate(
   // keeps the last `"present"`/`"absent"` until the new result lands, so this
   // doesn't flicker to `"disabled"` on app resume.
   const hasPlatformSession = useHasPlatformSession();
-  const platformFeaturesOff = useAssistantFeatureFlagStore(
-    (s) =>
-      (s as Record<string, unknown>).platformFeaturesInLocalMode === false,
-  );
-  const hasHydrated = useAssistantFeatureFlagStore((s) => s.hasHydrated);
+  const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();
 
   // Platform-hosted-only branch is fully self-contained: it only depends
   // on the active assistant's hosting and the platform session. The
-  // local-mode feature flag and its hydration state DO NOT apply —
-  // that flag gates the daemon-side API interceptor in local mode, which
-  // is orthogonal to "is this UI's target assistant platform-hosted?"
+  // VELLUM_DISABLE_PLATFORM env var does NOT apply — it gates the
+  // daemon-side API interceptor in local mode, which is orthogonal to
+  // "is this UI's target assistant platform-hosted?"
   if (options.platformHostedOnly) {
     if (activeIsSelfHosted) return "gated";
     if (!hasPlatformSession) return "disabled";
@@ -187,8 +182,7 @@ export function usePlatformGate(
   }
 
   const local = isLocalMode();
-  if (local && platformFeaturesOff) return "gated";
-  if (local && !hasHydrated) return "disabled";
+  if (local && platformDisabled) return "gated";
   if (!hasPlatformSession) return "disabled";
   return "full";
 }

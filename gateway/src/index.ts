@@ -1854,7 +1854,7 @@ async function main() {
   async function notifyRecordActivity(): Promise<void> {
     if (!arePlatformFeaturesEnabled()) {
       log.debug(
-        "platform-features-in-local-mode is disabled — skipping record-activity",
+        "Platform features disabled — skipping record-activity",
       );
       return;
     }
