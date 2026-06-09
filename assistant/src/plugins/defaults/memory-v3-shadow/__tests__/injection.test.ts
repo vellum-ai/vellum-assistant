@@ -30,6 +30,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { unwrapMemoryBlock } from "../../../../memory/memory-marker.js";
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
@@ -91,6 +92,19 @@ function makeDb() {
   migrateAddMemoryV3EverInjected(db);
   // The prune valve's recency ranking reads `memory_v3_selections`.
   migrateAddMemoryV3Selections(db);
+  // The prune valve plans only against slugs whose card sections are
+  // locatable in persisted `memoryV3InjectedBlock` rows
+  // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
+  testSqlite.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
   return db;
 }
 
@@ -243,6 +257,28 @@ async function produceCards(conversationId: string, turnIndex: number) {
   return block;
 }
 
+/** Persist a produced card block to message metadata, as the conversation
+ *  assembly does in production (unwrapped, under `memoryV3InjectedBlock`) —
+ *  the prune valve's plan only counts slugs locatable in persisted rows. */
+let persistedMessageSeq = 0;
+function persistCardBlockMetadata(
+  conversationId: string,
+  blockText: string,
+): void {
+  testSqlite
+    .query(
+      /*sql*/ `
+      INSERT INTO messages (id, conversation_id, role, content, metadata, created_at)
+      VALUES (?, ?, 'user', '[]', ?, 0)
+    `,
+    )
+    .run(
+      `m-${persistedMessageSeq++}`,
+      conversationId,
+      JSON.stringify({ memoryV3InjectedBlock: unwrapMemoryBlock(blockText) }),
+    );
+}
+
 function produceSpotlight(
   conversationId: string,
   turnIndex: number,
@@ -355,12 +391,14 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     turnResults.set(0, t0);
     turnResults.set(1, result(["page-b"])); // …but not on turn 1's lanes.
 
-    await produceCards("conv-1", 0);
+    const b0 = await produceCards("conv-1", 0);
+    persistCardBlockMetadata("conv-1", b0!.text);
     await flushPruneValveForTests();
     // Turn 0 is within the cap — nothing pruned.
     expect(getPrunedSlugs("conv-1").size).toBe(0);
 
-    await produceCards("conv-1", 1);
+    const b1 = await produceCards("conv-1", 1);
+    persistCardBlockMetadata("conv-1", b1!.text);
     // The valve is DEFERRED: nothing pruned synchronously at produce time.
     expect(getPrunedSlugs("conv-1").size).toBe(0);
     await flushPruneValveForTests();

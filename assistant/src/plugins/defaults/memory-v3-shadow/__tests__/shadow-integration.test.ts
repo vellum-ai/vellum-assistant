@@ -41,6 +41,7 @@ import type {
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
+import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -301,6 +302,7 @@ async function runTurn(
   },
 ): Promise<OrchestrateResult> {
   providerStub = selectProvider(keep, pin);
+  const stableSlugs = [...(deps.core ?? []), ...(deps.hot ?? [])];
   const result = await orchestrate(makeTurn(turnNumber, query), {
     sectionIndex: deps.lanes.sectionIndex,
     needle: deps.lanes.needle,
@@ -308,6 +310,10 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
+    // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
+    prefixCards: new Map(
+      stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
+    ),
   });
   writeSelections(CONV, turnNumber, attributeSelections(result));
   return result;

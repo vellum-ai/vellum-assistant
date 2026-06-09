@@ -30,6 +30,25 @@ describe("loadCoreSet", () => {
     expect(loadCoreSet(workspaceDir)).toEqual(["page-a", "page-b"]);
   });
 
+  test("accepts inline annotations after the slug", () => {
+    writeCorePages(
+      [
+        "- [[page-a]] — register frame, never matches lexically",
+        "- [[page-b]] keep while the project is live",
+        "- page-c — calibration rules",
+        "- page-d – en-dash annotation",
+        "- page-e - hyphen annotation",
+      ].join("\n"),
+    );
+    expect(loadCoreSet(workspaceDir)).toEqual([
+      "page-a",
+      "page-b",
+      "page-c",
+      "page-d",
+      "page-e",
+    ]);
+  });
+
   test("ignores headings, blank lines, and prose annotations", () => {
     writeCorePages(
       [
@@ -71,9 +90,14 @@ describe("loadCoreSet", () => {
 
   test("malformed list lines are skipped, not fatal", () => {
     writeCorePages(
-      ["-", "-no-space", "- [[unclosed", "- two words here", "- page-a"].join(
-        "\n",
-      ),
+      [
+        "-",
+        "-no-space",
+        "- [[unclosed",
+        "- two words here",
+        "- prose that mentions — a dash mid-sentence",
+        "- page-a",
+      ].join("\n"),
     );
     expect(loadCoreSet(workspaceDir)).toEqual(["page-a"]);
   });

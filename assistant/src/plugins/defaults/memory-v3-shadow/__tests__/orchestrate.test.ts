@@ -23,6 +23,7 @@ import type {
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
+import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import type { OrchestrateDeps } from "../orchestrate.js";
@@ -115,18 +116,31 @@ async function buildLanes(): Promise<Lanes> {
 
 const config = {} as never;
 
-/** Orchestrate deps with empty stable-prefix lanes unless overridden. */
+/**
+ * Orchestrate deps with empty stable-prefix lanes unless overridden. Mirrors
+ * lane init: every core/hot slug gets a pre-rendered card (from the RAW
+ * fixture when one exists) unless the test overrides `prefixCards` itself.
+ */
 function depsOf(
   lanes: Lanes,
   overrides: Partial<OrchestrateDeps> = {},
 ): OrchestrateDeps {
+  const coreSlugs = overrides.coreSlugs ?? [];
+  const hotSlugs = overrides.hotSlugs ?? [];
+  const prefixCards = new Map<Slug, string>(
+    [...coreSlugs, ...hotSlugs].map((slug) => [
+      slug,
+      renderCard(slug, RAW[slug] ?? ""),
+    ]),
+  );
   return {
     sectionIndex: lanes.sectionIndex,
     needle: lanes.needle,
     denseConfig: config,
     edgeGraph: lanes.edgeGraph,
-    coreSlugs: [],
-    hotSlugs: [],
+    coreSlugs,
+    hotSlugs,
+    prefixCards,
     ...overrides,
   };
 }
@@ -379,7 +393,7 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(prefix1).toContain("topic-b");
   });
 
-  test("stable-prefix candidates render pre-rendered cards; a missing card degrades to header-only", async () => {
+  test("stable-prefix candidates render their pre-rendered cards verbatim", async () => {
     const lanes = await buildLanes();
     providerStub = selectProvider([]);
 
@@ -388,12 +402,12 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       depsOf(lanes, {
         coreSlugs: ["topic-c"],
         hotSlugs: ["topic-d"],
-        // Only topic-c has a pre-rendered card; topic-d falls back.
         prefixCards: new Map([
           [
             "topic-c",
             "# memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
           ],
+          ["topic-d", "# memory/concepts/topic-d.md\nlead for topic d"],
         ]),
       }),
     );
@@ -401,7 +415,27 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(lastPrefixBlock).toContain(
       "[1] # memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
     );
-    expect(lastPrefixBlock).toContain("[2] # memory/concepts/topic-d.md");
+    expect(lastPrefixBlock).toContain(
+      "[2] # memory/concepts/topic-d.md\nlead for topic d",
+    );
+  });
+
+  test("a stable-prefix slug with no pre-rendered card throws (never silently degrades)", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    await expect(
+      orchestrate(
+        makeTurn(1, "zzzz"),
+        depsOf(lanes, {
+          coreSlugs: ["topic-c"],
+          hotSlugs: ["topic-d"],
+          // topic-d is missing — a lane-init bug; a degraded card would break
+          // the byte-stable-prefix contract, so orchestrate must throw.
+          prefixCards: new Map([["topic-c", renderCard("topic-c", "")]]),
+        }),
+      ),
+    ).rejects.toThrow('no pre-rendered card for stable-prefix slug "topic-d"');
   });
 
   test("a finder hit on a core page repeats as a finder line and dedupes on selection", async () => {
