@@ -65,14 +65,6 @@ const TEST_REGISTRY = {
       description: "A2A channel integration",
       defaultEnabled: false,
     },
-    {
-      id: "platform-features-in-local-mode",
-      scope: "assistant",
-      key: "platform-features-in-local-mode",
-      label: "Platform Features in Local Mode",
-      description: "Gate platform API calls in local mode",
-      defaultEnabled: true,
-    },
   ],
 };
 
@@ -128,15 +120,14 @@ function defaultCredentials(): Record<string, string> {
 // ---------------------------------------------------------------------------
 const savedVellumPlatformUrl = process.env.VELLUM_PLATFORM_URL;
 const savedAssistantCredential = process.env.ASSISTANT_API_KEY;
-const savedPlatformFeaturesFlag =
-  process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE;
+const savedDisablePlatform = process.env.VELLUM_DISABLE_PLATFORM;
 
 beforeEach(() => {
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
-  delete process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
   mkdirSync(protectedDir, { recursive: true });
   // Write the test registry and point resolution at it
   writeFileSync(testRegistryPath, JSON.stringify(TEST_REGISTRY, null, 2));
@@ -158,10 +149,7 @@ afterEach(() => {
   };
   restoreEnv("VELLUM_PLATFORM_URL", savedVellumPlatformUrl);
   restoreEnv("ASSISTANT_API_KEY", savedAssistantCredential);
-  restoreEnv(
-    "VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE",
-    savedPlatformFeaturesFlag,
-  );
+  restoreEnv("VELLUM_DISABLE_PLATFORM", savedDisablePlatform);
   try {
     rmSync(protectedDir, { recursive: true, force: true });
     mkdirSync(protectedDir, { recursive: true });
@@ -180,8 +168,7 @@ afterEach(() => {
 describe("RemoteFeatureFlagSync", () => {
   test("skips sync when platform features are disabled", async () => {
     fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
-    process.env.VELLUM_FLAG_PLATFORM_FEATURES_IN_LOCAL_MODE = "false";
-    resetEnvOverridesCache();
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
 
     const sync = new RemoteFeatureFlagSync({
       credentials: fakeCredentialCache(defaultCredentials()),
