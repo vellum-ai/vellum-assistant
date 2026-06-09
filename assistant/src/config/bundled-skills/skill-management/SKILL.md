@@ -100,6 +100,11 @@ Past 500 lines the model loses things in the middle. Warnings get buried, branch
 
 ## Step 6 - Test the skill before calling it done
 
-After scaffolding, load the skill and run it against a realistic prompt. Confirm it activates on the intended trigger and follows its own steps. If it does not activate or drifts, fix the body and test again.
+After scaffolding, load the skill and confirm it activates on the intended trigger and follows its own steps. If it does not activate or drifts, fix the body and test again.
 
-> ⚠️ CRITICAL: Do not tell the user a skill is ready until you have actually loaded and exercised it. A skill that was never run is a skill that was never tested.
+How you exercise it depends on what the skill does:
+
+- **If the skill performs side effects** (sends messages, deletes data, makes purchases, mutates external state) → do not trigger a live run during creation. Confirm it loads and activates on the intended trigger (static check), then ask the user before exercising it for real.
+- **Otherwise** (read-only or local-only skills) → run it against a realistic prompt directly. This is the default.
+
+> ⚠️ CRITICAL: Do not tell the user a skill is ready until you have confirmed it loads and activates on the intended trigger. A skill that was never loaded is a skill that was never tested. Never perform user-visible side effects just to test a skill without the user's consent.
