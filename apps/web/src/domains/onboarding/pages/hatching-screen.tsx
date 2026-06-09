@@ -286,6 +286,7 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            void selectPlatformAssistant(result.assistantId);
           }
 
           handleHatchReady();

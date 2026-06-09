@@ -240,12 +240,30 @@ class AssistantLifecycleService {
       // doesn't silently replay. Poll-driven projections go through
       // `applyServerResult` to avoid the read-back loop.
       const selectedId = this.inputs.selectedPlatformAssistantId ?? null;
-      const result = await this.inputs.queryClient.fetchQuery({
+      let result = await this.inputs.queryClient.fetchQuery({
         queryKey: assistantQueryKey(selectedId),
         queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
       if (generation !== this.generation) return;
+      // If the selected assistant 404s (retired/deleted), clear the
+      // stale selection and retry without an ID so the lifecycle
+      // falls back to the default first-listed assistant.
+      if (selectedId && !result.ok && result.status === 404) {
+        const store = useResolvedAssistantsStore.getState();
+        const byOrg = store.selectedPlatformAssistantByOrg;
+        for (const orgId of Object.keys(byOrg)) {
+          if (byOrg[orgId] === selectedId) {
+            store.setSelectedPlatformAssistant(orgId, null);
+          }
+        }
+        result = await this.inputs.queryClient.fetchQuery({
+          queryKey: ASSISTANT_QUERY_KEY,
+          queryFn: () => getAssistant(),
+          staleTime: 0,
+        });
+        if (generation !== this.generation) return;
+      }
       await this.applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
