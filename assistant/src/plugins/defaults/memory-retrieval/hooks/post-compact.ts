@@ -41,9 +41,9 @@ import type { Message } from "../../../../providers/types.js";
 
 /**
  * Everything the post-compaction hook needs, supplied by the agent loop from
- * its own working state. Re-injection inputs migrate loop-ward by growing this
- * type; the loop hands the hook an object of this shape when it calls
- * {@link postCompact} directly.
+ * its own working state. The loop seeds a context of this shape and threads it
+ * through the `post-compact` hook chain, reading the re-injected history back
+ * off it once the chain settles.
  *
  * The turn-identity fields are flat here: `conversationId` is the key the
  * re-injection resolves the live conversation through (and the only one that,
