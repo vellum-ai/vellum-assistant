@@ -101,9 +101,12 @@ interface HotkeyOwner {
 const hotkeyOwners = new Map<number, HotkeyOwner>();
 let activeHotkeyOwnerId: number | null = null;
 let helperRegistered = false;
+let helperRegistrationSync: Promise<FnPushToTalkResult> | null = null;
 let restoreHotkeyAfterRestart = false;
 let restoreHotkeyInFlight = false;
 let pttIsDown = false;
+
+const shouldRegisterHelper = (): boolean => hotkeyOwners.size > 0;
 
 const newestOwnerId = (): number | null => {
   let id: number | null = null;
@@ -128,20 +131,8 @@ const disableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   removeHotkeyOwner(webContents.id);
 
-  if (hotkeyOwners.size > 0) {
-    return { ok: true, enabled: true };
-  }
-  restoreHotkeyAfterRestart = false;
-  if (!helperRegistered) {
-    return { ok: true, enabled: false };
-  }
-
-  const result = await fnPushToTalk(false);
-  if (result.ok) {
-    helperRegistered = false;
-    log.info("[hotkey-helper] disabled Fn push-to-talk");
-  }
-  return result;
+  if (hotkeyOwners.size === 0) restoreHotkeyAfterRestart = false;
+  return syncFnPushToTalkRegistration();
 };
 
 const addHotkeyOwner = (webContents: WebContents): void => {
@@ -177,21 +168,58 @@ const enableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   addHotkeyOwner(webContents);
 
-  if (helperRegistered) {
-    return { ok: true, enabled: true };
-  }
-
-  const result = await fnPushToTalk(true);
-  if (result.ok) {
-    helperRegistered = result.enabled;
-    log.info("[hotkey-helper] enabled Fn push-to-talk");
-  } else {
+  const result = await syncFnPushToTalkRegistration();
+  if (!result.ok) {
     log.warn(
       `[hotkey-helper] failed to enable Fn push-to-talk: ${result.reason}`,
     );
     removeHotkeyOwner(webContents.id);
+    void syncFnPushToTalkRegistration();
   }
   return result;
+};
+
+const setHelperRegistration = async (
+  enable: boolean,
+): Promise<FnPushToTalkResult> => {
+  const result = await fnPushToTalk(enable);
+  if (!result.ok) return result;
+
+  helperRegistered = result.enabled;
+  if (result.enabled !== enable) {
+    return {
+      ok: false,
+      reason: enable
+        ? "hotkey helper did not enable Fn push-to-talk"
+        : "hotkey helper did not disable Fn push-to-talk",
+    };
+  }
+
+  log.info(
+    enable
+      ? "[hotkey-helper] enabled Fn push-to-talk"
+      : "[hotkey-helper] disabled Fn push-to-talk",
+  );
+  return { ok: true, enabled: helperRegistered };
+};
+
+const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
+  if (helperRegistrationSync) return helperRegistrationSync;
+
+  helperRegistrationSync = (async () => {
+    try {
+      while (helperRegistered !== shouldRegisterHelper()) {
+        const shouldRegister = shouldRegisterHelper();
+        const result = await setHelperRegistration(shouldRegister);
+        if (!result.ok) return result;
+      }
+      return { ok: true, enabled: helperRegistered };
+    } finally {
+      helperRegistrationSync = null;
+    }
+  })();
+
+  return helperRegistrationSync;
 };
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
@@ -230,10 +258,9 @@ const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
   }
 
   restoreHotkeyInFlight = true;
-  const result = await fnPushToTalk(true);
+  const result = await syncFnPushToTalkRegistration();
   restoreHotkeyInFlight = false;
   if (result.ok) {
-    helperRegistered = result.enabled;
     restoreHotkeyAfterRestart = !result.enabled;
     if (result.enabled) {
       log.info("[hotkey-helper] restored Fn push-to-talk after helper restart");
@@ -315,6 +342,7 @@ export const __resetForTesting = (): void => {
   platformForTesting = null;
   supervisorOptionsForTesting = {};
   helperRegistered = false;
+  helperRegistrationSync = null;
   restoreHotkeyAfterRestart = false;
   restoreHotkeyInFlight = false;
   pttIsDown = false;
