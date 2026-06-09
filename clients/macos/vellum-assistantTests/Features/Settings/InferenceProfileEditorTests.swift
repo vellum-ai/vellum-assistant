@@ -257,6 +257,58 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
     }
 
+    func testAnthropicFableHidesThinkingToggleButKeepsEffort() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-fable-5",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "claude-fable-5",
+                displayName: "Claude Fable 5",
+                maxOutputTokens: 128_000,
+                supportsThinking: true
+            )
+        )
+
+        // Fable reasons with always-on adaptive thinking: effort stays
+        // adjustable, but the enable/disable toggle is hidden so the UI can
+        // never emit a `thinking: { type: "disabled" }` request.
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: false,
+                temperature: true,
+                thinking: false,
+                thinkingLevel: false
+            )
+        )
+    }
+
+    func testOpenRouterFableHidesThinkingToggleButKeepsEffort() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openrouter",
+            model: "anthropic/claude-fable-5",
+            isKnownModel: true,
+            modelEntry: nil
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: false,
+                temperature: true,
+                thinking: false,
+                thinkingLevel: false
+            )
+        )
+    }
+
     func testGemini25ShowsThinkingLevelSelector() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "gemini",

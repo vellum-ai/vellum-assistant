@@ -37,6 +37,16 @@ function isOpenRouterAnthropicModel(modelId: string): boolean {
   return modelId.startsWith("anthropic/");
 }
 
+/**
+ * Claude Fable always reasons with adaptive (always-on) thinking and rejects an
+ * explicit "disable thinking" request, so the enable/disable toggle must not be
+ * shown — effort stays adjustable. Mirrors the daemon's
+ * `isAdaptiveThinkingOnlyModel` in `assistant/src/providers/thinking-config.ts`.
+ */
+function isAdaptiveThinkingOnlyAnthropicModel(modelId: string): boolean {
+  return /(?:^|\/)claude-fable-/.test(modelId);
+}
+
 function knownOpenRouterReasoningModel(modelId: string): boolean {
   return (
     isOpenRouterAnthropicModel(modelId) ||
@@ -118,7 +128,10 @@ export function resolveProfileParamVisibility(
     speed: providerId === "anthropic" && modelId.includes("opus"),
     verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
     temperature: usesAnthropicWire,
-    thinking: (providerId === "anthropic" || providerId === "openrouter") && supportsThinkingResult,
+    thinking:
+      (providerId === "anthropic" || providerId === "openrouter") &&
+      supportsThinkingResult &&
+      !isAdaptiveThinkingOnlyAnthropicModel(modelId),
     thinkingLevel: providerId === "gemini" && supportsThinkingResult,
   };
 }

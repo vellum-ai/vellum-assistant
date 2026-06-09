@@ -15,6 +15,7 @@ import {
 } from "../util/retry.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import {
+  isAdaptiveThinkingOnlyModel,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -322,6 +323,18 @@ function normalizeSendMessageOptions(
     } else {
       nextConfig.thinking = normalized;
     }
+  }
+
+  // Claude Fable always reasons with adaptive thinking and rejects an explicit
+  // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
+  // disabled thinking config for these models so they fall back to their
+  // always-on adaptive thinking; effort and other params are unaffected.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingOnlyModel(nextConfig.model) &&
+    isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
