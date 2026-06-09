@@ -50,7 +50,7 @@ import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { fetchMe, patchConsent } from "@/domains/account/profile";
 import { restoreConsentForUser, persistConsentForUser, resolveServerConsent, CONSENT_VERSION } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { clearOrganization } from "@/stores/organization-store";
+import { clearOrganization, useOrganizationStore } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
@@ -270,6 +270,7 @@ function probePlatformSession(
         // indefinitely otherwise.
         if (isLocalMode()) {
           try {
+            await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await Promise.race([
               listAssistants(),
               new Promise<never>((_, reject) =>
@@ -381,6 +382,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
             try {
+              await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
@@ -417,6 +419,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
         try {
+          await useOrganizationStore.getState().fetchOrganizations();
           const apiAssistants = await listAssistants();
           if (apiAssistants.ok) {
             useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
@@ -442,6 +445,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             const user = toAuthUser(retryResult.data.user);
             await syncUserScopedState(user?.id ?? null);
             try {
+              await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
                 useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
@@ -518,6 +522,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         // refresh has already succeeded regardless of the sync outcome.
         if (isLocalMode()) {
           try {
+            await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
             if (apiAssistants.ok) {
               await syncPlatformAssistantsToLockfile(apiAssistants.data);
