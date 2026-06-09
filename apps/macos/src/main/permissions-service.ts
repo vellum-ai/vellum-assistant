@@ -108,6 +108,9 @@ export class PermissionsService {
   private lastStateJson: string | null = null;
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
+  private notificationStatus: PermissionStatus = Notification.isSupported()
+    ? "unknown"
+    : "restricted";
 
   async state(sender?: WebContents): Promise<PermissionsState> {
     const entries = await Promise.all(
@@ -255,40 +258,47 @@ export class PermissionsService {
   }
 
   private async readNotificationStatus(
-    sender?: WebContents,
+    _sender?: WebContents,
   ): Promise<PermissionStatus> {
-    if (!Notification.isSupported()) return "restricted";
-    const webContents = this.resolveWebContents(sender);
-    if (!webContents) return "unknown";
+    return this.notificationStatus;
+  }
 
-    const raw = await webContents.executeJavaScript(
-      "typeof Notification === 'undefined' ? 'unknown' : Notification.permission",
-      true,
-    );
-    switch (raw) {
-      case "granted":
-        return "granted";
-      case "denied":
-        return "denied";
-      case "default":
-        return "not-determined";
-      default:
-        return "unknown";
+  private requestNotifications(_sender?: WebContents): Promise<void> {
+    if (!Notification.isSupported()) {
+      this.notificationStatus = "restricted";
+      return Promise.resolve();
     }
-  }
 
-  private async requestNotifications(sender?: WebContents): Promise<void> {
-    const webContents = this.resolveWebContents(sender);
-    if (!webContents) return;
-    await webContents.executeJavaScript(
-      "typeof Notification === 'undefined' ? 'unknown' : Notification.requestPermission()",
-      true,
-    );
-  }
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const notification = new Notification({
+        title: "Vellum",
+        body: "Notifications are enabled.",
+        silent: true,
+      });
 
-  private resolveWebContents(sender?: WebContents): WebContents | null {
-    if (sender && !sender.isDestroyed()) return sender;
-    return allWindowsWebContents()[0] ?? null;
+      const settle = (status: PermissionStatus) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        this.notificationStatus = status;
+        resolve();
+      };
+
+      timeout = setTimeout(() => {
+        settle("unknown");
+      }, 30_000);
+      timeout.unref?.();
+
+      notification.once("show", () => settle("granted"));
+      notification.once("failed", () => settle("denied"));
+      try {
+        notification.show();
+      } catch {
+        settle("unknown");
+      }
+    });
   }
 
   private startPolling(kind: PermissionKind, sender?: WebContents): void {
