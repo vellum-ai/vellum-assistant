@@ -76,13 +76,14 @@ export const routes = {
     },
   },
 
+  welcome: r("/assistant/welcome"),
+  selectAssistant: r("/assistant/select-assistant"),
+  reviewTerms: r("/assistant/review-terms"),
+
   onboarding: {
-    welcome: r("/assistant/onboarding/welcome"),
-    selectAssistant: r("/assistant/onboarding/select-assistant"),
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
-    reviewTerms: r("/assistant/onboarding/review-terms"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
   },

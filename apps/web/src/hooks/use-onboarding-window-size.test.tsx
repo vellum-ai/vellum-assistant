@@ -31,7 +31,7 @@ afterEach(() => {
 
 describe("useOnboardingWindowSize", () => {
   test("requests the small onboarding window on an onboarding route", () => {
-    currentPath = "/assistant/onboarding/welcome";
+    currentPath = "/assistant/welcome";
     renderHook(() => useOnboardingWindowSize());
     expect(setOnboardingWindowMock).toHaveBeenLastCalledWith(true);
   });
@@ -60,7 +60,9 @@ describe("useOnboardingWindowSize", () => {
 
   test("covers every onboarding step under the shared prefix", () => {
     for (const step of [
-      "/assistant/onboarding/welcome",
+      "/assistant/welcome",
+      "/assistant/select-assistant",
+      "/assistant/review-terms",
       "/assistant/onboarding/hosting",
       "/assistant/onboarding/api-key",
       "/assistant/onboarding/privacy",

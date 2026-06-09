@@ -82,7 +82,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
 
     const res = await runMiddleware(routes.home);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(routes.onboarding.welcome);
+    expect(res.headers.get("Location")).toBe(routes.welcome);
   });
 
   test("routes to hosting when a resolved platform session exists", async () => {
