@@ -197,6 +197,11 @@ function executeWrite(fields: WriteFields): { content?: string; isError?: boolea
   const sizeCheck = validateContentSize(fields.content, filePath);
   if (!sizeCheck.ok) return sizeCheck;
 
+  if (fs.existsSync(filePath)) {
+    const fileCheck = validateRegularFile(filePath);
+    if (!fileCheck.ok) return fileCheck;
+  }
+
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, fields.content, "utf-8");

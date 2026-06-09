@@ -263,6 +263,25 @@ describe("host-file-executor", () => {
       }
     });
 
+    test("rejects writing through symlink to denied basename", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, ".backup.key");
+      const link = path.join(dir, "innocent.txt");
+      fs.writeFileSync(target, "original");
+      fs.symlinkSync(target, link);
+
+      const result = __testing.executeWrite({ path: link, content: "overwritten" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+      expect(fs.readFileSync(target, "utf-8")).toBe("original");
+    });
+
+    test("rejects writing to existing non-regular file", () => {
+      const result = __testing.executeWrite({ path: "/dev/null", content: "data" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Not a regular file");
+    });
+
     test("writes content to file", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "out.txt");
