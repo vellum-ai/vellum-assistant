@@ -108,6 +108,36 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+export type SystemPermissionKind =
+  | "accessibility"
+  | "screen"
+  | "microphone"
+  | "speechRecognition"
+  | "inputMonitoring"
+  | "automation"
+  | "notifications";
+
+export type SystemPermissionStatus =
+  | "unknown"
+  | "restricted"
+  | "denied"
+  | "not-determined"
+  | "granted";
+
+export interface SystemPermissionStateItem {
+  kind: SystemPermissionKind;
+  status: SystemPermissionStatus;
+  canRequest: boolean;
+  canOpenSettings: boolean;
+  requiresRestart: boolean;
+  error?: string;
+}
+
+export type SystemPermissionsState = Record<
+  SystemPermissionKind,
+  SystemPermissionStateItem
+>;
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -320,6 +350,13 @@ export interface VellumBridge {
        */
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
+  };
+  permissions: {
+    getState(): Promise<SystemPermissionsState>;
+    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    openSettings(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    quitAndReopen(): Promise<void>;
+    onState(callback: (state: SystemPermissionsState) => void): () => void;
   };
   commands: {
     /**
@@ -675,6 +712,38 @@ const bridge: VellumBridge = {
           ipcRenderer.off("vellum:helper:hotkey:event", handler);
         };
       },
+    },
+  },
+  permissions: {
+    getState: (): Promise<SystemPermissionsState> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:getState",
+      ) as Promise<SystemPermissionsState>,
+    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:request",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    openSettings: (
+      kind: SystemPermissionKind,
+    ): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:openSettings",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    quitAndReopen: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:permissions:quitAndReopen") as Promise<void>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: SystemPermissionsState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:permissions:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:permissions:state", handler);
+      };
     },
   },
   commands: {

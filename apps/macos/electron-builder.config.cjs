@@ -63,6 +63,8 @@ module.exports = {
     extendInfo: {
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
+      NSSpeechRecognitionUsageDescription:
+        "Vellum uses speech recognition to transcribe dictated voice input.",
       NSAppleEventsUsageDescription:
         "Vellum uses Automation to paste dictated voice input into the app you are using.",
       NSUserNotificationAlertStyle: "alert",

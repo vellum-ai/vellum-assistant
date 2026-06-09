@@ -2,6 +2,7 @@ import {
   isElectron,
   type ElectronTextInsertionResult,
 } from "@/runtime/is-electron";
+import { openSystemPermissionSettings } from "@/runtime/system-permissions";
 
 export type TextInsertionResult =
   | ElectronTextInsertionResult
@@ -23,6 +24,7 @@ export async function insertTextIntoFrontApp(
 }
 
 export async function openTextInsertionSettings(): Promise<void> {
+  if (await openSystemPermissionSettings("automation")) return;
   if (!isElectron() || !window.vellum?.text?.openAutomationSettings) return;
   try {
     await window.vellum.text.openAutomationSettings();

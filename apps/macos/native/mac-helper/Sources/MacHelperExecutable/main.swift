@@ -2,7 +2,9 @@ import AppKit
 import Carbon
 import Darwin
 import Foundation
+import IOKit.hid
 import MacHelperCore
+import Speech
 
 private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
 private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
@@ -77,6 +79,20 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("permission.status") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            let kind = try self.parsePermissionKind(params)
+            return ["status": self.permissionStatus(kind: kind)]
+        }
+        router.register("permission.request") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            let kind = try self.parsePermissionKind(params)
+            return ["status": self.requestPermission(kind: kind)]
         }
         return router
     }()
@@ -157,6 +173,107 @@ final class MacHelper: @unchecked Sendable {
             unregisterFnHotkey()
             return ["enabled": false]
         }
+    }
+
+    private enum PermissionKind: String {
+        case speechRecognition
+        case inputMonitoring
+    }
+
+    private func parsePermissionKind(_ params: Any?) throws -> PermissionKind {
+        guard
+            let object = params as? [String: Any],
+            let rawKind = object["kind"] as? String,
+            let kind = PermissionKind(rawValue: rawKind)
+        else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return kind
+    }
+
+    private func permissionStatus(kind: PermissionKind) -> String {
+        switch kind {
+        case .speechRecognition:
+            return speechRecognitionStatus()
+        case .inputMonitoring:
+            return inputMonitoringStatus()
+        }
+    }
+
+    private func requestPermission(kind: PermissionKind) -> String {
+        switch kind {
+        case .speechRecognition:
+            return requestSpeechRecognition()
+        case .inputMonitoring:
+            return requestInputMonitoring()
+        }
+    }
+
+    private func speechRecognitionStatus() -> String {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return "granted"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not-determined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func requestSpeechRecognition() -> String {
+        if SFSpeechRecognizer.authorizationStatus() != .notDetermined {
+            return speechRecognitionStatus()
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var requestedStatus = SFSpeechRecognizer.authorizationStatus()
+        SFSpeechRecognizer.requestAuthorization { status in
+            requestedStatus = status
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + 60) == .timedOut {
+            return "unknown"
+        }
+
+        switch requestedStatus {
+        case .authorized:
+            return "granted"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not-determined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func inputMonitoringStatus() -> String {
+        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        case kIOHIDAccessTypeGranted:
+            return "granted"
+        case kIOHIDAccessTypeDenied:
+            return "denied"
+        case kIOHIDAccessTypeUnknown:
+            return "not-determined"
+        default:
+            return "unknown"
+        }
+    }
+
+    private func requestInputMonitoring() -> String {
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted {
+            return "granted"
+        }
+        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        return inputMonitoringStatus()
     }
 
     private func registerFnHotkey() throws {

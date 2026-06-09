@@ -21,6 +21,17 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+export type MacHelperPermissionKind =
+  | "speechRecognition"
+  | "inputMonitoring";
+
+export type MacHelperPermissionStatus =
+  | "unknown"
+  | "restricted"
+  | "denied"
+  | "not-determined"
+  | "granted";
+
 export type HelperRestartResult =
   | { ok: true; state: MacHelperState }
   | { ok: false; reason: string; state: MacHelperState };
@@ -32,6 +43,16 @@ const HOTKEY_EVENT_SCHEMA = z.object({
 
 const HOTKEY_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
+});
+
+const HELPER_PERMISSION_STATUS_SCHEMA = z.object({
+  status: z.enum([
+    "unknown",
+    "restricted",
+    "denied",
+    "not-determined",
+    "granted",
+  ]),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -62,6 +83,7 @@ const makeClient = (): MacHelperClient =>
     resolveExecutablePath: getMacHelperPath,
     logger: log,
     platform: getPlatform(),
+    responseTimeoutMs: 60_000,
     ...supervisorOptionsForTesting,
   });
 
@@ -91,6 +113,20 @@ const ping = async (): Promise<"pong"> => {
     throw new Error("mac helper returned invalid ping result");
   }
   return "pong";
+};
+
+export const queryMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await client.call("permission.status", { kind });
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
+export const requestMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await client.call("permission.request", { kind });
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
 };
 
 interface HotkeyOwner {

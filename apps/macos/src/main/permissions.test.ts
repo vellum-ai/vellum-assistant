@@ -79,9 +79,18 @@ describe("permission policy", () => {
     ).toBe(false);
   });
 
-  test("denies non-media permissions", () => {
+  test("allows notification requests from the app renderer", () => {
     expect(
       shouldGrantPermissionRequest("notifications", {
+        mediaTypes: ["audio"],
+        securityOrigin: "app://vellum.ai",
+      }),
+    ).toBe(true);
+  });
+
+  test("denies unrelated permissions", () => {
+    expect(
+      shouldGrantPermissionRequest("clipboard-read", {
         mediaTypes: ["audio"],
         securityOrigin: "app://vellum.ai",
       }),
@@ -102,6 +111,12 @@ describe("permission policy", () => {
         mediaType: "video",
       }),
     ).toBe(false);
+  });
+
+  test("allows notification permission checks from the app renderer", () => {
+    expect(
+      shouldGrantPermissionCheck("notifications", "app://vellum.ai", {}),
+    ).toBe(true);
   });
 
   test("installs check and request handlers on the default session", () => {

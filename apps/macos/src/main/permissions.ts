@@ -32,17 +32,18 @@ const isAudioOnlyMediaRequest = (
 
 /**
  * Permission requests are denied by default. Voice input needs audio capture,
- * but the renderer should not gain camera, notification, or arbitrary
- * web-platform permissions through the shared default session.
+ * and the desktop permissions UI needs to request notification permission.
+ * Both stay limited to the trusted app renderer; camera and arbitrary
+ * web-platform permissions still fail closed.
  */
 export const shouldGrantPermissionRequest = (
   permission: PermissionRequestName,
   details: Pick<MediaAccessPermissionRequest, "mediaTypes" | "securityOrigin">,
   fallbackOrigin?: string,
 ): boolean =>
-  permission === "media" &&
-  isAudioOnlyMediaRequest(details) &&
-  isTrustedRendererOrigin(details.securityOrigin ?? fallbackOrigin);
+  isTrustedRendererOrigin(details.securityOrigin ?? fallbackOrigin) &&
+  ((permission === "media" && isAudioOnlyMediaRequest(details)) ||
+    permission === "notifications");
 
 /**
  * Chromium often performs a permission check before issuing the request. Keep
@@ -57,11 +58,11 @@ export const shouldGrantPermissionCheck = (
     "mediaType" | "securityOrigin" | "requestingUrl"
   >,
 ): boolean =>
-  permission === "media" &&
-  details.mediaType === "audio" &&
   (isTrustedRendererOrigin(details.securityOrigin) ||
     isTrustedRendererOrigin(requestingOrigin) ||
-    isTrustedRendererOrigin(details.requestingUrl));
+    isTrustedRendererOrigin(details.requestingUrl)) &&
+  ((permission === "media" && details.mediaType === "audio") ||
+    permission === "notifications");
 
 export const denyAllPermissions = (targetSession: Session): void => {
   targetSession.setPermissionRequestHandler(

@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
+import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
@@ -205,6 +206,20 @@ export function PrivacyScreen() {
             </div>
           </div>
         </Card>
+
+        {electron && (
+          <Card padding="md" className="mt-4 w-full">
+            <div className="mb-2">
+              <h2 className="text-title-small text-[var(--content-emphasised)]">
+                Mac Permissions
+              </h2>
+              <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
+                Enable desktop features that need macOS approval.
+              </p>
+            </div>
+            <SystemPermissionsCard compact />
+          </Card>
+        )}
 
         <div className="mt-6 flex w-full items-start">
           <Checkbox

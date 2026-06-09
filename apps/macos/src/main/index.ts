@@ -52,6 +52,7 @@ import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
+import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
@@ -340,6 +341,7 @@ app
     installFeatureFlagsIpc();
     installLocalMode();
     installHotkeyHelper();
+    installPermissionsService();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();

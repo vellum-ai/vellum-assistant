@@ -116,6 +116,36 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+export type SystemPermissionKind =
+  | "accessibility"
+  | "screen"
+  | "microphone"
+  | "speechRecognition"
+  | "inputMonitoring"
+  | "automation"
+  | "notifications";
+
+export type SystemPermissionStatus =
+  | "unknown"
+  | "restricted"
+  | "denied"
+  | "not-determined"
+  | "granted";
+
+export interface SystemPermissionStateItem {
+  kind: SystemPermissionKind;
+  status: SystemPermissionStatus;
+  canRequest: boolean;
+  canOpenSettings: boolean;
+  requiresRestart: boolean;
+  error?: string;
+}
+
+export type SystemPermissionsState = Record<
+  SystemPermissionKind,
+  SystemPermissionStateItem
+>;
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -278,6 +308,18 @@ declare global {
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
+      };
+      // Optional: older Electron shells predate the system-permissions channel.
+      permissions?: {
+        getState(): Promise<SystemPermissionsState>;
+        request(
+          kind: SystemPermissionKind,
+        ): Promise<SystemPermissionStateItem>;
+        openSettings(
+          kind: SystemPermissionKind,
+        ): Promise<SystemPermissionStateItem>;
+        quitAndReopen(): Promise<void>;
+        onState(callback: (state: SystemPermissionsState) => void): () => void;
       };
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;

@@ -16,6 +16,10 @@ import {
   insertTextIntoFrontApp,
   openTextInsertionSettings,
 } from "@/runtime/text-insertion";
+import {
+  requestSystemPermission,
+  supportsSystemPermissions,
+} from "@/runtime/system-permissions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,6 +201,16 @@ export function useVoiceInput({
   }, []);
 
   const handleRetryMicPermission = useCallback(async () => {
+    if (supportsSystemPermissions()) {
+      const item = await requestSystemPermission("microphone");
+      if (item?.status === "granted") {
+        setVoiceError(null);
+      } else if (item?.status === "denied") {
+        setVoiceError("not-allowed-permanent");
+      }
+      return;
+    }
+
     try {
       // Check permission state via Permissions API when available.
       // If the user permanently denied access, skip getUserMedia
