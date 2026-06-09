@@ -152,24 +152,51 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   };
 }
 
-/** Extract the raw numbered candidate lines from the rendered `<candidates>` block. */
-function candidateLines(messages: Message[]): string[] {
+/**
+ * Parse the two-segment selector input back into the globally-numbered pool:
+ * stable-prefix cards (`<candidate_cards>`, identified by their
+ * `[i] # memory/concepts/<slug>.md` header line) and finder lines
+ * (`<candidates>`, `[i] slug — descriptor`). Also captures the raw stable
+ * prefix block for byte-identity assertions.
+ */
+function parsePool(messages: Message[]): {
+  slugs: Slug[];
+  lines: string[];
+  prefixBlock: string | null;
+} {
+  const entries: Array<{ id: number; slug: string; line: string }> = [];
+  let prefixBlock: string | null = null;
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "text") continue;
-      const m = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(block.text);
-      if (!m) continue;
-      return m[1].split("\n");
+      const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
+        block.text,
+      );
+      if (cards) {
+        prefixBlock = cards[0];
+        for (const m of cards[1].matchAll(
+          /^\[(\d+)\] # memory\/concepts\/(.+)\.md$/gm,
+        )) {
+          entries.push({ id: Number(m[1]), slug: m[2]!, line: m[0] });
+        }
+      }
+      const finder = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(
+        block.text,
+      );
+      if (finder) {
+        for (const line of finder[1].split("\n")) {
+          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          if (m) entries.push({ id: Number(m[1]), slug: m[2]!, line });
+        }
+      }
     }
   }
-  return [];
-}
-
-/** Parse the numbered `<candidates>` block back into an ordered slug list. */
-function candidateSlugs(messages: Message[]): Slug[] {
-  return candidateLines(messages)
-    .map((line) => /^\[\d+\] (\S+) —/.exec(line)?.[1])
-    .filter((s): s is string => !!s);
+  entries.sort((a, b) => a.id - b.id);
+  return {
+    slugs: entries.map((e) => e.slug),
+    lines: entries.map((e) => e.line),
+    prefixBlock,
+  };
 }
 
 /**
@@ -179,18 +206,20 @@ function candidateSlugs(messages: Message[]): Slug[] {
  */
 let lastPool: Slug[] = [];
 let lastPoolLines: string[] = [];
+let lastPrefixBlock: string | null = null;
 let selectCalls = 0;
 function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
   return {
     name: "stub",
     sendMessage: async (messages) => {
       selectCalls++;
-      const pool = candidateSlugs(messages);
-      lastPool = pool;
-      lastPoolLines = candidateLines(messages);
+      const parsed = parsePool(messages);
+      lastPool = parsed.slugs;
+      lastPoolLines = parsed.lines;
+      lastPrefixBlock = parsed.prefixBlock;
       const ids: number[] = [];
       const pinned_ids: number[] = [];
-      pool.forEach((slug, i) => {
+      parsed.slugs.forEach((slug, i) => {
         if (keep.includes(slug)) ids.push(i + 1);
         if (pin.includes(slug)) pinned_ids.push(i + 1);
       });
@@ -205,6 +234,7 @@ beforeEach(() => {
   denseHits = [];
   lastPool = [];
   lastPoolLines = [];
+  lastPrefixBlock = null;
   selectCalls = 0;
 });
 
@@ -336,21 +366,48 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
 
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "apple"), deps);
-    const prefix1 = lastPoolLines.slice(0, 2);
+    const prefix1 = lastPrefixBlock;
 
     await orchestrate(makeTurn(2, "grape"), deps);
-    const prefix2 = lastPoolLines.slice(0, 2);
+    const prefix2 = lastPrefixBlock;
 
-    // Stable-prefix descriptors are the pages' lead sections — query
-    // independent — so the rendered lines match byte-for-byte.
-    expect(prefix1).toEqual(prefix2);
-    expect(prefix1[0]).toContain("topic-c");
-    expect(prefix1[1]).toContain("topic-b");
+    // Stable-prefix cards are pre-rendered and query-independent, so the
+    // whole rendered cards block matches byte-for-byte across turns.
+    expect(prefix1).not.toBeNull();
+    expect(prefix2).toBe(prefix1!);
+    expect(prefix1).toContain("topic-c");
+    expect(prefix1).toContain("topic-b");
   });
 
-  test("a finder hit on a core page keeps its matched-section ref without duplicating the pool entry", async () => {
+  test("stable-prefix candidates render pre-rendered cards; a missing card degrades to header-only", async () => {
     const lanes = await buildLanes();
-    // topic-a is CORE and the needle also hits it on "apple".
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "zzzz"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        // Only topic-c has a pre-rendered card; topic-d falls back.
+        prefixCards: new Map([
+          [
+            "topic-c",
+            "# memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
+          ],
+        ]),
+      }),
+    );
+
+    expect(lastPrefixBlock).toContain(
+      "[1] # memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
+    );
+    expect(lastPrefixBlock).toContain("[2] # memory/concepts/topic-d.md");
+  });
+
+  test("a finder hit on a core page repeats as a finder line and dedupes on selection", async () => {
+    const lanes = await buildLanes();
+    // topic-a is CORE and the needle also hits it on "apple". The stub keeps
+    // BOTH occurrences (card id + finder-line id).
     providerStub = selectProvider(["topic-a"]);
 
     const result = await orchestrate(
@@ -358,11 +415,19 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       depsOf(lanes, { coreSlugs: ["topic-a"] }),
     );
 
-    // The pool lists topic-a exactly once (in the stable prefix)…
-    expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(1);
+    // The pool lists topic-a twice — once as the stable-prefix card, once as
+    // a finder line carrying its CURRENT matched section (the tail is not
+    // deduped against the prefix, by design: filtering would not change the
+    // prefix here, but the snippet line is the page's current relevance).
+    expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(2);
     expect(lastPool[0]).toBe("topic-a");
-    // …but the finder lane still records the hit (current relevance) and the
-    // matched section survives for downstream injection/spotlight.
+    // The finder line shows the matched-section snippet.
+    expect(lastPoolLines.find((l) => /^\[2\] topic-a — /.test(l))).toContain(
+      "apple",
+    );
+    // Selecting both ids still yields ONE selection (slug dedup), the finder
+    // lane records the hit, and the matched section survives downstream.
+    expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);
     expect(result.lanes.finder.map((c) => c.slug)).toContain("topic-a");
     expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
   });
@@ -498,6 +563,18 @@ describe("orchestrate — dense liveness filter", () => {
     expect(lastPool).toContain("topic-b");
     expect(lastPool).not.toContain("gone-page");
     expect(result.lanes.finder.map((c) => c.slug)).not.toContain("gone-page");
+  });
+
+  test("a dense hit with an unresolvable ordinal falls back to the lead-section snippet", async () => {
+    const lanes = await buildLanes();
+    // Ordinal 99 resolves to no section, so the candidate carries no match
+    // text — its finder line falls back to the page's lead-section text.
+    denseHits = [{ article: "topic-b", section: 99 }];
+    providerStub = selectProvider([]);
+    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes));
+
+    const line = lastPoolLines.find((l) => / topic-b — /.test(l));
+    expect(line).toContain("lead for topic b");
   });
 });
 

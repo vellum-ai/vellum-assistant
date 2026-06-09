@@ -131,20 +131,39 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   };
 }
 
-/** Parse the numbered `<candidates>` block into an ordered slug list. */
+/**
+ * Parse the two-segment selector input into the globally-numbered pool slug
+ * list: stable-prefix cards (`<candidate_cards>`, identified by their
+ * `[i] # memory/concepts/<slug>.md` header line) then finder lines
+ * (`<candidates>`, `[i] slug — descriptor`).
+ */
 function candidateSlugs(messages: Message[]): Slug[] {
+  const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "text") continue;
-      const m = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(block.text);
-      if (!m) continue;
-      return m[1]
-        .split("\n")
-        .map((line) => /^\[\d+\] (\S+) —/.exec(line)?.[1])
-        .filter((s): s is string => !!s);
+      const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
+        block.text,
+      );
+      if (cards) {
+        for (const m of cards[1].matchAll(
+          /^\[(\d+)\] # memory\/concepts\/(.+)\.md$/gm,
+        )) {
+          entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
+      const finder = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(
+        block.text,
+      );
+      if (finder) {
+        for (const line of finder[1].split("\n")) {
+          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
     }
   }
-  return [];
+  return entries.sort((a, b) => a.id - b.id).map((e) => e.slug);
 }
 
 /** Provider that selects (and optionally pins) the pooled candidates in `keep`. */

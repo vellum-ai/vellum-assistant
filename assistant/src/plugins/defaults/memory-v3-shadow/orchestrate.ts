@@ -14,21 +14,23 @@
  *      init — followed by the finder candidates (needle → dense → edge
  *      surfacing order). The stable prefix is identical across consecutive
  *      turns while the lanes are unchanged (lane invalidation at consolidation
- *      is the recompute cadence), so the selector input's leading segment can
- *      ride the provider KV cache.
+ *      is the recompute cadence), so the selector input's leading segment
+ *      rides the provider KV cache (the cache breakpoint itself lives in
+ *      `pool-select.ts`).
  *
- *      Finder hits are deduped against the stable prefix for the POOL list
- *      (a slug never appears twice in the numbered candidate list), but a
- *      finder hit on a core/hot page KEEPS its matched-section ref in
- *      `matchedSections` and its entry in `lanes.finder` — so the selector
- *      tail and the section spotlight can still surface that page's CURRENT
- *      relevance even though the page itself sits in the stable prefix.
+ *      Stable-prefix candidates render as FULL CARDS (`renderCard` — head
+ *      section + TOC), pre-rendered at lane init (`prefixCards`) so the
+ *      rendered prefix is byte-identical across turns. Finder candidates
+ *      render as compact snippet lines: the matched section's text (or the
+ *      curated `links` description for an edge hit), falling back to the
+ *      page's lead-section text when no match text exists.
  *
- *      Per-candidate descriptors: a finder candidate carries its matched
- *      section's text (or the curated `links` description for an edge hit); a
- *      stable-prefix candidate carries its LEAD section's text — deliberately
- *      query-independent so the rendered prefix stays byte-identical across
- *      turns.
+ *      The finder tail is NOT deduped against the stable prefix: a finder hit
+ *      on a core/hot page keeps its matched-section line (and its
+ *      `matchedSections` ref + `lanes.finder` entry), so the selector and the
+ *      section spotlight see that page's CURRENT relevance even though the
+ *      page itself sits in the stable prefix. The selector dedupes selections
+ *      by slug.
  *   3. A SINGLE forced-tool select (`selectPool`) over the whole pool. The
  *      result is this turn's selections — current turn only. There is no
  *      working-set union or eviction here anymore: cross-turn persistence is
@@ -37,10 +39,11 @@
  */
 
 import type { AssistantConfig } from "../../../config/schema.js";
+import { renderCard } from "./card.js";
 import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
-import type { PoolCandidate } from "./pool-select.js";
+import type { PoolCandidate, StableCandidate } from "./pool-select.js";
 import { selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
@@ -70,6 +73,11 @@ export interface OrchestrateDeps {
   /** The frecency hot set in score order (computed at lane init with the core
    *  set excluded). Follows core in the stable prefix. */
   hotSlugs: Slug[];
+  /** Pre-rendered FULL cards for the stable-prefix slugs, keyed by slug.
+   *  Rendered ONCE at lane init so the selector's stable prefix is
+   *  byte-identical across turns (the cache contract). A missing entry
+   *  degrades to a header-only card. */
+  prefixCards?: ReadonlyMap<Slug, string>;
   /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
@@ -109,8 +117,9 @@ export interface OrchestrateLanes {
 }
 
 export interface OrchestrateResult {
-  /** This turn's selections, deduped by slug (pinned flags ORed). Current turn
-   *  only — there is no carried-forward set unioned in. */
+  /** This turn's selections, deduped by slug (pinned flags ORed; the dedup is
+   *  `selectPool`'s contract). Current turn only — there is no
+   *  carried-forward set unioned in. */
   selections: SelectedPage[];
   /** The matched `Section` for each candidate slug that had one, keyed by slug.
    *  Populated from the finder-lane hits — including hits on core/hot pages —
@@ -237,34 +246,34 @@ export async function orchestrate(
     );
   }
 
-  // Step 2: assemble the pool in cache order — stable prefix (core then hot)
-  // first, then the finder tail deduped against the prefix. Stable-prefix
-  // descriptors are the page's LEAD section text: query-INDEPENDENT by design,
-  // so the rendered prefix is byte-identical across turns while the lanes are
-  // unchanged.
-  const pool: PoolCandidate[] = [
-    ...[...core, ...hot].map((slug) => ({
-      slug,
-      descriptor: leadSectionText(deps.sectionIndex, slug),
-    })),
-    ...finder
-      .filter((c) => !stablePrefix.has(c.slug))
-      .map((c) => ({ slug: c.slug, descriptor: c.descriptor })),
-  ];
+  // Step 2: assemble the selector pool in cache order — the stable prefix
+  // (core then hot) as FULL CARDS, then the finder tail. Cards are
+  // pre-rendered at lane init (`prefixCards`): query- AND
+  // conversation-state-INDEPENDENT by design, so the rendered prefix is
+  // byte-identical across turns while the lanes are unchanged. The tail is
+  // NOT deduped against the prefix — a finder hit on a core/hot page renders
+  // its own snippet line so its CURRENT relevance stays visible; `selectPool`
+  // dedupes selections by slug. Finder candidates with no match text fall
+  // back to the page's lead-section snippet.
+  const stable: StableCandidate[] = [...core, ...hot].map((slug) => ({
+    slug,
+    card: deps.prefixCards?.get(slug) ?? renderCard(slug, ""),
+  }));
+  const finderTail: PoolCandidate[] = finder.map((c) => ({
+    slug: c.slug,
+    descriptor:
+      c.descriptor.trim().length > 0
+        ? c.descriptor
+        : leadSectionText(deps.sectionIndex, c.slug),
+  }));
 
-  // Step 3: a SINGLE forced-tool select over the cache-ordered pool.
-  const selected = await selectPool(pool, turn);
-  const bySlug = new Map<Slug, SelectedPage>();
-  for (const page of selected) {
-    const existing = bySlug.get(page.slug);
-    bySlug.set(page.slug, {
-      slug: page.slug,
-      pinned: (existing?.pinned ?? false) || page.pinned,
-    });
-  }
+  // Step 3: a SINGLE forced-tool select over the cache-ordered pool. The
+  // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
+  // contract.
+  const selections = await selectPool({ stable, finder: finderTail }, turn);
 
   return {
-    selections: [...bySlug.values()],
+    selections,
     matchedSections,
     lanes: { core, hot, finder },
   };
@@ -293,9 +302,10 @@ function sectionByOrdinal(
 
 /**
  * The text of an article's LEAD (first) section, or `""` when the article has
- * no indexed sections. Used as the stable-prefix candidates' descriptor: it
- * depends only on the page content, never on the turn's query, so the rendered
- * prefix stays byte-identical across turns.
+ * no indexed sections. Used as the finder-line snippet fallback when a
+ * candidate carries no match text (e.g. an edge hit with neither a curated
+ * description nor a scoring section) — the lead is the closest free
+ * approximation of the card head.
  */
 function leadSectionText(index: SectionIndex, article: Slug): string {
   const first = index.byArticle.get(article)?.[0];

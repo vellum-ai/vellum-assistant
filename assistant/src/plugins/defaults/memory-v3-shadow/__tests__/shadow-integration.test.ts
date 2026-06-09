@@ -210,20 +210,39 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   };
 }
 
-/** Parse the numbered `<candidates>` block back into an ordered slug list. */
+/**
+ * Parse the two-segment selector input back into the globally-numbered pool
+ * slug list: stable-prefix cards (`<candidate_cards>`, identified by their
+ * `[i] # memory/concepts/<slug>.md` header line) then finder lines
+ * (`<candidates>`, `[i] slug — descriptor`).
+ */
 function candidateSlugs(messages: Message[]): Slug[] {
+  const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "text") continue;
-      const m = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(block.text);
-      if (!m) continue;
-      return m[1]
-        .split("\n")
-        .map((line) => /^\[\d+\] (\S+) —/.exec(line)?.[1])
-        .filter((s): s is string => !!s);
+      const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
+        block.text,
+      );
+      if (cards) {
+        for (const m of cards[1].matchAll(
+          /^\[(\d+)\] # memory\/concepts\/(.+)\.md$/gm,
+        )) {
+          entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
+      const finder = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(
+        block.text,
+      );
+      if (finder) {
+        for (const line of finder[1].split("\n")) {
+          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
     }
   }
-  return [];
+  return entries.sort((a, b) => a.id - b.id).map((e) => e.slug);
 }
 
 /**
@@ -375,12 +394,14 @@ describe("memory-v3 shadow integration — core + hot stable prefix", () => {
   test("a finder hit on a core page logs core, not the finder lane", async () => {
     const lanes = await buildLanes();
     // "apple" hits page-a via the needle, but page-a is CORE — the pool lists
-    // it once (stable prefix) and the selection attributes to core.
+    // it twice (stable-prefix card + finder snippet line, by design), the
+    // selection dedupes to one slug, and the row attributes to core.
     const result = await runTurn(1, "apple", ["page-a"], [], {
       lanes,
       core: ["page-a"],
     });
-    expect(lastPool.filter((s) => s === "page-a")).toHaveLength(1);
+    expect(lastPool.filter((s) => s === "page-a")).toHaveLength(2);
+    expect(result.selections).toEqual([{ slug: "page-a", pinned: false }]);
     expect(result.lanes.finder.map((c) => c.slug)).toContain("page-a");
     expect(loggedSources(1)).toEqual([{ slug: "page-a", source: "core" }]);
   });
