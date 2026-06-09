@@ -148,6 +148,7 @@ mock.module("../conversation-crud.js", () => ({
 }));
 
 mock.module("../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (flag: string) =>
     flag === "memory-retrospective-fork" && forkFlagEnabled,
 }));

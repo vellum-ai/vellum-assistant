@@ -64,6 +64,7 @@ mock.module("../util/logger.js", () => ({
 let featureFlagEnabled = false;
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) => {
     if (key === "managed-gemini-embeddings-enabled") return featureFlagEnabled;
     return true;

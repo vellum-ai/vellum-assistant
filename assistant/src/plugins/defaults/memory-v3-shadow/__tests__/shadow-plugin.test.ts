@@ -133,6 +133,7 @@ const FAKE_SECTION_INDEX: SectionIndex = {
 // ─── module mocks (installed before the plugin import) ──────────────────────
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) =>
     key === "memory-v3-live"
       ? liveEnabled

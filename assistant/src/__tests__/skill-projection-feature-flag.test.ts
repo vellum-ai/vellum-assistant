@@ -51,6 +51,7 @@ mock.module("../config/skill-state.js", () => ({
 // resolver module itself.
 let _mockOverrides: Record<string, boolean> = {};
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
     const explicit = _mockOverrides[key];
     if (typeof explicit === "boolean") return explicit;

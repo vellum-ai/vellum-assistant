@@ -823,14 +823,17 @@ describe("loadConfig startup behavior", () => {
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
     expect(config.llm.activeProfile).toBe("balanced");
-    expect(config.llm.profiles.balanced).toEqual({
-      source: "managed",
-      provider: "openai",
-      model: "gpt-5.4",
-      label: "Platform Balanced",
-    });
-    expect(mainAgentConfig.provider).toBe("openai");
-    expect(mainAgentConfig.model).toBe("gpt-5.4");
+    // Built-in profiles are code-resolved at load time: the template's
+    // config fields are authoritative in the *effective* config, while the
+    // overlay-materialized entry contributes only its user-ownable facets
+    // (label/status). The overlay fragment itself stays untouched on disk
+    // (asserted below) — PR 6 of the builtin-llm-profiles plan converts
+    // overlay built-in entries to profileOverrides at merge time.
+    expect(config.llm.profiles.balanced!.label).toBe("Platform Balanced");
+    expect(config.llm.profiles.balanced!.provider).toBe("anthropic");
+    expect(config.llm.profiles.balanced!.model).toBe("claude-sonnet-4-6");
+    expect(mainAgentConfig.provider).toBe("anthropic");
+    expect(mainAgentConfig.model).toBe("claude-sonnet-4-6");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.profiles.balanced).toEqual({

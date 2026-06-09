@@ -93,6 +93,7 @@ mock.module("../config/loader.js", () => ({
 
 // Feature flag mock — fast-mode enabled for all tests in this file.
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) => {
     if (key === "fast-mode") return true;
     return true;

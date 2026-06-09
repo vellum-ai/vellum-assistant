@@ -22,6 +22,7 @@ import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
 import {
+  applyBuiltinProfiles,
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
   getConfig,
@@ -447,6 +448,11 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
+    // Merge the code-defined built-in profiles into the wire payload (in
+    // memory only — never persisted) so clients reading the raw config
+    // (web manage-profiles modal, pickers) keep seeing the built-ins.
+    const root = readPlainObject(config);
+    if (root) applyBuiltinProfiles(root);
     enrichProfilesWithVisionFlag(config);
     return config;
   } catch (err) {

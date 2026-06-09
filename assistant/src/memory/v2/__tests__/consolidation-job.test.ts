@@ -111,6 +111,7 @@ mock.module("../../jobs-store.js", () => ({
 // follow-up fan-out. This mock lets each test toggle the flag.
 let v3FlagOn = false;
 mock.module("../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => v3FlagOn,
 }));
 

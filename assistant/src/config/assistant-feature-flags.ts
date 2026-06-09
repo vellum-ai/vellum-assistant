@@ -103,7 +103,11 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
     const entry = flag as Record<string, unknown>;
     if (entry.scope !== "assistant" && entry.scope !== "both") continue;
     if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean" && typeof entry.defaultEnabled !== "string") continue;
+    if (
+      typeof entry.defaultEnabled !== "boolean" &&
+      typeof entry.defaultEnabled !== "string"
+    )
+      continue;
 
     result[entry.key as string] = {
       defaultEnabled: entry.defaultEnabled,
@@ -139,6 +143,23 @@ async function fetchOverridesFromGateway(
   } catch {
     return {};
   }
+}
+
+/**
+ * Callback invoked whenever the override cache is (re)populated or refreshed.
+ *
+ * The config loader registers `invalidateConfigCache` here so a feature-flag
+ * flip recomputes flag-dependent config state (e.g. the merged built-in
+ * inference profile set) without a daemon restart. A registered callback —
+ * rather than importing from `loader.ts` — avoids an import cycle:
+ * `loader.ts` already imports this module.
+ */
+let onOverridesRefreshed: (() => void) | undefined;
+
+export function setOnFeatureFlagOverridesRefreshed(
+  callback: (() => void) | undefined,
+): void {
+  onOverridesRefreshed = callback;
 }
 
 /**
@@ -217,6 +238,7 @@ export async function initFeatureFlagOverrides(options?: {
           "Feature flag overrides loaded from gateway after retry",
         );
       }
+      onOverridesRefreshed?.();
       return;
     }
   }
@@ -266,6 +288,11 @@ export function clearFeatureFlagOverridesCache(): void {
 export async function refreshOverridesFromGateway(): Promise<void> {
   clearFeatureFlagOverridesCache();
   await initFeatureFlagOverrides({ retryBackoffsMs: [] });
+  // Notify even when the re-fetch failed/returned empty: the cache was
+  // cleared above, so flag resolution may now differ (registry defaults)
+  // and flag-dependent caches must recompute either way. Idempotent with
+  // the success-path notification inside `initFeatureFlagOverrides`.
+  onOverridesRefreshed?.();
 }
 
 // ---------------------------------------------------------------------------

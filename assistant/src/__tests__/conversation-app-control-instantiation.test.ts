@@ -50,6 +50,7 @@ mock.module("../util/logger.js", () => ({
 
 let appControlFlagEnabled = false;
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (key: string) => {
     if (key === "app-control") return appControlFlagEnabled;
     return true;

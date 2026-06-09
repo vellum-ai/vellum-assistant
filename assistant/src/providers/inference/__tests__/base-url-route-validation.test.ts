@@ -37,6 +37,7 @@ mock.module("../../../memory/db-connection.js", () => ({
 }));
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: (flag: string) =>
     flag === "openai-compatible-endpoints",
 }));
@@ -104,9 +105,8 @@ mock.module("../../../tools/network/url-safety.js", () => ({
   },
 }));
 
-const { ROUTES } = await import(
-  "../../../runtime/routes/inference-provider-connection-routes.js"
-);
+const { ROUTES } =
+  await import("../../../runtime/routes/inference-provider-connection-routes.js");
 
 const handleCreate = ROUTES.find(
   (r) => r.operationId === "inference_provider_connections_create",

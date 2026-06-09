@@ -37,6 +37,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
+  setOnFeatureFlagOverridesRefreshed: () => {},
   isAssistantFeatureFlagEnabled: () => true,
   loadDefaultsRegistry: () => ({}),
   getFeatureFlagDefault: () => true,
