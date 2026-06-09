@@ -92,11 +92,20 @@ export interface RunLongMemEvalV2UnitInput {
   /** Caller's progress reporter. We tee every event to disk + heartbeat. */
   progress?: EvalProgressReporter;
   /**
-   * Quiet timeout (ms) for ingest + question event drains in
+   * Quiet timeout (ms) for the *question* turn's event drain in
    * `runIngestAsk`. Defaults to 30s — same default the underlying
    * runner uses, surfaced here so the harness can override per-run.
    */
   quietMs?: number;
+  /**
+   * Quiet timeout (ms) for the *ingest* turn's event drain in
+   * `runIngestAsk`. Defaults to 2 minutes — the ingest turn is a heavy
+   * multi-step turn whose between-step silences are far longer than a
+   * question turn's, so it needs a more generous safety net (the
+   * completion sentinel, not silence, decides when it's done). Surfaced
+   * here so the harness can override per-run.
+   */
+  ingestQuietMs?: number;
   /** Caller-side overrides applied after the per-question spec kwargs. */
   judgeOverrides?: EvalOverrides;
 }
@@ -274,6 +283,7 @@ export async function runLongMemEvalV2Unit(
       ingestMessage,
       questionMessage,
       quietMs: input.quietMs,
+      ingestQuietMs: input.ingestQuietMs,
     });
     progress({
       step: "send",

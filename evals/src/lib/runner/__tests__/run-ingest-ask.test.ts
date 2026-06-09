@@ -84,6 +84,14 @@ interface FakeAgentOptions {
   omitConfirm?: boolean;
   /** When set, `confirm()` throws with the given message. */
   confirmFailure?: string;
+  /**
+   * Artificial delay (ms) before each ingest-turn (index 0) event *after
+   * the first* is yielded, simulating the long between-step silences of a
+   * heavy agentic turn. The first event arrives promptly (the turn always
+   * starts emitting); the gap that bites is mid-turn. Used to exercise the
+   * ingest drain's quiet window.
+   */
+  ingestEventDelayMs?: number;
 }
 
 interface FakeAgentHarness {
@@ -117,6 +125,8 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
 
   const eventsFn = (): AsyncIterable<AgentEvent> => {
     const queue = queues[turn];
+    const delayMs = turn === 0 ? (opts.ingestEventDelayMs ?? 0) : 0;
+    let yielded = 0;
     return {
       [Symbol.asyncIterator]() {
         return {
@@ -124,7 +134,11 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
             if (!queue || queue.length === 0) {
               return { value: undefined, done: true };
             }
+            if (delayMs > 0 && yielded > 0) {
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
             const value = queue.shift()!;
+            yielded += 1;
             return { value, done: false };
           },
         };
@@ -356,6 +370,73 @@ describe("runIngestAsk — confirmation auto-approval", () => {
     // decides the turn completed
     expect(result.ingestSentinelSeen).toBe(true);
     expect(result.hypothesis).toBe("answer");
+  });
+});
+
+describe("runIngestAsk — ingest quiet window", () => {
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("does not abandon the ingest turn during a gap longer than the question quiet window", async () => {
+    // GIVEN an ingest turn whose events arrive with gaps longer than the
+    // (tight) question quiet window but shorter than the (generous) ingest
+    // quiet window — the heavy-turn case where the model sits silent between
+    // steps without being done
+    const harness = makeFakeAgent({
+      ingestEventDelayMs: 60,
+      responses: [
+        [textEvent("thinking"), readyEvent()],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the turns with a 20ms question window and a
+    // 200ms ingest window
+    const result = await runIngestAsk({
+      profile: profileFor("p-ingest-quiet"),
+      runId: "r-ingest-quiet",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 20,
+      ingestQuietMs: 200,
+    });
+
+    // THEN the ingest turn survives the 60ms inter-event gaps and reaches its
+    // sentinel rather than being cut off at the 20ms question window
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("fails loudly when an ingest gap exceeds even the ingest quiet window", async () => {
+    // GIVEN an ingest turn whose inter-event gap exceeds the ingest quiet
+    // window itself — a genuinely stalled turn
+    const harness = makeFakeAgent({
+      ingestEventDelayMs: 120,
+      responses: [
+        [textEvent("thinking"), readyEvent()],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn with a 40ms ingest window
+    // THEN the drain goes quiet before the sentinel arrives and the run fails
+    // loudly rather than grading a truncated ingest
+    await expect(
+      runIngestAsk({
+        profile: profileFor("p-ingest-stall"),
+        runId: "r-ingest-stall",
+        inputs: [],
+        ingestMessage: "ingest everything",
+        questionMessage: "recall it",
+        quietMs: 20,
+        ingestQuietMs: 40,
+        ingestMaxMs: 5_000,
+      }),
+    ).rejects.toThrow(/never emitted the completion sentinel/);
   });
 });
 

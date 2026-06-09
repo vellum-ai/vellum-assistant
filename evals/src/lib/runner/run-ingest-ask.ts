@@ -66,12 +66,28 @@ export interface IngestAskInput {
    */
   questionMessage: string;
   /**
-   * Quiet timeout in milliseconds for the post-message event drain.
-   * Both conversations use the same quiet window. Defaults to 30s.
-   * The question turn derives `maxMs` as `quietMs * 6` per
-   * `AgentEventCollector`; the ingest turn uses `ingestMaxMs` (below).
+   * Quiet timeout in milliseconds for the *question* turn's event drain.
+   * Defaults to 30s. The question turn derives `maxMs` as `quietMs * 6`
+   * per `AgentEventCollector`. The ingest turn uses `ingestQuietMs` /
+   * `ingestMaxMs` (below) instead, because its silence semantics differ.
    */
   quietMs?: number;
+  /**
+   * Quiet timeout in milliseconds for the *ingest* turn's event drain.
+   * Defaults to 2 minutes — deliberately far more generous than the
+   * question turn's window.
+   *
+   * The ingest turn is a heavy, multi-step agentic turn: the agent reads
+   * the staged trajectories, runs tools over large outputs, and commits
+   * to memory. Between steps the model can sit silent for tens of seconds
+   * (e.g. extended thinking over a large context, or a tool that just
+   * started) without the turn being done. Because the sentinel is the
+   * authoritative completion signal, this quiet window is only a safety
+   * net to avoid waiting the full `ingestMaxMs` when the agent has truly
+   * died; a tight window would instead abandon a turn that is still
+   * actively working.
+   */
+  ingestQuietMs?: number;
   /**
    * Literal completion sentinel the ingest prompt instructs the agent to
    * emit once it has finished reading *and* committed what matters to
@@ -113,6 +129,7 @@ export interface IngestAskResult {
 }
 
 const DEFAULT_QUIET_MS = 30_000;
+const DEFAULT_INGEST_QUIET_MS = 120_000;
 const DEFAULT_INGEST_SENTINEL = "Ready.";
 const DEFAULT_INGEST_MAX_MS = 600_000;
 
@@ -201,6 +218,7 @@ export async function runIngestAsk(
   input: IngestAskInput,
 ): Promise<IngestAskResult> {
   const quietMs = input.quietMs ?? DEFAULT_QUIET_MS;
+  const ingestQuietMs = input.ingestQuietMs ?? DEFAULT_INGEST_QUIET_MS;
   const ingestSentinel = input.ingestSentinel ?? DEFAULT_INGEST_SENTINEL;
   const ingestMaxMs = input.ingestMaxMs ?? DEFAULT_INGEST_MAX_MS;
   const isIngestDone = makeSentinelPredicate(ingestSentinel);
@@ -270,7 +288,7 @@ export async function runIngestAsk(
       await ingestCollector.collectUntilSentinel({
         isDone: (events) => isIngestDone(joinAssistantText(events)),
         maxMs: ingestMaxMs,
-        quietMs,
+        quietMs: ingestQuietMs,
         onEvent: autoConfirm,
       });
     if (ingestEvents.length === 0) {
