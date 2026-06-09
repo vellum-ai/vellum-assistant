@@ -28,6 +28,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -140,6 +141,8 @@ function makeDb() {
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3Selections(db);
+  // The live injector's net-new dedup reads/writes the everInjected store.
+  migrateAddMemoryV3EverInjected(db);
   return db;
 }
 
@@ -171,6 +174,7 @@ mock.module("../../../../config/loader.js", () => ({
     memory: {
       v3: {
         hotSet: { k: 40, halfLifeDays: 14 },
+        spotlight: { n: 6, windowTurns: 2 },
         needleK: 100,
         denseK: 100,
         edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
@@ -356,7 +360,8 @@ const {
   invalidateLanes,
   attributeSelections,
 } = await import("../shadow-plugin.js");
-const { memoryV3Injector } = await import("../injector.js");
+const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
+  await import("../injector.js");
 
 afterAll(() => {
   shadowMockActive = false;
@@ -392,6 +397,9 @@ beforeEach(() => {
   hotSetOpts = null;
   testDb = makeDb();
   resetShadowLanesForTests();
+  // The injector memoizes one orchestration per (conversation, turn); clear it
+  // so tests reusing the same ids observe fresh orchestrations.
+  resetMemoryV3InjectorStateForTests();
 });
 
 /** Invoke the memory-v3 injector's `produce()` for a turn. */
@@ -527,7 +535,7 @@ describe("memory-v3 shadow plugin", () => {
     expect(readRows().length).toBeGreaterThan(0);
   });
 
-  test("live on → produce returns the rendered <memory> block and logs", async () => {
+  test("live on → produce returns the net-new CARD block and logs", async () => {
     liveEnabled = true;
     shadowEnabled = false;
     const block = await produce("conv-1", 0);
@@ -535,15 +543,28 @@ describe("memory-v3 shadow plugin", () => {
     expect(block!.placement).toBe("after-memory-prefix");
     expect(block!.text.startsWith("<memory>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory>")).toBe(true);
-    // Progressive disclosure: a slug with a matched section renders that
-    // section's text (page-1 → "x"), NOT the full page body.
-    expect(block!.text).toContain("# memory/concepts/page-1.md\nx");
-    expect(block!.text).not.toContain("body for page-1");
-    // A selected slug with no matched section (edge-surfaced page-3) falls
-    // back to the full body.
-    expect(block!.text).toContain("body for page-3");
+    // Turn 1: every selection is net-new and renders as a compact card —
+    // the page header plus the page's head section (the fixture body has no
+    // `## ` headings, so the whole body is the head and no TOC line renders).
+    for (const slug of ["page-core", "page-hot", "page-1", "page-2"]) {
+      expect(block!.text).toContain(
+        `# memory/concepts/${slug}.md\nbody for ${slug}`,
+      );
+    }
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
+  });
+
+  test("live on → a later turn re-selecting the same pages renders an EMPTY block (net-new dedup)", async () => {
+    liveEnabled = true;
+    shadowEnabled = false;
+    const first = await produce("conv-1", 0);
+    expect(first!.text.length).toBeGreaterThan(0);
+    // Same orchestrate fixture on the next turn → zero net-new cards. The
+    // block is still produced (its presence keys v2 suppression downstream).
+    const repeat = await produce("conv-1", 1);
+    expect(repeat).not.toBeNull();
+    expect(repeat!.text).toBe("");
   });
 
   test("live on but empty selection → produce returns null", async () => {

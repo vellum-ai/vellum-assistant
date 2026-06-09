@@ -346,6 +346,91 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
+  test("memoryV3InjectedBlock rehydrates wrapped on ALL rows (tail included)", async () => {
+    // The memory-v3 frozen card block persists UNWRAPPED under its own key and
+    // must come back wrapped on every row — including the tail, since the next
+    // turn injects only NET-NEW cards (deduped via the v3 store) and never
+    // re-renders this row's cards.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    // Tail row rehydrates too (unlike turn_context / system_reminder).
+    expect(messages[2].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("defensively-wrapped memoryV3InjectedBlock rehydrates singly-wrapped", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    const firstBlock = messages[0].content[0];
+    expect(firstBlock).toEqual({
+      type: "text",
+      text: "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
+    });
+    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+  });
+
   test("malformed metadata is tolerated: load does not throw, content unchanged", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [

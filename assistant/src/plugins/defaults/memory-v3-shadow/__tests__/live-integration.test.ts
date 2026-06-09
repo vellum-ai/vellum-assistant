@@ -4,25 +4,30 @@
  * SCOPE / ALTITUDE. A full daemon-assembly integration (plugin registry → flag
  * read → runtime assembly → provider call) is too heavy and too mock-fragile
  * for a unit test. Instead this composes the REAL v3 live-path units with a
- * mocked select provider + stubbed dense lane and synthetic fixtures:
+ * mocked select provider + stubbed dense lane, synthetic fixtures, and a real
+ * in-memory everInjected store:
  *
  *   orchestrate (cache-ordered pool → ONE selectPool call → this turn's
  *     selections)
- *     → renderMemoryBlock (the rendered `<memory>` selections block)
- *     → stripAllMemoryInjections (all-turns history strip)
+ *     → net-new filter against the everInjected store (`getActiveSlugs`)
+ *     → renderCard + renderCardsBlockInner (the frozen card block)
+ *     → recordInjected
  *
- * That is exactly the behavioral contract the live path wires together: the
- * plugin's `produce()` renders this turn's `orchestrate(...).selections` via
- * `renderMemoryBlock`, and assembly strips `<memory>` from every historical
- * user message so exactly one block exists. INTERIM SHAPE: the block reflects
- * current-turn selections only — the working-set carry was removed from
- * orchestration; cross-turn persistence (net-new blocks frozen into history)
- * replaces it in a follow-up. The provider is stubbed (no network).
+ * That is the behavioral contract the live path wires together: the injector
+ * renders only the turn's NET-NEW selections as cards, records them, and the
+ * resulting block is FROZEN into history — prior turns' blocks are never
+ * re-rendered or stripped (the cache contract; the old `stripAllMemoryInjections`
+ * whole-layer replace is gone). The provider is stubbed (no network).
  */
 
+import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { stripAllMemoryInjections } from "../../../../memory/graph/conversation-graph-memory.js";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { wrapMemoryBlock } from "../../../../memory/memory-marker.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
+import * as schema from "../../../../memory/schema.js";
 import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
   ContentBlock,
@@ -30,6 +35,7 @@ import type {
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
+import { cardBytes, renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
@@ -67,8 +73,35 @@ mock.module("../dense.js", () => ({
     denseMockActive ? [] : realDense.denseLane(...args),
 }));
 
+// In-memory everInjected store backing the net-new dedup, swapped in only
+// while this file's tests run.
+const realDbConnection = {
+  ...(await import("../../../../memory/db-connection.js")),
+};
+let testSqlite: Database;
+let testDb = makeDb();
+function makeDb() {
+  testSqlite = new Database(":memory:");
+  const db = drizzle(testSqlite, { schema });
+  migrateAddMemoryV3EverInjected(db);
+  return db;
+}
+mock.module("../../../../memory/db-connection.js", () => ({
+  ...realDbConnection,
+  getDb: () => (denseMockActive ? testDb : realDbConnection.getDb()),
+  getSqliteFrom: (db: unknown) =>
+    denseMockActive
+      ? testSqlite
+      : realDbConnection.getSqliteFrom(
+          db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
+        ),
+}));
+
 const { orchestrate } = await import("../orchestrate.js");
-const { renderMemoryBlock } = await import("../render-injection.js");
+const { renderCardsBlockInner, V3_CARDS_INJECTION_HEADER } =
+  await import("../render-injection.js");
+const { getActiveSlugs, recordInjected, residentBytes } =
+  await import("../ever-injected-store.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures: a tiny corpus whose section text contains a distinctive term per
@@ -94,7 +127,6 @@ function makeEntries(): PageIndexEntry[] {
 }
 
 const config = {} as never;
-const contentOf = async (slug: Slug): Promise<string> => `body for ${slug}`;
 
 async function buildLanes(): Promise<{
   sectionIndex: SectionIndex;
@@ -183,43 +215,44 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
   };
 }
 
-/** Run one turn through orchestrate + render this turn's selections. */
+/**
+ * Run one turn through the live composition: orchestrate → net-new filter
+ * against the store → card render → record. Returns the wrapped block ("" when
+ * the turn had no net-new cards) — the same shape the injector attaches.
+ */
 async function runTurn(
+  conversationId: string,
   turnNumber: number,
   query: string,
   keep: Slug[],
-  pin: Slug[],
-  deps: {
-    lanes: Awaited<ReturnType<typeof buildLanes>>;
-    core?: Slug[];
-    hot?: Slug[];
-  },
-) {
-  providerStub = selectProvider(keep, pin);
+  deps: { lanes: Awaited<ReturnType<typeof buildLanes>> },
+): Promise<{ block: string; netNew: Slug[] }> {
+  providerStub = selectProvider(keep);
   const result = await orchestrate(makeTurn(turnNumber, query), {
     sectionIndex: deps.lanes.sectionIndex,
     needle: deps.lanes.needle,
     denseConfig: config,
     edgeGraph: deps.lanes.edgeGraph,
-    coreSlugs: deps.core ?? [],
-    hotSlugs: deps.hot ?? [],
+    coreSlugs: [],
+    hotSlugs: [],
   });
-  const block = await renderMemoryBlock(
-    result.selections.map((s) => s.slug),
-    result.matchedSections,
-    contentOf,
+  const active = getActiveSlugs(conversationId);
+  const netNew = result.selections
+    .map((s) => s.slug)
+    .filter((slug) => !active.has(slug));
+  const cards = netNew.map((slug) => renderCard(slug, PAGES[slug]!));
+  recordInjected(
+    conversationId,
+    cards.map((card, i) => ({ slug: netNew[i]!, bytes: cardBytes(card) })),
   );
-  return { result, block };
-}
-
-/** Count `<memory>\n…\n</memory>` blocks in a rendered string. */
-function countMemoryBlocks(text: string): number {
-  return (text.match(/<memory>\n/g) ?? []).length;
+  const inner = renderCardsBlockInner(cards);
+  return { block: inner.length === 0 ? "" : wrapMemoryBlock(inner), netNew };
 }
 
 beforeEach(() => {
   denseMockActive = true;
   providerStub = null;
+  testDb = makeDb();
 });
 
 afterAll(() => {
@@ -227,100 +260,104 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Selections-only block (interim shape): the rendered block reflects THIS
-// turn's selections; a page selected on an earlier turn and not re-selected
-// does not reappear — cross-turn persistence moves to the injector (net-new
-// blocks frozen into history) in a follow-up.
+// Net-new accumulation: each turn renders ONLY pages not already frozen into
+// history; an all-repeat turn renders nothing new.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 live — selections-only block", () => {
-  test("a page selected in turn 1 is absent from turn 2's block unless re-selected", async () => {
+describe("memory-v3 live — net-new card accumulation", () => {
+  test("turn 2 re-selecting turn 1's page renders zero new cards", async () => {
     const lanes = await buildLanes();
 
-    const t1 = await runTurn(1, "apple", ["page-a"], ["page-a"], { lanes });
-    expect(t1.result.selections.map((s) => s.slug)).toContain("page-a");
-    expect(t1.block).toContain("body for page-a");
+    const t1 = await runTurn("conv-1", 1, "apple", ["page-a"], { lanes });
+    expect(t1.netNew).toEqual(["page-a"]);
+    expect(t1.block).toContain("# memory/concepts/page-a.md");
+    expect(t1.block).toContain("lead a");
 
-    const t2 = await runTurn(2, "cherry", ["page-c"], [], { lanes });
-    expect(t2.result.selections.map((s) => s.slug)).toEqual(["page-c"]);
-    expect(t2.block).toContain("body for page-c");
-    expect(t2.block).not.toContain("body for page-a");
+    // All-repeat turn: no new persistent bytes.
+    const t2 = await runTurn("conv-1", 2, "apple", ["page-a"], { lanes });
+    expect(t2.netNew).toEqual([]);
+    expect(t2.block).toBe("");
+    expect(residentBytes("conv-1")).toBeGreaterThan(0);
   });
 
-  test("a selected stable-prefix page renders in the block", async () => {
+  test("a topic shift renders only the newly-selected page's card", async () => {
     const lanes = await buildLanes();
-    // page-b is HOT; the query never matches it, but the selector keeps it
-    // from the stable prefix and it renders like any other selection.
-    const t1 = await runTurn(1, "apple", ["page-a", "page-b"], [], {
+
+    await runTurn("conv-1", 1, "apple", ["page-a"], { lanes });
+    const t2 = await runTurn("conv-1", 2, "cherry", ["page-a", "page-c"], {
       lanes,
-      hot: ["page-b"],
     });
-    expect(t1.result.selections.map((s) => s.slug)).toEqual([
-      "page-b",
-      "page-a",
-    ]);
-    expect(t1.block).toContain("body for page-b");
-    expect(t1.block).toContain("body for page-a");
+    expect(t2.netNew).toEqual(["page-c"]);
+    expect(t2.block).toContain("# memory/concepts/page-c.md");
+    expect(t2.block).not.toContain("# memory/concepts/page-a.md");
   });
-});
 
-// ---------------------------------------------------------------------------
-// Single source: orchestrate → render produces exactly one coherent `<memory>`
-// block per turn.
-// ---------------------------------------------------------------------------
-
-describe("memory-v3 live — single memory source", () => {
-  test("each turn renders exactly one <memory> block", async () => {
+  test("each non-empty turn block is one <memory> block with the read-affordance header", async () => {
     const lanes = await buildLanes();
-
     const queries = ["apple", "banana", "cherry"];
     for (const [i, query] of queries.entries()) {
-      const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
+      const { block } = await runTurn("conv-1", i + 1, query, [SLUGS[i]!], {
         lanes,
       });
-      expect(countMemoryBlocks(block)).toBe(1);
+      expect((block.match(/<memory>\n/g) ?? []).length).toBe(1);
       expect(block.startsWith("<memory>\n")).toBe(true);
       expect(block.endsWith("\n</memory>")).toBe(true);
+      expect(block).toContain(V3_CARDS_INJECTION_HEADER);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Strip-all: the rendered block injected into historical user messages is
-// stripped each turn, leaving byte-stable history (only the live block differs).
+// Frozen history: blocks splice onto their own turn's user message and are
+// NEVER touched on later turns — prior messages stay byte-identical (the
+// cache contract that replaced the old all-turns strip).
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 live — all-turns history strip", () => {
-  test("historical <memory> blocks strip back to byte-stable user history", async () => {
+describe("memory-v3 live — frozen card blocks in history", () => {
+  test("prior turns' messages stay byte-identical as new turns inject", async () => {
     const lanes = await buildLanes();
-
-    const baseHistory: Message[] = [
-      { role: "user", content: [{ type: "text", text: "first user message" }] },
-      { role: "assistant", content: [{ type: "text", text: "ok" }] },
-      {
-        role: "user",
-        content: [{ type: "text", text: "second user message" }],
-      },
-      { role: "assistant", content: [{ type: "text", text: "sure" }] },
-      { role: "user", content: [{ type: "text", text: "third user message" }] },
-    ];
-
     const memBlock = (text: string): ContentBlock => ({ type: "text", text });
+
+    const history: Message[] = [];
+    const snapshots: string[] = [];
     const queries = ["apple", "banana", "cherry"];
-    let injected: Message[] = baseHistory;
     for (const [i, query] of queries.entries()) {
-      const { block } = await runTurn(i + 1, query, [SLUGS[i]!], [], {
+      history.push({
+        role: "user",
+        content: [{ type: "text", text: `user message ${i + 1}` }],
+      });
+      const { block } = await runTurn("conv-1", i + 1, query, [SLUGS[i]!], {
         lanes,
       });
-      const stripped = stripAllMemoryInjections(injected);
-      injected = stripped.map((m) =>
-        m.role === "user"
-          ? { ...m, content: [memBlock(block), ...m.content] }
-          : m,
-      );
+      // The injector splices the block onto the CURRENT tail only; prior
+      // messages are never revisited.
+      if (block.length > 0) {
+        const tail = history[history.length - 1]!;
+        tail.content = [memBlock(block), ...tail.content];
+      }
+      snapshots.push(JSON.stringify(history.slice(0, -1)));
+      history.push({
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+      });
     }
 
-    const finalStripped = stripAllMemoryInjections(injected);
-    expect(finalStripped).toEqual(baseHistory);
+    // Every snapshot of the pre-tail history is a byte-prefix of the final
+    // history: nothing a later turn did rewrote an earlier message.
+    const finalJson = JSON.stringify(history);
+    for (const snapshot of snapshots) {
+      expect(finalJson.startsWith(snapshot.slice(0, -1))).toBe(true);
+    }
+
+    // Accumulation: all three turns' cards are present, one block per turn.
+    const allText = history
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect((allText.match(/<memory>\n/g) ?? []).length).toBe(3);
+    for (const slug of SLUGS) {
+      expect(allText).toContain(`# memory/concepts/${slug}.md`);
+    }
   });
 });

@@ -68,6 +68,7 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -911,6 +912,31 @@ export class Conversation {
               {
                 type: "text" as const,
                 text: `<memory>\n${inner}\n</memory>`,
+              },
+              ...content,
+            ];
+          }
+
+          // The memory-v3 frozen card block (net-new compact cards) persists
+          // under its own key, stored UNWRAPPED like v2's above. Rehydrated on
+          // ALL rows (tail included): the next turn injects only net-new cards
+          // — deduped via the v3 everInjected store — so this row's block must
+          // be back in history byte-identical for the dedup (and the provider
+          // prefix cache) to hold. A row carries at most one of the two keys
+          // (the user-prompt-submit hook persists them mutually exclusively).
+          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+            const v3Block = meta[
+              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
+            ] as string;
+            const v3Inner =
+              v3Block.startsWith("<memory>\n") &&
+              v3Block.endsWith("\n</memory>")
+                ? v3Block.slice("<memory>\n".length, -"\n</memory>".length)
+                : v3Block;
+            content = [
+              {
+                type: "text" as const,
+                text: `<memory>\n${v3Inner}\n</memory>`,
               },
               ...content,
             ];

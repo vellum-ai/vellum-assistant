@@ -173,6 +173,10 @@ const { applyNestedDefaults } = await import("../../../config/loader.js");
 const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
+const { migrateAddMemoryV3EverInjected } =
+  await import("../../migrations/275-add-memory-v3-ever-injected.js");
+const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
+  await import("../../../plugins/defaults/memory-v3-shadow/ever-injected-store.js");
 const schema = await import("../../schema.js");
 const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
@@ -210,6 +214,8 @@ function createTestDb(): DrizzleDb {
     )
   `);
   migrateActivationState(db);
+  // `onCompacted` also clears memory-v3's everInjected record.
+  migrateAddMemoryV3EverInjected(db);
   return db;
 }
 
@@ -589,10 +595,16 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     const before = await hydrateActivationState(testDbHandle!, conversationId);
     expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
 
+    // Seed a memory-v3 everInjected record too: the same trigger clears it
+    // (the frozen card blocks those slugs rode were just compacted away).
+    recordV3Injected(conversationId, [{ slug: "alice-vscode", bytes: 100 }]);
+    expect(getV3ActiveSlugs(conversationId)).toEqual(new Set(["alice-vscode"]));
+
     await memory.onCompacted(1);
 
     const after = await hydrateActivationState(testDbHandle!, conversationId);
     expect(after?.everInjected).toEqual([]);
+    expect(getV3ActiveSlugs(conversationId)).toEqual(new Set());
 
     // Turn 2 — same Qdrant relevance. With everInjected cleared the slug
     // should appear again in the injection block (re-attached on the new

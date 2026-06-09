@@ -91,12 +91,45 @@ export const MemoryV3HotSetSchema = z
   })
   .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
 
+/**
+ * Ephemeral section-spotlight tuning: how many of the current turn's selected
+ * finder hits render their matched section into the `<memory_spotlight>`
+ * block, and how many previous turns' spotlight entries are carried along
+ * before they age out. The block is strip-and-replaced every turn, so its
+ * size is bounded by `n × (windowTurns + 1)` entries.
+ */
+export const MemoryV3SpotlightSchema = z
+  .object({
+    n: z
+      .number({ error: "memory.v3.spotlight.n must be a number" })
+      .int("memory.v3.spotlight.n must be an integer")
+      .positive("memory.v3.spotlight.n must be a positive integer")
+      .default(6)
+      .describe(
+        "Number of the current turn's selected finder hits whose matched sections render into the spotlight block.",
+      ),
+    windowTurns: z
+      .number({ error: "memory.v3.spotlight.windowTurns must be a number" })
+      .int("memory.v3.spotlight.windowTurns must be an integer")
+      .nonnegative(
+        "memory.v3.spotlight.windowTurns must be a non-negative integer",
+      )
+      .default(2)
+      .describe(
+        "Number of previous turns whose spotlight entries are carried into the current block before aging out (0 = current turn only).",
+      ),
+  })
+  .describe("Memory v3 ephemeral section-spotlight tuning.");
+
 export const MemoryV3ConfigSchema = z
   .object({
     workingSet: MemoryV3WorkingSetSchema.default(
       MemoryV3WorkingSetSchema.parse({}),
     ),
     hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
+    spotlight: MemoryV3SpotlightSchema.default(
+      MemoryV3SpotlightSchema.parse({}),
+    ),
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })
       .int("memory.v3.needleK must be an integer")

@@ -11,6 +11,10 @@
  * loop (which drives the compaction pipeline) and the compactor can call it
  * without reaching up into the daemon orchestrator.
  */
+import {
+  MEMORY_SPOTLIGHT_PREFIX,
+  MEMORY_SPOTLIGHT_SUFFIX,
+} from "../memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
 
 /**
@@ -56,6 +60,28 @@ export function stripUserTextBlocksByPrefix(
     );
 }
 
+/**
+ * Full-wrapper matcher for the memory-v3 ephemeral `<memory_spotlight>` block.
+ * Shared by the per-turn scoped strip ({@link stripSpotlightInjections}) and
+ * the compaction pipeline below so both recognize exactly the same wrapper.
+ */
+const MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
+  prefix: MEMORY_SPOTLIGHT_PREFIX,
+  suffix: MEMORY_SPOTLIGHT_SUFFIX,
+};
+
+/**
+ * Remove memory-v3 `<memory_spotlight>` blocks from every user message — and
+ * ONLY those blocks. The spotlight is ephemeral by contract: runtime assembly
+ * strip-and-replaces it each turn (the previous turn's spotlight is stale),
+ * while the frozen `<memory>` card blocks stay byte-identical in history for
+ * prompt caching. This is deliberately a scoped, single-id strip — the old
+ * whole-layer `stripAllMemoryInjections` replace is gone.
+ */
+export function stripSpotlightInjections(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, [MEMORY_SPOTLIGHT_MATCHER]);
+}
+
 /** Matchers stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<channel_capabilities>",
@@ -85,6 +111,11 @@ const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // matches the full-wrapper requirement in `countMemoryPrefixBlocks`.
   { prefix: "<memory>\n", suffix: "\n</memory>" },
   { prefix: "<info>\n", suffix: "\n</info>" },
+  // The memory-v3 ephemeral spotlight block. Normally strip-and-replaced every
+  // turn by `stripSpotlightInjections`, but registered here too so compaction
+  // and overflow recovery remove a stale spotlight along with the rest of the
+  // runtime injections. Full-wrapper shape for the same reason as `<memory>`.
+  MEMORY_SPOTLIGHT_MATCHER,
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // The `<workspace>` top-level block is stripped so each compaction re-injects

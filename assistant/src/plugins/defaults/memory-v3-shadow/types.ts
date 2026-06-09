@@ -11,6 +11,14 @@ export type Slug = string;
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
 /**
+ * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
+ * current window's matched sections, re-rendered at the user tail each turn).
+ * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates
+ * in v2 suppression and is never persisted to message metadata.
+ */
+export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
+
+/**
  * A single section of a page: the lead (text before the first `## heading`,
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each

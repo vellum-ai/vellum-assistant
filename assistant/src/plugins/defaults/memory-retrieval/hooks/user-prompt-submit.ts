@@ -46,33 +46,20 @@ import { updateMessageMetadata } from "../../../../memory/conversation-crud.js";
 import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-store.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
+import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ever-injected-store.js";
 
 /**
- * Persist and broadcast the retrieval's side effects: the injected block on
- * the user message's metadata (so it survives reloads), a recall-log row, and
- * the `memory_recalled` debug event. All three are best-effort — a failure to
- * persist must not abort the turn.
+ * Record and broadcast the retrieval's observability side effects: a
+ * recall-log row and the `memory_recalled` debug event. Both are best-effort —
+ * a failure must not abort the turn. The injected-block METADATA persist moved
+ * to {@link persistInjectionBlocks}: it runs after runtime assembly, which is
+ * the first point where it is known whether memory-v3 superseded (stripped)
+ * v2's block this turn.
  */
 function recordRecallSideEffects(
   graphResult: GraphMemoryResult,
   ctx: UserPromptSubmitContext,
 ): void {
-  // Persist the injected block text in message metadata so it survives
-  // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-  // from metadata.
-  if (graphResult.injectedBlockText) {
-    try {
-      updateMessageMetadata(ctx.userMessageId, {
-        memoryInjectedBlock: graphResult.injectedBlockText,
-      });
-    } catch (err) {
-      ctx.logger.warn(
-        { err },
-        "Failed to persist memory injection to metadata (non-fatal)",
-      );
-    }
-  }
-
   const m = graphResult.metrics;
 
   try {
@@ -142,23 +129,44 @@ function recordRecallSideEffects(
  * correspond to `userMessageId`. All present blocks are written in a single
  * update to avoid doubling SQLite SELECT+UPDATE work each turn. Best-effort — a
  * persistence failure must not abort the turn.
+ *
+ * The two `<memory>` layers are mutually exclusive per row:
+ *  - `v2InjectedBlockText` (the graph retrieval's block) persists as
+ *    `memoryInjectedBlock` ONLY when memory-v3 did not supersede it this turn
+ *    (`blocks.memoryV3Active`) — assembly stripped a superseded v2 block from
+ *    the tail, so persisting it would rehydrate a block that is not in the
+ *    live history (a reload cache-bust and duplicated memory).
+ *  - `blocks.memoryV3InjectedBlock` (the frozen net-new card block, unwrapped)
+ *    persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`; `loadFromDb`
+ *    re-wraps and splices it on load, freezing the cards into history.
  */
 function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
   ctx: UserPromptSubmitContext,
+  v2InjectedBlockText: string | null,
 ): void {
+  const v2BlockToPersist = blocks.memoryV3Active ? null : v2InjectedBlockText;
   if (
     !blocks.unifiedTurnContext &&
     !blocks.pkbSystemReminder &&
     !blocks.workspaceBlock &&
     !blocks.nowScratchpadBlock &&
     !blocks.pkbContextBlock &&
-    !blocks.memoryV2StaticBlock
+    !blocks.memoryV2StaticBlock &&
+    !blocks.memoryV3InjectedBlock &&
+    !v2BlockToPersist
   ) {
     return;
   }
   try {
     const metadataUpdates: Record<string, unknown> = {};
+    if (v2BlockToPersist) {
+      metadataUpdates.memoryInjectedBlock = v2BlockToPersist;
+    }
+    if (blocks.memoryV3InjectedBlock) {
+      metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
+        blocks.memoryV3InjectedBlock;
+    }
     if (blocks.unifiedTurnContext) {
       metadataUpdates.turnContextBlock = blocks.unifiedTurnContext;
     }
@@ -215,6 +223,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     conversation?.assistantId,
   );
 
+  let v2InjectedBlockText: string | null = null;
   if (conversation && isTrustedActor && abortSignal) {
     // Retrieval progress (`memory_status`) and the `memory_recalled` summary
     // publish to the shared `broadcastMessage` hub — the sink every turn
@@ -228,6 +237,10 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     );
 
     recordRecallSideEffects(graphResult, ctx);
+    // Held until after runtime assembly: whether this block persists to
+    // metadata depends on whether memory-v3 supersedes it this turn (see
+    // `persistInjectionBlocks`).
+    v2InjectedBlockText = graphResult.injectedBlockText;
 
     ctx.latestMessages = graphResult.runMessages;
     // Select dense+sparse as a matched pair so RRF fusion combines two signals
@@ -283,7 +296,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     conversationId: ctx.conversationId,
   });
   ctx.latestMessages = injection.messages;
-  persistInjectionBlocks(injection.blocks, ctx);
+  persistInjectionBlocks(injection.blocks, ctx, v2InjectedBlockText);
 };
 
 export default userPromptSubmitMemoryRetrieval;
