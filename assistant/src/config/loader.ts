@@ -14,7 +14,16 @@ import {
   getWorkspaceConfigPath,
   getWorkspaceDir,
 } from "../util/platform.js";
-import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  setOnFeatureFlagOverridesRefreshed,
+} from "./assistant-feature-flags.js";
+import {
+  AUTO_PROFILE_KEY,
+  type BuiltinProfileOverride,
+  MANAGED_PROFILE_NAMES,
+  resolveBuiltinProfiles,
+} from "./builtin-inference-profiles.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -108,18 +117,23 @@ function cloneDefaultConfig(): AssistantConfig {
 }
 
 /**
+ * True when running as a platform-managed (hosted) assistant deployment.
+ * IS_PLATFORM is set by the Vellum platform launcher; local, Docker, and
+ * bare-metal assistants are unaffected.
+ */
+function isPlatformDeployment(): boolean {
+  return process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+}
+
+/**
  * Returns deployment-context-aware config defaults that override schema
  * defaults for platform-managed assistants. Applied to every `loadConfig()`
  * call as a fill-only pass — they only fill keys that are absent from the
  * raw config on disk, so an explicit user choice (e.g. saving "your-own"
  * via the macOS Models & Services UI) always wins.
- *
- * IS_PLATFORM is set by the Vellum platform launcher for all hosted
- * assistant deployments. Local, Docker, and bare-metal assistants are
- * unaffected.
  */
 export function getDeploymentContextDefaults(): Record<string, unknown> {
-  if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
+  if (!isPlatformDeployment()) {
     return {};
   }
   // `web-search.mode = managed` enables platform-backed app-executed search
@@ -345,6 +359,169 @@ function deleteNestedKey(
   if (current != null && typeof current === "object") {
     delete (current as Record<string, unknown>)[String(path[path.length - 1])];
   }
+}
+
+/**
+ * Merge the code-defined built-in inference profiles into a raw config
+ * object. Mutates `raw` **in memory only** — the result must never be
+ * persisted back to `config.json` (built-in definitions live in code; only
+ * sparse `llm.profileOverrides` entries belong on disk).
+ *
+ * - Template fields (provider/model/maxTokens/…) are always authoritative;
+ *   user-ownable facets are `label` and `status` only.
+ * - `llm.profileOverrides[name]` is the canonical override store.
+ * - **Transition-state compatibility**: while the boot seeder still
+ *   materializes full built-in entries into `config.json` (and for
+ *   pre-migration installs that already carry them, including drifted
+ *   shadow entries the assistant wrote on-platform), the materialized
+ *   entry's `label`/`status` are honored as *lower*-precedence overrides
+ *   (key-presence semantics) and every other field is discarded.
+ * - Built-in names are spliced into `llm.profileOrder` exactly as the
+ *   seeder does (auto prepended if missing, managed names appended if
+ *   missing); flag-disabled built-ins are removed from the in-memory order
+ *   and profile set entirely.
+ * - `llm.activeProfile` falls back to `"balanced"` when unset or naming a
+ *   profile absent from the merged set (matching the seeder's fallback).
+ *   Custom user profiles count as present — an activeProfile naming one is
+ *   left untouched.
+ */
+export function applyBuiltinProfiles(raw: Record<string, unknown>): void {
+  const llm = ensurePlainObjectAt(raw, "llm");
+  const profiles = ensurePlainObjectAt(llm, "profiles");
+  const profileOverrides = readPlainObject(llm.profileOverrides) ?? {};
+
+  const overrides: Record<string, BuiltinProfileOverride> = {};
+  for (const name of MANAGED_PROFILE_NAMES) {
+    const entry: BuiltinProfileOverride = {};
+    // Lower precedence: label/status carried on a still-materialized entry.
+    collectBuiltinOverrideFields(profiles[name], entry);
+    // Higher precedence: the sparse override store.
+    collectBuiltinOverrideFields(profileOverrides[name], entry);
+    if ("label" in entry || "status" in entry) overrides[name] = entry;
+  }
+
+  const merged = resolveBuiltinProfiles({
+    isPlatform: isPlatformDeployment(),
+    isFlagEnabled: (key) => isBuiltinProfileFlagEnabled(key, raw),
+    overrides,
+  });
+
+  // Replace materialized/stale entries with the code-resolved ones; built-ins
+  // whose feature flag is disabled are removed from the profile set entirely.
+  for (const name of MANAGED_PROFILE_NAMES) {
+    const entry = merged.profiles[name];
+    if (entry) {
+      profiles[name] = entry;
+    } else {
+      delete profiles[name];
+    }
+  }
+
+  // Profile ordering, mirroring the seeder: drop flag-disabled built-in
+  // names, prepend `auto` if missing, then append the remaining built-ins
+  // that aren't already present.
+  const rawOrder = Array.isArray(llm.profileOrder) ? llm.profileOrder : [];
+  const order = rawOrder.filter(
+    (name) =>
+      typeof name !== "string" ||
+      !MANAGED_PROFILE_NAMES.has(name) ||
+      merged.profiles[name] !== undefined,
+  );
+  const present = new Set(order);
+  if (!present.has(AUTO_PROFILE_KEY)) order.unshift(AUTO_PROFILE_KEY);
+  for (const name of merged.order) {
+    if (name !== AUTO_PROFILE_KEY && !present.has(name)) order.push(name);
+  }
+  llm.profileOrder = order;
+
+  // Active-profile fallback. Custom user profiles already live in
+  // `profiles`, so an activeProfile naming one is left untouched.
+  const active = llm.activeProfile;
+  if (
+    typeof active !== "string" ||
+    readPlainObject(profiles[active]) === null
+  ) {
+    llm.activeProfile = "balanced";
+  }
+}
+
+/**
+ * Copy `label`/`status` from a raw (untrusted) profile or override entry
+ * into `into`, by key presence, keeping only values of the legal override
+ * shape (`string | null` label, `"active" | "disabled" | null` status).
+ * Malformed values are ignored so a corrupt config can't smuggle arbitrary
+ * data through the merge on the unvalidated `GET /v1/config` path.
+ */
+function collectBuiltinOverrideFields(
+  value: unknown,
+  into: BuiltinProfileOverride,
+): void {
+  const obj = readPlainObject(value);
+  if (!obj) return;
+  if ("label" in obj && (typeof obj.label === "string" || obj.label === null)) {
+    into.label = obj.label;
+  }
+  if (
+    "status" in obj &&
+    (obj.status === "active" ||
+      obj.status === "disabled" ||
+      obj.status === null)
+  ) {
+    into.status = obj.status;
+  }
+}
+
+/**
+ * Resolve a built-in profile's gating feature flag. Wrapped in try/catch so
+ * a flag-resolver failure never breaks config loading; fails *open* (profile
+ * stays visible) because hiding built-ins on a transient resolver error
+ * would be user-visible breakage, whereas the flag's purpose is an explicit
+ * remote kill switch.
+ *
+ * The resolver ignores its config argument (it reads gateway overrides and
+ * the bundled registry only); `raw` is passed for signature compatibility.
+ */
+function isBuiltinProfileFlagEnabled(
+  key: string,
+  raw: Record<string, unknown>,
+): boolean {
+  try {
+    return isAssistantFeatureFlagEnabled(
+      key,
+      raw as unknown as AssistantConfig,
+    );
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Read `parent[key]` as a plain object, creating (and assigning) an empty
+ * one when the current value is absent or not a plain object.
+ */
+function ensurePlainObjectAt(
+  parent: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const existing = readPlainObject(parent[key]);
+  if (existing) return existing;
+  const created: Record<string, unknown> = {};
+  parent[key] = created;
+  return created;
+}
+
+/**
+ * Validate a raw config with the code-defined built-in profiles merged in.
+ * The merge happens on a clone so `fileConfig` — which the loader's
+ * disk-write paths (deprecated-field stripping, managed-Gemini migration,
+ * first-launch seed) persist — never carries the injected entries.
+ */
+function validateWithBuiltinProfiles(
+  fileConfig: Record<string, unknown>,
+): AssistantConfig {
+  const merged = structuredClone(fileConfig);
+  applyBuiltinProfiles(merged);
+  return validateWithSchema(merged);
 }
 
 /**
@@ -687,8 +864,12 @@ export function loadConfig(): AssistantConfig {
       warnAndStripDeprecatedFields(fileConfig, configPath);
     }
 
-    // Validate and apply defaults via Zod schema
-    let config = validateWithSchema(fileConfig);
+    // Validate and apply defaults via Zod schema, with the code-defined
+    // built-in inference profiles merged in (on a clone — `fileConfig`
+    // itself stays unmerged because the blocks below persist it to disk).
+    // Merging before the parse lets the schema's cross-checks (activeProfile
+    // and call-site profile references) see the full built-in entries.
+    let config = validateWithBuiltinProfiles(fileConfig);
 
     if (suppressConfigDiskWritesDepth === 0) {
       // Managed Gemini embedding defaults migration.
@@ -698,11 +879,7 @@ export function loadConfig(): AssistantConfig {
       // Idempotent: once provider=gemini is written, subsequent loads skip this.
       if (config.memory.embeddings.provider === "auto") {
         try {
-          if (
-            (process.env.IS_PLATFORM === "true" ||
-              process.env.IS_PLATFORM === "1") &&
-            isManagedGeminiFFEnabled(config)
-          ) {
+          if (isPlatformDeployment() && isManagedGeminiFFEnabled(config)) {
             setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
             setNestedValue(
               fileConfig,
@@ -723,7 +900,7 @@ export function loadConfig(): AssistantConfig {
               "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
             );
             // Re-validate so the returned config reflects the migration.
-            config = validateWithSchema(fileConfig);
+            config = validateWithBuiltinProfiles(fileConfig);
           }
         } catch (err) {
           log.warn(
@@ -774,8 +951,20 @@ export function loadConfig(): AssistantConfig {
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
+        // Persist plain schema defaults (plus the deployment-context fills
+        // applied above), validated WITHOUT the built-in profile merge — the
+        // in-memory built-in entries are code-resolved on every load and
+        // must never leak into config.json.
+        const persistableConfig = validateWithSchema(fileConfig);
+        if (Object.keys(contextDefaults).length > 0) {
+          fillContextDefaultsForMissingKeys(
+            persistableConfig as unknown as Record<string, unknown>,
+            fileConfig,
+            contextDefaults,
+          );
+        }
         // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = config;
+        const { dataDir: _, ...persistable } = persistableConfig;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {
@@ -838,7 +1027,7 @@ export function getConfigReadOnly(): AssistantConfig {
     }
   }
 
-  return validateWithSchema(fileConfig);
+  return validateWithBuiltinProfiles(fileConfig);
 }
 
 export function invalidateConfigCache(): void {
@@ -846,6 +1035,13 @@ export function invalidateConfigCache(): void {
   cachedFileSignature = null;
   loading = false;
 }
+
+// The merged built-in profile set depends on feature-flag state, so a flag
+// override refresh must recompute the parsed-config cache without a daemon
+// restart. Registered as a callback (rather than the flags module importing
+// `invalidateConfigCache`) because this module already imports
+// `assistant-feature-flags.js` — a direct import back would form a cycle.
+setOnFeatureFlagOverridesRefreshed(invalidateConfigCache);
 
 export async function withSuppressedConfigDiskWrites<T>(
   fn: () => T | Promise<T>,
