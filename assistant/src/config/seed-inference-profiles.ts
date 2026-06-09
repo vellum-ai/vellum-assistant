@@ -229,7 +229,7 @@ export function seedInferenceProfiles(
   //    profiles without duplicating; we have to honor those edits across
   //    reseeds or they'd silently revert on every boot. Carry by
   //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too. Codex P1 finding on PR #30362.
+  //    cleared the label) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels

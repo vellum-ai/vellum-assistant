@@ -375,11 +375,11 @@ export class UsageTelemetryReporter {
             ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
             ...(e.completedAt ? { completed_at: e.completedAt } : {}),
             ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
-            // Onboarding events fall back to the envelope `assistant_version`
-            // — same upload-time attribution risk as before this PR. Adding
-            // the record-time column to `onboarding_events` (#30733) is a
-            // separate follow-up that mirrors what this PR does for
-            // `llm_usage_events`.
+            // Onboarding events fall back to the envelope `assistant_version`,
+            // so events recorded under an older build are attributed to the
+            // version running at upload time. Adding a record-time column to
+            // `onboarding_events` (mirroring `llm_usage_events`) is a known
+            // follow-up.
             assistant_version: APP_VERSION,
           }),
         ),
