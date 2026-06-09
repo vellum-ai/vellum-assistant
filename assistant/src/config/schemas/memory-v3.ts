@@ -121,11 +121,53 @@ export const MemoryV3SpotlightSchema = z
   })
   .describe("Memory v3 ephemeral section-spotlight tuning.");
 
+/**
+ * Prune-valve bounds on the resident (non-pruned) frozen-card footprint.
+ *
+ * Frozen cards accumulate in history with no per-turn bound, so the valve is
+ * the structural backstop: once resident card bytes exceed
+ * `maxResidentBytes`, the least-recently-selected non-core/non-hot cards are
+ * pruned until the footprint is back at `targetResidentBytes`.
+ *
+ * Defaults rationale: production v2 ran 303KB of accumulated memory unpruned
+ * on the widest observed conversation — 384KB max / 256KB target make the
+ * valve insurance for growth beyond that, not routine behavior.
+ */
+export const MemoryV3PruneSchema = z
+  .object({
+    maxResidentBytes: z
+      .number({ error: "memory.v3.prune.maxResidentBytes must be a number" })
+      .int("memory.v3.prune.maxResidentBytes must be an integer")
+      .positive("memory.v3.prune.maxResidentBytes must be a positive integer")
+      .default(393216 /* 384KB */)
+      .describe(
+        "Resident (non-pruned) card bytes above which the prune valve fires.",
+      ),
+    targetResidentBytes: z
+      .number({
+        error: "memory.v3.prune.targetResidentBytes must be a number",
+      })
+      .int("memory.v3.prune.targetResidentBytes must be an integer")
+      .positive(
+        "memory.v3.prune.targetResidentBytes must be a positive integer",
+      )
+      .default(262144 /* 256KB */)
+      .describe(
+        "Resident card bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
+      ),
+  })
+  .refine((value) => value.targetResidentBytes < value.maxResidentBytes, {
+    error:
+      "memory.v3.prune.targetResidentBytes must be less than memory.v3.prune.maxResidentBytes",
+  })
+  .describe("Memory v3 prune-valve (resident card footprint) bounds.");
+
 export const MemoryV3ConfigSchema = z
   .object({
     workingSet: MemoryV3WorkingSetSchema.default(
       MemoryV3WorkingSetSchema.parse({}),
     ),
+    prune: MemoryV3PruneSchema.default(MemoryV3PruneSchema.parse({})),
     hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
     spotlight: MemoryV3SpotlightSchema.default(
       MemoryV3SpotlightSchema.parse({}),

@@ -78,6 +78,49 @@ export function getActiveSlugs(conversationId: string): Set<string> {
   return new Set(rows.map((row) => row.slug));
 }
 
+/** One active (resident) row of the prune valve's candidate set. */
+export interface ActiveInjectedEntry {
+  slug: string;
+  bytes: number;
+  /** Epoch ms the card was (last) injected — the recency fallback for slugs
+   *  with no selection rows (e.g. rows copied by a full fork). */
+  injectedAt: number;
+}
+
+/**
+ * Active (non-pruned) rows with byte and injection-time accounting — the
+ * prune valve's candidate set ({@link ActiveInjectedEntry}).
+ */
+export function getActiveEntries(
+  conversationId: string,
+): ActiveInjectedEntry[] {
+  return getSqliteFrom(getDb())
+    .query(
+      /*sql*/ `
+      SELECT slug, bytes, injected_at AS injectedAt FROM memory_v3_ever_injected
+      WHERE conversation_id = ? AND pruned_at IS NULL
+    `,
+    )
+    .all(conversationId) as ActiveInjectedEntry[];
+}
+
+/**
+ * Slugs currently marked pruned — the card-section skip set shared by the
+ * live-history strip and the `loadFromDb` rehydration filter (see
+ * `prune.ts` / `daemon/conversation.ts`).
+ */
+export function getPrunedSlugs(conversationId: string): Set<string> {
+  const rows = getSqliteFrom(getDb())
+    .query(
+      /*sql*/ `
+      SELECT slug FROM memory_v3_ever_injected
+      WHERE conversation_id = ? AND pruned_at IS NOT NULL
+    `,
+    )
+    .all(conversationId) as Array<{ slug: string }>;
+  return new Set(rows.map((row) => row.slug));
+}
+
 /**
  * Upsert this turn's injected cards. Re-recording an existing slug clears
  * `pruned_at` and refreshes `bytes`/`injected_at` — a pruned page that is
