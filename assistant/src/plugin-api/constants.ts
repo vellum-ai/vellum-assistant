@@ -28,7 +28,7 @@ export const HOOKS = {
   STOP: "stop",
   /** Fires for each finalized assistant message, once per model call, before it is persisted/streamed-final. A hook may transform the message content. */
   POST_MODEL_CALL: "post-model-call",
-  /** Fires after the loop compacts a conversation mid-turn, to re-apply the runtime injections compaction stripped onto the compacted history before the turn continues. */
+  /** Fires after the loop successfully compacts a conversation mid-turn. */
   POST_COMPACT: "post-compact",
 } as const;
 
