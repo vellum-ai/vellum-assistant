@@ -38,6 +38,7 @@ import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native-push-to-talk-registration";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { UpdateBanner } from "@/components/update-banner";
 import { retireAssistant } from "@/assistant/retire-service";
@@ -126,6 +127,7 @@ export function RootLayout() {
   useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
   useElectronStatusSync();
   useElectronFeatureFlagBridge();
+  useNativePushToTalkRegistration();
 
   // Size the Electron main window to the onboarding layout (440×630
   // default) while on an onboarding step, and back to the main-app size

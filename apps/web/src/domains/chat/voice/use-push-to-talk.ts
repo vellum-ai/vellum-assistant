@@ -2,7 +2,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
-  CTRL_PTT_ACTIVATOR,
   FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
@@ -13,7 +12,6 @@ import {
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
-  setFnPushToTalkEnabled,
   subscribeToHotkeyEvents,
   supportsFnPushToTalk,
   type HotkeyEvent,
@@ -98,8 +96,8 @@ function playActivationBlip(): void {
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
  * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
- * tab has focus. Electron's native Fn bridge bypasses this DOM path so the
- * desktop app can keep PTT active while it is in the background.
+ * tab has focus. Electron's app-level native Fn bridge bypasses this DOM path
+ * so the desktop app can keep PTT active while it is in the background.
  *
  * The 300 ms hold delay prevents accidental activation from quick taps and
  * system shortcuts (matching the macOS `PTTActivator` behaviour). If
@@ -130,27 +128,6 @@ export function usePushToTalk(
     }
 
     let nativeFnAvailable = supportsFnPushToTalk();
-    let nativeFnRegistered = false;
-
-    const updateNativeRegistration = () => {
-      const shouldRegister =
-        nativeFnAvailable && isFnPushToTalkActivator(activatorRef.current);
-      if (nativeFnRegistered === shouldRegister) {
-        return;
-      }
-
-      nativeFnRegistered = shouldRegister;
-      void setFnPushToTalkEnabled(shouldRegister).then((ok) => {
-        if (shouldRegister && !ok) {
-          nativeFnRegistered = false;
-          nativeFnAvailable = false;
-          if (isFnPushToTalkActivator(activatorRef.current)) {
-            activatorRef.current = CTRL_PTT_ACTIVATOR;
-          }
-        }
-      });
-    };
-
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
@@ -158,7 +135,6 @@ export function usePushToTalk(
         : nativeFnAvailable
           ? FN_PTT_ACTIVATOR
           : { kind: "off" };
-      updateNativeRegistration();
     };
     readActivator();
 
@@ -258,7 +234,7 @@ export function usePushToTalk(
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
       if (
-        !nativeFnRegistered ||
+        !nativeFnAvailable ||
         !isFnPushToTalkActivator(activatorRef.current)
       ) {
         return;
@@ -311,10 +287,6 @@ export function usePushToTalk(
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();
-      if (nativeFnRegistered) {
-        nativeFnRegistered = false;
-        void setFnPushToTalkEnabled(false);
-      }
       cancelHold();
       if (activeRef.current) {
         activeRef.current = false;
