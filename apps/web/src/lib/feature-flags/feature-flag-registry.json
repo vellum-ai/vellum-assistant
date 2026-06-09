@@ -68,14 +68,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "system-schedule-toggles",
-      "scope": "assistant",
-      "key": "system-schedule-toggles",
-      "label": "System Schedule Toggles",
-      "description": "Show Heartbeat and Consolidation pause toggles on the schedules settings page. The toggles only pause automatic runs; manual Run now remains available.",
-      "defaultEnabled": false
-    },
-    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",
@@ -284,14 +276,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "provider-zai",
-      "scope": "assistant",
-      "key": "provider-zai",
-      "label": "z.ai Provider",
-      "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
@@ -316,51 +300,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "chat-pull-to-refresh-enabled",
-      "scope": "client",
-      "key": "chat-pull-to-refresh-enabled",
-      "label": "Chat Pull to Refresh",
-      "description": "Enable pull-to-refresh gesture in the chat view.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "platform-notifications",
-      "scope": "client",
-      "key": "platform-notifications",
-      "label": "Platform Notifications",
-      "description": "Enable the Notifications tab in settings.",
-      "defaultEnabled": false
-    },
-    {
       "id": "preview-channel",
       "scope": "client",
       "key": "preview-channel",
       "label": "Preview Channel",
       "description": "Enable user-facing Preview release channel controls in assistant settings.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "rollback-enabled",
-      "scope": "assistant",
-      "key": "rollback-enabled",
-      "label": "Rollback Enabled",
-      "description": "Show older versions in the version picker, allowing rollback to previous releases.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "self-hosted-assistant",
-      "scope": "client",
-      "key": "self-hosted-assistant",
-      "label": "Self-Hosted Assistant",
-      "description": "Enable self-hosted assistant configuration.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "settings-sleep-policy",
-      "scope": "assistant",
-      "key": "settings-sleep-policy",
-      "label": "Settings Sleep Policy",
-      "description": "Enable sleep policy settings.",
       "defaultEnabled": false
     },
     {
