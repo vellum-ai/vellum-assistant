@@ -1831,6 +1831,7 @@
 @media (prefers-reduced-motion: reduce) {
   .cast-idle,
   .cast-focus-alive,
+  .cast-focus__presenter,
   .cast-cell:hover .cast-hover {
     animation: none !important;
   }
@@ -1857,24 +1858,43 @@
   z-index: 2;
 }
 
-/* Journey milestones — a horizontal stepper (replaces the side nav). */
-.cast-focus__journey {
+/* Thin, quiet progress indicator under the title: three elongated segments
+   spanning ~2/3 of the title's width. */
+.cast-focus__progress {
   display: flex;
   align-items: center;
+  gap: 8px;
+  width: clamp(200px, 26vw, 320px);
+}
+.cast-focus__pdot {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--surface-active);
+}
+.cast-focus__pdot.is-on {
+  background: #46c178;
+}
+
+/* Inline pill choices inside a chat message (left-aligned with the turn). The
+   compound selector beats `.cast-focus__turn`'s column layout. */
+.cast-focus__turn.cast-pills-row {
+  flex-direction: row;
   flex-wrap: wrap;
-  justify-content: center;
+  align-items: center;
   gap: 10px;
+  align-self: flex-start;
 }
 .cast-focus__step {
   appearance: none;
   background: var(--surface-lift);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
-  padding: 6px 12px;
+  padding: 11px 20px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: 9px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--content-secondary);
   cursor: pointer;
@@ -1890,30 +1910,25 @@
   border-color: color-mix(in srgb, #3ad17a 55%, transparent);
   color: #46c178;
 }
+/* Consumed inline pills: muted + inert. */
+.cast-focus__step.is-muted {
+  opacity: 0.4;
+}
 .cast-focus__step-dot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 19px;
+  height: 19px;
   border-radius: 50%;
   border: 1.5px solid currentColor;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
 }
 .cast-focus__step.is-done .cast-focus__step-dot {
   background: #3ad17a;
   border-color: #3ad17a;
   color: #0b1f12;
-}
-.cast-focus__step-credits {
-  color: #46c178;
-}
-.cast-focus__credits {
-  margin-left: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--content-tertiary);
 }
 .cast-focus__title {
   margin: 0;
@@ -1951,6 +1966,17 @@
   flex-direction: column;
   gap: 10px;
 }
+/* Trailing spacer (height set inline = viewport) so a turn-start message can
+   scroll to the very top even when little content follows. */
+.cast-focus__spacer {
+  flex: none;
+}
+/* Bump the assistant message text — overrides the product's per-segment
+   `text-[15px]`. (Every message on this surface is assistant.) */
+.cast-focus__turn .text-\[15px\] {
+  font-size: 18px;
+  line-height: 1.55;
+}
 /* watch-only: suppress the real component's hover action bar (copy/fork/inspect
    + timestamp) so it reads as the assistant working, not an editable thread. */
 .cast-focus__turn .h-6.opacity-0 {
@@ -1964,26 +1990,22 @@
   max-width: 560px;
 }
 
-/* The "lil dude" under the most recent response — mirrors the product's own
-   latest-assistant-avatar slot (flex, left-aligned, sat just below the turn). */
-.cast-focus__avatar {
-  align-self: flex-start;
-  width: 52px;
-  height: 52px;
-  margin-top: 2px;
-}
-
-/* Journey pills pinned to the bottom (the only input until a grid appears). */
-.cast-focus__footer {
+/* The character bobs under the latest reply, left-aligned. */
+.cast-focus__presenter {
   flex: none;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  padding: 14px 24px 20px;
-  border-top: 1px solid var(--border-subtle);
-  /* opaque so scroll content never bleeds through behind the pills */
-  background: var(--surface-base);
-  z-index: 2;
+  align-self: flex-start;
+  width: 46px;
+  height: 46px;
+  animation: cast-bob 2.6s ease-in-out infinite;
+}
+@keyframes cast-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
 }
 
 /* ---- inline beat widgets (tool grid, handoff tiles, sim-connect, close) ---- */
@@ -2008,6 +2030,21 @@
   gap: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
+}
+/* Centered "Show more / less" below the grid. */
+.cast-picker__more {
+  align-self: center;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.cast-picker__more:hover {
+  color: var(--content-default);
 }
 .cast-grid {
   display: grid;
@@ -2067,16 +2104,6 @@
   font-size: 12px;
   line-height: 1.35;
   color: var(--content-secondary);
-}
-.cast-tile__reward {
-  flex: none;
-  align-self: flex-start;
-  font-size: 11px;
-  font-weight: 700;
-  color: #46c178;
-  background: color-mix(in srgb, #3ad17a 16%, transparent);
-  border-radius: var(--radius-xl);
-  padding: 3px 8px;
 }
 /* Namespaced under the picker — distinct from the legacy absolute-positioned
    `.cast-continue` used by the original two-panel beats (cast-job, etc.). */
