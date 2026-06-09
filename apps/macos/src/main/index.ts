@@ -51,6 +51,7 @@ import {
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
 import { installNativeAuth } from "./native-auth";
+import { getSessionToken } from "./session-token-store";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
@@ -276,6 +277,7 @@ const forwardPlatformRequest = async (
 ): Promise<Response | null> => {
   const plan = planPlatformForward(request, platformUrl, {
     allowedOrigin: resolveAllowedOrigin(),
+    sessionToken: getSessionToken,
   });
   if (plan.kind === "pass") return null;
   if (plan.kind === "reject") {

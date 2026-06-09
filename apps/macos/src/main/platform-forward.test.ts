@@ -214,6 +214,80 @@ describe("planPlatformForward", () => {
     expect(plan.kind).toBe("forward");
   });
 
+  test("injects the session token and rewrites browser allauth to app allauth", () => {
+    // No Origin/Referer/Sec-Fetch headers: a same-origin GET over app://
+    // carries no trust signal, and must still get the token.
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session"),
+      PLATFORM,
+      {
+        allowedOrigin: { protocol: "app:", host: "vellum.ai" },
+        sessionToken: "main-session-token",
+      },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.url).toBe(
+      "https://platform.vellum.ai/_allauth/app/v1/auth/session",
+    );
+    expect(plan.headers.get("X-Session-Token")).toBe("main-session-token");
+  });
+
+  test("reads a lazy session token only after matching a platform request", () => {
+    let tokenReads = 0;
+    const lazyToken = () => {
+      tokenReads += 1;
+      return "main-session-token";
+    };
+
+    expect(
+      planPlatformForward(request("/assistant/assets/app.js"), PLATFORM, {
+        sessionToken: lazyToken,
+      }),
+    ).toEqual({ kind: "pass" });
+    expect(tokenReads).toBe(0);
+
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session"),
+      PLATFORM,
+      { sessionToken: lazyToken },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(tokenReads).toBe(1);
+    expect(plan.url).toBe(
+      "https://platform.vellum.ai/_allauth/app/v1/auth/session",
+    );
+    expect(plan.headers.get("X-Session-Token")).toBe("main-session-token");
+  });
+
+  test("preserves the renderer's session token when already present", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/app/v1/auth/session", {
+        origin: "app://vellum.ai",
+        headers: { "X-Session-Token": "renderer-session-token" },
+      }),
+      PLATFORM,
+      {
+        allowedOrigin: { protocol: "app:", host: "vellum.ai" },
+        sessionToken: "main-session-token",
+      },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.headers.get("X-Session-Token")).toBe("renderer-session-token");
+  });
+
+  test("does not inject a session token when none is configured", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session"),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.headers.get("X-Session-Token")).toBeNull();
+    expect(plan.url).toBe(
+      "https://platform.vellum.ai/_allauth/browser/v1/auth/session",
+    );
+  });
+
   test("preserves non-Origin headers", () => {
     const plan = planPlatformForward(
       request("/_allauth/browser/v1/auth/session", {

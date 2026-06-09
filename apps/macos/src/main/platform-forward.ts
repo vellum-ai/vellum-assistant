@@ -31,9 +31,13 @@ export interface PlatformForwardAllowedOrigin {
 
 export interface PlatformForwardOptions {
   allowedOrigin?: PlatformForwardAllowedOrigin;
+  /** Token value, or a lazy getter only invoked once a platform path matches. */
+  sessionToken?: string | null | (() => string | null);
 }
 
 const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
+const BROWSER_ALLAUTH_PREFIX = "/_allauth/browser/";
+const APP_ALLAUTH_PREFIX = "/_allauth/app/";
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function isPlatformPath(pathname: string): boolean {
@@ -59,8 +63,34 @@ function isUnsafeMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }
 
+function resolveSessionToken(
+  sessionToken: PlatformForwardOptions["sessionToken"],
+): string | null {
+  return typeof sessionToken === "function"
+    ? sessionToken()
+    : (sessionToken ?? null);
+}
+
 function expectedRendererOrigin(allowed: PlatformForwardAllowedOrigin): string {
   return `${allowed.protocol}//${allowed.host}`;
+}
+
+/**
+ * The Electron renderer authenticates against allauth's header-token "app"
+ * client. A renderer that fails to detect the Electron host (e.g. the preload
+ * bridge was unavailable) falls back to the cookie-based "browser" client,
+ * which can never authenticate through the cookie-less proxy
+ * (`credentials: "omit"`). When the main process holds a session token,
+ * retarget those requests at the app client.
+ */
+function platformPathnameForForward(
+  pathname: string,
+  sessionToken: string | null | undefined,
+): string {
+  if (sessionToken && pathname.startsWith(BROWSER_ALLAUTH_PREFIX)) {
+    return `${APP_ALLAUTH_PREFIX}${pathname.slice(BROWSER_ALLAUTH_PREFIX.length)}`;
+  }
+  return pathname;
 }
 
 /**
@@ -164,14 +194,25 @@ export function planPlatformForward(
     };
   }
 
+  // Inject the token on any forwarded request that lacks one. This cannot
+  // be gated on initiator trust: Chromium omits Origin on same-origin GETs
+  // and sends no Referer/Sec-Fetch metadata over the app:// scheme, so the
+  // renderer's own session check carries no trust signal. Unsafe methods
+  // from untrusted initiators were already rejected above.
+  const sessionToken = resolveSessionToken(options.sessionToken);
+  const pathname = platformPathnameForForward(url.pathname, sessionToken);
+
   const target = new URL(platformUrl);
   const headers = new Headers(request.headers);
   headers.delete(ELECTRON_RENDERER_ORIGIN_HEADER);
   headers.set("origin", target.origin);
+  if (sessionToken && !headers.has("X-Session-Token")) {
+    headers.set("X-Session-Token", sessionToken);
+  }
 
   return {
     kind: "forward",
-    url: `${target.origin}${url.pathname}${url.search}`,
+    url: `${target.origin}${pathname}${url.search}`,
     method: request.method,
     headers,
     hasBody: request.method !== "GET" && request.method !== "HEAD",

@@ -418,5 +418,12 @@ declare global {
  * use `isNativePlatform` from `@/runtime/native-auth.js` instead.
  */
 export function isElectron(): boolean {
-  return typeof window !== "undefined" && window.vellum?.platform === "electron";
+  // The `app:` protocol check is a fallback for packaged builds where the
+  // preload bridge has not (yet) exposed `window.vellum` — only the Electron
+  // host ever serves the renderer over `app://`.
+  return (
+    typeof window !== "undefined" &&
+    (window.vellum?.platform === "electron" ||
+      window.location.protocol === "app:")
+  );
 }
