@@ -8,6 +8,7 @@ import {
   dispatchToFocused,
   type VellumCommand,
 } from "./commands";
+import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { onSettingChange } from "./settings";
 import { readOnboardingActive } from "./window-state";
@@ -22,6 +23,7 @@ const state: MenuState = {
 
 const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
+  const chromeDevToolsEnabled = areChromeDevToolsEnabled();
 
   const fileItem = (
     label: string,
@@ -114,7 +116,9 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { type: "separator" },
         { role: "reload" },
         { role: "forceReload" },
-        ...(isDev ? [{ role: "toggleDevTools" as const }] : []),
+        ...(chromeDevToolsEnabled
+          ? [{ role: "toggleDevTools" as const }]
+          : []),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
@@ -163,8 +167,8 @@ const applyMenu = (): void => {
  * Toggle Developer Tools at the top level) and lacks the standard macOS
  * shape end users expect.
  *
- * The `View > Toggle Developer Tools` item is gated to dev only so the
- * packaged build doesn't expose devtools to end users.
+ * The `View > Toggle Developer Tools` item is gated to dev/debug builds so a
+ * normal packaged build doesn't expose devtools to end users.
  *
  * Registers an IPC handler so the renderer can publish platform session
  * state, which gates the "Log Out" item in the app menu.

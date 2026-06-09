@@ -48,6 +48,10 @@ const BUILD_DEFINES = {
   __VELLUM_ENVIRONMENT__: JSON.stringify(
     process.env.VELLUM_ENVIRONMENT || "production",
   ),
+  __VELLUM_ENABLE_CHROME_DEVTOOLS__: JSON.stringify(
+    process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
+      process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
+  ),
 };
 
 export default defineConfig({
