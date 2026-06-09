@@ -31,7 +31,7 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       decision: record.decision,
       riskLevel: record.riskLevel,
       matchedTrustRuleId: record.matchedTrustRuleId,
-      skillId: record.skillId ?? null,
+      skillId: record.skillId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
     })

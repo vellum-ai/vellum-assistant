@@ -31,6 +31,12 @@ export interface UnreportedToolExecutionEvent {
  *
  * Rows are written by the tool audit listener
  * (`events/tool-audit-listener.ts`) — there is no record function here.
+ *
+ * Reporting is best-effort: `rotateToolInvocations` purges rows by
+ * `created_at` alone, so rows older than the configured
+ * `auditLog.retentionDays` window may be rotated away before they are
+ * reported (e.g. if the daemon is offline or failing for longer than
+ * the retention window).
  */
 export function queryUnreportedToolExecutionEvents(
   afterCreatedAt: number,
@@ -38,7 +44,7 @@ export function queryUnreportedToolExecutionEvents(
   limit: number,
 ): UnreportedToolExecutionEvent[] {
   const db = getDb();
-  const rows = db
+  return db
     .select({
       id: toolInvocations.id,
       toolName: toolInvocations.toolName,
@@ -64,5 +70,4 @@ export function queryUnreportedToolExecutionEvents(
     .orderBy(asc(toolInvocations.createdAt), asc(toolInvocations.id))
     .limit(limit)
     .all();
-  return rows;
 }

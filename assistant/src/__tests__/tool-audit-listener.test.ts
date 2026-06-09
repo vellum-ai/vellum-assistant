@@ -28,7 +28,7 @@ describe("tool audit listener", () => {
     expect(records[0].decision).toBe("allow");
     expect(records[0].riskLevel).toBe("low");
     expect(records[0].durationMs).toBe(12);
-    expect(records[0].skillId).toBeNull();
+    expect(records[0].skillId).toBeUndefined();
   });
 
   test("records the triggering skill id on terminal events", () => {
@@ -202,6 +202,6 @@ describe("tool audit listener", () => {
     expect(records).toHaveLength(1);
     expect(records[0].result).toBe("error: boom");
     expect(records[0].decision).toBe("error");
-    expect(records[0].skillId).toBeNull();
+    expect(records[0].skillId).toBeUndefined();
   });
 });

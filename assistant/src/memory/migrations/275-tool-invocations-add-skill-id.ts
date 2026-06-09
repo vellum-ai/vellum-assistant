@@ -10,7 +10,7 @@ import { tableHasColumn } from "./schema-introspection.js";
  * persisted before this migration ran.
  *
  * Idempotent — re-running is a no-op once the column exists. Pure DDL with a
- * PRAGMA guard, no registry entry needed (matches the 236 / 273 pattern).
+ * PRAGMA guard, no registry entry needed (matches the 273 pattern).
  */
 export function migrateToolInvocationsSkillId(database: DrizzleDb): void {
   if (tableHasColumn(database, "tool_invocations", "skill_id")) {
