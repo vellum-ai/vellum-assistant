@@ -249,6 +249,7 @@ function seedToolInvocation(overrides: {
   id: string;
   createdAt: number;
   toolName?: string;
+  skillId?: string | null;
   decision?: string;
   riskLevel?: string;
   durationMs?: number;
@@ -273,6 +274,7 @@ function seedToolInvocation(overrides: {
       result: '{"secret":"raw tool output — must never leave the device"}',
       decision: overrides.decision ?? "allow",
       riskLevel: overrides.riskLevel ?? "low",
+      skillId: overrides.skillId ?? null,
       durationMs: overrides.durationMs ?? 42,
       createdAt: overrides.createdAt,
     })
@@ -1297,7 +1299,7 @@ describe("UsageTelemetryReporter", () => {
       daemon_event_id: "ti-flush-1",
       recorded_at: 1700000900000,
       tool_name: "calendar_list_events",
-      // No skill column on tool_invocations yet — always null for now.
+      // Direct (non-skill) tool call — skill_id stays null on the wire.
       skill_id: null,
       decision: "denied",
       risk_level: "high",
@@ -1310,6 +1312,35 @@ describe("UsageTelemetryReporter", () => {
     expect(JSON.stringify(body)).not.toContain("must never leave the device");
     expect(body.events[0].input).toBeUndefined();
     expect(body.events[0].result).toBeUndefined();
+  });
+
+  test("skill-routed tool_invocations flush with a non-null skill_id", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    seedToolInvocation({
+      id: "ti-skill-1",
+      createdAt: 1700000950000,
+      toolName: "task_create",
+      skillId: "tasks-skill",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "tool_execution",
+      tool_name: "task_create",
+      skill_id: "tasks-skill",
+    });
+    // Only the skill id ships — never raw skill arguments or outputs.
+    expect(JSON.stringify(body)).not.toContain("must never leave the device");
   });
 
   test("tool_execution watermark advances to the last reported row on success", async () => {
