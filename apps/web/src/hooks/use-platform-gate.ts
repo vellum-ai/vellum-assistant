@@ -63,8 +63,8 @@ export interface PlatformGateOptions {
  *     `kind: "active", isLocal: true`.
  *
  * Returns `false` for every other lifecycle state (`loading`,
- * `initializing`, `cleaning_up`, `retired`, `platform_hosted`,
- * `error`, and `active` with `isLocal: false`).
+ * `initializing`, `cleaning_up`, `error`, and `active` with
+ * `isLocal: false`).
  */
 function useActiveAssistantIsSelfHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
@@ -86,11 +86,10 @@ function useActiveAssistantIsSelfHosted(): boolean {
  *
  * This helper takes the stricter side: returns `true` only when the
  * lifecycle has positively projected a platform-hosted assistant:
- *   - `kind: "platform_hosted"`, or
  *   - `kind: "active"` with `isLocal: false`.
  *
  * Returns `false` for every other state — including `loading`,
- * `initializing`, `cleaning_up`, `retired`, `self_hosted`, `error`,
+ * `initializing`, `cleaning_up`, `self_hosted`, `error`,
  * and `active` with `isLocal: true`.
  *
  * Pair with the gate value in a query's `enabled`:
@@ -106,7 +105,6 @@ function useActiveAssistantIsSelfHosted(): boolean {
  */
 export function useActiveAssistantIsPlatformHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  if (assistantState.kind === "platform_hosted") return true;
   if (assistantState.kind === "active" && !assistantState.isLocal) return true;
   return false;
 }
@@ -117,7 +115,7 @@ export function useActiveAssistantIsPlatformHosted(): boolean {
  * Use this to compute the **race-window predicate** `isResolving` on
  * platform-hosted-only surfaces. `useActiveAssistantIsPlatformHosted()`
  * returns `false` for both *"resolving"* states AND *"already-resolved
- * non-hosted"* states (`retired`, `error`, `self_hosted`,
+ * non-hosted"* states (`error`, `self_hosted`,
  * `active`+`isLocal:true`). Conflating those breaks UX:
  * a permanent spinner / permanent disabled button in already-decided
  * non-hosted states is not "still loading," it's "no hosted assistant."
@@ -134,7 +132,7 @@ export function useActiveAssistantIsPlatformHosted(): boolean {
  *   platformGate === "full" && useActiveAssistantLifecycleIsLoading();
  * ```
  *
- * Already-resolved non-hosted lifecycle kinds (`retired`, `error`)
+ * Already-resolved non-hosted lifecycle kinds (`error`)
  * should fall through to whatever empty /
  * error UX the surface already has — the gate's `"gated"` branch is
  * reserved for *self-hosted* assistants, and these states aren't
@@ -143,8 +141,8 @@ export function useActiveAssistantIsPlatformHosted(): boolean {
  *
  * Returns `true` for `kind: "loading"` and transitional states
  * (`initializing`, `cleaning_up`) where we don't yet know the terminal
- * outcome. Returns `false` only for already-resolved non-hosted states
- * (`retired`, `error`).
+ * outcome. Returns `false` for already-resolved non-hosted states
+ * (`error`).
  */
 export function useActiveAssistantLifecycleIsLoading(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
