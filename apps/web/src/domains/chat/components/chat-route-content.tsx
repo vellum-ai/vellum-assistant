@@ -50,7 +50,7 @@ import { Button, Notice } from "@vellumai/design-library";
 import { Link, useNavigate } from "react-router";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";

@@ -5,8 +5,7 @@
  * `useSendMessage` and suitable for direct unit testing.
  */
 
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { isSurfaceInteractive, type DisplayMessage } from "@/domains/chat/types/types";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";

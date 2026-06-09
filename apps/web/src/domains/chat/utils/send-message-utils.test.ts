@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import {
   completeSubmittedSurface,

@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
 
 interface UseOnboardingChoiceOptions {

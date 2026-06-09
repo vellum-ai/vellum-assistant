@@ -19,7 +19,6 @@ import { ThinkingBlock } from "@/domains/chat/components/thinking-block";
 import { ThoughtProcessLink } from "@/domains/chat/components/thought-process-link/thought-process-link";
 import { InlineToolLink } from "@/domains/chat/components/inline-activity-link/inline-tool-link";
 import { ActivityRunCard } from "@/domains/chat/components/activity-run-card/activity-run-card";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   WEB_TOOL_NAMES,
   type ToolCallCardItem,
@@ -35,6 +34,7 @@ import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces"
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import {
   getSlackLinkUrl,
+  type DisplayMessage,
   type Surface,
 } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";

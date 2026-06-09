@@ -14,7 +14,7 @@ mock.module(
   }),
 );
 
-import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
 

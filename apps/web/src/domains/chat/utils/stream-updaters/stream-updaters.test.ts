@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import {
@@ -17,7 +17,6 @@ import {
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
-import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {

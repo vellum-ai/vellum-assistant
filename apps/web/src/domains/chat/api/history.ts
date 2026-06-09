@@ -20,7 +20,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
+import { dedupeDisplayMessages } from "@/domains/chat/utils/message-merge";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 

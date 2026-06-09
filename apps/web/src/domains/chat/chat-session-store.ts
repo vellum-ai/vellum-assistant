@@ -29,7 +29,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChatError } from "@/domains/chat/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
