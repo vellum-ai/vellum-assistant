@@ -34,7 +34,7 @@ export interface UseChatHeaderRegistrationOptions {
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleCopyConversation: () => void;
-  refreshLatestMessages: () => void;
+  onRefresh: () => void;
 }
 
 export function useChatHeaderRegistration({
@@ -44,7 +44,7 @@ export function useChatHeaderRegistration({
   handleOpenInNewWindow,
   handleInspectConversation,
   handleCopyConversation,
-  refreshLatestMessages,
+  onRefresh,
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
@@ -80,7 +80,7 @@ export function useChatHeaderRegistration({
     onOpenInNewWindow: handleOpenInNewWindow,
     onInspect: handleInspectConversation,
     onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
-    onRefresh: refreshLatestMessages,
+    onRefresh,
   }), [
     hasPersistedMessage,
     slackHeaderLabel,
@@ -90,7 +90,7 @@ export function useChatHeaderRegistration({
     handleInspectConversation,
     handleCopyConversation,
     messages.length,
-    refreshLatestMessages,
+    onRefresh,
   ]);
 
   useEffect(() => {
