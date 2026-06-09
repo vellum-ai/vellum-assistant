@@ -357,14 +357,21 @@ export const ConversationMessageSchema = z.object({
    */
   role: z.enum(["user", "assistant"]),
   /**
-   * Flat plain-text body (joined text segments). Redundant with
-   * `textSegments`/`contentOrder` for clients that render from the positional
-   * arrays (web, CLI), but the legacy Swift macOS client reads `content`
-   * directly and drops any history row missing it (its
-   * `HistoryReconstructionService` skips rows with empty text). The serializer
-   * always emits it — do not remove without updating that client.
+   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
+   * text segments). Redundant with `textSegments`/`contentOrder` for clients
+   * that render from the positional arrays (web, CLI), but the legacy Swift
+   * macOS client reads `content` directly and drops any history row missing it
+   * (its `HistoryReconstructionService` skips rows with empty text). The
+   * serializer always emits it — do not remove without updating that client.
    */
-  content: z.string().optional(),
+  content: z
+    .string()
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
+    })
+    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   attachments: z.array(ConversationMessageAttachmentSchema),
