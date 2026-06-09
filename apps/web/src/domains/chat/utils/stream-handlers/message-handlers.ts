@@ -5,7 +5,7 @@ import {
   applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import {
   findConversation,

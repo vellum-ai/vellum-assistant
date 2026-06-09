@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 import { PhaseGroupedStepList } from "./phase-grouped-step-list";
 

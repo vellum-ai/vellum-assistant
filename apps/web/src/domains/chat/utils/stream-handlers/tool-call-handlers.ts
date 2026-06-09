@@ -1,7 +1,7 @@
 import {
   applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {

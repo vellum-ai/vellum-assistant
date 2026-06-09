@@ -2,7 +2,7 @@ import {
   clearQueueStatus,
   removeQueuedMessage,
   setQueuePosition,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/shared";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   MessageDequeuedEvent,

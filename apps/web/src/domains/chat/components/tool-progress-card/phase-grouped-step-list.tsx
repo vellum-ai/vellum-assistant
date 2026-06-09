@@ -37,7 +37,7 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { formatMs, type ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import { formatMs, type ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */

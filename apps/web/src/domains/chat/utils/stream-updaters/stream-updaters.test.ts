@@ -2,19 +2,21 @@ import { describe, expect, it } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import {
   appendTextDelta,
   appendThinkingDelta,
-  applyToolResult,
   applyUserMessageEcho,
-  attachSurface,
   createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
   handleConversationError,
-  liveAssistantRowId,
+} from "@/domains/chat/utils/stream-updaters/message-updaters";
+import { attachSurface } from "@/domains/chat/utils/stream-updaters/surface-updaters";
+import {
+  applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";

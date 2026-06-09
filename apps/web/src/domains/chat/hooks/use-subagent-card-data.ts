@@ -43,7 +43,7 @@ import {
   formatMs,
   type ToolCallCardData,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/tool-call-card-utils";
+} from "@/domains/chat/utils/tool-call-card-utils";
 
 export type { ToolCallCardData, ToolCallCardStep };
 

@@ -12,7 +12,7 @@ import {
   computeToolCallCardDataFromItems,
   type ToolCallCardData,
   type ToolCallCardItem,
-} from "@/domains/chat/hooks/tool-call-card-utils";
+} from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
  * React hook flavour of {@link computeToolCallCardData}. Subscribes to the

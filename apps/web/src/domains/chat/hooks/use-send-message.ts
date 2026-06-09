@@ -50,7 +50,7 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";

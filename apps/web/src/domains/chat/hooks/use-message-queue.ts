@@ -17,7 +17,7 @@ import {
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";

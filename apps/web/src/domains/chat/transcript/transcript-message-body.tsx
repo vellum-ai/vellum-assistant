@@ -23,7 +23,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   WEB_TOOL_NAMES,
   type ToolCallCardItem,
-} from "@/domains/chat/hooks/tool-call-card-utils";
+} from "@/domains/chat/utils/tool-call-card-utils";
 import {
   groupMessageActivityRuns,
   isSubagentSpawnCall,

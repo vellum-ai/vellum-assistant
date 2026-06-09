@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { tailIsAssistant } from "@/domains/chat/hooks/stream-message-updaters";
+import { tailIsAssistant } from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";

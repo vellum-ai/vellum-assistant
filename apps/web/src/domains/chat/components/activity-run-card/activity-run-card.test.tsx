@@ -22,7 +22,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { ToolCallCardItem } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 
 // The viewer store and chat-session-store (pulled in transitively) import the

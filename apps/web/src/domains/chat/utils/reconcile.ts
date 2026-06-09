@@ -1,5 +1,5 @@
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
 import { sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";

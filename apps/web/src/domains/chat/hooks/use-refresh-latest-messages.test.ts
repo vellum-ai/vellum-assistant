@@ -100,7 +100,7 @@ import {
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
 } from "@/domains/chat/hooks/use-refresh-latest-messages";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {

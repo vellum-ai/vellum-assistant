@@ -23,7 +23,7 @@ import {
   computeToolCallCardDataFromItems,
   type ToolCallCardItem,
   WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
-} from "@/domains/chat/hooks/tool-call-card-utils";
+} from "@/domains/chat/utils/tool-call-card-utils";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 import type {

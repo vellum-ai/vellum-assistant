@@ -25,7 +25,7 @@ const { InlineToolLink } = await import(
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { toolDetailPayloadFromToolCall } = await import(
-  "@/domains/chat/hooks/tool-call-card-utils"
+  "@/domains/chat/utils/tool-call-card-utils"
 );
 
 const startedAt = 1_717_000_000_000;

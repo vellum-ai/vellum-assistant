@@ -22,7 +22,7 @@ import {
   type UIContext,
 } from "@/domains/chat/turn-selectors";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";

@@ -30,7 +30,7 @@ import {
   type ToolCallCardData,
   type ToolCallCardItem,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/tool-call-card-utils";
+} from "@/domains/chat/utils/tool-call-card-utils";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";

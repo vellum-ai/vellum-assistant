@@ -16,7 +16,7 @@ import { Bolt } from "lucide-react";
 import { InlineActivityLink } from "@/domains/chat/components/inline-activity-link/inline-activity-link";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { toolDetailPayloadFromToolCall } from "@/domains/chat/hooks/tool-call-card-utils";
+import { toolDetailPayloadFromToolCall } from "@/domains/chat/utils/tool-call-card-utils";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 

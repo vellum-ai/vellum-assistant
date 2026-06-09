@@ -15,7 +15,7 @@ import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the

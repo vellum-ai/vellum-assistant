@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { ToolCallCardItem } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
 import { ActivityRunCard, type ActivityRunCardProps } from "./activity-run-card";
 
