@@ -20,6 +20,8 @@ interface ImportMetaEnv {
   readonly VITE_APP_VERSION?: string;
   /** When set, the app runs in platform (cloud-hosted) mode. Unset = local mode. */
   readonly VITE_PLATFORM_MODE?: string;
+  /** When truthy ("1", "true", "yes"), disables platform connectivity in local mode. */
+  readonly VITE_VELLUM_DISABLE_PLATFORM?: string;
   /**
    * Override for the live-voice velay host (no scheme), e.g. `velay.dev.vellum.ai`.
    * Defaults to `velay.vellum.ai` when unset. See `domains/chat/voice/live-voice/connection.ts`.
@@ -37,4 +39,6 @@ interface ImportMeta {
 interface Window {
   /** Feature flag overrides injected by Electron preload or CLI script. */
   __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
+  /** Runtime config injected by the shell (Electron preload, CLI, etc.). */
+  __VELLUM_CONFIG__?: { disablePlatform?: boolean };
 }

@@ -28,6 +28,56 @@ describe("tool audit listener", () => {
     expect(records[0].decision).toBe("allow");
     expect(records[0].riskLevel).toBe("low");
     expect(records[0].durationMs).toBe(12);
+    expect(records[0].skillId).toBeUndefined();
+  });
+
+  test("records the triggering skill id on terminal events", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "task_create",
+      input: { title: "t" },
+      workingDir: "/tmp",
+      conversationId: "conv-skill",
+      skillId: "tasks-skill",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "error",
+      toolName: "task_create",
+      input: { title: "t" },
+      workingDir: "/tmp",
+      conversationId: "conv-skill",
+      skillId: "tasks-skill",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 6,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+    listener({
+      type: "permission_denied",
+      toolName: "task_create",
+      input: { title: "t" },
+      workingDir: "/tmp",
+      conversationId: "conv-skill",
+      skillId: "tasks-skill",
+      riskLevel: "high",
+      decision: "deny",
+      reason: "Permission denied by user",
+      durationMs: 8,
+    });
+
+    expect(records).toHaveLength(3);
+    for (const record of records) {
+      expect(record.skillId).toBe("tasks-skill");
+    }
   });
 
   test("records deny events with expected normalized results", () => {
@@ -152,5 +202,6 @@ describe("tool audit listener", () => {
     expect(records).toHaveLength(1);
     expect(records[0].result).toBe("error: boom");
     expect(records[0].decision).toBe("error");
+    expect(records[0].skillId).toBeUndefined();
   });
 });

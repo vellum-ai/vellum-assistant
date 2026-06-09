@@ -129,6 +129,7 @@ import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
+  type InboundActorContext,
   loadSlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -269,6 +270,18 @@ export class Conversation {
    * another actor's persona mid-turn.
    */
   /** @internal */ currentTurnTrustContext?: TrustContext;
+  /**
+   * The model-facing inbound actor context resolved once at turn start from
+   * {@link currentTurnTrustContext}. Frozen here because resolving it reads the
+   * live contact/member registry (member status/policy, contact notes,
+   * interaction count), which a contact tool or the guardian can mutate
+   * mid-turn; post-compaction re-injection reads this snapshot so it re-emits
+   * the actor context the turn's initial assembly saw rather than re-resolving
+   * against drifted registry state. `null` on guardian turns and when there is
+   * no trust context (the actor section is suppressed).
+   * @internal
+   */
+  currentTurnInboundActorContext?: InboundActorContext | null;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ toolRoutedProfile?: string;

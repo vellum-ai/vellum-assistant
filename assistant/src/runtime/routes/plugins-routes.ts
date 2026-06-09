@@ -128,7 +128,7 @@ const pluginSearchMatchSchema = z.object({
   path: z
     .string()
     .describe(
-      "Human-readable origin: a repo-relative path (`experimental/plugins/<name>`) for first-party plugins or a `github:owner/repo@ref` locator for external ones.",
+      "Human-readable origin: a repo-relative path (`plugins/<name>`) for first-party plugins or a `github:owner/repo@ref` locator for external ones.",
     ),
   description: z
     .string()
@@ -517,7 +517,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Search the plugin catalog",
     description:
-      "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
+      "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
     tags: ["plugins"],
     queryParams: [
       {
@@ -546,7 +546,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Install a plugin",
     description:
-      "Install a plugin by name from the canonical source — a whitelisted `experimental/plugins/marketplace.json` entry, else the first-party `experimental/plugins/<name>/` convention. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace/first-party curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
+      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry, else the first-party `plugins/<name>/` convention. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace/first-party curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
     tags: ["plugins"],
     requestBody: pluginInstallRequestSchema,
     responseBody: pluginInstallResponseSchema,

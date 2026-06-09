@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, hatchAssistant } from "@/assistant/api";
+import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import {
     isPlatformHostedDisabled,
@@ -26,7 +26,9 @@ import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -145,6 +147,7 @@ export function HatchingScreen() {
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
+    let hatchedAssistantId: string | undefined;
     // Whether this run created a brand-new assistant (hatch returned 201). Only
     // a fresh creation may be seeded with a random avatar in the poll path: a
     // returning user whose pre-flight `getAssistant()` fails transiently falls
@@ -318,6 +321,14 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            useResolvedAssistantsStore.getState().upsertFromApi({
+              id: result.assistantId,
+              name: result.assistantId,
+              status: "active",
+              is_local: true,
+              created: new Date().toISOString(),
+            } as Assistant);
+            void selectPlatformAssistant(result.assistantId);
             await persistHatchAvatar(result.assistantId);
             if (cancelled) return;
           }
@@ -340,6 +351,9 @@ export function HatchingScreen() {
         const result = await platformHatchPromise;
         platformHatchPromise = null;
         if (cancelled) return;
+        if (result.ok) {
+          hatchedAssistantId = result.data.id;
+        }
         // 201 = newly created; 200 = an existing assistant was returned.
         createdFreshAssistant = result.ok && result.status === 201;
         if (!result.ok) {
@@ -392,12 +406,21 @@ export function HatchingScreen() {
         return;
       }
       try {
-        const result = await getAssistant();
+        let result = await getAssistant(hatchedAssistantId);
         if (cancelled) return;
+        // If the hatched ID 404s (e.g. stale after refresh, or backend
+        // assigned a different ID), fall back to list-based discovery.
+        if (hatchedAssistantId && !result.ok && result.status === 404) {
+          hatchedAssistantId = undefined;
+          result = await getAssistant();
+          if (cancelled) return;
+        }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
+            useResolvedAssistantsStore.getState().upsertFromApi(result.data);
+            void selectPlatformAssistant(assistantId);
             if (createdFreshAssistant) {
               await persistHatchAvatar(assistantId);
               if (cancelled) return;
@@ -410,6 +433,28 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
+
+            // Wait for the daemon to be reachable before navigating.
+            // The platform may report "active" before the pod is
+            // fully ready to serve requests.
+            transitionPhase("connecting");
+            while (!cancelled) {
+              try {
+                const health = await getAssistantHealthz(assistantId);
+                if (health.ok) break;
+              } catch {
+                // Daemon not reachable yet
+              }
+              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+                setError("Your assistant is taking longer than expected. Please try again.");
+                return;
+              }
+              await new Promise<void>(resolve => {
+                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+              });
+              pollTimer = null;
+            }
+            if (cancelled) return;
           }
 
           handleHatchReady();

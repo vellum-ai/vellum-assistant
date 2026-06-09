@@ -13,7 +13,10 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
-import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
+import {
+  NOW_SCRATCHPAD_STRIP_PREFIXES,
+  stripUserTextBlocksByPrefix,
+} from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
@@ -224,11 +227,17 @@ export function resolveTurnInboundActorContext(
  * call site, and config, so callers thread the key (plain turn data) rather
  * than the rendered string and self-resolve the call site from the live
  * conversation.
+ *
+ * `selectionSeed` is the conversation id, threaded so that a key naming a `mix`
+ * profile expands to the same arm the turn's provider calls run on (which seed
+ * expansion with the same id). Without it the announced model would be a fresh
+ * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
   modelProfileKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
+  selectionSeed?: string,
 ): string | null {
   if (modelProfileKey == null) {
     return null;
@@ -236,6 +245,7 @@ export function resolveTurnModelProfileLabel(
   const profileEntry = llm.profiles?.[modelProfileKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile: modelProfileKey,
+    selectionSeed,
   });
   const label = profileEntry?.label ?? modelProfileKey;
   return resolved.model ? `${label} (${resolved.model})` : label;
@@ -662,12 +672,7 @@ function injectVoiceCallControlContext(
 
 /** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    // Shared prefix catches both the current tag and any pre-line-limit
-    // variant that may linger in in-flight histories during a rolling deploy.
-    "<NOW.md Always keep this up to date",
-    "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  ]);
+  return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
 /**

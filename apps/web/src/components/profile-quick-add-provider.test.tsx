@@ -25,16 +25,6 @@ mock.module("@/stores/resolved-assistants-store", () => {
   return { useResolvedAssistantsStore: store };
 });
 
-// --- feature flag store ------------------------------------------------------
-mock.module("@/stores/assistant-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    openAICompatibleEndpoints: () => false,
-    chatgptSubscriptionAuth: () => false,
-  };
-  return { useAssistantFeatureFlagStore: store };
-});
-
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({

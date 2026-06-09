@@ -11,8 +11,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   createConnection,
@@ -29,17 +27,7 @@ import {
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-function requireFeatureFlag() {
-  const config = getConfigReadOnly();
-  if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
-    throw new BadRequestError(
-      "ChatGPT subscription auth is not enabled for this assistant.",
-    );
-  }
-}
 
 const log = getLogger("chatgpt-subscription-auth");
 
@@ -87,7 +75,6 @@ function cleanupExpiredEntries(): void {
 // ---------------------------------------------------------------------------
 
 async function handleStartAuth(_args: RouteHandlerArgs) {
-  requireFeatureFlag();
   cleanupExpiredEntries();
 
   const codeVerifier = generateCodeVerifier();
@@ -115,7 +102,6 @@ async function handleStartAuth(_args: RouteHandlerArgs) {
 }
 
 async function handleExchange(args: RouteHandlerArgs) {
-  requireFeatureFlag();
   const { code, state } = args.body as { code: string; state: string };
 
   const pending = pendingAuths.get(state);

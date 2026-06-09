@@ -93,7 +93,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   // Compute the most-recent retro per source so we can preserve it.
   // `findMostRecentRetrospectiveFor` (called by the next retrospective run)
   // pulls dedup context from this row; sweeping it would re-introduce the
-  // unbounded-growth bug PR #30331 was created to fix.
+  // unbounded retrospective growth this cleanup exists to prevent.
   const allRetros = db
     .select({
       id: conversations.id,

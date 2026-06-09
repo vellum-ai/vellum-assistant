@@ -1,7 +1,11 @@
 import { Capacitor } from "@capacitor/core";
 
+import { isElectron } from "@/runtime/is-electron";
+
 /**
  * Opens a URL in the most appropriate context:
+ * - Electron: system browser via the main-process `setWindowOpenHandler`
+ *   (which routes `target=_blank` opens to `shell.openExternal`).
  * - Native (Capacitor): `SFSafariViewController` via `@capacitor/browser`,
  *   which keeps the user inside the app and properly handles OAuth / Stripe
  *   redirect flows that would otherwise break out to Safari.
@@ -12,6 +16,10 @@ import { Capacitor } from "@capacitor/core";
  * contexts where the Capacitor runtime is absent.
  */
 export const openUrl = async (url: string): Promise<void> => {
+  if (isElectron()) {
+    window.open(url, "_blank");
+    return;
+  }
   if (Capacitor.isNativePlatform()) {
     try {
       const { Browser } = await import("@capacitor/browser");

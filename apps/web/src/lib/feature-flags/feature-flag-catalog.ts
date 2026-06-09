@@ -22,9 +22,7 @@ export interface FlagDefinition {
 
 const flags = registry.flags as FlagDefinition[];
 
-const STORE_KEY_OVERRIDES: Record<string, string> = {
-  "openai-compatible-endpoints": "openAICompatibleEndpoints",
-};
+const STORE_KEY_OVERRIDES: Record<string, string> = {};
 
 function kebabToStoreKey(kebabKey: string): string {
   const override = STORE_KEY_OVERRIDES[kebabKey];

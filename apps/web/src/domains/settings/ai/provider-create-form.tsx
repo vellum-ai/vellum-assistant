@@ -53,8 +53,6 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
-  openAICompatibleEndpointsEnabled?: boolean;
-  chatgptSubscriptionEnabled?: boolean;
   /** Pre-selected provider type (e.g. when cloning a managed connection). */
   defaultProviderType?: ConnectionProvider;
   /**
@@ -73,8 +71,6 @@ export interface ProviderCreateFormProps {
 export function ProviderCreateForm({
   assistantId,
   existingNames,
-  openAICompatibleEndpointsEnabled = false,
-  chatgptSubscriptionEnabled = false,
   defaultProviderType,
   defaultAuthType,
   onCreated,
@@ -112,14 +108,11 @@ export function ProviderCreateForm({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const connectionProviderOptions = useMemo(() => {
-    const options = openAICompatibleEndpointsEnabled
-      ? CONNECTION_PROVIDERS
-      : CONNECTION_PROVIDERS.filter((p) => p !== "openai-compatible");
-    if (provider && !options.includes(provider)) {
-      return [...options, provider];
+    if (provider && !CONNECTION_PROVIDERS.includes(provider)) {
+      return [...CONNECTION_PROVIDERS, provider];
     }
-    return options;
-  }, [openAICompatibleEndpointsEnabled, provider]);
+    return CONNECTION_PROVIDERS;
+  }, [provider]);
 
   const { handleLabelChange, handleKeyChange: handleNameChange, getDirty } =
     useLabelKeySync("create", setLabel, setName);
@@ -433,7 +426,7 @@ export function ProviderCreateForm({
               types = ["api_key"];
             }
             // Add oauth_subscription when ChatGPT flag is enabled for OpenAI.
-            if (chatgptSubscriptionEnabled && provider === "openai") {
+            if (provider === "openai") {
               types.push("oauth_subscription");
             }
             if (authType && !types.includes(authType)) {

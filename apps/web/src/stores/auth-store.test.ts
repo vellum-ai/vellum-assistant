@@ -142,6 +142,11 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 
 mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
+  useOrganizationStore: {
+    getState: () => ({
+      fetchOrganizations: async () => {},
+    }),
+  },
 }));
 
 // Don't mock `@/lib/event-bus` — bun's `mock.module` is process-

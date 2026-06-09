@@ -116,14 +116,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "chatgpt-subscription-auth",
-      "scope": "assistant",
-      "key": "chatgpt-subscription-auth",
-      "label": "ChatGPT Subscription Auth",
-      "description": "Enable ChatGPT subscription OAuth as a provider auth type for OpenAI models, using the Codex device-code flow.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -161,14 +153,6 @@
       "key": "message-tts",
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
-      "defaultEnabled": false
-    },
-    {
-      "id": "openai-compatible-endpoints",
-      "scope": "assistant",
-      "key": "openai-compatible-endpoints",
-      "label": "OpenAI-Compatible Endpoints",
-      "description": "Enable user-configured OpenAI-compatible inference endpoints with custom base URLs and model identifiers",
       "defaultEnabled": false
     },
     {
@@ -300,14 +284,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "provider-zai",
-      "scope": "assistant",
-      "key": "provider-zai",
-      "label": "z.ai Provider",
-      "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
@@ -337,14 +313,6 @@
       "key": "chat-pull-to-refresh-enabled",
       "label": "Chat Pull to Refresh",
       "description": "Enable pull-to-refresh gesture in the chat view.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "home-page",
-      "scope": "client",
-      "key": "home-page",
-      "label": "Home Page",
-      "description": "Enable the Home page as the default landing view.",
       "defaultEnabled": false
     },
     {
@@ -402,14 +370,6 @@
       "label": "Memory Router Playground",
       "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
       "defaultEnabled": false
-    },
-    {
-      "id": "platform-features-in-local-mode",
-      "scope": "assistant",
-      "key": "platform-features-in-local-mode",
-      "label": "Platform Features in Local Mode",
-      "description": "When enabled, the assistant can call the Vellum platform API from local mode. When disabled, all platform API clients in the daemon, gateway, CES, and web UI no-op with a debug log instead of making outbound requests.",
-      "defaultEnabled": true
     },
     {
       "id": "memory-v3-shadow",

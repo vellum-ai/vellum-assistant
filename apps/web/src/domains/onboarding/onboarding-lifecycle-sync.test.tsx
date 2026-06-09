@@ -98,6 +98,7 @@ mock.module("@/assistant/lifecycle-service", () => ({
 mock.module("@/assistant/api", () => ({
   hatchAssistant: hatchAssistantMock,
   getAssistant: getAssistantMock,
+  getAssistantHealthz: async () => ({ ok: true, status: 200, data: { status: "ok" } }),
 }));
 
 mock.module("@/assistant/avatar-api", () => ({
@@ -207,6 +208,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
+  setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   getLocalGatewayUrl: () => undefined,
@@ -214,6 +216,26 @@ mock.module("@/lib/local-mode", () => ({
 
 mock.module("@/runtime/local-mode-host", () => ({
   hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+}));
+
+mock.module("@/assistant/select-platform-assistant", () => ({
+  selectPlatformAssistant: async () => {},
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({
+      assistants: [],
+      activeAssistantId: null,
+      upsertFromApi: () => {},
+      setActiveAssistantId: () => {},
+    }),
+    use: {
+      assistants: () => [],
+      activeAssistantId: () => null,
+      selectedPlatformAssistantByOrg: () => ({}),
+    },
+  },
 }));
 
 mock.module("@/stores/client-feature-flag-store", () => ({

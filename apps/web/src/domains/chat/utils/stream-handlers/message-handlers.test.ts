@@ -12,6 +12,9 @@ import {
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { findConversation } from "@/utils/conversation-cache";
+import type { Conversation } from "@/types/conversation-types";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -21,6 +24,28 @@ describe("handleAssistantTurnStart", () => {
       ctx,
     );
     expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
+  });
+
+  it("patches the cached conversation's isProcessing to true so 0.8.8+ reads the server flag", () => {
+    // GIVEN a cached conversation row the daemon last reported as idle
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey("ast-1"),
+      [{ conversationId: "conv-1", isProcessing: false }],
+    );
+
+    // WHEN the daemon emits the turn's first start signal
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-A" },
+      ctx,
+    );
+
+    // THEN the cached server-snapshot flag is brought fresh to true — the
+    // symmetric counterpart to the terminal handlers' false-patch — so
+    // clients reading `conversation.isProcessing` see the live turn
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(true);
   });
 });
 
@@ -34,6 +59,27 @@ describe("handleAssistantTextDelta", () => {
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.onTextDelta).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
+  });
+
+  it("flips the cached conversation's isProcessing to true when the start event was missed", () => {
+    // GIVEN a cached conversation that never saw assistant_turn_start
+    // (e.g. the start event was dropped on a reconnect)
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey("ast-1"),
+      [{ conversationId: "conv-1", isProcessing: false }],
+    );
+
+    // WHEN the first text delta lands
+    handleAssistantTextDelta(
+      { type: "assistant_text_delta", text: "Hello" },
+      ctx,
+    );
+
+    // THEN the cached server-snapshot flag is brought fresh to true
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(true);
   });
 
   it("creates a new bubble when there is no assistant tail to fold into", () => {

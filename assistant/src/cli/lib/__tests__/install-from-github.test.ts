@@ -45,7 +45,7 @@ const DOWNLOAD_HOST = "https://files.test/";
  * Build a `fetch` that serves the GitHub Contents API from an in-memory tree.
  *
  * `tree` is keyed by full canonical-repo path (e.g.
- * `experimental/plugins/simple-memory/package.json`) and maps each entry to a
+ * `plugins/simple-memory/package.json`) and maps each entry to a
  * file's content (`string`/`Uint8Array`) or `null` for an explicit directory.
  * Directory listings are derived from the key set; file `download_url`s point
  * at {@link DOWNLOAD_HOST} and are served with the stored bytes.
@@ -64,7 +64,7 @@ function makeContentsFetch(opts: {
    */
   manifestStatus?: number;
 }): FetchLike {
-  const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/experimental/plugins/marketplace.json`;
+  const MANIFEST_URL = `https://api.github.com/repos/${CANON_REPO}/contents/plugins/marketplace.json`;
   const CONTENTS = `https://api.github.com/repos/${CANON_REPO}/contents/`;
   const { tree } = opts;
 
@@ -136,13 +136,13 @@ function makeContentsFetch(opts: {
   }) as FetchLike;
 }
 
-/** First-party fixture: keys are relative to `experimental/plugins/`. */
+/** First-party fixture: keys are relative to `plugins/`. */
 function fixtureFetch(
   tree: Record<string, Uint8Array | string | null>,
 ): FetchLike {
   const full: Record<string, Uint8Array | string | null> = {};
   for (const [key, value] of Object.entries(tree)) {
-    full[`experimental/plugins/${key}`] = value;
+    full[`plugins/${key}`] = value;
   }
   return makeContentsFetch({ tree: full });
 }
@@ -200,12 +200,12 @@ const unusedGitRunner: GitRunner = async (args) => {
  * Read the real, committed caveman adapter stub from the repo so the
  * integration test exercises the adapter that ships rather than a fixture
  * copy that could drift from it. Returns every stub file keyed by its
- * Contents-API path (`experimental/plugins/caveman/<rel>`) so the fetch fake
+ * Contents-API path (`plugins/caveman/<rel>`) so the fetch fake
  * serves the whole stub — package.json, the adapter, and its templates — to
  * the real postinstall runner. Resolves the stub relative to this test file.
  */
 function readRealCavemanStub(): Record<string, string> {
-  const repoRel = "experimental/plugins/caveman";
+  const repoRel = "plugins/caveman";
   const stubDir = join(import.meta.dir, "../../../../../", repoRel);
   const tree: Record<string, string> = {};
   const walk = (relDir: string): void => {
@@ -458,9 +458,7 @@ describe("installPlugin — first-party", () => {
     const base = fixtureFetch({ "demo/package.json": "{}" });
     const fetch: FetchLike = async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
-      const match = /\/contents\/experimental\/plugins\/demo\?ref=([^&]+)/.exec(
-        url,
-      );
+      const match = /\/contents\/plugins\/demo\?ref=([^&]+)/.exec(url);
       if (match) listRef = decodeURIComponent(match[1]!);
       return base(url, init);
     };
@@ -489,7 +487,7 @@ describe("installPlugin — first-party", () => {
           JSON.stringify([
             {
               name: "../escape",
-              path: "experimental/plugins/demo/../escape",
+              path: "plugins/demo/../escape",
               type: "file",
               download_url: `${DOWNLOAD_HOST}escape`,
             },
@@ -685,7 +683,7 @@ describe("installPlugin — marketplace resolution", () => {
 
   test("overlays a curated adapter stub and runs its postinstall transform", async () => {
     // GIVEN caveman is whitelisted externally
-    // AND we curate an adapter stub for it at experimental/plugins/caveman —
+    // AND we curate an adapter stub for it at plugins/caveman —
     // the real, committed stub (package.json + postinstall.ts + templates), so
     // this test exercises the adapter that ships, not a fixture copy of it
     const fetch = makeContentsFetch({
@@ -897,7 +895,7 @@ describe("installPlugin — marketplace resolution", () => {
 
   test("does not run a postinstall for a raw clone without an adapter stub", async () => {
     // GIVEN caveman is whitelisted but we curate NO adapter stub for it
-    // (the Contents API has no experimental/plugins/caveman directory)
+    // (the Contents API has no plugins/caveman directory)
     const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
     const runGit = fakeGitRunner({
       tree: { "package.json": '{"name":"caveman"}', "hooks/init.ts": "//" },
@@ -925,11 +923,11 @@ describe("installPlugin — marketplace resolution", () => {
     // GIVEN a whitelisted plugin with a curated stub declaring a postinstall
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/postinstall.ts": "// adapter",
+        "plugins/caveman/postinstall.ts": "// adapter",
       },
       manifest: CAVEMAN_MANIFEST,
     });
@@ -959,7 +957,7 @@ describe("installPlugin — marketplace resolution", () => {
     // rather than the supported `bun <script>` adapter convention
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "rm -rf /" },
         }),
@@ -990,11 +988,11 @@ describe("installPlugin — marketplace resolution", () => {
     // with a postinstall + adapter script, but no hooks/tools of its own)
     const fetch = makeContentsFetch({
       tree: {
-        "experimental/plugins/caveman/package.json": JSON.stringify({
+        "plugins/caveman/package.json": JSON.stringify({
           name: "caveman",
           scripts: { postinstall: "bun ./postinstall.ts" },
         }),
-        "experimental/plugins/caveman/postinstall.ts": "// adapter",
+        "plugins/caveman/postinstall.ts": "// adapter",
       },
       manifestStatus: 500,
     });
