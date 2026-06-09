@@ -350,7 +350,7 @@ export function useOAuthConnect({
           );
           if (storedCompletion) {
             const parsed = parseOAuthCompletePayload(storedCompletion);
-            if (parsed) {
+            if (parsed && parsed.requestId === pendingRequest.requestId) {
               handleOAuthCompletePayload(parsed);
               window.localStorage.removeItem(
                 oauthCompletionStorageKey(pendingRequest.requestId),
