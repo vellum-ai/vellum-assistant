@@ -13,7 +13,7 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -23,12 +23,14 @@ import type {
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import {
   createContextWindowManager,
   disposeContextWindowManager,
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
 import type { PostCompactContext } from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   Message,
   Provider,
@@ -37,25 +39,25 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 
-// The agent loop invokes the default post-compaction re-injection hook directly
-// when it compacts in place. Stub it so these unit tests can drive the
-// re-injection result without the daemon-level injector chain. The hook writes
-// the re-injected history back onto the context; tests assign `postCompactImpl`
-// to observe the call or force a failure; when unset the hook leaves the
-// history it was handed untouched.
+// The agent loop runs the default post-compaction re-injection through the
+// `post-compact` hook chain when it compacts in place. Register a test hook on
+// that chain so these unit tests can drive the re-injection result without the
+// daemon-level injector. The hook writes the re-injected history back onto the
+// context; tests assign `postCompactImpl` to observe the call or force a
+// failure; when unset the hook leaves the history it was handed untouched.
 let postCompactImpl:
   | ((input: PostCompactContext) => Promise<Message[]>)
   | null = null;
-mock.module(
-  "../plugins/defaults/memory-retrieval/hooks/post-compact.js",
-  () => ({
-    default: async (input: PostCompactContext): Promise<void> => {
+registerPlugin({
+  manifest: { name: "test-post-compact", version: "0.0.0" },
+  hooks: {
+    [HOOKS.POST_COMPACT]: async (input: PostCompactContext): Promise<void> => {
       input.history = postCompactImpl
         ? await postCompactImpl(input)
         : input.history;
     },
-  }),
-);
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
