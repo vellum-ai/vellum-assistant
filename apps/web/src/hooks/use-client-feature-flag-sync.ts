@@ -5,6 +5,7 @@ import { featureFlagsClientFlagValuesRetrieve } from "@/generated/api/sdk.gen";
 import type { ClientFeatureFlagsResponse } from "@/generated/api/types.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
@@ -44,11 +45,12 @@ function mapFlags(
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
+  const isOrgReady = useIsOrgReady();
   const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
-    enabled,
+    enabled: enabled && isOrgReady,
     ...freshness,
     retry: 1,
   });

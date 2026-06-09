@@ -417,5 +417,9 @@ declare global {
  * use `isNativePlatform` from `@/runtime/native-auth.js` instead.
  */
 export function isElectron(): boolean {
-  return typeof window !== "undefined" && window.vellum?.platform === "electron";
+  return (
+    typeof window !== "undefined" &&
+    (window.vellum?.platform === "electron" ||
+      window.location.protocol === "app:")
+  );
 }

@@ -52,6 +52,19 @@ describe("planPlatformForward", () => {
     );
   });
 
+  test("rewrites browser allauth requests to app allauth when a session token is available", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/browser/v1/auth/session"),
+      PLATFORM,
+      { sessionToken: "main-session-token" },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.url).toBe(
+      "https://platform.vellum.ai/_allauth/app/v1/auth/session",
+    );
+    expect(plan.headers.get("X-Session-Token")).toBe("main-session-token");
+  });
+
   test("forwards /accounts/* requests to platform", () => {
     const plan = planPlatformForward(
       request("/accounts/login"),
@@ -173,6 +186,18 @@ describe("planPlatformForward", () => {
     expect(plan.headers.get("authorization")).toBe("Bearer api-token");
     expect(plan.headers.get("content-type")).toBe("application/json");
     expect(plan.headers.get("x-csrftoken")).toBe("csrf123");
+  });
+
+  test("preserves renderer session token when already present", () => {
+    const plan = planPlatformForward(
+      request("/_allauth/app/v1/auth/session", {
+        headers: { "X-Session-Token": "renderer-session-token" },
+      }),
+      PLATFORM,
+      { sessionToken: "main-session-token" },
+    );
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.headers.get("X-Session-Token")).toBe("renderer-session-token");
   });
 
   test("marks POST/PUT/PATCH/DELETE as hasBody, GET/HEAD as no body", () => {

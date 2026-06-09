@@ -31,9 +31,12 @@ export interface PlatformForwardAllowedOrigin {
 
 export interface PlatformForwardOptions {
   allowedOrigin?: PlatformForwardAllowedOrigin;
+  sessionToken?: string | null;
 }
 
 const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
+const BROWSER_ALLAUTH_PREFIX = "/_allauth/browser/";
+const APP_ALLAUTH_PREFIX = "/_allauth/app/";
 
 function isPlatformPath(pathname: string): boolean {
   return PLATFORM_PREFIXES.some(
@@ -56,6 +59,16 @@ function isAllowedSource(
 
 function isUnsafeMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function platformPathnameForForward(
+  pathname: string,
+  sessionToken?: string | null,
+): string {
+  if (sessionToken && pathname.startsWith(BROWSER_ALLAUTH_PREFIX)) {
+    return `${APP_ALLAUTH_PREFIX}${pathname.slice(BROWSER_ALLAUTH_PREFIX.length)}`;
+  }
+  return pathname;
 }
 
 function getInitiatorTrust(
@@ -110,12 +123,19 @@ export function planPlatformForward(
   }
 
   const target = new URL(platformUrl);
+  const pathname = platformPathnameForForward(
+    url.pathname,
+    options.sessionToken,
+  );
   const headers = new Headers(request.headers);
   headers.set("origin", target.origin);
+  if (options.sessionToken && !headers.has("X-Session-Token")) {
+    headers.set("X-Session-Token", options.sessionToken);
+  }
 
   return {
     kind: "forward",
-    url: `${target.origin}${url.pathname}${url.search}`,
+    url: `${target.origin}${pathname}${url.search}`,
     method: request.method,
     headers,
     hasBody: request.method !== "GET" && request.method !== "HEAD",

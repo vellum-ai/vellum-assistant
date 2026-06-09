@@ -1,5 +1,6 @@
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { getElectronSessionToken } from "@/runtime/session-token";
 
 /**
  * Gate for queries that need the `Vellum-Organization-Id` header.
@@ -9,5 +10,9 @@ import { useOrganizationStore } from "@/stores/organization-store";
 export function useIsOrgReady(): boolean {
   const currentOrgId = useOrganizationStore.use.currentOrganizationId();
   const hasPlatformSession = useHasPlatformSession();
-  return !hasPlatformSession || currentOrgId != null;
+  const hasElectronSessionToken = getElectronSessionToken() != null;
+  return (
+    (!hasPlatformSession && !hasElectronSessionToken) ||
+    currentOrgId != null
+  );
 }
