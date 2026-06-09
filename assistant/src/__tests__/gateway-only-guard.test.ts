@@ -88,6 +88,7 @@ function isGatewayInternal(filePath: string): boolean {
 /** Additional files allowed for the interpolated-port check only (use gateway port, not runtime). */
 const INTERPOLATED_PORT_ALLOWLIST = new Set([
   "apps/macos/src/main/bundle-flow.ts",
+  "apps/macos/src/main/host-proxy-router.ts",
 ]);
 
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
