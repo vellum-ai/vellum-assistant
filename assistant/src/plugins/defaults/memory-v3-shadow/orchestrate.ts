@@ -38,7 +38,6 @@
  */
 
 import type { AssistantConfig } from "../../../config/schema.js";
-import { renderCard } from "./card.js";
 import { denseLane } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -74,9 +73,10 @@ export interface OrchestrateDeps {
   hotSlugs: Slug[];
   /** Pre-rendered FULL cards for the stable-prefix slugs, keyed by slug.
    *  Rendered ONCE at lane init so the selector's stable prefix is
-   *  byte-identical across turns (the cache contract). A missing entry
-   *  degrades to a header-only card. */
-  prefixCards?: ReadonlyMap<Slug, string>;
+   *  byte-identical across turns (the cache contract). Every core/hot slug
+   *  MUST have an entry — a missing card is a lane-init bug and throws
+   *  (silently degrading would violate the byte-stable-prefix contract). */
+  prefixCards: ReadonlyMap<Slug, string>;
   /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
@@ -254,10 +254,19 @@ export async function orchestrate(
   // its own snippet line so its CURRENT relevance stays visible; `selectPool`
   // dedupes selections by slug. Finder candidates with no match text fall
   // back to the page's lead-section snippet.
-  const stable: StableCandidate[] = [...core, ...hot].map((slug) => ({
-    slug,
-    card: deps.prefixCards?.get(slug) ?? renderCard(slug, ""),
-  }));
+  const stable: StableCandidate[] = [...core, ...hot].map((slug) => {
+    const card = deps.prefixCards.get(slug);
+    if (card === undefined) {
+      // Lane init renders a card for every core/hot slug; a hole here means
+      // the lanes and the card map are out of sync. Throw rather than render
+      // a degraded card — the caller (observeTurn) logs and skips the turn,
+      // which is better than silently breaking the byte-stable prefix.
+      throw new Error(
+        `memory-v3: no pre-rendered card for stable-prefix slug "${slug}"`,
+      );
+    }
+    return { slug, card };
+  });
   const finderTail: PoolCandidate[] = finder.map((c) => ({
     slug: c.slug,
     descriptor:

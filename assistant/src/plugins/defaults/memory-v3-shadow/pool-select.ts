@@ -43,6 +43,7 @@
 
 import { z } from "zod";
 
+import { cachedTextBlock } from "../../../providers/cache-control.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -165,23 +166,6 @@ function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
       : `[${id}] ${c.slug}`;
   });
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
-}
-
-/**
- * Build a text content block carrying an ephemeral `cache_control` breakpoint
- * with a 1h TTL. The internal `ContentBlock` type intentionally omits the
- * field (only the Anthropic provider transforms it onto the wire), so reach
- * through a `Record` cast — same pattern as the v2 router and `client.ts`.
- * The 1h TTL matches the provider's auto-applied breakpoints; Haiku models
- * have the `ttl` stripped provider-side.
- */
-function cachedTextBlock(text: string): ContentBlock {
-  const block: ContentBlock = { type: "text", text };
-  (block as unknown as Record<string, unknown>).cache_control = {
-    type: "ephemeral",
-    ttl: "1h",
-  };
-  return block;
 }
 
 /** Dedupe selections by slug, preserving first-seen order and ORing pinned

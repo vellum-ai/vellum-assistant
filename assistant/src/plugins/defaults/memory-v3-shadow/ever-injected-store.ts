@@ -43,7 +43,12 @@ export interface EverInjectedEntry {
   prunedAt: number | null;
 }
 
-/** The full per-conversation record, pruned rows included. */
+/**
+ * The full per-conversation record, pruned rows included. Test oracle only —
+ * no production code path reads it; production consumers use the narrower
+ * accessors ({@link getActiveSlugs}, {@link getActiveEntries},
+ * {@link getPrunedSlugs}, {@link residentBytes}).
+ */
 export function getInjected(
   conversationId: string,
 ): Map<string, EverInjectedEntry> {
