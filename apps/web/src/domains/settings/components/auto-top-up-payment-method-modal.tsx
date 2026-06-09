@@ -250,15 +250,19 @@ function SetupCardForm({
     <form onSubmit={handleSubmit} className="space-y-6 pt-4">
       <PaymentElement
         onReady={() => setElementReady(true)}
+        onLoadError={() =>
+          setError("Failed to load the payment form. Please try again.")
+        }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
           paymentMethodOrder: ["card", "us_bank_account"],
           // The Address Element below owns the billing address (so the saved
-          // PM carries billing_details.address for tax); suppress the Payment
-          // Element's own address inputs to avoid a duplicate postal-code
-          // field. Name/email stay with the Payment Element where the chosen
-          // payment method needs them.
-          fields: { billingDetails: { address: "never" } },
+          // PM carries billing_details.address for tax) and unconditionally
+          // collects a name; suppress the Payment Element's own name and
+          // address inputs to avoid duplicate "Full name" (us_bank_account)
+          // and postal-code fields. Email stays with the Payment Element —
+          // the Address Element doesn't collect it.
+          fields: { billingDetails: { name: "never", address: "never" } },
         }}
       />
       {/*
@@ -270,10 +274,11 @@ function SetupCardForm({
       */}
       <AddressElement
         onReady={() => setAddressElementReady(true)}
+        onLoadError={() =>
+          setError("Failed to load the billing address form. Please try again.")
+        }
         options={{
           mode: "billing",
-          // Full billing address is fine and more tax-complete, but country +
-          // postal code are the load-bearing fields the Django side requires.
           fields: { phone: "never" },
         }}
       />
