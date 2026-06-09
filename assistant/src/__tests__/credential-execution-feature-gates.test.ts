@@ -157,7 +157,7 @@ describe("CES flags respect explicit false overrides", () => {
 // ---------------------------------------------------------------------------
 
 describe("CES flags do not affect unrelated flags", () => {
-  test("enabling all CES flags does not change declared default-enabled flags", () => {
+  test("enabling all CES flags does not change other declared flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -165,10 +165,8 @@ describe("CES flags do not affect unrelated flags", () => {
     setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // account-deletion defaults to true in the registry and should stay true.
-    expect(isAssistantFeatureFlagEnabled("account-deletion", config)).toBe(
-      true,
-    );
+    // auto-analyze defaults to false and should stay false.
+    expect(isAssistantFeatureFlagEnabled("auto-analyze", config)).toBe(false);
   });
 
   test("enabling all CES flags does not change unrelated fail-closed flags", () => {
