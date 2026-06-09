@@ -29,6 +29,8 @@ import {
 } from "../../../daemon/conversation-media-retry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../../../providers/types.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import { defaultCompact } from "./compact.js";
 import type {
   ContextWindowCompactOptions,
   ContextWindowResult,
@@ -94,17 +96,16 @@ export interface ReducerConfig {
   targetTokens: number;
   /** Pre-computed tool token budget to include in estimations. */
   toolTokenBudget?: number;
+  /**
+   * Conversation whose {@link ContextWindowManager} the forced-compaction tier
+   * resolves from the compaction store to run the summary call.
+   */
+  conversationId: string;
+  /** Per-conversation inference-profile override for the summary call. */
+  overrideProfile?: string | null;
+  /** Trust class of the actor whose turn triggered overflow recovery. */
+  actorTrustClass?: TrustClass;
 }
-
-/**
- * Compaction callback — the reducer does not own the ContextWindowManager
- * instance, so the caller provides a function that performs compaction.
- */
-export type CompactFn = (
-  messages: Message[],
-  signal: AbortSignal | undefined,
-  options: ContextWindowCompactOptions,
-) => Promise<ContextWindowResult>;
 
 // Aggressive truncation cap for tool results during overflow recovery.
 // Much tighter than the normal per-result budget.
@@ -121,14 +122,13 @@ export async function reduceContextOverflow(
   messages: Message[],
   config: ReducerConfig,
   state: ReducerState | undefined,
-  compactFn: CompactFn,
   signal?: AbortSignal,
 ): Promise<ReducerStepResult> {
   const applied = state?.appliedTiers ?? [];
 
   // Tier 1: forced compaction
   if (!applied.includes("forced_compaction")) {
-    return applyForcedCompaction(messages, config, applied, compactFn, signal);
+    return applyForcedCompaction(messages, config, applied, signal);
   }
 
   // Tier 2: aggressive tool-result truncation
@@ -167,7 +167,6 @@ async function applyForcedCompaction(
   messages: Message[],
   config: ReducerConfig,
   applied: ReducerTier[],
-  compactFn: CompactFn,
   signal?: AbortSignal,
 ): Promise<ReducerStepResult> {
   const compactionOptions: ContextWindowCompactOptions = {
@@ -175,7 +174,14 @@ async function applyForcedCompaction(
     minKeepRecentUserTurns: 0,
   };
 
-  const result = await compactFn(messages, signal, compactionOptions);
+  const result = await defaultCompact({
+    conversationId: config.conversationId,
+    messages,
+    signal,
+    ...compactionOptions,
+    overrideProfile: config.overrideProfile ?? null,
+    actorTrustClass: config.actorTrustClass,
+  });
   const nextMessages = result.compacted ? result.messages : messages;
   const estimatedTokens = result.compacted
     ? result.estimatedInputTokens

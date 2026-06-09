@@ -1,18 +1,30 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { estimatePromptTokens } from "../context/token-estimator.js";
+import type { CompactionContext } from "../plugins/defaults/compaction/compact.js";
+import type { Message } from "../providers/types.js";
+
+const SYSTEM_PROMPT = "You are a helpful assistant.";
+
+// The reducer's forced-compaction tier calls `defaultCompact`, which resolves
+// the conversation's ContextWindowManager from the compaction store. Tests
+// drive `compactImpl` to exercise tier progression without a live manager.
+let compactImpl: (context: CompactionContext) => Promise<ContextWindowResult>;
+
+mock.module("../plugins/defaults/compaction/compact.js", () => ({
+  defaultCompact: (context: CompactionContext) => compactImpl(context),
+}));
+
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerConfig,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowResult,
+import {
+  type ContextWindowResult,
+  createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
-import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
-import type { Message } from "../providers/types.js";
 
 function msg(role: "user" | "assistant", text: string): Message {
   return { role, content: [{ type: "text", text }] };
@@ -48,8 +60,6 @@ function imageMsg(): Message {
   };
 }
 
-const SYSTEM_PROMPT = "You are a helpful assistant.";
-
 function makeConfig(overrides?: Partial<ReducerConfig>): ReducerConfig {
   return {
     providerName: "mock",
@@ -69,21 +79,16 @@ function makeConfig(overrides?: Partial<ReducerConfig>): ReducerConfig {
       },
     },
     targetTokens: 1000,
+    conversationId: "conv-overflow-test",
     ...overrides,
   };
 }
 
 /**
- * Create a mock compaction function that replaces messages with a summary.
+ * Install a compaction stub that replaces messages with a summary.
  */
-function makeCompactFn(
-  summaryText = "## Goals\n- compacted summary",
-): (
-  messages: Message[],
-  signal: AbortSignal | undefined,
-  options: ContextWindowCompactOptions,
-) => Promise<ContextWindowResult> {
-  return async (messages, _signal, _options) => {
+function useCompacting(summaryText = "## Goals\n- compacted summary"): void {
+  compactImpl = async ({ messages }: CompactionContext) => {
     const summaryMsg = createContextSummaryMessage(summaryText);
     const compactedMessages = [summaryMsg];
     const estimatedInputTokens = estimatePromptTokens(
@@ -109,20 +114,16 @@ function makeCompactFn(
       summaryOutputTokens: 50,
       summaryModel: "mock-model",
       summaryText,
-    };
+    } satisfies ContextWindowResult;
   };
 }
 
 /**
- * Create a compact function that does not compact (simulates compaction
- * being unable to reduce further).
+ * Install a compaction stub that cannot reduce (simulates compaction being
+ * unable to make progress).
  */
-function makeNoOpCompactFn(): (
-  messages: Message[],
-  signal: AbortSignal | undefined,
-  options: ContextWindowCompactOptions,
-) => Promise<ContextWindowResult> {
-  return async (messages, _signal, _options) => {
+function useNoOpCompacting(): void {
+  compactImpl = async ({ messages }: CompactionContext) => {
     const estimatedInputTokens = estimatePromptTokens(messages, SYSTEM_PROMPT, {
       providerName: "mock",
     });
@@ -141,7 +142,7 @@ function makeNoOpCompactFn(): (
       summaryModel: "",
       summaryText: "",
       reason: "unable to compact",
-    };
+    } satisfies ContextWindowResult;
   };
 }
 
@@ -164,7 +165,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       let state: ReducerState | undefined;
       let prevTokens = Infinity;
@@ -177,7 +178,6 @@ describe("context-overflow-reducer", () => {
           currentMessages,
           config,
           state,
-          compactFn,
         );
 
         // Each step should either reduce tokens or advance tier state
@@ -210,7 +210,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       let currentMessages = messages;
       let state: ReducerState | undefined;
@@ -221,7 +221,6 @@ describe("context-overflow-reducer", () => {
           currentMessages,
           config,
           state,
-          compactFn,
         );
         tokenHistory.push(result.estimatedTokens);
         currentMessages = result.messages;
@@ -243,7 +242,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       // Exhaust all tiers first
       let currentMessages = messages;
@@ -253,7 +252,6 @@ describe("context-overflow-reducer", () => {
           currentMessages,
           config,
           state,
-          compactFn,
         );
         currentMessages = result.messages;
         state = result.state;
@@ -264,7 +262,6 @@ describe("context-overflow-reducer", () => {
         currentMessages,
         config,
         state,
-        compactFn,
       );
 
       expect(finalResult.state.exhausted).toBe(true);
@@ -283,14 +280,9 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const noOpCompact = makeNoOpCompactFn();
+      useNoOpCompacting();
 
-      const result = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        noOpCompact,
-      );
+      const result = await reduceContextOverflow(messages, config, undefined);
 
       expect(result.tier).toBe("forced_compaction");
       expect(result.state.appliedTiers).toContain("forced_compaction");
@@ -311,20 +303,14 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeNoOpCompactFn();
+      useNoOpCompacting();
 
       // Skip compaction, apply tool-result truncation
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const step1 = await reduceContextOverflow(messages, config, undefined);
       const step2 = await reduceContextOverflow(
         step1.messages,
         config,
         step1.state,
-        compactFn,
       );
 
       expect(step2.tier).toBe("tool_result_truncation");
@@ -352,7 +338,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeNoOpCompactFn();
+      useNoOpCompacting();
 
       let currentMessages = messages;
       let state: ReducerState | undefined;
@@ -361,7 +347,6 @@ describe("context-overflow-reducer", () => {
           currentMessages,
           config,
           state,
-          compactFn,
         );
         currentMessages = result.messages;
         state = result.state;
@@ -399,7 +384,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       // Run 1
       const run1Tiers: string[] = [];
@@ -407,7 +392,7 @@ describe("context-overflow-reducer", () => {
       let state1: ReducerState | undefined;
       let msgs1 = messages;
       while (!state1?.exhausted) {
-        const r = await reduceContextOverflow(msgs1, config, state1, compactFn);
+        const r = await reduceContextOverflow(msgs1, config, state1);
         run1Tiers.push(r.tier);
         run1Tokens.push(r.estimatedTokens);
         msgs1 = r.messages;
@@ -420,7 +405,7 @@ describe("context-overflow-reducer", () => {
       let state2: ReducerState | undefined;
       let msgs2 = messages;
       while (!state2?.exhausted) {
-        const r = await reduceContextOverflow(msgs2, config, state2, compactFn);
+        const r = await reduceContextOverflow(msgs2, config, state2);
         run2Tiers.push(r.tier);
         run2Tokens.push(r.estimatedTokens);
         msgs2 = r.messages;
@@ -440,7 +425,7 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       let state: ReducerState | undefined;
       let currentMessages = messages;
@@ -451,7 +436,6 @@ describe("context-overflow-reducer", () => {
           currentMessages,
           config,
           state,
-          compactFn,
         );
         injectionModes.push(result.state.injectionMode);
         currentMessages = result.messages;
@@ -512,22 +496,16 @@ describe("context-overflow-reducer", () => {
       const config = makeConfig({
         targetTokens: 500_000,
       });
-      const compactFn = makeNoOpCompactFn();
+      useNoOpCompacting();
 
       // Run through forced_compaction and tool_result_truncation first
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const step1 = await reduceContextOverflow(messages, config, undefined);
       expect(step1.tier).toBe("forced_compaction");
 
       const step2 = await reduceContextOverflow(
         step1.messages,
         config,
         step1.state,
-        compactFn,
       );
       expect(step2.tier).toBe("tool_result_truncation");
 
@@ -536,7 +514,6 @@ describe("context-overflow-reducer", () => {
         step2.messages,
         config,
         step2.state,
-        compactFn,
       );
       expect(step3.tier).toBe("media_stubbing");
 
@@ -570,14 +547,9 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
-      const result = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const result = await reduceContextOverflow(messages, config, undefined);
 
       expect(result.tier).toBe("forced_compaction");
       expect(result.compactionResult).toBeDefined();
@@ -594,20 +566,14 @@ describe("context-overflow-reducer", () => {
       ];
 
       const config = makeConfig();
-      const compactFn = makeCompactFn();
+      useCompacting();
 
       // Skip past compaction tier
-      const step1 = await reduceContextOverflow(
-        messages,
-        config,
-        undefined,
-        compactFn,
-      );
+      const step1 = await reduceContextOverflow(messages, config, undefined);
       const step2 = await reduceContextOverflow(
         step1.messages,
         config,
         step1.state,
-        compactFn,
       );
 
       expect(step2.tier).toBe("tool_result_truncation");

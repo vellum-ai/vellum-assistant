@@ -78,7 +78,6 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
-import type { ContextWindowCompactOptions } from "../plugins/defaults/compaction/window-manager.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import userPromptSubmitMemoryRetrieval, {
   type MemoryRetrievalHookContext,
@@ -1290,17 +1289,11 @@ export async function runAgentLoopImpl(
             contextWindow: resolveCurrentContextWindowConfig(),
             targetTokens: correctedTarget,
             toolTokenBudget,
+            conversationId: ctx.conversationId,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: resolveTurnActorTrustClass(ctx),
           },
           reducerState,
-          (msgs, signal, opts) =>
-            defaultCompact({
-              conversationId: ctx.conversationId,
-              messages: msgs,
-              signal,
-              ...((opts ?? {}) as ContextWindowCompactOptions),
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-              actorTrustClass: resolveTurnActorTrustClass(ctx),
-            }),
           abortController.signal,
         );
 
