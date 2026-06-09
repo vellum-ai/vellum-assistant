@@ -49,7 +49,10 @@ import {
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
 import type { TranscriptTurn } from "../../../src/lib/transcript";
-import { runIngestAsk } from "../../../src/lib/runner/run-ingest-ask";
+import {
+  IngestAskError,
+  runIngestAsk,
+} from "../../../src/lib/runner/run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
@@ -89,20 +92,36 @@ export interface RunLongMemEvalV2UnitInput {
   /** Caller's progress reporter. We tee every event to disk + heartbeat. */
   progress?: EvalProgressReporter;
   /**
-   * Quiet timeout (ms) for ingest + question event drains in
+   * Quiet timeout (ms) for the *question* turn's event drain in
    * `runIngestAsk`. Defaults to 30s — same default the underlying
    * runner uses, surfaced here so the harness can override per-run.
    */
   quietMs?: number;
+  /**
+   * Quiet timeout (ms) for the *ingest* turn's event drain in
+   * `runIngestAsk`. Defaults to 2 minutes — the ingest turn is a heavy
+   * multi-step turn whose between-step silences are far longer than a
+   * question turn's, so it needs a more generous safety net (the
+   * completion sentinel, not silence, decides when it's done). Surfaced
+   * here so the harness can override per-run.
+   */
+  ingestQuietMs?: number;
   /** Caller-side overrides applied after the per-question spec kwargs. */
   judgeOverrides?: EvalOverrides;
 }
 
 /**
- * Compose the conversation-A "ingest" prompt. Deliberately neutral —
- * it points at the staged files and asks the agent to do whatever its
- * memory layer does. We don't reveal the question text here; the
- * question turn is conversation B.
+ * Compose the conversation-A "ingest" prompt. Deliberately
+ * question-blind — it points at the staged files and tells the agent to
+ * deliberately commit what matters to memory *now*, in this turn, then
+ * emit the completion sentinel. We don't reveal the question text here;
+ * the question turn is a fresh conversation B.
+ *
+ * The explicit "commit using your memory tools, then reply Ready." is the
+ * portable contract the runner relies on: for any species whose memory
+ * write is synchronous within the turn, committing here means the facts
+ * persist into conversation B with no out-of-band "await memory" step.
+ * Memory-less baselines simply have nothing to commit and still answer.
  */
 function buildIngestMessage(trajectoryCount: number): string {
   return [
@@ -111,10 +130,15 @@ function buildIngestMessage(trajectoryCount: number): string {
     `\`<trajectory_id>.json\`).`,
     `An index of the files in haystack order lives at \`${WORKSPACE_MANIFEST_PATH}\`.`,
     "",
-    "Please read through these trajectories and remember whatever you think",
-    "will be useful for answering a follow-up question about them. Use",
-    "whatever memory tools you have. When you are done ingesting, reply with",
-    'a single line: "Ready."',
+    "Read through every trajectory and commit everything worth remembering to",
+    "your long-term memory using your memory tools — now, during this turn.",
+    "Afterwards I will ask follow-up questions in a brand-new conversation that",
+    "will NOT have access to this chat history or these files: only what you",
+    "have saved to memory will be available to you then. Save as you go and do",
+    "not rely on this conversation persisting.",
+    "",
+    "When — and only when — you have finished reading all trajectories AND",
+    'committed what matters to memory, reply with a single line: "Ready."',
   ]
     .join(" \n")
     .trim();
@@ -259,6 +283,7 @@ export async function runLongMemEvalV2Unit(
       ingestMessage,
       questionMessage,
       quietMs: input.quietMs,
+      ingestQuietMs: input.ingestQuietMs,
     });
     progress({
       step: "send",
@@ -363,6 +388,14 @@ export async function runLongMemEvalV2Unit(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Persist whatever ingest-turn events were captured before the
+    // failure so a run that aborted (e.g. an ingest that never reached
+    // its completion sentinel) can still be inspected in the report.
+    if (err instanceof IngestAskError && err.ingestEvents.length > 0) {
+      await writeIngestAssistantEvents(input.runId, [
+        ...err.ingestEvents,
+      ]).catch(() => undefined);
+    }
     progress({
       step: "shutdown",
       status: "error",
