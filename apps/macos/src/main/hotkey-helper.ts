@@ -49,17 +49,17 @@ let supervisorOptionsForTesting: Partial<
 const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
 
-export const getHotkeyHelperPath = (): string => {
+export const getMacHelperPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "hotkey-helper");
+    return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
   }
-  return path.join(app.getAppPath(), "resources", "hotkey-helper");
+  return path.join(app.getAppPath(), "resources", "vellum-mac-helper");
 };
 
 const makeClient = (): MacHelperClient =>
   new MacHelperClient({
-    name: "hotkey helper",
-    resolveExecutablePath: getHotkeyHelperPath,
+    name: "mac helper",
+    resolveExecutablePath: getMacHelperPath,
     logger: log,
     platform: getPlatform(),
     ...supervisorOptionsForTesting,
@@ -74,7 +74,7 @@ const fnPushToTalk = async (
     const result = await client.call("hotkey.fnPushToTalk", { enable });
     const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
     if (!parsed.success) {
-      return { ok: false, reason: "hotkey helper returned invalid result" };
+      return { ok: false, reason: "mac helper returned invalid hotkey result" };
     }
     return { ok: true, enabled: parsed.data.enabled };
   } catch (err) {
@@ -88,7 +88,7 @@ const fnPushToTalk = async (
 const ping = async (): Promise<"pong"> => {
   const result = await client.call("ping");
   if (result !== "pong") {
-    throw new Error("hotkey helper returned invalid ping result");
+    throw new Error("mac helper returned invalid ping result");
   }
   return "pong";
 };
@@ -139,7 +139,7 @@ const disableFnPushToTalkForOwner = async (
   const result = await fnPushToTalk(false);
   if (result.ok) {
     helperRegistered = false;
-    log.info("[hotkey-helper] disabled Fn push-to-talk");
+    log.info("[mac-helper] disabled Fn push-to-talk");
   }
   return result;
 };
@@ -184,10 +184,10 @@ const enableFnPushToTalkForOwner = async (
   const result = await fnPushToTalk(true);
   if (result.ok) {
     helperRegistered = result.enabled;
-    log.info("[hotkey-helper] enabled Fn push-to-talk");
+    log.info("[mac-helper] enabled Fn push-to-talk");
   } else {
     log.warn(
-      `[hotkey-helper] failed to enable Fn push-to-talk: ${result.reason}`,
+      `[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`,
     );
     removeHotkeyOwner(webContents.id);
   }
@@ -236,11 +236,11 @@ const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
     helperRegistered = result.enabled;
     restoreHotkeyAfterRestart = !result.enabled;
     if (result.enabled) {
-      log.info("[hotkey-helper] restored Fn push-to-talk after helper restart");
+      log.info("[mac-helper] restored Fn push-to-talk after helper restart");
     }
   } else {
     log.warn(
-      `[hotkey-helper] failed to restore Fn push-to-talk: ${result.reason}`,
+      `[mac-helper] failed to restore Fn push-to-talk: ${result.reason}`,
     );
   }
 };

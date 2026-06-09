@@ -14,7 +14,15 @@
  * @jest-environment happy-dom
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   daemonRequestInterceptor,
@@ -23,6 +31,7 @@ import {
 } from "@/lib/api-interceptors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
@@ -65,6 +74,7 @@ describe("api-interceptors / requestInterceptor", () => {
 
   afterEach(() => {
     setElectronRenderer(false);
+    resetSessionToken();
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on GET", async () => {
@@ -115,6 +125,11 @@ describe("api-interceptors / requestInterceptor", () => {
     expect(headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
   });
 
+  test("does not attach the session-token header on web (no Electron bridge)", async () => {
+    const headers = await intercept("GET");
+    expect(headers.get("X-Session-Token")).toBeNull();
+  });
+
   test("returns a new Request, leaving the input headers untouched", async () => {
     const input = new Request("https://example.test/v1/probe", { method: "POST" });
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
@@ -123,6 +138,40 @@ describe("api-interceptors / requestInterceptor", () => {
     expect(output).not.toBe(input);
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+  });
+});
+
+describe("api-interceptors / Electron session-token header", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  beforeEach(() => {
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      auth: { getSessionToken: () => "electron-sess-tok" },
+    };
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { vellum?: unknown }).vellum;
+    resetSessionToken();
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  test("attaches the session-token header on platform requests", async () => {
+    const headers = await intercept("GET");
+    expect(headers.get("X-Session-Token")).toBe("electron-sess-tok");
+  });
+
+  test("rides alongside CSRF on mutations (additive)", async () => {
+    const headers = await intercept("POST");
+    expect(headers.get("X-Session-Token")).toBe("electron-sess-tok");
+    expect(headers.get("X-CSRFToken")).toBe("test-csrf-token");
   });
 });
 

@@ -104,12 +104,12 @@ const universalAuthRules = [
  * Path-scoped via the override block below.
  */
 const headerLiteralRules = [
-  // No new literal `X-Session-Token` strings. This header is a legacy
-  // native-bridge artifact and is being retired.
+  // No literal `X-Session-Token` strings outside the auth/interceptor
+  // surface. It is the native-client session auth header; keep it centralized.
   {
     selector: "Literal[value='X-Session-Token']",
     message:
-      "Do not introduce new uses of the X-Session-Token header. It is a legacy native-bridge artifact that is being retired in favor of cookie-based session auth issued by the gateway.",
+      "Do not set the X-Session-Token header outside src/lib/auth/ or src/lib/api-interceptors.ts. It is the native-client session auth header and is centralized in the auth interceptor.",
   },
 
   // No new literal `X-CSRFToken` strings outside the auth/interceptor

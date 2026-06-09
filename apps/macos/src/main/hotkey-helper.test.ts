@@ -103,7 +103,7 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
-  getHotkeyHelperPath,
+  getMacHelperPath,
   installHotkeyHelper,
 } = await import("./hotkey-helper");
 
@@ -149,16 +149,18 @@ afterEach(() => {
   __resetForTesting();
 });
 
-describe("getHotkeyHelperPath", () => {
+describe("getMacHelperPath", () => {
   test("resolves dev helper from app path resources", () => {
-    expect(getHotkeyHelperPath()).toBe(
-      "/repo/apps/macos/resources/hotkey-helper",
+    expect(getMacHelperPath()).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper",
     );
   });
 
   test("resolves packaged helper from process.resourcesPath", () => {
     appState.isPackaged = true;
-    expect(getHotkeyHelperPath()).toBe("/mock/resources/hotkey-helper");
+    expect(getMacHelperPath()).toBe(
+      "/mock/resources/bin/vellum-mac-helper",
+    );
   });
 });
 
@@ -196,7 +198,7 @@ describe("installHotkeyHelper", () => {
       state: { status: "running" },
     });
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/hotkey-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper",
     );
   });
 
@@ -259,7 +261,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokeFnPushToTalk(true);
 
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/hotkey-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper",
     );
     expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
     expect(lastChild?.stdin.writes[0]).toContain(
@@ -347,7 +349,7 @@ describe("installHotkeyHelper", () => {
 
     expect(await invokeFnPushToTalk(true)).toEqual({
       ok: false,
-      reason: "hotkey helper is not available",
+      reason: "mac helper is not available",
     });
   });
 
@@ -458,7 +460,7 @@ describe("installHotkeyHelper", () => {
     shuttingDown?.emit("close", 0, null);
 
     await expect(invokePing()).rejects.toThrow(
-      "hotkey helper is not available",
+      "mac helper is not available",
     );
     expect(spawnCalls).toHaveLength(1);
   });
