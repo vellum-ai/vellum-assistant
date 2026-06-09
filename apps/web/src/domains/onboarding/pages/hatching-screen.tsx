@@ -183,18 +183,13 @@ export function HatchingScreen() {
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
 
-    // Persist the randomized hatch avatar (only when the assistant has none
-    // yet) and invalidate the avatar query so the macOS Dock + menu-bar icons,
-    // the browser favicon, and the in-app avatar all refetch it on first
-    // landing. Awaited before completing the hatch so the avatar query's first
-    // fetch — which fires only once the lifecycle resolves the active assistant
-    // (~`COMPLETION_NAVIGATE_DELAY_MS` later) — sees the persisted traits. The
-    // post-save invalidate closes the race if that first fetch has already
-    // cached an avatar-less result, since the query holds results with
-    // `staleTime: Infinity` and never refetches on its own. Resilient:
-    // `fetchCharacterTraits`/`saveCharacterTraits` swallow their own errors, so
-    // a failed save returns rather than throwing and never blocks navigation;
-    // any unexpected throw is reported without interrupting onboarding.
+    // Persist the random hatch avatar (skipping the save when one already
+    // exists) and invalidate the avatar query that feeds the Dock + menu-bar
+    // icons, the favicon, and the in-app avatar. Awaited so the traits land
+    // before the lifecycle activates the assistant and the query runs its first
+    // fetch; the post-save invalidate then closes the race when that fetch
+    // already cached an avatar-less result, since the query holds results with
+    // `staleTime: Infinity` and never refetches on its own.
     const persistHatchAvatar = async (assistantId: string): Promise<void> => {
       try {
         const existing = await fetchCharacterTraits(assistantId);
