@@ -27,7 +27,7 @@ import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 
-// Sentinel value for the "+ Create new provider" option in the create-mode
+// Sentinel value for the "+ New Connection" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
@@ -55,7 +55,7 @@ export interface ProfileEditorModalProps {
    */
   connections?: ProviderConnection[];
   /**
-   * Assistant whose provider connections the inline "+ Create new provider"
+   * Assistant whose provider connections the inline "+ New Connection"
    * sub-form writes to. Required for the create-mode quick-add flow.
    */
   assistantId: string;
@@ -276,7 +276,7 @@ function ProfileEditorModalInner({
 
   const queryClient = useQueryClient();
 
-  // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
+  // Create-mode-only UI: whether the inline "+ New Connection" sub-form
   // is mounted, and whether the advanced-params disclosure is expanded.
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
@@ -659,7 +659,7 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [];
+    const opts: { value: string; label: string; separated?: boolean | "above" | "below" }[] = [];
     for (const c of effectiveConnections) {
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
@@ -671,7 +671,8 @@ function ProfileEditorModalInner({
     }
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
-      label: "+ Create new provider",
+      label: "+ New Connection",
+      separated: "above",
     });
     return opts;
   }, [effectiveConnections]);
