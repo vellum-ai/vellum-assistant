@@ -145,6 +145,41 @@ describe("parseDoctorEvent", () => {
   test("returns null for numeric type", () => {
     expect(parseDoctorEvent(JSON.stringify({ type: 123 }))).toBeNull();
   });
+
+  test("rejects tool_call missing required fields", () => {
+    expect(parseDoctorEvent(JSON.stringify({ type: "tool_call", toolName: "diag" }))).toBeNull();
+  });
+
+  test("rejects tool_result with wrong isError type", () => {
+    expect(
+      parseDoctorEvent(
+        JSON.stringify({ type: "tool_result", toolCallId: "tc-1", content: "ok", isError: "no" }),
+      ),
+    ).toBeNull();
+  });
+
+  test("rejects status with invalid status value", () => {
+    expect(parseDoctorEvent(JSON.stringify({ type: "status", status: "paused" }))).toBeNull();
+  });
+
+  test("rejects approval_required missing description", () => {
+    expect(
+      parseDoctorEvent(
+        JSON.stringify({ type: "approval_required", toolName: "exec", input: {}, id: "ap-1" }),
+      ),
+    ).toBeNull();
+  });
+
+  test("strips unknown extra fields from parsed events", () => {
+    const event = parseDoctorEvent(
+      JSON.stringify({ type: "message_delta", content: "hi", extra: "ignored" }),
+    );
+    expect(event).not.toBeNull();
+    expect(event!.type).toBe("message_delta");
+    if (event!.type !== "message_delta") throw new Error("unreachable");
+    expect(event!.content).toBe("hi");
+    expect("extra" in event!).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -389,6 +424,7 @@ describe("handleError", () => {
     expect(ctx.entries[0]!.content).toBe("Something went wrong");
     expect(ctx.calls.setThinking).toEqual([false]);
     expect(ctx.calls.setPendingApproval).toEqual([false]);
+    expect(ctx.calls.setPendingBackup).toEqual([false]);
     expect(ctx.getStreamingEntryId()).toBeNull();
   });
 });

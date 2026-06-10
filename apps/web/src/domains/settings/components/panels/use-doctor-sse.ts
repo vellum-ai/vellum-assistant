@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { z } from "zod";
 
 import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
 import { buildVellumHeaders } from "@/lib/auth/request-headers";
@@ -6,55 +7,46 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
-// SSE event protocol
+// SSE event protocol — Zod-validated discriminated union
 // ---------------------------------------------------------------------------
 
-export type DoctorEvent =
-  | { type: "message"; content: string }
-  | { type: "message_delta"; content: string }
-  | {
-      type: "tool_call";
-      toolName: string;
-      input: Record<string, unknown>;
-      id: string;
-    }
-  | {
-      type: "tool_result";
-      toolCallId: string;
-      content: string;
-      isError: boolean;
-    }
-  | {
-      type: "approval_required";
-      toolName: string;
-      input: Record<string, unknown>;
-      id: string;
-      description: string;
-    }
-  | { type: "backup_prompt"; toolName: string }
-  | { type: "status"; status: "active" | "completed" | "error" }
-  | { type: "error"; message: string };
-
-const VALID_EVENT_TYPES = new Set([
-  "message",
-  "message_delta",
-  "tool_call",
-  "tool_result",
-  "approval_required",
-  "backup_prompt",
-  "status",
-  "error",
+export const DoctorEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message"), content: z.string() }),
+  z.object({ type: z.literal("message_delta"), content: z.string() }),
+  z.object({
+    type: z.literal("tool_call"),
+    toolName: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    id: z.string(),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    toolCallId: z.string(),
+    content: z.string(),
+    isError: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("approval_required"),
+    toolName: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    id: z.string(),
+    description: z.string(),
+  }),
+  z.object({ type: z.literal("backup_prompt"), toolName: z.string() }),
+  z.object({
+    type: z.literal("status"),
+    status: z.union([z.literal("active"), z.literal("completed"), z.literal("error")]),
+  }),
+  z.object({ type: z.literal("error"), message: z.string() }),
 ]);
+
+export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
 
 export function parseDoctorEvent(raw: string): DoctorEvent | null {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string" || !VALID_EVENT_TYPES.has(obj.type)) {
-      return null;
-    }
-    return obj as unknown as DoctorEvent;
+    const result = DoctorEventSchema.safeParse(parsed);
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
@@ -201,6 +193,7 @@ export function handleStatus(
 export function handleError(ctx: StreamContext, event: { message: string }): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
+  ctx.setPendingBackup(false);
   ctx.setStreamingEntryId(null);
   ctx.appendEntry({ kind: "error", content: event.message });
 }
