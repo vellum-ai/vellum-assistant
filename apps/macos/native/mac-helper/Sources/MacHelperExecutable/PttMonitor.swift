@@ -152,7 +152,7 @@ final class PttMonitor {
 
         switch config {
         case let .modifierOnly(required):
-            if pressedModifiers == required {
+            if modifierRequirementIsSatisfied(required) {
                 scheduleModifierActivation(required: required)
             } else {
                 cancelPendingModifierActivation()
@@ -165,7 +165,7 @@ final class PttMonitor {
                 emitUp()
             }
         case let .modifierKey(required, _):
-            if isDown && pressedModifiers != required {
+            if isDown && !modifierRequirementIsSatisfied(required) {
                 emitUp()
             }
         default:
@@ -186,7 +186,7 @@ final class PttMonitor {
             }
         case let .modifierKey(required, requiredKeyCode):
             if keyCode == requiredKeyCode,
-               pressedModifiers == required,
+               modifierRequirementIsSatisfied(required),
                !isDown
             {
                 emitDown()
@@ -242,7 +242,7 @@ final class PttMonitor {
                 return
             }
             self.pendingModifierTimer = nil
-            if self.pressedModifiers == required, !self.isDown {
+            if self.modifierRequirementIsSatisfied(required), !self.isDown {
                 self.emitDown()
             }
         }
@@ -303,6 +303,21 @@ final class PttMonitor {
         case .command, .rightCommand:
             return flags.contains(.maskCommand)
         }
+    }
+
+    private func modifierRequirementIsSatisfied(_ required: Set<PttModifier>) -> Bool {
+        var pressed = pressedModifiers
+        if required.contains(.option), !required.contains(.rightOption) {
+            if pressed.remove(.rightOption) != nil {
+                pressed.insert(.option)
+            }
+        }
+        if required.contains(.command), !required.contains(.rightCommand) {
+            if pressed.remove(.rightCommand) != nil {
+                pressed.insert(.command)
+            }
+        }
+        return pressed == required
     }
 
     private func mouseButtonNumber(type: CGEventType, event: CGEvent) -> Int64 {
