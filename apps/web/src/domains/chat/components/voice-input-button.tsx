@@ -15,6 +15,7 @@ import {
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
 import { Button, cn } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -384,7 +385,9 @@ export const VoiceInputButton = forwardRef<
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceInputAudioConstraints(),
+      });
     } catch (err) {
       stopSpeechRecognition();
       const code =

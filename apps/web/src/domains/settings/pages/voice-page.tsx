@@ -15,6 +15,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
 import {
     getLocalSetting,
+    removeLocalSetting,
     setLocalSetting,
 } from "@/utils/local-settings";
 import {
@@ -31,6 +32,10 @@ import {
     type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
+import {
+    LS_VOICE_INPUT_DEVICE,
+    getPreferredInputDeviceId,
+} from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
@@ -75,6 +80,7 @@ export function VoicePage() {
   return (
     <div className="flex flex-col gap-6">
       <SpeechServicesBanner />
+      <MicrophoneCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
     </div>
@@ -96,6 +102,89 @@ function SpeechServicesBanner() {
         <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>
+  );
+}
+
+const SYSTEM_DEFAULT_DEVICE = "";
+
+function MicrophoneCard() {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>(() =>
+    getPreferredInputDeviceId(),
+  );
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      // Chromium lists "default"/"communications" pseudo-devices that mirror
+      // a physical device already in the list; our own System Default option
+      // covers that case without the duplicate rows.
+      setDevices(
+        all.filter(
+          (device) =>
+            device.kind === "audioinput" &&
+            device.deviceId !== "" &&
+            device.deviceId !== "default" &&
+            device.deviceId !== "communications",
+        ),
+      );
+    } catch {
+      setDevices([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshDevices();
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.addEventListener) return;
+    const onDeviceChange = () => void refreshDevices();
+    mediaDevices.addEventListener("devicechange", onDeviceChange);
+    return () =>
+      mediaDevices.removeEventListener("devicechange", onDeviceChange);
+  }, [refreshDevices]);
+
+  const options = useMemo(
+    () => [
+      { value: SYSTEM_DEFAULT_DEVICE, label: "System Default" },
+      ...devices.map((device, index) => ({
+        value: device.deviceId,
+        label: device.label || `Microphone ${index + 1}`,
+      })),
+    ],
+    [devices],
+  );
+
+  const handleChange = useCallback((next: string) => {
+    setDeviceId(next);
+    if (next === SYSTEM_DEFAULT_DEVICE) {
+      removeLocalSetting(LS_VOICE_INPUT_DEVICE);
+    } else {
+      setLocalSetting(LS_VOICE_INPUT_DEVICE, next);
+    }
+  }, []);
+
+  // A saved device that's currently unplugged won't be in the list; show
+  // System Default (capture falls back to it) without clearing the saved
+  // preference, so reconnecting the device picks it back up.
+  const selectedValue = options.some((option) => option.value === deviceId)
+    ? deviceId
+    : SYSTEM_DEFAULT_DEVICE;
+
+  return (
+    <DetailCard
+      title="Microphone"
+      subtitle="Which input device is used for dictation and voice conversations."
+    >
+      <div className="max-w-xs">
+        <Dropdown<string>
+          options={options}
+          value={selectedValue}
+          onChange={handleChange}
+          aria-label="Microphone"
+        />
+      </div>
+    </DetailCard>
   );
 }
 
