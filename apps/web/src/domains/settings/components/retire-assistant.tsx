@@ -20,7 +20,6 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
     const outcome = await retireAssistant(assistantId);
     if (outcome.ok) {
       setConfirmOpen(false);
-      toast.success("Assistant retired.");
       navigate(outcome.nextRoute, { replace: true });
       return;
     }
