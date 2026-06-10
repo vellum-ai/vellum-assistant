@@ -554,11 +554,21 @@ function ensureObjectAt(
  * Effective (built-ins merged) view of the given raw config's `llm.profiles`.
  * Works on a clone — `applyBuiltinProfiles` mutates its argument and `raw`
  * may be destined for disk, where built-in entries must never land.
+ *
+ * `withoutOverrideFor` resolves the view as if no `llm.profileOverrides`
+ * entry existed for that profile — the no-override baseline the PUT profile
+ * route compares incoming values against.
  */
 function effectiveLlmProfiles(
   raw: Record<string, unknown>,
+  opts: { withoutOverrideFor?: string } = {},
 ): Record<string, unknown> {
   const merged = structuredClone(raw);
+  if (opts.withoutOverrideFor !== undefined) {
+    const llm = asMutablePlainObject(merged.llm);
+    const overrides = llm ? asMutablePlainObject(llm.profileOverrides) : null;
+    if (overrides) delete overrides[opts.withoutOverrideFor];
+  }
   applyBuiltinProfiles(merged);
   const llm = asMutablePlainObject(merged.llm);
   return (llm && asMutablePlainObject(llm.profiles)) ?? {};
@@ -567,13 +577,11 @@ function effectiveLlmProfiles(
 /**
  * Whether `value` is persistable under `llm.profileOverrides[*][key]`. Defers
  * to the `ProfileOverrideEntry` schema so the legality rule has one source of
- * truth (the explicit `undefined` check exists because Zod treats it as
- * "absent", which would otherwise lift a key that JSON can't round-trip).
+ * truth: unknown keys fail its `.strict()` parse, and the explicit
+ * `undefined` check exists because Zod treats it as "absent", which would
+ * otherwise admit a value that JSON can't round-trip.
  */
-function isLegalBuiltinOverrideValue(
-  key: "label" | "status",
-  value: unknown,
-): boolean {
+function isLegalBuiltinOverrideValue(key: string, value: unknown): boolean {
   if (value === undefined) return false;
   return ProfileOverrideEntry.safeParse({ [key]: value }).success;
 }
@@ -625,6 +633,107 @@ function warnDroppedBuiltinProfileFields(
   );
 }
 
+function warnDroppedProfileOverrideFields(
+  name: string,
+  dropped: string[],
+): void {
+  if (dropped.length === 0) return;
+  log.warn(
+    { profile: name, droppedKeys: dropped },
+    `Dropped illegal fields [${dropped.join(", ")}] from llm.profileOverrides["${name}"] config write — only label and status are overridable`,
+  );
+}
+
+/**
+ * Validate the entries of an `llm.profileOverrides` map arriving on a
+ * generic config write, in place:
+ *
+ * - Fields that fail the `ProfileOverrideEntry` schema (anything but a legal
+ *   `label`/`status` value) are dropped with a warning. Persisting one would
+ *   never take effect but would poison every subsequent config load, whose
+ *   Zod-issue cleanup can drop the ENTIRE entry from the validated view —
+ *   taking the user's legitimate label/status with it.
+ * - Unknown profile NAMES are allowed: the schema is an open record and the
+ *   loader ignores non-built-in keys, so they are harmless.
+ * - Entries left with no keys are removed so no empty `{}` entry lands on
+ *   disk.
+ * - `null` entries are kept or removed per `keepNullEntries`: PATCH keeps
+ *   them (`deepMergeOverwrite` implements clear-entry semantics for `null`),
+ *   while replace-style SET writes remove them (deletion IS the clear).
+ * - Non-object, non-null entries are dropped with a warning.
+ */
+function sanitizeProfileOverridesMap(
+  map: Record<string, unknown>,
+  opts: { keepNullEntries: boolean },
+): void {
+  for (const name of Object.keys(map)) {
+    if (map[name] === null) {
+      if (!opts.keepNullEntries) delete map[name];
+      continue;
+    }
+    const entry = asMutablePlainObject(map[name]);
+    if (!entry) {
+      warnDroppedProfileOverrideFields(name, ["<non-object entry>"]);
+      delete map[name];
+      continue;
+    }
+    const dropped: string[] = [];
+    for (const key of Object.keys(entry)) {
+      if (!isLegalBuiltinOverrideValue(key, entry[key])) {
+        dropped.push(key);
+        delete entry[key];
+      }
+    }
+    warnDroppedProfileOverrideFields(name, dropped);
+    if (Object.keys(entry).length === 0) delete map[name];
+  }
+}
+
+/**
+ * Normalize `llm.profileOverrides` on a raw config object after a
+ * replace-style write placed an arbitrary payload there (`config set llm` /
+ * `config set llm.profileOverrides[...]`). Beyond per-entry sanitization
+ * (see `sanitizeProfileOverridesMap`) this removes a non-object map value
+ * (`null` is the explicit clear; anything else is warned about) and the map
+ * itself when nothing is left — `z.record` would reject a `null` map on the
+ * next load.
+ */
+function normalizeRawProfileOverrides(raw: Record<string, unknown>): void {
+  const llm = asMutablePlainObject(raw.llm);
+  if (!llm || !("profileOverrides" in llm)) return;
+  const map = asMutablePlainObject(llm.profileOverrides);
+  if (!map) {
+    if (llm.profileOverrides !== null) {
+      log.warn(
+        "Dropped non-object llm.profileOverrides value from config write",
+      );
+    }
+    delete llm.profileOverrides;
+    return;
+  }
+  sanitizeProfileOverridesMap(map, { keepNullEntries: false });
+  if (Object.keys(map).length === 0) delete llm.profileOverrides;
+}
+
+/**
+ * Drop empty `{}` entries from `llm.profileOverrides` (and the map itself
+ * once nothing is left) on a raw config destined for disk. An empty entry
+ * carries no information — the merge layer applies overrides by key
+ * presence — and can be left behind by clear-to-default writes
+ * (`deepMergeOverwrite`'s null handling deletes the last key of an entry,
+ * and its `stripNullLeaves` pass empties a fresh `{label: null}` subtree).
+ */
+function pruneEmptyProfileOverrides(raw: Record<string, unknown>): void {
+  const llm = asMutablePlainObject(raw.llm);
+  const overrides = llm ? asMutablePlainObject(llm.profileOverrides) : null;
+  if (!llm || !overrides) return;
+  for (const name of Object.keys(overrides)) {
+    const entry = asMutablePlainObject(overrides[name]);
+    if (entry && Object.keys(entry).length === 0) delete overrides[name];
+  }
+  if (Object.keys(overrides).length === 0) delete llm.profileOverrides;
+}
+
 /**
  * Merge a lifted `{label?, status?}` fragment into the raw config's
  * `llm.profileOverrides[name]`. With `explicitWins`, keys already present on
@@ -669,6 +778,11 @@ function liftIntoRawProfileOverrides(
  *   value for the same key, the explicit override wins.
  * - All other fields are dropped with a warning; the templates in
  *   `builtin-inference-profiles.ts` are authoritative.
+ * - An explicit `llm.profileOverrides` fragment in the body is itself
+ *   guarded: entries are validated against `ProfileOverrideEntry` and
+ *   illegal fields dropped with a warning (see
+ *   `sanitizeProfileOverridesMap`), so a generic PATCH can't persist keys
+ *   that poison the next config load.
  *
  * `currentRaw` is only read (effective-value comparisons); `body` is mutated
  * in place. `rejectManagedProfileDeletion` runs before this, so built-in
@@ -679,8 +793,20 @@ function sanitizeBuiltinProfileWrites(
   currentRaw: Record<string, unknown>,
 ): void {
   const llm = asMutablePlainObject(body.llm);
-  const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
-  if (!llm || !profiles) return;
+  if (!llm) return;
+  // Guard the explicit override-store fragment first: the built-in
+  // `llm.profiles` lift below merges into it (`explicitWins`), so it must
+  // already be reduced to legal fields. `null` map / entries pass through —
+  // `deepMergeOverwrite` implements their clear semantics.
+  const overridesFragment = asMutablePlainObject(llm.profileOverrides);
+  if (overridesFragment) {
+    sanitizeProfileOverridesMap(overridesFragment, { keepNullEntries: true });
+  } else if ("profileOverrides" in llm && llm.profileOverrides !== null) {
+    log.warn("Dropped non-object llm.profileOverrides value from config patch");
+    delete llm.profileOverrides;
+  }
+  const profiles = asMutablePlainObject(llm.profiles);
+  if (!profiles) return;
   const builtinNames = Object.keys(profiles).filter((name) =>
     MANAGED_PROFILE_NAMES.has(name),
   );
@@ -727,6 +853,9 @@ function sanitizeBuiltinProfileWrites(
  *   cleaning those up is the collapse migration's job.
  * - Any other/deeper field under a built-in entry is dropped with a warning
  *   (only label and status are user-editable on built-ins).
+ * - `llm.profileOverrides[...]` paths are guarded the same way (see
+ *   `setProfileOverrideConfigValue`); for `set llm`, the written subtree's
+ *   own `profileOverrides` payload is normalized after the replace.
  */
 function setConfigValueWithBuiltinSanitizer(
   raw: Record<string, unknown>,
@@ -734,6 +863,10 @@ function setConfigValueWithBuiltinSanitizer(
   value: unknown,
 ): void {
   const segments = path.split(".");
+  if (segments[0] === "llm" && segments[1] === "profileOverrides") {
+    setProfileOverrideConfigValue(raw, segments, value);
+    return;
+  }
   const touchesProfiles =
     segments[0] === "llm" &&
     (segments.length === 1 || segments[1] === "profiles");
@@ -745,6 +878,14 @@ function setConfigValueWithBuiltinSanitizer(
   if (segments.length <= 2) {
     // Whole-map (`llm.profiles`) or whole-subtree (`llm`) replacement.
     setNestedValue(raw, path, value);
+    if (segments.length === 1) {
+      // The write replaced the whole `llm` subtree, so its
+      // `profileOverrides` payload now sits on `raw` and must be guarded
+      // like any other override-store write (illegal fields dropped,
+      // empty/non-object entries removed) before the built-in lifts below
+      // merge into it.
+      normalizeRawProfileOverrides(raw);
+    }
     const llm = asMutablePlainObject(raw.llm);
     const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
     if (!llm || !profiles) return;
@@ -806,11 +947,7 @@ function setConfigValueWithBuiltinSanitizer(
 
   // Single-field set inside a built-in entry.
   const key = segments[3];
-  if (
-    segments.length === 4 &&
-    (key === "label" || key === "status") &&
-    isLegalBuiltinOverrideValue(key, value)
-  ) {
+  if (segments.length === 4 && isLegalBuiltinOverrideValue(key, value)) {
     const effectiveEntry = asMutablePlainObject(
       effectiveLlmProfiles(raw)[name],
     );
@@ -819,6 +956,48 @@ function setConfigValueWithBuiltinSanitizer(
     return;
   }
   warnDroppedBuiltinProfileFields(name, [segments.slice(3).join(".")]);
+}
+
+/**
+ * Path-aware `setNestedValue` for writes under `llm.profileOverrides`
+ * (`config set llm.profileOverrides[...]`). Generic writes used to land here
+ * unguarded; an illegal key (e.g. `...balanced.model`) never takes effect
+ * but poisons every subsequent load — the loader's Zod-issue cleanup can
+ * drop the whole entry, taking the user's legitimate label/status with it.
+ * Unknown profile names are allowed (the schema is an open record and the
+ * loader ignores them); illegal FIELDS are dropped with a warning.
+ *
+ * - `llm.profileOverrides` / `llm.profileOverrides.<name>`: replace at the
+ *   path, then normalize the whole map — `null`/non-object values clear the
+ *   key, illegal fields drop, and empty entries (plus an empty map) are
+ *   removed. Normalizing map-wide also self-heals illegal junk already on
+ *   disk.
+ * - `llm.profileOverrides.<name>.<field>`: the value must be a legal
+ *   `label`/`status` override value (explicit `null` included); anything
+ *   else — including deeper paths — is dropped before the write so it can't
+ *   clobber a legitimately stored value.
+ */
+function setProfileOverrideConfigValue(
+  raw: Record<string, unknown>,
+  segments: string[],
+  value: unknown,
+): void {
+  const path = segments.join(".");
+  if (segments.length >= 4) {
+    if (
+      segments.length > 4 ||
+      !isLegalBuiltinOverrideValue(segments[3], value)
+    ) {
+      warnDroppedProfileOverrideFields(segments[2], [
+        segments.slice(3).join("."),
+      ]);
+      return;
+    }
+    setNestedValue(raw, path, value);
+    return;
+  }
+  setNestedValue(raw, path, value);
+  normalizeRawProfileOverrides(raw);
 }
 
 /**
@@ -888,6 +1067,10 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const patch = body as Record<string, unknown>;
   sanitizeBuiltinProfileWrites(patch, raw);
   deepMergeOverwrite(raw, patch);
+  // The merge's null handling can hollow out an override entry (clear the
+  // last key of an existing entry, or strip a fresh `{label: null}` subtree
+  // to `{}`) — never persist the husk.
+  pruneEmptyProfileOverrides(raw);
 
   await commitConfigWrite(raw, "patch");
   return { ok: true };
@@ -1103,10 +1286,21 @@ async function handleReplaceInferenceProfile({
 
 /**
  * Persist a `{label?, status?}` edit for a built-in profile into the sparse
- * `llm.profileOverrides` store. Key-presence semantics: a key present with
- * `null` stores the null sentinel ("explicitly cleared" — it masks any
- * stale label/status still carried by a transition-state materialized entry
- * at merge time); an absent key leaves the existing override key untouched.
+ * `llm.profileOverrides` store, storing only genuine user deviations:
+ *
+ * - A present key whose value is redundant (see
+ *   `isRedundantBuiltinOverride`) is not stored — and an already-stored key
+ *   is removed, since keeping it would pin the current template default
+ *   forever (first-party editors always send both keys, so a status toggle
+ *   must not freeze the template's label, nor a rename freeze the "active"
+ *   status).
+ * - Any other present key is stored. A key present with `null` therefore
+ *   stores the null sentinel ("explicitly cleared" — it masks any stale
+ *   label/status still carried by a transition-state materialized entry at
+ *   merge time) whenever the no-override resolution differs from `null`.
+ * - An absent key leaves the existing override key untouched.
+ * - An entry (or the whole map) left with no keys is deleted.
+ *
  * Caller is responsible for having already restricted the fragment to the
  * override-allowed keys.
  */
@@ -1115,10 +1309,53 @@ function writeBuiltinProfileOverride(
   name: string,
   fragment: Record<string, unknown>,
 ): void {
+  const baseline = asMutablePlainObject(
+    effectiveLlmProfiles(raw, { withoutOverrideFor: name })[name],
+  );
+  const llm = asMutablePlainObject(raw.llm);
+  const overrides = llm ? asMutablePlainObject(llm.profileOverrides) : null;
+  const existing = (overrides && asMutablePlainObject(overrides[name])) ?? {};
   const next: Record<string, unknown> = {};
-  if ("label" in fragment) next.label = fragment.label;
-  if ("status" in fragment) next.status = fragment.status;
-  liftIntoRawProfileOverrides(raw, name, next);
+  for (const key of ["label", "status"] as const) {
+    // Carrying only legal stored values forward also sheds any illegal
+    // fields a poisoned entry may hold.
+    if (key in existing && isLegalBuiltinOverrideValue(key, existing[key])) {
+      next[key] = existing[key];
+    }
+    if (!(key in fragment)) continue;
+    if (isRedundantBuiltinOverride(key, fragment[key], baseline)) {
+      delete next[key];
+    } else {
+      next[key] = fragment[key];
+    }
+  }
+  if (Object.keys(next).length > 0) {
+    ensureObjectAt(ensureObjectAt(raw, "llm"), "profileOverrides")[name] = next;
+  } else if (overrides) {
+    delete overrides[name];
+  }
+  pruneEmptyProfileOverrides(raw);
+}
+
+/**
+ * Whether storing `value` under `key` for a built-in profile would be
+ * redundant — a no-op relative to holding no override at all — given
+ * `baseline`, the profile's effective entry resolved WITHOUT its
+ * override-store entry (template default, BYOK label suffix, and
+ * transition-state materialized lifts included). Storing a redundant value
+ * would pin the current template default forever: a template relabel in a
+ * later release would never reach the user.
+ */
+function isRedundantBuiltinOverride(
+  key: "label" | "status",
+  value: unknown,
+  baseline: Record<string, unknown> | null,
+): boolean {
+  const resolved = baseline?.[key];
+  if (value === resolved) return true;
+  // `status` has no template default — absence means active — so writing
+  // "active" over an absent default is equally redundant.
+  return key === "status" && value === "active" && resolved === undefined;
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {

@@ -39,39 +39,13 @@ function makeDefaultRawConfig(): Record<string, unknown> {
   };
 }
 
-function deepMergeForTest(
-  target: Record<string, unknown>,
-  overrides: Record<string, unknown>,
-): void {
-  for (const [key, value] of Object.entries(overrides)) {
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      target[key] !== null &&
-      typeof target[key] === "object" &&
-      !Array.isArray(target[key])
-    ) {
-      deepMergeForTest(
-        target[key] as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-      continue;
-    }
-    target[key] = value;
-  }
-}
-
+// Note: unspecified exports (deepMergeOverwrite, applyBuiltinProfiles,
+// setNestedValue, ...) fall through to the real loader module, so merge and
+// built-in-profile semantics in these tests match production.
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => structuredClone(rawConfig),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRaw = raw;
-  },
-  deepMergeOverwrite: (
-    target: Record<string, unknown>,
-    overrides: Record<string, unknown>,
-  ) => {
-    deepMergeForTest(target, overrides);
   },
   getConfig: () => rawConfig,
   invalidateConfigCache: () => {},
@@ -294,6 +268,134 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       label: null,
       status: "disabled",
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Skip-equal rules: only genuine user deviations become overrides. The
+  // first-party editors (web profile-editor-modal, macOS SettingsStore)
+  // always send BOTH keys, so an unchanged key must not be pinned as a
+  // permanent override — that would freeze the current template default and
+  // block future template relabels from propagating.
+  // -------------------------------------------------------------------------
+
+  /** Effective merged entry for a built-in, as `GET /v1/config` reports it. */
+  async function effectiveEntry(name: string): Promise<Record<string, any>> {
+    const got = (await getRoute.handler({})) as Record<string, any>;
+    return got.llm.profiles[name];
+  }
+
+  test("PUT echoing the effective label and active status creates no override", async () => {
+    const { label } = await effectiveEntry("balanced");
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label, status: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("PUT status toggle does not pin the unchanged template label", async () => {
+    const { label } = await effectiveEntry("balanced");
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label, status: "disabled" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      status: "disabled",
+    });
+  });
+
+  test("PUT label rename does not pin status 'active'", async () => {
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: "My Balanced", status: "active" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      label: "My Balanced",
+    });
+  });
+
+  test("PUT echoing a stored override value keeps the override (rule a)", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Mine" } } },
+    };
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: "Mine", status: "active" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Mine" });
+  });
+
+  test("PUT restoring the template label removes the stored override key instead of pinning it (rule c)", async () => {
+    const { label: templateLabel } = await effectiveEntry("balanced");
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Mine" } } },
+    };
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: templateLabel, status: "disabled" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      status: "disabled",
+    });
+  });
+
+  test("PUT that clears the last override key deletes the entry and the map", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { status: "disabled" } } },
+    };
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: "active" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("PUT clears a redundant pin equal to the template default (self-heal)", async () => {
+    const { label: templateLabel } = await effectiveEntry("balanced");
+    // A pin left behind by the pre-fix PUT route: the stored label equals
+    // the template default exactly.
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: templateLabel } } },
+    };
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: templateLabel, status: "disabled" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      status: "disabled",
+    });
+  });
+
+  test("PUT { status: 'active' } over a transition-state materialized 'disabled' still stores the override", async () => {
+    // The no-override baseline includes the materialized entry's lifted
+    // status, so "active" here is a genuine deviation — skipping it would
+    // leave the profile disabled.
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            status: "disabled",
+            source: "managed",
+          },
+        },
+      },
+    };
+    await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: "active" },
+    });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ status: "active" });
   });
 
   test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
@@ -631,6 +733,211 @@ describe("POST /v1/config/set — built-in profile sanitization", () => {
     expect(saved.llm.profiles.balanced).toEqual({
       provider: "anthropic",
       model: "claude-sonnet",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /v1/config — llm.profileOverrides payloads are validated against
+// ProfileOverrideEntry. An illegal field would never take effect but poisons
+// every subsequent config load, whose Zod-issue cleanup can drop the ENTIRE
+// entry — taking the user's legitimate label/status with it.
+// ---------------------------------------------------------------------------
+
+describe("PATCH /v1/config — profileOverrides payload guard", () => {
+  test("drops illegal fields from an override entry and keeps legal ones", async () => {
+    const result = await patchRoute.handler({
+      body: {
+        llm: { profileOverrides: { balanced: { model: "x", label: "Mine" } } },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Mine" });
+  });
+
+  test("an entry with only illegal fields creates no override entry", async () => {
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: { model: "x" } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("an illegal value (empty label) is dropped", async () => {
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: { label: "" } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("a null entry clears an existing override and leaves no empty map", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Mine" } } },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: null } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("a fresh { label: null } entry does not materialize an empty {} entry", async () => {
+    // deepMergeOverwrite's stripNullLeaves empties a null-only subtree
+    // assigned to a missing key; the post-merge prune must drop the husk.
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: { label: null } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("unknown profile names with legal fields are allowed (open record; only fields are validated)", async () => {
+    const result = await patchRoute.handler({
+      body: {
+        llm: { profileOverrides: { "future-profile": { label: "ok" } } },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides["future-profile"]).toEqual({
+      label: "ok",
+    });
+  });
+
+  test("non-object entries are dropped", async () => {
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: "junk" } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/config/set — llm.profileOverrides paths get the same guard with
+// path-aware replace semantics.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/config/set — profileOverrides payload guard", () => {
+  test("set llm.profileOverrides.<name>.<field> with an illegal field is dropped", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced.model", value: "x" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("set llm.profileOverrides.<name>.<field> with a legal value persists", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced.label", value: "Renamed" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Renamed" });
+  });
+
+  test("set llm.profileOverrides.<name>.<field> with an illegal value (empty label) is dropped", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced.label", value: "" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("a deeper path under an override field is dropped without clobbering the stored value", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Keep" } } },
+    };
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced.label.deep", value: "x" },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Keep" });
+  });
+
+  test("set llm.profileOverrides.<name> sanitizes the entry, replace-style", async () => {
+    const result = await setRoute.handler({
+      body: {
+        path: "llm.profileOverrides.balanced",
+        value: { label: "Mine", model: "smuggled" },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Mine" });
+  });
+
+  test("set llm.profileOverrides.<name> to only-illegal fields removes the entry", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Old" } } },
+    };
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced", value: { model: "x" } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // Replace semantics: the old entry was replaced by the (fully illegal)
+    // payload, which sanitizes to nothing.
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("set llm.profileOverrides.<name> to null clears the entry", async () => {
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Old" } } },
+    };
+    const result = await setRoute.handler({
+      body: { path: "llm.profileOverrides.balanced", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
+  test("set llm.profileOverrides sanitizes the whole map", async () => {
+    const result = await setRoute.handler({
+      body: {
+        path: "llm.profileOverrides",
+        value: {
+          balanced: { status: "disabled", maxTokens: 1 },
+          "future-profile": { label: "ok" },
+          junk: "not-an-object",
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toEqual({
+      balanced: { status: "disabled" },
+      "future-profile": { label: "ok" },
+    });
+  });
+
+  test("set llm guards the written subtree's profileOverrides payload", async () => {
+    const result = await setRoute.handler({
+      body: {
+        path: "llm",
+        value: {
+          profiles: { "my-custom": { provider: "openai", model: "gpt-4o" } },
+          profileOverrides: { balanced: { label: "Mine", model: "x" } },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: "Mine" });
+    expect(saved.llm.profiles["my-custom"]).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
     });
   });
 });
