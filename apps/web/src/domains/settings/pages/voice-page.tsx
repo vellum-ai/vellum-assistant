@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -109,6 +110,7 @@ const SYSTEM_DEFAULT_DEVICE = "";
 
 function MicrophoneCard() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [needsPermission, setNeedsPermission] = useState(false);
   const [deviceId, setDeviceId] = useState<string>(() =>
     getPreferredInputDeviceId(),
   );
@@ -117,13 +119,19 @@ function MicrophoneCard() {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
+      const inputs = all.filter((device) => device.kind === "audioinput");
+      // Until mic permission is granted, browsers redact device ids and
+      // labels, so inputs exist but none are selectable — offer a
+      // permission prompt instead of a picker with only System Default.
+      setNeedsPermission(
+        inputs.length > 0 && inputs.every((device) => !device.label),
+      );
       // Chromium lists "default"/"communications" pseudo-devices that mirror
       // a physical device already in the list; our own System Default option
       // covers that case without the duplicate rows.
       setDevices(
-        all.filter(
+        inputs.filter(
           (device) =>
-            device.kind === "audioinput" &&
             device.deviceId !== "" &&
             device.deviceId !== "default" &&
             device.deviceId !== "communications",
@@ -131,8 +139,21 @@ function MicrophoneCard() {
       );
     } catch {
       setDevices([]);
+      setNeedsPermission(false);
     }
   }, []);
+
+  const requestMicAccess = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      for (const track of stream.getTracks()) track.stop();
+    } catch {
+      // Denied or no device — the picker keeps showing System Default.
+    }
+    void refreshDevices();
+  }, [refreshDevices]);
 
   useEffect(() => {
     void refreshDevices();
@@ -176,13 +197,25 @@ function MicrophoneCard() {
       title="Microphone"
       subtitle="Which input device is used for dictation and voice conversations."
     >
-      <div className="max-w-xs">
-        <Dropdown<string>
-          options={options}
-          value={selectedValue}
-          onChange={handleChange}
-          aria-label="Microphone"
-        />
+      <div className="flex flex-col gap-3">
+        <div className="max-w-xs">
+          <Dropdown<string>
+            options={options}
+            value={selectedValue}
+            onChange={handleChange}
+            aria-label="Microphone"
+          />
+        </div>
+        {needsPermission && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outlined" onClick={requestMicAccess}>
+              Allow Microphone Access
+            </Button>
+            <span className={labelClasses}>
+              Grant microphone access to list your available input devices.
+            </span>
+          </div>
+        )}
       </div>
     </DetailCard>
   );
