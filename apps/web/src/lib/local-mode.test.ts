@@ -121,6 +121,17 @@ describe("reconcileSelectedAssistant", () => {
       localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY),
     ).toBeNull();
   });
+
+  test("a transient empty-lockfile read does not clear the selection", () => {
+    // No cached lockfile and nothing persisted → getLockfile() hits its empty
+    // fallback (setCachedLockfile), which must NOT reconcile. Otherwise a boot/
+    // read failure would wrongly drop a still-valid selection.
+    setSelectedAssistantId("local-a");
+
+    getLockfile();
+
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("local-a");
+  });
 });
 
 describe("getLockfile persisted-storage read", () => {

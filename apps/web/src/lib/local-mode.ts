@@ -50,12 +50,8 @@ export type {
 // changes; this module owns the transport and is the only writer.
 const getCachedLockfile = (): Lockfile | null =>
   useLockfileStore.getState().lockfile;
-const setCachedLockfile = (data: Lockfile): void => {
+const setCachedLockfile = (data: Lockfile): void =>
   useLockfileStore.getState().setLockfile(data);
-  // Single chokepoint for every lockfile update — reconcile here so a removed
-  // assistant never lingers as the tab selection.
-  reconcileSelectedAssistant();
-};
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
@@ -77,6 +73,10 @@ export function getPlatformRuntimeUrl(): string {
 const commitLockfile = (data: Lockfile): void => {
   setCachedLockfile(data);
   setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+  // Only reconcile against a lockfile from a successful host read/write — never
+  // the transient empty fallback in `loadLockfile`/`getLockfile`, which would
+  // wrongly drop a valid selection on a boot/read failure.
+  reconcileSelectedAssistant();
 };
 
 // ---------------------------------------------------------------------------
