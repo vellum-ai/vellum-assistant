@@ -38,7 +38,7 @@ interface DeviceRecord {
 }
 
 function printUsage(): void {
-  console.log(`vellum devices - List and revoke devices paired to a local assistant
+  console.log(`vellum devices [beta] - List and revoke devices paired to a local assistant
 
 USAGE:
     vellum devices [name]
