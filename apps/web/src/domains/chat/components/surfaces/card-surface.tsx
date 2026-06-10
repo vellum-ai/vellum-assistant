@@ -1,6 +1,5 @@
 import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/types/types";
 import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
@@ -141,22 +140,14 @@ function TaskProgressBar({ templateData }: { templateData: Record<string, unknow
 }
 
 function InProgressDetail({ value }: { value: string }) {
-  const prefersReducedMotion = useReducedMotion();
   return (
     <div className="relative h-3 min-w-0 max-w-[50%] overflow-hidden">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={value}
-          initial={prefersReducedMotion ? false : { y: "-100%", opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={prefersReducedMotion ? { opacity: 0 } : { y: "100%", opacity: 0 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
-          className="block truncate text-body-small-default text-[var(--content-tertiary)]"
-          title={value}
-        >
-          {value}
-        </motion.span>
-      </AnimatePresence>
+      <span
+        className="block truncate text-body-small-default text-[var(--content-tertiary)]"
+        title={value}
+      >
+        {value}
+      </span>
     </div>
   );
 }
