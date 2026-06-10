@@ -35,12 +35,15 @@ import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import {
+    workspaceDeletePost,
     workspaceFileContentGet,
     workspaceFileGet,
     workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 
@@ -265,41 +268,55 @@ function isHiddenPath(path: string): boolean {
 function EditFooter({
   isDirty,
   isSaving,
+  isDeleting,
   onSave,
   onDiscard,
+  onDelete,
 }: {
   isDirty: boolean;
   isSaving: boolean;
+  isDeleting: boolean;
   onSave: () => void;
   onDiscard: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
-      className="flex items-center justify-end gap-2 border-t px-3 py-2"
+      className="flex items-center justify-between gap-2 border-t px-3 py-2"
       style={{ borderColor: "var(--border-element)" }}
     >
       <Button
-        variant="ghost"
+        variant="danger"
         size="compact"
-        disabled={isSaving}
-        onClick={onDiscard}
+        disabled={isSaving || isDeleting}
+        onClick={onDelete}
       >
-        Discard
+        Delete file
       </Button>
-      {isSaving && (
-        <Loader2
-          className="h-4 w-4 animate-spin"
-          style={{ color: "var(--content-tertiary)" }}
-        />
-      )}
-      <Button
-        variant="primary"
-        size="compact"
-        disabled={!isDirty || isSaving}
-        onClick={onSave}
-      >
-        Save
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="compact"
+          disabled={isSaving || isDeleting}
+          onClick={onDiscard}
+        >
+          Discard changes
+        </Button>
+        {isSaving && (
+          <Loader2
+            className="h-4 w-4 animate-spin"
+            style={{ color: "var(--content-tertiary)" }}
+          />
+        )}
+        <Button
+          variant="primary"
+          size="compact"
+          disabled={!isDirty || isSaving || isDeleting}
+          onClick={onSave}
+        >
+          Save
+        </Button>
+      </div>
     </div>
   );
 }
@@ -459,6 +476,7 @@ export function WorkspaceFileViewer({
   viewMode,
   onChangeViewMode,
   onBrowse,
+  onDeleted,
 }: {
   assistantId: string;
   selectedPath: string | null;
@@ -466,6 +484,7 @@ export function WorkspaceFileViewer({
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
   onBrowse?: () => void;
+  onDeleted?: () => void;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -481,6 +500,7 @@ export function WorkspaceFileViewer({
     path: string;
     content: string;
   } | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const isEditing = editingPath != null && editingPath === selectedPath;
   const originalContent = data?.content ?? "";
@@ -521,6 +541,34 @@ export function WorkspaceFileViewer({
       void queryClient.invalidateQueries({
         queryKey: ["assistantsWorkspaceFileRetrieve"],
       });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (path: string) => {
+      const { error, response } = await workspaceDeletePost({
+        path: { assistant_id: assistantId },
+        body: { path },
+        throwOnError: false,
+      });
+      if (!response?.ok || error) {
+        throw new Error("Failed to delete file");
+      }
+    },
+    onSuccess: () => {
+      setConfirmDeleteOpen(false);
+      stopEditing();
+      void queryClient.invalidateQueries({
+        queryKey: ["assistantsWorkspaceTreeRetrieve"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["assistantsWorkspaceFileRetrieve"],
+      });
+      onDeleted?.();
+    },
+    onError: () => {
+      setConfirmDeleteOpen(false);
+      toast.error("Failed to delete file.");
     },
   });
 
@@ -595,12 +643,30 @@ export function WorkspaceFileViewer({
   const readOnly = selectedPath ? isHiddenPath(selectedPath) : true;
 
   const editFooter = isEditing && (
-    <EditFooter
-      isDirty={isDirty}
-      isSaving={saveMutation.isPending}
-      onSave={handleSave}
-      onDiscard={stopEditing}
-    />
+    <>
+      <EditFooter
+        isDirty={isDirty}
+        isSaving={saveMutation.isPending}
+        isDeleting={deleteMutation.isPending}
+        onSave={handleSave}
+        onDiscard={stopEditing}
+        onDelete={() => setConfirmDeleteOpen(true)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete file"
+        message={`Are you sure you want to delete "${name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (selectedPath && !deleteMutation.isPending) {
+            deleteMutation.mutate(selectedPath);
+          }
+        }}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
+    </>
   );
 
   // Markdown: Preview/Source toggle
