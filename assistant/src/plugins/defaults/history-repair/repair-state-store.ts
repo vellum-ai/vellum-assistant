@@ -1,17 +1,18 @@
 /**
  * Per-conversation ordering-repair state for the default history-repair module.
  *
- * The `stop` hook recovers from a provider ordering rejection by running a deep
- * repair and asking the loop to retry. That recovery is bounded to one pass per
- * turn: a second consecutive ordering rejection means the repair could not
- * recover the history, so the hook lets the error surface rather than looping.
+ * The `post-model-call` hook recovers from a provider ordering rejection by
+ * running a deep repair and asking the loop to retry. That recovery is bounded
+ * to one pass per turn: a second consecutive ordering rejection means the
+ * repair could not recover the history, so the hook lets the error surface
+ * rather than looping.
  *
- * The `stop` hook owns this state end-to-end. It marks a conversation when it
- * issues a repair-retry and clears the mark on any terminal stop — a successful
- * response, a non-ordering rejection, or an exhausted second ordering rejection
- * — i.e. whenever the loop is leaving rather than retrying. A conversation
- * therefore only holds an entry while a repair is in flight, so the store stays
- * bounded without a separate teardown step.
+ * The `post-model-call` hook owns this state end-to-end. It marks a conversation
+ * when it issues a repair-retry and clears the mark on any terminal outcome — a
+ * finalized reply, a non-ordering rejection, or an exhausted second ordering
+ * rejection — i.e. whenever the loop is leaving rather than retrying. A
+ * conversation therefore only holds an entry while a repair is in flight, so
+ * the store stays bounded without a separate teardown step.
  *
  * This module is side-effect free: importing it only initializes an empty store
  * and registers no plugin.
@@ -32,7 +33,7 @@ export function markOrderingRepairAttempted(conversationId: string): void {
 
 /**
  * Clear the conversation's repair mark so the next turn (or run) repairs afresh.
- * The `stop` hook calls this on every terminal stop.
+ * The `post-model-call` hook calls this on every terminal outcome.
  */
 export function clearOrderingRepairAttempted(conversationId: string): void {
   repairInFlight.delete(conversationId);
