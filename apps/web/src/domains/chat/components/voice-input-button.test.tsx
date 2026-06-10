@@ -48,7 +48,6 @@ mock.module("@/domains/chat/voice/stt-api", () => ({
 // drive the stream-death path.
 interface FakeDictationStreamArgs {
   onPartial: (text: string) => void;
-  onDown?: () => void;
 }
 let dictationStreamImpl: (
   args: FakeDictationStreamArgs,
@@ -320,12 +319,12 @@ describe("VoiceInputButton — native partials fallback", () => {
     });
   });
 
-  test("stream dying mid-recording hands off to the native fallback, stitching both transcripts", async () => {
+  test("native recognizer runs alongside a silent stream and wins the fallback", async () => {
     let streamOnPartial: ((text: string) => void) | undefined;
-    let streamOnDown: (() => void) | undefined;
     dictationStreamImpl = (args) => {
       streamOnPartial = args.onPartial;
-      streamOnDown = args.onDown;
+      // A stream whose daemon is reachable (localhost) but whose provider
+      // is not: the handle exists, never goes live, never errors.
       return { isLive: () => false, stop: () => {} };
     };
     nativePartialsImpl = async (onPartial) => {
@@ -340,34 +339,27 @@ describe("VoiceInputButton — native partials fallback", () => {
     const onTranscript = mock(async (_text: string) => {});
     await startSession(onTranscript);
 
-    // While the stream handle exists the native fallback stays off.
-    act(() => streamOnPartial?.("stream words"));
-    expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
-      "stream words",
-    );
-
-    act(() => streamOnDown?.());
+    // The recognizer started eagerly — its text is already live even though
+    // the stream handle exists.
     await waitFor(() => {
       expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
-        "stream words offline transcript",
+        "offline transcript",
       );
     });
+    act(() => streamOnPartial?.("stream words"));
 
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
 
+    // Native text outranks the stream's partial transcript.
     await waitFor(() => {
-      expect(onTranscript).toHaveBeenCalledWith(
-        "stream words offline transcript",
-      );
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
     });
   });
 
   test("stream text alone survives when the native helper is unavailable", async () => {
     let streamOnPartial: ((text: string) => void) | undefined;
-    let streamOnDown: (() => void) | undefined;
     dictationStreamImpl = (args) => {
       streamOnPartial = args.onPartial;
-      streamOnDown = args.onDown;
       return { isLive: () => false, stop: () => {} };
     };
     postSttTranscribeSpy.mockImplementationOnce(async () => ({
@@ -379,7 +371,6 @@ describe("VoiceInputButton — native partials fallback", () => {
     await startSession(onTranscript);
 
     act(() => streamOnPartial?.("stream words"));
-    act(() => streamOnDown?.());
 
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
 

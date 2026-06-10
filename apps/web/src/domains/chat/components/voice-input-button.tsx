@@ -14,7 +14,6 @@ import {
   startDictationStream,
   type DictationStreamHandle,
 } from "@/domains/chat/voice/dictation-stream";
-import { joinTranscript } from "@/domains/chat/voice/join-transcript";
 import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
@@ -315,10 +314,9 @@ export const VoiceInputButton = forwardRef<
   const nativePartialsStopRef = useRef<(() => void) | null>(null);
   const nativePartialsTextRef = useRef("");
 
-  // Latest running transcript from the daemon stream. A stream that dies
-  // mid-recording hands off to the native recognizer, which only hears from
-  // that point on — this keeps the words from before the handoff so the
-  // offline fallback can stitch the two together.
+  // Latest running transcript from the daemon stream — kept through
+  // teardown so it can serve as the final-transcript fallback when batch
+  // STT fails and the native recognizer wasn't available.
   const streamTranscriptRef = useRef("");
 
   const onStreamReadyRef = useRef(onStreamReady);
@@ -372,17 +370,20 @@ export const VoiceInputButton = forwardRef<
     nativePartialsStopRef.current = null;
   }, []);
 
-  // Fall back to the mac helper's local speech recognizer for live text and
-  // the offline final-transcript fallback. Started when the daemon stream
-  // can't be opened at all (no self-hosted gateway ingress) AND when an
-  // opened stream later dies without going live — a reachable-looking
-  // ingress with an unreachable daemon (machine offline) lands there.
-  const startNativePartialsFallback = useCallback(() => {
+  // Run the mac helper's local speech recognizer alongside the whole
+  // recording — the live-text source when no daemon stream goes live, and
+  // the offline final-transcript safety net when batch STT can't reach its
+  // provider. It runs for the full session rather than starting on stream
+  // failure because failure isn't a reliable signal: with a local daemon the
+  // stream looks healthy (localhost connects, `ready` arrives) while the
+  // provider behind it is unreachable, so it just stays silent. Same role
+  // the recognizer played in the legacy Swift client.
+  const startNativePartials = useCallback(() => {
     if (!mediaRecorderRef.current || nativePartialsStopRef.current) return;
     void startNativeDictationPartials((text) => {
       nativePartialsTextRef.current = text;
       if (!dictationStreamRef.current?.isLive()) {
-        publishInterim(joinTranscript(streamTranscriptRef.current, text));
+        publishInterim(text);
       }
     }).then((stop) => {
       if (!stop) return;
@@ -641,13 +642,8 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
-      // Transcript text the offline fallback can stitch together: whatever
-      // the daemon stream produced before it (possibly) died, plus the
-      // native recognizer's text from the handoff onward.
-      const offlineText = joinTranscript(
-        streamTranscriptRef.current,
-        nativePartialsTextRef.current,
-      );
+      const streamText = streamTranscriptRef.current;
+      const nativeText = nativePartialsTextRef.current;
       stopNativePartials();
       publishInterim("");
 
@@ -674,7 +670,7 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
-      if (chunks.length === 0 && !fallbackText && !offlineText) {
+      if (chunks.length === 0 && !fallbackText && !nativeText && !streamText) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
@@ -708,11 +704,17 @@ export const VoiceInputButton = forwardRef<
         }
 
         // Batch text is the authority. When it fails (offline, provider
-        // down), the stream/native partials are the only usable transcript
-        // inside Electron — Web Speech ships there without a speech
-        // service, so its accumulator stays empty.
-        if (!text && offlineText) {
-          text = offlineText;
+        // down), the native recognizer's transcript is the most complete
+        // substitute — it runs for the whole session and works without
+        // network. Stream text covers sessions where the helper couldn't
+        // run (permission denied, old shell); the Web Speech accumulator
+        // only matters in plain browsers — inside Electron the API ships
+        // without a speech service, so it stays empty.
+        if (!text && nativeText) {
+          text = nativeText;
+        }
+        if (!text && streamText) {
+          text = streamText;
         }
         if (!text && fallbackText) {
           text = fallbackText;
@@ -798,12 +800,9 @@ export const VoiceInputButton = forwardRef<
         streamTranscriptRef.current = text;
         publishInterim(text);
       },
-      onDown: startNativePartialsFallback,
     });
 
-    if (!dictationStreamRef.current) {
-      startNativePartialsFallback();
-    }
+    startNativePartials();
   }, [
     assistantId,
     onBeforeStart,
@@ -811,7 +810,7 @@ export const VoiceInputButton = forwardRef<
     onTranscript,
     publishInterim,
     releaseStream,
-    startNativePartialsFallback,
+    startNativePartials,
     stopSpeechRecognition,
     stopDictationStream,
     stopNativePartials,

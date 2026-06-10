@@ -106,11 +106,10 @@ function createCaptureFake({
 function startWithFakes(
   onPartial: (text: string) => void = () => undefined,
   captureFake = createCaptureFake(),
-  onDown?: () => void,
 ) {
   let ws: FakeWebSocket | null = null;
   const handle = startDictationStream(
-    { onPartial, onDown },
+    { onPartial },
     {
       webSocketFactory: (url) => {
         ws = new FakeWebSocket(url);
@@ -242,29 +241,6 @@ describe("startDictationStream", () => {
 
     ws.serverMessage({ type: "partial", text: "late", seq: 1 });
     expect(partials).toEqual([]);
-  });
-
-  test("onDown fires once when the socket dies without the caller's stop()", () => {
-    const onDown = mock(() => {});
-    const { ws } = startWithFakes(undefined, undefined, onDown);
-
-    ws.serverOpen();
-    ws.emit("close", { code: 1006 });
-    expect(onDown).toHaveBeenCalledTimes(1);
-
-    // Teardown is idempotent — a trailing error event doesn't re-fire it.
-    ws.emit("error", {});
-    expect(onDown).toHaveBeenCalledTimes(1);
-  });
-
-  test("stop() tears down without firing onDown", () => {
-    const onDown = mock(() => {});
-    const { handle, ws } = startWithFakes(undefined, undefined, onDown);
-
-    ws.serverOpen();
-    handle.stop();
-
-    expect(onDown).not.toHaveBeenCalled();
   });
 
   test("stop() sends the stop frame once and closes; idempotent", () => {
