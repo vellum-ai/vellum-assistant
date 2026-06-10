@@ -288,3 +288,83 @@ async function fetchGlobalThresholds(): Promise<GlobalThresholds> {
   cachedGlobalTimestamp = Date.now();
   return result;
 }
+
+/**
+ * Re-read the auto-approve threshold from the gateway, bypassing both
+ * caches, and prime them with the fresh values.
+ *
+ * Used by the permission checker immediately before surfacing an
+ * interactive prompt: the cached snapshot (5s conversation TTL with
+ * negative caching, 30s global TTL) may predate a threshold change the
+ * user just made — e.g. switching to Full access — because no threshold
+ * write path invalidates these in-process caches (the web picker writes
+ * through the gateway HTTP route, the desktop picker through the
+ * `set_conversation_threshold` IPC). Prompting from a stale threshold
+ * directly contradicts the user's visible setting. A prompt is already a
+ * rare, user-visible interruption, so the extra IPC round-trip is cheap
+ * relative to a wrong prompt.
+ *
+ * Returns the freshly-resolved threshold, or `null` when the gateway
+ * could not be reached. Callers must keep their original decision on
+ * `null` — fail toward prompting, never toward silent approval. The
+ * conversation-override read failing is also treated as `null` (rather
+ * than falling through to the global threshold) because without the
+ * override we cannot know whether the conversation is configured more
+ * strictly than the global default.
+ */
+export async function refreshAutoApproveThreshold(
+  conversationId: string | undefined,
+  executionContext?: ExecutionContext,
+): Promise<Threshold | null> {
+  const ctx: ExecutionContext = executionContext ?? "conversation";
+
+  if (ctx === "conversation" && conversationId) {
+    const result = (await ipcCall("get_conversation_threshold", {
+      conversationId,
+    })) as ConversationThreshold | null | undefined;
+
+    if (result === undefined) {
+      noteFailure(
+        "conversation_threshold",
+        { conversationId },
+        "IPC call failed for conversation threshold refresh, keeping cached decision",
+      );
+      return null;
+    }
+    noteSuccess("conversation_threshold");
+    if (result && isValidThreshold(result.threshold)) {
+      conversationThresholdCache.set(conversationId, {
+        threshold: result.threshold,
+        timestamp: Date.now(),
+      });
+      return result.threshold;
+    }
+    // No override (or unexpected shape) — prime the negative cache and
+    // fall through to a fresh global read.
+    conversationThresholdCache.set(conversationId, {
+      threshold: null,
+      timestamp: Date.now(),
+    });
+  }
+
+  try {
+    const result = (await ipcCall(
+      "get_global_thresholds",
+    )) as GlobalThresholds | null;
+    if (!result) {
+      throw new Error("Gateway IPC returned no result for global thresholds");
+    }
+    noteSuccess("global_thresholds");
+    cachedGlobalThresholds = result;
+    cachedGlobalTimestamp = Date.now();
+    const value = result[mapExecutionContextToField(ctx)];
+    return isValidThreshold(value) ? value : null;
+  } catch (err) {
+    noteFailure(
+      "global_thresholds",
+      { error: String(err) },
+      "Failed to refresh global thresholds, keeping cached decision",
+    );
+    return null;
+  }
+}

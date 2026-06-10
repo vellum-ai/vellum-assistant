@@ -28,7 +28,10 @@ import {
   type ApprovalContext,
   DefaultApprovalPolicy,
 } from "./approval-policy.js";
-import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
+import {
+  getAutoApproveThreshold,
+  refreshAutoApproveThreshold,
+} from "./gateway-threshold-reader.js";
 import type { RiskAssessment } from "./risk-types.js";
 import {
   type AllowlistOption,
@@ -555,7 +558,27 @@ export async function check(
   };
 
   // Delegate the allow/prompt/deny decision to the approval policy
-  const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
+  let approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
+
+  // A "prompt" computed from a cached threshold may contradict a setting
+  // the user just changed: the reader caches thresholds (5s conversation /
+  // 30s global TTL) and no threshold write path invalidates this process's
+  // caches. Re-read the threshold fresh before interrupting the user; when
+  // the current value differs, re-evaluate so e.g. Full access never
+  // prompts. A failed refresh returns null and keeps the prompt — fail
+  // toward asking, never toward silent approval.
+  if (approvalDecision.decision === "prompt") {
+    const freshThreshold = await refreshAutoApproveThreshold(
+      policyContext?.conversationId,
+      policyContext?.executionContext,
+    );
+    if (freshThreshold !== null && freshThreshold !== threshold) {
+      approvalDecision = defaultApprovalPolicy.evaluate({
+        ...approvalContext,
+        autoApproveUpTo: freshThreshold,
+      });
+    }
+  }
 
   // Enrich the reason with the classifier's explanation when available.
   // For risk-based fallback decisions (prompt/deny from High/Medium risk),
