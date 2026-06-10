@@ -5,7 +5,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import { AgentLoop, EMPTY_RESPONSE_FALLBACK_TEXT } from "../agent/loop.js";
+import { AgentLoop, REFUSAL_FALLBACK_TEXT } from "../agent/loop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
@@ -2108,31 +2108,29 @@ describe("AgentLoop", () => {
     // Provider called 3 times: initial, empty, retry (also empty)
     expect(calls).toHaveLength(3);
 
-    // message_complete: tool_use response + final fallback response (retry exhausted)
+    // message_complete: tool_use response + final empty response (retry exhausted)
     const messageCompletes = events.filter(
       (e) => e.type === "message_complete",
     );
     expect(messageCompletes).toHaveLength(2);
 
-    // The retries-exhausted empty turn is replaced by a user-facing fallback
-    // rather than persisted as a blank assistant bubble.
+    // An organic empty `end_turn` (not a refusal) is left as-is — the fallback
+    // is refusal-specific, so the exhausted empty turn stays empty.
     const lastAssistant = [...history]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant).toBeDefined();
-    expect(lastAssistant!.content).toEqual([
-      { type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT },
-    ]);
+    expect(lastAssistant!.content).toEqual([]);
 
-    // The fallback is streamed so the client renders it instead of nothing.
+    // AND no fallback text is streamed for a non-refusal empty turn.
     const textDeltas = events.filter((e) => e.type === "text_delta");
     expect(
       textDeltas.some(
         (e) =>
           (e as { type: "text_delta"; text: string }).text ===
-          EMPTY_RESPONSE_FALLBACK_TEXT,
+          REFUSAL_FALLBACK_TEXT,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("does not retry empty response on first turn (no prior tool use)", async () => {
@@ -2159,11 +2157,10 @@ describe("AgentLoop", () => {
 
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
-    // user + assistant; the empty turn is replaced by the user-facing fallback
+    // user + assistant; an organic empty `end_turn` is left as-is (the fallback
+    // is refusal-specific), so the empty turn stays empty.
     expect(history).toHaveLength(2);
-    expect(history[1].content).toEqual([
-      { type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT },
-    ]);
+    expect(history[1].content).toEqual([]);
   });
 
   // Refusal stop boundary — the provider zeroed the response with
@@ -2220,7 +2217,7 @@ describe("AgentLoop", () => {
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant!.content).toEqual([
-      { type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT },
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
 
     // AND the fallback is streamed so the client renders it.
@@ -2229,16 +2226,17 @@ describe("AgentLoop", () => {
       textDeltas.some(
         (e) =>
           (e as { type: "text_delta"; text: string }).text ===
-          EMPTY_RESPONSE_FALLBACK_TEXT,
+          REFUSAL_FALLBACK_TEXT,
       ),
     ).toBe(true);
   });
 
   // The fallback must not pile a spurious apology beneath a real answer: when
   // an earlier turn this run already produced visible text (text alongside a
-  // tool call), an empty trailing turn after the tool result is expected.
+  // tool call), a refusal on the trailing turn after the tool result must not
+  // append the fallback even though a refusal would normally trigger it.
   test("does not substitute a fallback when the run already produced visible text", async () => {
-    // GIVEN a first turn with text + a tool call, then an empty turn after the
+    // GIVEN a first turn with text + a tool call, then a refusal after the
     // tool result.
     const textPlusToolUse: ProviderResponse = {
       content: [
@@ -2254,13 +2252,17 @@ describe("AgentLoop", () => {
       usage: { inputTokens: 10, outputTokens: 5 },
       stopReason: "tool_use",
     };
-    const emptyResponse: ProviderResponse = {
+    const refusalResponse: ProviderResponse = {
       content: [],
       model: "mock-model",
       usage: { inputTokens: 10, outputTokens: 0 },
-      stopReason: "end_turn",
+      stopReason: "refusal",
     };
-    const { provider } = createMockProvider([textPlusToolUse, emptyResponse]);
+    const { provider } = createMockProvider([
+      textPlusToolUse,
+      refusalResponse,
+      refusalResponse,
+    ]);
     const loop = new AgentLoop({
       provider: provider,
       systemPrompt: "system",
@@ -2283,7 +2285,7 @@ describe("AgentLoop", () => {
       (e) =>
         e.type === "text_delta" &&
         (e as { type: "text_delta"; text: string }).text ===
-          EMPTY_RESPONSE_FALLBACK_TEXT,
+          REFUSAL_FALLBACK_TEXT,
     );
     expect(fallbackEmitted).toBe(false);
     const fallbackInHistory = history.some(
@@ -2293,16 +2295,17 @@ describe("AgentLoop", () => {
           (b) =>
             b.type === "text" &&
             "text" in b &&
-            (b as { text: string }).text === EMPTY_RESPONSE_FALLBACK_TEXT,
+            (b as { text: string }).text === REFUSAL_FALLBACK_TEXT,
         ),
     );
     expect(fallbackInHistory).toBe(false);
   });
 
   // A native web-search turn lands at the stop boundary with no `tool_use` and
-  // no visible text, but its `server_tool_use`/`web_search_tool_result` blocks
-  // render the search card and back its persistence. The fallback must not fire
-  // here — replacing the content would drop those blocks and erase the card.
+  // no visible text, but with `stopReason: "end_turn"` (not a refusal) and
+  // `server_tool_use`/`web_search_tool_result` blocks that render the search
+  // card. Because the fallback is refusal-specific, it must not fire here and
+  // the server-tool blocks must persist untouched.
   test("does not substitute a fallback for a server-tool turn with no text", async () => {
     // GIVEN a turn carrying only native web-search blocks (no text, no
     // client-side tool_use).
@@ -2352,7 +2355,7 @@ describe("AgentLoop", () => {
       (e) =>
         e.type === "text_delta" &&
         (e as { type: "text_delta"; text: string }).text ===
-          EMPTY_RESPONSE_FALLBACK_TEXT,
+          REFUSAL_FALLBACK_TEXT,
     );
     expect(fallbackEmitted).toBe(false);
   });

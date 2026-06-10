@@ -373,14 +373,14 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 const MAX_STOP_CONTINUE_RETRIES = 1;
 
 /**
- * User-facing text substituted when a turn ends at the stop boundary with no
- * visible assistant text — e.g. the provider returned `stopReason: "refusal"`
- * and the `stop` hook's nudge budget is spent, or the model simply produced no
- * text. Without this, the turn would reach the user as an empty assistant
- * bubble. Unlike the `stop` hook's nudge text (which is shown only to the
- * model), this is the message the user actually reads.
+ * User-facing text appended when a turn ends at the stop boundary on a provider
+ * `refusal` with no visible text — i.e. the safety classifier zeroed the
+ * response and the `stop` hook's nudge budget is spent. Without this, the
+ * refusal would reach the user as an empty assistant bubble. Unlike the `stop`
+ * hook's nudge text (which is shown only to the model), this is the message the
+ * user actually reads.
  */
-export const EMPTY_RESPONSE_FALLBACK_TEXT =
+export const REFUSAL_FALLBACK_TEXT =
   "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
 
 const MAX_TOKENS_STOP_REASONS = new Set([
@@ -414,20 +414,6 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
-  );
-}
-
-/**
- * Whether `content` carries native server-tool blocks (e.g. web search).
- * These render their own UI and carry state `handleMessageComplete` persists
- * for the activity/card, so a turn holding them is not an empty bubble and
- * must not have its content replaced by the empty-response fallback.
- */
-function hasServerToolContent(content: ReadonlyArray<ContentBlock>): boolean {
-  return content.some(
-    (block) =>
-      block.type === "server_tool_use" ||
-      block.type === "web_search_tool_result",
   );
 }
 
@@ -1486,36 +1472,31 @@ export class AgentLoop {
         // re-queried reply is never transformed-then-discarded.
         assistantMessage = await finalizeAssistantMessage(assistantMessage);
 
-        // Safety net for the stop boundary: a no-tool turn with no visible text
-        // would otherwise reach the user as an empty assistant bubble (e.g. a
-        // provider `refusal` after the `stop` hook's nudge budget is spent).
-        // Append a user-facing fallback and stream it, since nothing was
-        // emitted live for an empty turn. Two scopes guard against firing when
-        // the turn is not actually a blank bubble:
-        //  - `producedVisibleTextThisRun`: when an earlier turn this run already
-        //    replied (e.g. text alongside a tool call), an empty trailing turn
-        //    is expected and must not gain a spurious apology beneath the real
-        //    answer.
-        //  - `hasServerToolContent`: a native web-search turn can land here with
-        //    no text but with `server_tool_use`/`web_search_tool_result` blocks
-        //    that render the search card; it is not an empty bubble, and
-        //    replacing or apologizing over it would drop the card.
-        // The fallback is appended (not substituted) so any other non-text
-        // blocks the turn carries are preserved.
+        // Safety net for the refusal stop boundary: a provider `refusal` zeroes
+        // the turn, so after the `stop` hook's nudge budget is spent it would
+        // otherwise reach the user as an empty assistant bubble. Append a
+        // user-facing fallback and stream it, since nothing was emitted live.
+        // Scoped to refusals on purpose — other empty turns (e.g. an organic
+        // `end_turn` with no text) are left as-is. `producedVisibleTextThisRun`
+        // guards the case where an earlier turn this run already replied (e.g.
+        // text alongside a tool call, then a refusal after the tool result), so
+        // a spurious apology never lands beneath a real answer. The fallback is
+        // appended (not substituted) so any other blocks the turn carries are
+        // preserved.
         if (
           toolUseBlocks.length === 0 &&
+          response.stopReason === "refusal" &&
           !producedVisibleTextThisRun &&
-          !hasVisibleText(assistantMessage.content) &&
-          !hasServerToolContent(assistantMessage.content)
+          !hasVisibleText(assistantMessage.content)
         ) {
           assistantMessage = {
             role: "assistant",
             content: [
               ...assistantMessage.content,
-              { type: "text", text: EMPTY_RESPONSE_FALLBACK_TEXT },
+              { type: "text", text: REFUSAL_FALLBACK_TEXT },
             ],
           };
-          onEvent({ type: "text_delta", text: EMPTY_RESPONSE_FALLBACK_TEXT });
+          onEvent({ type: "text_delta", text: REFUSAL_FALLBACK_TEXT });
         }
 
         history.push(assistantMessage);
