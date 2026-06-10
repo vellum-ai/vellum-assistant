@@ -265,6 +265,16 @@ export const VoiceInputButton = forwardRef<
   const onInterimTranscriptRef = useRef(onInterimTranscript);
   onInterimTranscriptRef.current = onInterimTranscript;
 
+  // Interim transcripts fan out to the per-instance callback (composer
+  // preview) AND the global recording store, so window-level consumers —
+  // the Electron dictation overlay sync — see partials no matter which
+  // button instance (chat composer or the global push-to-talk fallback)
+  // owns the session.
+  const publishInterim = useCallback((text: string) => {
+    useVoiceRecordingStore.getState().setInterimTranscript(text);
+    onInterimTranscriptRef.current?.(text);
+  }, []);
+
   const releaseStream = useCallback(() => {
     if (streamRef.current) {
       for (const track of streamRef.current.getTracks()) {
@@ -387,7 +397,7 @@ export const VoiceInputButton = forwardRef<
           // to avoid competing UI updates (the legacy client's rule). The
           // accumulator above still builds — it stays the batch fallback.
           if (!dictationStreamRef.current?.isLive()) {
-            onInterimTranscriptRef.current?.(interim);
+            publishInterim(interim);
           }
         };
 
@@ -458,7 +468,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
-      onInterimTranscriptRef.current?.("");
+      publishInterim("");
 
       if (erroredRef.current) {
         return;
@@ -573,13 +583,14 @@ export const VoiceInputButton = forwardRef<
     // more: the recorder above is untouched.
     stopDictationStream();
     dictationStreamRef.current = startDictationStream({
-      onPartial: (text) => onInterimTranscriptRef.current?.(text),
+      onPartial: publishInterim,
     });
   }, [
     assistantId,
     onBeforeStart,
     onError,
     onTranscript,
+    publishInterim,
     releaseStream,
     stopSpeechRecognition,
     stopDictationStream,

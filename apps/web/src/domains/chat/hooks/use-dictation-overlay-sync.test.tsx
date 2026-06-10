@@ -18,14 +18,8 @@ const { useVoiceRecordingStore } = await import(
 );
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 
-type SyncProps = { interim: string; errorCode: string | null };
-
-const renderSync = (
-  initialProps: SyncProps = { interim: "", errorCode: null },
-) => {
-  const hook = renderHook((props: SyncProps) => useDictationOverlaySync(props), {
-    initialProps,
-  });
+const renderSync = () => {
+  const hook = renderHook(() => useDictationOverlaySync());
   // Mounting in the store's idle phase publishes an initial dismiss —
   // uninteresting to every assertion below.
   messages.length = 0;
@@ -46,14 +40,16 @@ afterEach(() => {
 
 describe("useDictationOverlaySync", () => {
   test("publishes recording states with the live interim transcript", () => {
-    const hook = renderSync();
+    renderSync();
 
     act(() => {
       store().startRecording();
     });
     expect(messages).toEqual([{ kind: "recording", transcription: "" }]);
 
-    hook.rerender({ interim: "hello wor", errorCode: null });
+    act(() => {
+      store().setInterimTranscript("hello wor");
+    });
     expect(messages[messages.length - 1]).toEqual({
       kind: "recording",
       transcription: "hello wor",
@@ -108,16 +104,16 @@ describe("useDictationOverlaySync", () => {
   });
 
   test("a front-app insertion error turns the finalized session into an error, not done", () => {
-    const hook = renderSync();
+    renderSync();
 
     act(() => {
       store().startRecording();
       store().stopRecording();
     });
-    // Insertion failed: `handleVoiceTranscript` sets the voice error code,
-    // falls back to the composer, and the recorder still finalizes.
-    hook.rerender({ interim: "", errorCode: "dictation-automation-denied" });
+    // Insertion failed: the transcript handler flags the error code, the
+    // text falls back to the composer, and the recorder still finalizes.
     act(() => {
+      store().flagDictationInsertionError("dictation-automation-denied");
       store().finalize();
     });
 
@@ -126,5 +122,29 @@ describe("useDictationOverlaySync", () => {
       message: formatVoiceError("dictation-automation-denied"),
     });
     expect(messages).not.toContainEqual({ kind: "done" });
+  });
+
+  test("a new session clears the previous session's interim and insertion error", () => {
+    renderSync();
+
+    act(() => {
+      store().startRecording();
+      store().setInterimTranscript("old words");
+      store().flagDictationInsertionError("dictation-paste-blocked");
+      store().stopRecording();
+      store().finalize();
+    });
+    messages.length = 0;
+
+    act(() => {
+      store().startRecording();
+    });
+    expect(messages[0]).toEqual({ kind: "recording", transcription: "" });
+
+    act(() => {
+      store().stopRecording();
+      store().finalize();
+    });
+    expect(messages[messages.length - 1]).toEqual({ kind: "done" });
   });
 });

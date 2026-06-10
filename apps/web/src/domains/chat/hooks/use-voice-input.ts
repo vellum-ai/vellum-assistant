@@ -7,7 +7,6 @@ import {
 import {
   shouldShowMicPrimer,
 } from "@/domains/chat/components/mic-permission-primer";
-import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
@@ -110,11 +109,6 @@ export function useVoiceInput({
     });
   }, []);
 
-  // Mirror the dictation lifecycle to the Electron system-wide overlay so
-  // push-to-talk dictation into another app has visible live feedback
-  // outside the main window. No-op off Electron.
-  useDictationOverlaySync({ interim: voiceInterim, errorCode: voiceError });
-
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);
   }, []);
@@ -163,8 +157,14 @@ export function useVoiceInput({
       }
       if (frontAppInsertion.status === "automation-denied") {
         setVoiceError("dictation-automation-denied");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
         setVoiceError("dictation-paste-blocked");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-paste-blocked");
       }
 
       setInput((current: string) => {

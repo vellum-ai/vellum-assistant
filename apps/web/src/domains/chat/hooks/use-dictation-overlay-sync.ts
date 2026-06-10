@@ -10,32 +10,33 @@ import { setDictationOverlayState } from "@/runtime/dictation-overlay";
  * live while they dictate via push-to-talk into another app.
  *
  * Domain hook per the Electron conventions (`docs/ELECTRON.md`): the chat
- * domain owns the recording store, interim transcripts, and the voice error
- * taxonomy, so it decides when to call the `runtime/` bridge. Off Electron
- * the bridge no-ops, so this is safe to mount on web and iOS.
+ * domain owns the recording store and the voice error taxonomy, so it
+ * decides when to call the `runtime/` bridge. Off Electron the bridge
+ * no-ops, so this is safe to mount on web and iOS.
+ *
+ * Everything it publishes is read from `useVoiceRecordingStore` — phase,
+ * live interim transcript, and error codes — so it must be mounted exactly
+ * ONCE per window, in `GlobalPushToTalkBridge` (always present in
+ * `RootLayout`). That covers dictation hosted by any `VoiceInputButton`
+ * instance: the chat composer's on chat routes, and the bridge's headless
+ * fallback on every other route (Settings, onboarding, …). A second
+ * mounted instance would publish duplicate messages racing this one.
  *
  * The main process decides visibility: sessions that start while a Vellum
- * window is focused are suppressed there (the composer already shows interim
- * text inline), so this hook publishes unconditionally.
+ * window is focused are suppressed there (the composer already shows
+ * interim text inline), so this hook publishes unconditionally.
  *
- * @param interim   Live partial transcript while recording (`voiceInterim`).
- * @param errorCode Current voice error code (`voiceError`). Needed beyond
- *                  the store's own error phase because front-app insertion
- *                  failures (automation denied / paste blocked) set an error
- *                  code and then fall back to the composer, finalizing the
- *                  store into `done` — the overlay must show the error, not
- *                  a success check, or the user would believe the paste
- *                  landed in the app they were dictating into.
+ * `dictationInsertionError` exists because front-app insertion failures
+ * (automation denied / paste blocked) flag an error and then still
+ * finalize the store into `done` while the transcript soft-lands in the
+ * composer — the overlay must show the error, not a success check, or the
+ * user would believe the paste landed in the app they were dictating into.
  */
-export function useDictationOverlaySync({
-  interim,
-  errorCode,
-}: {
-  interim: string;
-  errorCode: string | null;
-}): void {
+export function useDictationOverlaySync(): void {
   const phase = useVoiceRecordingStore.use.phase();
-  const storeErrorCode = useVoiceRecordingStore.use.errorCode();
+  const errorCode = useVoiceRecordingStore.use.errorCode();
+  const interim = useVoiceRecordingStore.use.interimTranscript();
+  const insertionError = useVoiceRecordingStore.use.dictationInsertionError();
 
   useEffect(() => {
     switch (phase) {
@@ -47,30 +48,29 @@ export function useDictationOverlaySync({
         break;
       case "done":
         setDictationOverlayState(
-          errorCode
-            ? { kind: "error", message: formatVoiceError(errorCode) }
+          insertionError
+            ? { kind: "error", message: formatVoiceError(insertionError) }
             : { kind: "done" },
         );
         break;
       case "error":
         setDictationOverlayState({
           kind: "error",
-          message: formatVoiceError(storeErrorCode ?? errorCode ?? "unknown"),
+          message: formatVoiceError(errorCode ?? insertionError ?? "unknown"),
         });
         break;
       case "idle":
         setDictationOverlayState({ kind: "dismiss" });
         break;
     }
-  }, [phase, interim, errorCode, storeErrorCode]);
+  }, [phase, interim, errorCode, insertionError]);
 
   // Mount-scoped (not in the effect above — its cleanup runs on every dep
   // change, which would hide and re-show the overlay between interim
-  // updates). If the composer unmounts mid-recording (e.g. navigating to
-  // Settings), no idle transition is ever published, so dismiss explicitly
-  // or the overlay would stay up until the next session. Harmless after a
-  // terminal state: main pins done/error on their own timers and ignores
-  // this dismiss.
+  // updates). If the host window tears down mid-recording, no idle
+  // transition is ever published, so dismiss explicitly or the overlay
+  // would stay up until the next session. Harmless after a terminal state:
+  // main pins done/error on their own timers and ignores this dismiss.
   useEffect(() => {
     return () => {
       setDictationOverlayState({ kind: "dismiss" });
