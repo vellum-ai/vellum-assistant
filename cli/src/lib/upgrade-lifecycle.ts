@@ -19,6 +19,11 @@ import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
 import { resolveImageRefs } from "./platform-releases.js";
+import {
+  getBuilderManagedEnvKeys,
+  type DockerStatefulSetSpec,
+  type ServiceName,
+} from "./statefulset.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
 
@@ -181,6 +186,36 @@ export async function captureContainerEnv(
     // Container may not exist or not be inspectable
   }
   return captured;
+}
+
+/**
+ * Filter a captured container env down to the entries safe to replay onto a
+ * replacement container.
+ *
+ * Drops every key `buildServiceRunArgs` sets itself (spec static/secret
+ * entries, builder-computed extras, PATH). Spec-managed secrets re-enter via
+ * the dedicated `DockerRunSecrets` path, so adding a secret to the spec
+ * automatically excludes it here. Spec host-forwarded keys are dropped only
+ * when the host variable is currently set, so fresh host values win over
+ * stale captured ones.
+ *
+ * Security contract: the returned env is memory-only — never persist it to
+ * disk, and log counts only, never values.
+ */
+export function buildReplayEnv(
+  capturedEnv: Record<string, string>,
+  service: ServiceName,
+  spec?: DockerStatefulSetSpec,
+): Record<string, string> {
+  const { always, hostForwarded } = getBuilderManagedEnvKeys(service, spec);
+  const hostManaged = new Set(
+    hostForwarded.filter((h) => process.env[h.hostVar]).map((h) => h.name),
+  );
+  return Object.fromEntries(
+    Object.entries(capturedEnv).filter(
+      ([key]) => !always.has(key) && !hostManaged.has(key),
+    ),
+  );
 }
 
 /**
