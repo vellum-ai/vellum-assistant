@@ -227,6 +227,12 @@ export interface BackendCandidate {
   /** Human-readable reason this candidate was included. */
   readonly reason: string;
   /**
+   * Actor the candidate was built for. Set on host-bridge candidates so
+   * a transport failure records the cooldown for the owning actor only
+   * (the bridge reaches a different desktop machine per actor).
+   */
+  readonly sourceActorPrincipalId?: string;
+  /**
    * Materialise the backend. Called at most once — the factory caches
    * the result after the first successful CDP command so subsequent
    * commands reuse the same backend (sticky semantics).

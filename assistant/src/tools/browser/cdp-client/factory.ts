@@ -90,7 +90,7 @@ export function _getDesktopAutoCooldownSince(): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Module-level timestamp (epoch ms) of the last transport-level failure
+ * Per-actor timestamps (epoch ms) of the last transport-level failure
  * for a host-bridge attempt. Mirrors the desktop-auto cdp-inspect
  * cooldown above — the failure root cause is the same (the user's
  * Chrome is not exposing a remote-debugging port), just probed through
@@ -99,36 +99,69 @@ export function _getDesktopAutoCooldownSince(): number {
  * the host-bridge candidate so every browser op doesn't pay an SSE
  * round-trip for a guaranteed failure.
  *
- * **Process-global scope**: like the desktop-auto cooldown, one
- * conversation's failure suppresses bridge probes for all
- * conversations in this daemon (including other actors' on a
- * multi-actor cloud daemon) until expiry.
+ * **Per-actor scope**: unlike the desktop-auto cooldown (one local
+ * machine, so process-global is correct), the bridge reaches a
+ * different desktop machine per actor on a multi-actor cloud daemon —
+ * one actor's missing debug port must not suppress another actor's
+ * only route to their own Chrome. Callers without a resolved actor
+ * share the `__default__` slot.
  */
-let _hostBridgeCooldownSince = 0;
+const _hostBridgeCooldownSince = new Map<string, number>();
 
-/** Record a cooldown after a host-bridge transport failure. */
-export function recordHostBridgeCooldown(): void {
-  _hostBridgeCooldownSince = Date.now();
+/** Entries older than this are swept on record to bound map growth. */
+const HOST_BRIDGE_COOLDOWN_SWEEP_MS = 60 * 60 * 1000;
+
+function hostBridgeCooldownKey(sourceActorPrincipalId?: string): string {
+  return sourceActorPrincipalId ?? "__default__";
+}
+
+/** Record a cooldown after a host-bridge transport failure for this actor. */
+export function recordHostBridgeCooldown(
+  sourceActorPrincipalId?: string,
+): void {
+  const now = Date.now();
+  for (const [key, since] of _hostBridgeCooldownSince) {
+    if (now - since >= HOST_BRIDGE_COOLDOWN_SWEEP_MS) {
+      _hostBridgeCooldownSince.delete(key);
+    }
+  }
+  _hostBridgeCooldownSince.set(
+    hostBridgeCooldownKey(sourceActorPrincipalId),
+    now,
+  );
 }
 
 /**
- * Whether the host-bridge cooldown is currently active. Returns `true`
- * if a failure was recorded and the configured cooldown window has not
- * yet elapsed.
+ * Whether the host-bridge cooldown is currently active for this actor.
+ * Returns `true` if a failure was recorded and the configured cooldown
+ * window has not yet elapsed.
  */
-export function isHostBridgeCooldownActive(cooldownMs: number): boolean {
-  if (_hostBridgeCooldownSince === 0 || cooldownMs <= 0) return false;
-  return Date.now() - _hostBridgeCooldownSince < cooldownMs;
+export function isHostBridgeCooldownActive(
+  cooldownMs: number,
+  sourceActorPrincipalId?: string,
+): boolean {
+  if (cooldownMs <= 0) return false;
+  const since = _hostBridgeCooldownSince.get(
+    hostBridgeCooldownKey(sourceActorPrincipalId),
+  );
+  if (since === undefined) return false;
+  return Date.now() - since < cooldownMs;
 }
 
 /** Reset the host-bridge cooldown state. Exported for testing only. */
 export function _resetHostBridgeCooldown(): void {
-  _hostBridgeCooldownSince = 0;
+  _hostBridgeCooldownSince.clear();
 }
 
-/** Get the raw cooldown-since timestamp. Exported for testing only. */
-export function _getHostBridgeCooldownSince(): number {
-  return _hostBridgeCooldownSince;
+/** Get the raw cooldown-since timestamp for an actor. Exported for testing only. */
+export function _getHostBridgeCooldownSince(
+  sourceActorPrincipalId?: string,
+): number {
+  return (
+    _hostBridgeCooldownSince.get(
+      hostBridgeCooldownKey(sourceActorPrincipalId),
+    ) ?? 0
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -488,9 +521,13 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
     // Chrome when the daemon runs remotely (cloud), where cdp-inspect
     // would dial the daemon's localhost instead.
     const { cooldownMs } = getConfig().hostBrowser.cdpInspect.desktopAuto;
-    if (isHostBridgeCooldownActive(cooldownMs)) {
+    if (isHostBridgeCooldownActive(cooldownMs, sourceActorPrincipalId)) {
       log.debug(
-        { conversationId, cooldownMs, cooldownSince: _hostBridgeCooldownSince },
+        {
+          conversationId,
+          cooldownMs,
+          cooldownSince: _getHostBridgeCooldownSince(sourceActorPrincipalId),
+        },
         "CDP factory: host-bridge skipped (cooldown active)",
       );
     } else {
@@ -609,6 +646,7 @@ function makeHostBridgeCandidate(
   return {
     kind: "host-bridge",
     reason,
+    sourceActorPrincipalId,
     create() {
       const client = createHostBridgeCdpClient(
         hostBrowserProxy,
@@ -1161,7 +1199,7 @@ function maybeRecordCandidateCooldown(candidate: BackendCandidate): void {
     log.debug(
       "CDP factory: recording host-bridge cooldown after transport failure",
     );
-    recordHostBridgeCooldown();
+    recordHostBridgeCooldown(candidate.sourceActorPrincipalId);
     return;
   }
   if (

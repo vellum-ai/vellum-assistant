@@ -837,6 +837,7 @@ describe("buildCandidateList", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     mockSingletonProxy = null;
   });
 
@@ -935,6 +936,39 @@ describe("buildCandidateList", () => {
     expect(candidates.every((c) => c.kind !== "cdp-inspect")).toBe(true);
     expect(isHostBridgeCooldownActive(30_000)).toBe(false);
   });
+
+  test("host-bridge cooldown is scoped per actor", () => {
+    // One actor's missing debug port must not suppress another actor's
+    // only route to their own Chrome on a multi-actor cloud daemon.
+    mockSingletonProxy = makeActorScopedProxy({
+      extensionActors: [],
+      bridgeActors: ["actor-a", "actor-b"],
+    });
+
+    recordHostBridgeCooldown("actor-a");
+
+    const forA = buildCandidateList(
+      makeContext({
+        conversationId: "cooldown-actor-a",
+        sourceActorPrincipalId: "actor-a",
+      }),
+    );
+    expect(forA.every((c) => c.kind !== "host-bridge")).toBe(true);
+
+    const forB = buildCandidateList(
+      makeContext({
+        conversationId: "cooldown-actor-b",
+        sourceActorPrincipalId: "actor-b",
+      }),
+    );
+    expect(forB[0].kind).toBe("host-bridge");
+
+    // Actor-scoped cooldowns do not leak into the no-actor default slot.
+    expect(isHostBridgeCooldownActive(30_000)).toBe(false);
+    expect(isHostBridgeCooldownActive(30_000, "actor-a")).toBe(true);
+    expect(isHostBridgeCooldownActive(30_000, "actor-b")).toBe(false);
+  });
+
 
   test("ordering on a macOS turn with bridge only: host-bridge > cdp-inspect > local", () => {
     mockSingletonProxy = makeMacosBridgeOnlyProxy();
@@ -1261,6 +1295,42 @@ describe("buildChainedClient failover", () => {
     expect(_getDesktopAutoCooldownSince()).toBe(0);
     const after = buildCandidateList(ctx);
     expect(after.every((c) => c.kind !== "host-bridge")).toBe(true);
+  });
+
+  test("host-bridge failover records the cooldown under the failing actor only", async () => {
+    mockSingletonProxy = makeActorScopedProxy({
+      extensionActors: [],
+      bridgeActors: ["actor-a", "actor-b"],
+    });
+    createHostBridgeCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeHostBridgeClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError(
+            "transport_error",
+            "HTTP 404 from http://localhost:9222/json/list",
+            { cdpMethod: "Page.navigate" },
+          );
+        });
+        return c;
+      },
+    );
+
+    const client = getCdpClient(
+      makeContext({
+        conversationId: "cooldown-record-actor-a",
+        sourceActorPrincipalId: "actor-a",
+      }),
+    );
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+      { url: "https://example.com" },
+    );
+
+    expect(result).toEqual({ ok: true, via: "local" });
+    expect(_getHostBridgeCooldownSince("actor-a")).toBeGreaterThan(0);
+    expect(_getHostBridgeCooldownSince("actor-b")).toBe(0);
+    expect(_getHostBridgeCooldownSince()).toBe(0);
   });
 
   test("sticky host-bridge client rejects tab operations with a clear error", async () => {
