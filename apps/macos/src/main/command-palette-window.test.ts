@@ -66,8 +66,8 @@ const makeWindow = (): StubWindow => {
   const bounds: Electron.Rectangle = {
     x: 0,
     y: 0,
-    width: 800,
-    height: 520,
+    width: 584,
+    height: 444,
   };
 
   const webContents: StubWebContents = {
@@ -293,8 +293,8 @@ describe("openCommandPaletteWindow", () => {
     expect(opts.navigation).toBe("deny-all");
     expect(opts.browserWindow).toMatchObject({
       type: "panel",
-      width: 800,
-      height: 520,
+      width: 584,
+      height: 444,
       frame: false,
       transparent: true,
       resizable: false,
@@ -304,9 +304,9 @@ describe("openCommandPaletteWindow", () => {
       minimizable: false,
       maximizable: false,
       hasShadow: true,
-      vibrancy: "popover",
+      backgroundColor: "#00000000",
     });
-    expect(win.setPosition.mock.calls).toEqual([[1840, 290]]);
+    expect(win.setPosition.mock.calls).toEqual([[1948, 328]]);
     expect(win.show).toHaveBeenCalledTimes(1);
     expect(win.focus).toHaveBeenCalledTimes(1);
     expect(win.loadURL.mock.calls[0]?.[0]).toBe(
