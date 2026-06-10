@@ -112,13 +112,13 @@ function StatusDot({
         aria-label={label}
         data-testid="assistant-operational-status-indicator"
         data-state={state}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className="inline-flex h-16 w-16 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         tabIndex={0}
       >
         <span
           aria-hidden="true"
           className={cn(
-            "h-2.5 w-2.5 rounded-full shadow-[0_0_0_3px_color-mix(in_srgb,currentColor_16%,transparent)]",
+            "h-[50px] w-[50px] rounded-full shadow-[0_0_0_6px_color-mix(in_srgb,currentColor_16%,transparent)]",
             dotClassName(tone),
             pulse && "animate-pulse",
           )}
