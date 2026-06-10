@@ -49,8 +49,10 @@ export type VellumCommand =
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelActiveAction" }
+  | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 /**

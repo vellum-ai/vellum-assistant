@@ -30,8 +30,10 @@ export type VellumCommand =
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelActiveAction" }
+  | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 export type VellumCommandKind = VellumCommand["kind"];
@@ -66,8 +68,10 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   retireAssistant: "",
   quickInputSubmit: "",
   cancelActiveAction: "",
+  cancelDictation: "",
   replayOnboarding: "",
   previewPrechat: "",
+  replayHatchFailure: "",
   openComponentGallery: "",
 };
 

@@ -165,6 +165,7 @@ export function useConversationHistory({
               : reconcileLatestHistorySnapshot(prev, filteredMessages, {
                   serverSeq: latestPageSeq,
                   localSeq: priorLocalSeq,
+                  oldestPageTimestamp: pagination.oldestLoadedTimestamp,
                 });
           return nextMessages;
         });

@@ -147,7 +147,7 @@ export function getLockfile(): Lockfile {
  * cache only advances once the on-disk write succeeds.
  */
 export async function saveLockfileAssistant(
-  assistant: { assistantId: string; name?: string; cloud: string; runtimeUrl: string; hatchedAt: string },
+  assistant: { assistantId: string; name?: string; cloud: string; runtimeUrl: string; hatchedAt: string; organizationId?: string },
 ): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
@@ -181,9 +181,15 @@ export async function setActiveLockfileAssistant(
 /**
  * Replace all platform-hosted assistant entries in the lockfile with the
  * current set from the API. Removes stale entries and adds new ones atomically.
+ *
+ * `organizationId` is stamped onto every platform entry so the host proxy can
+ * scope requests without guessing. The caller passes the active org: the API
+ * list is org-scoped by the `Vellum-Organization-Id` header, so every assistant
+ * in `assistants` belongs to that org.
  */
 export async function syncPlatformAssistantsToLockfile(
   assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
+  organizationId?: string,
 ): Promise<void> {
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
@@ -193,6 +199,7 @@ export async function syncPlatformAssistantsToLockfile(
       cloud: "vellum",
       runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,
+      ...(organizationId != null && { organizationId }),
     }));
 
   const result = await replacePlatformAssistantsHost(platformAssistants);

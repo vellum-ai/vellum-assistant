@@ -157,6 +157,10 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
                 label: "Preview PreChat",
                 click: () => dispatchToFocused({ kind: "previewPrechat" }),
               },
+              {
+                label: "Replay Hatch Failure",
+                click: () => dispatchToFocused({ kind: "replayHatchFailure" }),
+              },
               ...(!app.isPackaged
                 ? [
                     { type: "separator" as const },

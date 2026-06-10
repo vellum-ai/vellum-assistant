@@ -229,6 +229,14 @@ async function acquireGatewayToken(
   return exchanged.token;
 }
 
+// A connection's fingerprint encodes everything that, if changed, requires a
+// reconnect. Single-sourced here so the value set on connect and the value
+// recomputed in `handleLockfileChange` can never drift (a mismatch would loop
+// connect/disconnect forever).
+const localFingerprint = (gatewayPort: number): string => `local:${gatewayPort}`;
+const cloudFingerprint = (runtimeUrl: string, organizationId?: string): string =>
+  `cloud:${runtimeUrl}:${organizationId ?? ""}`;
+
 // -- Local assistant connection ---------------------------------------------
 
 async function connectLocalAssistant(
@@ -261,32 +269,17 @@ async function connectLocalAssistant(
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster, fingerprint: `local:${gatewayPort}` });
+  connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
 
 // -- Cloud assistant connection ---------------------------------------------
 
-async function fetchOrganizationId(
-  runtimeUrl: string,
-  sessionToken: string,
-): Promise<string | null> {
-  try {
-    const res = await fetch(`${runtimeUrl}/v1/organizations/`, {
-      headers: { "X-Session-Token": sessionToken },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { results?: Array<{ id: string }> };
-    return data.results?.[0]?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function connectCloudAssistant(
+function connectCloudAssistant(
   assistantId: string,
   runtimeUrl: string,
-): Promise<void> {
+  organizationId?: string,
+): void {
   if (connections.has(assistantId)) return;
 
   const sessionToken = getSessionToken();
@@ -296,11 +289,6 @@ async function connectCloudAssistant(
   }
 
   const baseUrl = runtimeUrl.replace(/\/$/, "");
-
-  const organizationId = await fetchOrganizationId(baseUrl, sessionToken);
-  if (organizationId) {
-    log.info("[host-proxy-router] resolved organization for cloud assistant", { assistantId, organizationId });
-  }
 
   const authHeaders = (): Record<string, string> => {
     const token = getSessionToken();
@@ -319,8 +307,12 @@ async function connectCloudAssistant(
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster, fingerprint: `cloud:${runtimeUrl}` });
-  log.info("[host-proxy-router] connected to cloud assistant", { assistantId, runtimeUrl });
+  connections.set(assistantId, {
+    sse,
+    poster,
+    fingerprint: cloudFingerprint(runtimeUrl, organizationId),
+  });
+  log.info("[host-proxy-router] connected to cloud assistant", { assistantId, runtimeUrl, organizationId });
 }
 
 // -- Disconnect -------------------------------------------------------------
@@ -346,7 +338,9 @@ function handleLockfileChange(lockfile: Lockfile): void {
     if (!port && !isCloud) continue;
 
     activeIds.add(assistant.assistantId);
-    const fp = port ? `local:${port}` : `cloud:${assistant.runtimeUrl}`;
+    const fp = port
+      ? localFingerprint(port)
+      : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
 
     const existing = connections.get(assistant.assistantId);
     if (existing && existing.fingerprint !== fp) {
@@ -361,7 +355,11 @@ function handleLockfileChange(lockfile: Lockfile): void {
       if (port) {
         void connectLocalAssistant(assistant.assistantId, port);
       } else {
-        void connectCloudAssistant(assistant.assistantId, assistant.runtimeUrl!);
+        connectCloudAssistant(
+          assistant.assistantId,
+          assistant.runtimeUrl!,
+          assistant.organizationId,
+        );
       }
     }
   }

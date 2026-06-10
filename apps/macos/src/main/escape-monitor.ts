@@ -6,11 +6,17 @@ import { onStatusChange, type AssistantStatus } from "./status";
 
 /**
  * Hybrid Escape monitor: registers a system-wide Escape shortcut only
- * when the assistant is actively processing AND the app has no focused
- * window. When any BrowserWindow gains focus the shortcut is released
- * so normal in-app Escape handling (modals, popovers, inputs) is
- * unaffected — the renderer's own keydown listener handles the
+ * when there is something to cancel — the assistant is actively
+ * processing, or a dictation recording session is live — AND the app has
+ * no focused window. When any BrowserWindow gains focus the shortcut is
+ * released so normal in-app Escape handling (modals, popovers, inputs)
+ * is unaffected — the renderer's own keydown listeners handle the
  * focused case.
+ *
+ * A live dictation recording takes priority over a thinking assistant:
+ * the recording is the more immediate activity (the user is mid-hold on
+ * push-to-talk), and a second Escape can still cancel the assistant once
+ * the recording is gone.
  *
  * Electron's `globalShortcut` intercepts the keypress at the OS level
  * and swallows it (https://github.com/electron/electron/issues/13010),
@@ -24,14 +30,20 @@ import { onStatusChange, type AssistantStatus } from "./status";
 
 let armed = false;
 let thinking = false;
+let dictationRecording = false;
 let hasFocusedWindow = false;
 
-const shouldBeArmed = (): boolean => thinking && !hasFocusedWindow;
+const shouldBeArmed = (): boolean =>
+  (thinking || dictationRecording) && !hasFocusedWindow;
 
 const arm = (): void => {
   if (armed) return;
   const ok = globalShortcut.register("Escape", () => {
-    dispatchToMain({ kind: "cancelActiveAction" });
+    dispatchToMain(
+      dictationRecording
+        ? { kind: "cancelDictation" }
+        : { kind: "cancelActiveAction" },
+    );
   });
   if (ok) {
     armed = true;
@@ -56,6 +68,23 @@ const reconcile = (): void => {
   } else {
     disarm();
   }
+};
+
+/**
+ * Inform the monitor that a dictation recording session started or ended.
+ * Called from the dictation overlay's IPC handler — the renderer publishes
+ * its recording lifecycle there unconditionally, so it doubles as main's
+ * source of truth for "is a recording live".
+ */
+export const setDictationRecording = (recording: boolean): void => {
+  if (dictationRecording === recording) return;
+  dictationRecording = recording;
+  // Refresh rather than trust the cached flag: dictation state can arrive
+  // before installEscapeMonitor() subscribes to focus events, and arming
+  // while a Vellum window is actually focused would swallow Escape for
+  // every in-app affordance.
+  hasFocusedWindow = BrowserWindow.getFocusedWindow() != null;
+  reconcile();
 };
 
 let teardown: (() => void) | null = null;

@@ -253,6 +253,13 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
               dispatchToMain({ kind: "previewPrechat" as const });
             },
           },
+          {
+            label: "Replay Hatch Failure",
+            click: async () => {
+              await handlers.ensureMainWindow();
+              dispatchToMain({ kind: "replayHatchFailure" as const });
+            },
+          },
           ...(!app.isPackaged
             ? [
                 {

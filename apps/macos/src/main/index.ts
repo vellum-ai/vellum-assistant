@@ -32,7 +32,10 @@ import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
-import { installEscapeMonitor } from "./escape-monitor";
+import {
+  installEscapeMonitor,
+  setDictationRecording,
+} from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -328,7 +331,7 @@ app
     installTextInsertionIpc();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay();
+    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
