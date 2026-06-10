@@ -206,6 +206,7 @@ import {
   migrateToolInvocationsCreatedAtIdIndex,
   migrateToolInvocationsMatchedRuleId,
   migrateToolInvocationsSkillId,
+  migrateToolInvocationsTelemetryColumns,
   migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -491,6 +492,7 @@ export function initializeDb(): void {
     migrateToolInvocationsSkillId,
     migrateToolInvocationsCreatedAtIdIndex,
     migrateAddMemoryV3EverInjected,
+    migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
   ];
 
