@@ -24,10 +24,11 @@ import {
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
 } from "@/domains/settings/components/panels/doctor-history";
+import { useDoctorSession } from "@/domains/settings/components/panels/use-doctor-session";
 import {
-  teardownSession,
-  useDoctorSession,
-} from "@/domains/settings/components/panels/use-doctor-session";
+  assistantsDoctorSessionsDestroy,
+  assistantsMaintenanceModeExitCreate,
+} from "@/generated/api/sdk.gen";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
   assistantsDoctorHistoryListOptions,
@@ -214,28 +215,39 @@ export function DoctorPanel() {
   ]);
 
   // Reset all doctor state when active assistant changes.
+  // State is cleared synchronously so a quick "Start Session" on the new
+  // assistant cannot be clobbered by delayed setters from the old teardown.
   const prevAssistantIdRef = useRef(assistantId);
   useEffect(() => {
     if (prevAssistantIdRef.current === assistantId) return;
     const oldAssistantId = prevAssistantIdRef.current;
+    const oldSessionId = sessionId;
     prevAssistantIdRef.current = assistantId;
 
-    void teardownSession({
-      assistantId: oldAssistantId,
-      sessionId,
-      abort,
-      setSessionId,
-      setSessionStatus,
-      setPendingApproval,
-      setPendingBackup,
-    });
-
+    // Synchronous: abort stream + reset all state immediately
+    abort();
+    setSessionId(null);
+    setSessionStatus("idle");
+    setPendingApproval(false);
+    setPendingBackup(false);
     setEntries([]);
     setThinking(false);
     setInputValue("");
     setSelectedHistorySessionId(null);
     setAppliedHistorySessionId(null);
     setHistoryAutoLoadAttempted(false);
+
+    // Fire-and-forget: server-side cleanup for old assistant (no state setters)
+    if (oldSessionId && oldAssistantId) {
+      assistantsDoctorSessionsDestroy({
+        path: { assistant_id: oldAssistantId, session_id: oldSessionId },
+        throwOnError: false,
+      }).catch(() => {});
+      assistantsMaintenanceModeExitCreate({
+        path: { assistant_id: oldAssistantId },
+        throwOnError: false,
+      }).catch(() => {});
+    }
   }, [assistantId, abort, sessionId]);
 
   // Cleanup SSE on unmount
