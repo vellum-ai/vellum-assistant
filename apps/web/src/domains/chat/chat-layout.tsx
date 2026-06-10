@@ -43,6 +43,7 @@ import {
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { isElectron } from "@/runtime/is-electron";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -193,6 +194,7 @@ export function ChatLayout() {
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
+  const isNative = useIsNativePlatform();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -556,8 +558,8 @@ export function ChatLayout() {
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
-      onOpenInNewWindow={handleOpenInNewWindow}
-      onNewConversationInNewWindow={handleNewConversationInNewWindow}
+      onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
+      onNewConversationInNewWindow={isNative ? undefined : handleNewConversationInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       footerAction={
         <PreferencesMenu
