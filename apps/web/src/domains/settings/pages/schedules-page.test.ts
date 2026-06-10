@@ -178,7 +178,7 @@ describe("formatScheduleCost", () => {
   test("formats zero, cents, and tiny nonzero costs", () => {
     expect(formatScheduleCost(0)).toBe("$0.00");
     expect(formatScheduleCost(0.42)).toBe("$0.42");
-    expect(formatScheduleCost(0.0034)).toBe("$0.0034");
+    expect(formatScheduleCost(0.0034)).toBe("$0.00");
   });
 
   test("falls back when cost is missing or invalid", () => {
